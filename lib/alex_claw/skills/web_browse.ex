@@ -1,0 +1,145 @@
+defmodule AlexClaw.Skills.WebBrowse do
+  @moduledoc """
+  Web browsing skill. Fetches a URL, extracts readable text content,
+  and optionally answers a question about it via LLM.
+  """
+  @behaviour AlexClaw.Skill
+  @impl true
+  def description, do: "Fetches a URL, extracts readable text, optionally answers questions via LLM"
+  require Logger
+  import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
+
+  alias AlexClaw.{Gateway, Identity, LLM, Memory}
+
+  @max_content_length 8_000
+
+  @doc "Workflow-compatible entry point. Uses config url/question or args[:input] as URL."
+  @impl true
+  def run(args) do
+    config = args[:config] || %{}
+    url = config["url"] || to_string(args[:input] || "")
+    question = config["question"]
+
+    llm_opts =
+      case args[:llm_provider] do
+        nil -> []
+        "" -> []
+        "auto" -> []
+        provider -> [provider: provider]
+      end
+
+    if url == "" do
+      {:error, :no_url}
+    else
+      case fetch_and_extract(url) do
+        {:ok, content} ->
+          if question && question != "" do
+            run_qa(url, content, question, llm_opts)
+          else
+            run_summarize(url, content, llm_opts)
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp run_summarize(url, content, llm_opts) do
+    system = Identity.system_prompt(%{skill: :research})
+
+    prompt = """
+    Summarize the following web page content concisely. Focus on key facts and main points.
+
+    URL: #{url}
+
+    Content:
+    #{content}
+    """
+
+    case LLM.complete(prompt, llm_opts ++ [tier: :light, system: system]) do
+      {:ok, response} ->
+        Memory.store(:web_page, response, source: url, metadata: %{type: "summary"})
+        {:ok, response}
+
+      {:error, reason} ->
+        {:error, {:summarize_failed, reason}}
+    end
+  end
+
+  defp run_qa(url, content, question, llm_opts) do
+    system = Identity.system_prompt(%{skill: :research})
+
+    prompt = """
+    Answer the following question based on the web page content below.
+    Be concise and precise. If the answer is not in the content, say so.
+
+    Question: #{question}
+
+    URL: #{url}
+    Content:
+    #{content}
+    """
+
+    case LLM.complete(prompt, llm_opts ++ [tier: :light, system: system]) do
+      {:ok, response} ->
+        Memory.store(:web_page, response, source: url, metadata: %{type: "qa", question: question})
+        {:ok, response}
+
+      {:error, reason} ->
+        {:error, {:qa_failed, reason}}
+    end
+  end
+
+  @spec handle(String.t(), String.t() | nil) :: :ok
+  def handle(url, question \\ nil) do
+    Logger.info("WebBrowse: #{url}#{if question, do: " — #{question}", else: ""}", skill: :web)
+
+    config = %{"url" => url}
+    config = if question, do: Map.put(config, "question", question), else: config
+
+    case run(%{config: config}) do
+      {:ok, response} -> Gateway.send_message(response)
+      {:error, reason} ->
+        Logger.warning("WebBrowse failed: #{inspect(reason)}", skill: :web)
+        Gateway.send_message("Failed: #{inspect(reason)}")
+    end
+  end
+
+  defp fetch_and_extract(url) do
+    headers = [
+      {"user-agent", "Mozilla/5.0 (compatible; AlexClaw/1.0)"},
+      {"accept", "text/html,application/xhtml+xml"}
+    ]
+
+    case Req.get(url, headers: headers, receive_timeout: 15_000, redirect: true, max_redirects: 5) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        {:ok, extract_text(body)}
+
+      {:ok, %{status: status}} ->
+        {:error, {:http, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp extract_text(html) do
+    html
+    |> sanitize_utf8()
+    |> Floki.parse_document!()
+    |> strip_noise()
+    |> Floki.text(sep: "\n")
+    |> clean_text()
+    |> String.slice(0, @max_content_length)
+  end
+
+
+  defp clean_text(text) do
+    text
+    |> String.replace(~r/\n{3,}/, "\n\n")
+    |> String.replace(~r/[ \t]+/, " ")
+    |> String.trim()
+  end
+
+end

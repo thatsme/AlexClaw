@@ -1,0 +1,35 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: alexclaw
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: alex_claw_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alexclaw"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+
+  test-elixir:
+    build:
+      context: .
+      target: test
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MIX_ENV: test
+      DATABASE_USERNAME: alexclaw
+      DATABASE_PASSWORD: testpass
+      DATABASE_HOSTNAME: db
+      DATABASE_NAME: alex_claw_test
+      SECRET_KEY_BASE: test_secret_key_base_that_is_at_least_64_bytes_long_for_phoenix_to_accept_it
+
+  test-python:
+    build: ./web-automator
+    entrypoint: ["sh", "-c"]
+    command: ["pip install pytest pytest-asyncio httpx && cd /app && python -m pytest tests/ -v"]
+    working_dir: /app
+    volumes:
+      - ./web-automator/tests:/app/tests

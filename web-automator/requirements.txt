@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+patchright
+playwright-stealth
+pyyaml

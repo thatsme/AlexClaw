@@ -6,7 +6,7 @@ A BEAM-native personal autonomous AI agent built on Elixir/OTP.
 
 ## Overview
 
-AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs), accumulates knowledge in PostgreSQL, executes workflows autonomously on schedule, and communicates with its owner via Telegram. Every task is routed to the cheapest available LLM that satisfies the required reasoning tier — including fully local models.
+AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, Google services, APIs), accumulates knowledge in PostgreSQL, executes workflows autonomously on schedule, and communicates with its owner via Telegram. Every task is routed to the cheapest available LLM that satisfies the required reasoning tier — including fully local models.
 
 **Design principles:**
 - **BEAM-native** — supervision, concurrency, and fault tolerance are the runtime, not bolted on
@@ -22,8 +22,11 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 AlexClaw.Application (one_for_one)
   ├── AlexClaw.Repo                    # PostgreSQL connection pool (Ecto)
   ├── Phoenix.PubSub                   # Config change broadcast
+  ├── Task.Supervisor (AlexClaw.TaskSupervisor)  # Supervised fire-and-forget tasks
   ├── AlexClaw.LLM.UsageTracker       # ETS owner for LLM call counters + DB persistence
   ├── AlexClaw.Config.Loader          # Seeds config from env → DB, loads into ETS cache
+  ├── AlexClaw.LogBuffer              # In-memory ring buffer for recent logs (500 entries)
+  ├── AlexClaw.Google.TokenManager    # Google OAuth2 token lifecycle (ETS cache + auto-refresh)
   ├── AlexClaw.RateLimiter.Server     # ETS owner for login rate limiting + periodic purge
   ├── AlexClaw.SkillSupervisor        # DynamicSupervisor — spawns skill worker processes
   ├── AlexClaw.Scheduler              # Quantum cron scheduler
@@ -31,6 +34,8 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Gateway                # Telegram long-polling bot
   └── AlexClawWeb.Endpoint            # Phoenix HTTP server (LiveView admin UI)
 ```
+
+All async work (workflow execution, GitHub reviews, background tasks) runs under `AlexClaw.TaskSupervisor` — crashes are reported and supervised, not silently lost.
 
 ---
 
@@ -45,19 +50,30 @@ GenServer that long-polls the Telegram Bot API. Normalizes inbound updates into 
 Deterministic pattern-matching router. No LLM involved in routing — zero token cost for dispatch. Maps Telegram commands to skills:
 
 ```
-/ping           → pong
-/status         → system stats (uptime, memory, active skills)
-/skills         → list from SkillRegistry
-/llm            → provider status
-/workflows      → list all workflows with status/schedule
-/run <id|name>  → execute a workflow on demand
-/research <q>   → Research skill
-/search <q>     → WebSearch skill
-/web <url> [q]  → WebBrowse skill
-/github pr ...  → GitHubSecurityReview skill
-/github commit  → GitHubSecurityReview skill
-/help           → command list
-<free text>     → Conversational skill (LLM fallback)
+/ping              → pong
+/status            → system stats (uptime, memory, active skills)
+/skills            → list from SkillRegistry
+/llm               → provider status and usage
+/workflows         → list all workflows with status/schedule
+/run <id|name>     → execute a workflow on demand (supports 2FA gating)
+/research <q>      → Research skill
+/search <q>        → WebSearch skill
+/web <url> [q]     → WebBrowse skill
+/github pr <r> [n] → GitHubSecurityReview — review PR
+/github commit <r> <sha> → GitHubSecurityReview — review commit
+/record <url>      → WebAutomation — start browser recording
+/record stop <sid> → WebAutomation — stop recording, save as resource
+/replay <id>       → WebAutomation — replay a saved automation
+/automate <url>    → WebAutomation — headless scrape/screenshot
+/tasks             → Google Tasks — list tasks
+/task add <title>  → Google Tasks — create a task
+/tasklists         → Google Tasks — list task lists
+/connect google    → Google OAuth — initiate authorization flow
+/setup 2fa         → TOTP — generate secret and QR code
+/confirm 2fa <code>→ TOTP — confirm 2FA setup
+/disable 2fa       → TOTP — disable 2FA
+/help              → command list
+<free text>        → Conversational skill (LLM fallback)
 ```
 
 ### Skill Supervisor — `AlexClaw.SkillSupervisor`
@@ -69,17 +85,17 @@ DynamicSupervisor. Each skill execution runs as an isolated OTP process. Crashes
 Every LLM call declares a tier requirement. The router selects the cheapest available model, tracks daily usage in ETS against configurable limits, and falls back automatically.
 
 ```
-light:  gemini_flash → haiku → lm_studio → ollama
-medium: gemini_pro → sonnet → lm_studio → ollama
-heavy:  opus → lm_studio → ollama
-local:  lm_studio → ollama
+light:  gemini_flash → haiku → lm_studio → ollama → custom providers
+medium: gemini_pro → sonnet → lm_studio → ollama → custom providers
+heavy:  opus → lm_studio → ollama → custom providers
+local:  lm_studio → ollama → custom providers
 ```
 
 Built-in providers: Gemini Flash, Gemini Pro, Claude Haiku, Claude Sonnet, Claude Opus, Ollama, LM Studio.
 
-Custom providers can be added via the admin UI — stored in PostgreSQL with type (`openai_compatible`, `ollama`, `gemini`, `anthropic`, `custom`), tier assignment, and optional daily limits. Custom providers are tried as fallback after built-in models for their tier.
+Custom providers can be added via the admin UI — stored in PostgreSQL with type (`openai_compatible`, `ollama`, `gemini`, `anthropic`, `custom`), tier assignment, and optional daily limits. Custom providers are tried as fallback after built-in models for their tier. This enables multiple local models (e.g., several LM Studio models on the same host with different model names).
 
-Usage counters are keyed by `{provider, Date.utc_today()}` in ETS and persisted to the database so counts survive restarts.
+Usage counters are keyed by `{provider, Date.utc_today()}` in ETS and persisted to the database so counts survive restarts. Custom providers are tracked as `{:custom, provider_id}`.
 
 ### Memory — `AlexClaw.Memory`
 
@@ -88,7 +104,7 @@ PostgreSQL + pgvector knowledge store. Schema:
 - `kind` — `fact`, `summary`, `news_item`, `conversation`, `security_review`
 - `content` — the stored text
 - `source` — URL, feed name, skill name
-- `embedding` — pgvector column (currently returns nil — embedding integration is stub)
+- `embedding` — pgvector column (cosine similarity search when embeddings available)
 - `metadata` — JSONB
 - `expires_at` — optional TTL
 
@@ -102,7 +118,11 @@ Builds the system prompt injected into every LLM call. All strings come from `Al
 
 Runtime configuration system. On boot, `Config.Loader` seeds default values from environment variables into PostgreSQL. After that, all changes are made through the admin UI. Values are cached in an ETS table for fast reads. Changes are broadcast via Phoenix PubSub so all processes see updates immediately. No restart required.
 
-Categories: `identity`, `llm`, `telegram`, `rss`, `github`, `auth`, `prompts`.
+Categories: `identity`, `llm`, `telegram`, `skills`, `github`, `google`, `auth`, `prompts`, `web_automator`.
+
+### LogBuffer — `AlexClaw.LogBuffer`
+
+In-memory ring buffer (500 entries max) attached to the Erlang Logger. Classifies log entries by severity (`critical`, `high`, `moderate`, `low`) using pattern matching on log level and message content. Filters out verbose OTP/Ecto noise. Exposes `recent/1` for filtered retrieval and `counts/0` for severity aggregates. Powers the real-time log viewer in the admin UI.
 
 ### Rate Limiter — `AlexClaw.RateLimiter`
 
@@ -110,36 +130,108 @@ ETS-based login rate limiting. Tracks failed attempts per IP. After a configurab
 
 ---
 
+## Authentication & Security
+
+### Admin UI Authentication
+
+Session-based cookie authentication. All routes except `/login` require an authenticated session via the `RequireAuth` plug. Password is set via the `ADMIN_PASSWORD` environment variable. Login rate limiting is enforced by the `RateLimit` plug on `POST /login`.
+
+### 2FA / TOTP — `AlexClaw.Auth.TOTP`
+
+Optional TOTP-based two-factor authentication for sensitive operations. Setup flow via Telegram:
+
+1. `/setup 2fa` — generates secret, sends QR code image and manual key
+2. User scans QR with Google Authenticator (or compatible app)
+3. `/confirm 2fa <code>` — verifies first code, enables 2FA
+
+Once enabled, workflows with `requires_2fa: true` in their metadata trigger a challenge before execution. Challenges expire after 2 minutes. Secrets and state are stored in ETS with the TOTP secret persisted in Config.
+
+### GitHub Webhooks
+
+`POST /webhooks/github` with HMAC-SHA256 signature verification. The `CachingBodyReader` plug caches the raw request body before JSON parsing so the HMAC is verified against the original payload, not re-serialized JSON. Push events on watched branches trigger automatic security reviews.
+
+---
+
+## Google Integration
+
+### OAuth Flow — `AlexClaw.Google.OAuth`
+
+1. User sends `/connect google` via Telegram
+2. Gateway generates an auth URL with a random state token linked to their chat_id (expires in 10 minutes)
+3. User taps the link, authorizes in Google's consent screen
+4. Google redirects to `/auth/google/callback` with code + state
+5. `OAuthCallbackController` exchanges the code for tokens
+6. Refresh token stored in Config, access token cached in `Google.TokenManager`
+
+Scopes: `calendar.readonly`, `tasks`.
+
+### Token Manager — `AlexClaw.Google.TokenManager`
+
+GenServer that caches the current Google access token in ETS. Automatically refreshes the token before expiry (5-minute margin). All Google API calls go through `TokenManager.get_token/0` which returns `{:ok, token}` or `{:error, reason}`.
+
+---
+
 ## Workflow Engine
 
-Workflows are multi-step pipelines stored in PostgreSQL. Each step specifies a skill name, a config JSON (overrides global Config defaults), and an order. The executor runs steps sequentially, passing each step's output as input to the next.
+Workflows are multi-step pipelines stored in PostgreSQL. Each step specifies a skill name, a config JSON, an execution order, and optional LLM tier/provider overrides. The executor runs steps sequentially, passing each step's output as input to the next.
 
-Key architecture decision: **step config overrides global config**. A workflow can target a different GitHub repo, use a different Telegram bot, or route to a specific LLM provider — all via step-level config JSON. This means skills like `github_security_review` can run against different repos with different tokens in different workflows.
+### Step Wiring
 
-Workflows can be:
-- Triggered on schedule via cron expressions (synced to Quantum by `SchedulerSync`)
-- Run on demand via Telegram (`/run <id or name>`)
-- Run from the admin UI
+By default, each step receives the output of the previous step as its input. The `input_from` field enables non-linear wiring — a step can pull its input from any earlier step by specifying its order number. This allows fan-in patterns where multiple processing branches converge.
 
-Run history with step-level results is stored in the database and visible in the admin UI.
+### Provider Routing
+
+LLM provider selection can be configured at three levels (most specific wins):
+1. **Step-level** — `llm_tier` and `llm_model` fields on the workflow step
+2. **Workflow-level** — `default_provider` field on the workflow
+3. **Global** — tier-based fallback chain in the LLM router
+
+### Execution
+
+- **Scheduled** — cron expressions synced to Quantum by `SchedulerSync`
+- **On-demand via Telegram** — `/run <id or name>` (supports 2FA gating)
+- **Admin UI** — run button on workflow and scheduler pages
+
+All workflow executions run under `AlexClaw.TaskSupervisor`. Run history with step-level results (output, duration, success/failure) is stored in the database and visible in the admin UI.
+
+### Notifications
+
+When a workflow contains a `telegram_notify` step, the executor sends a start notification when the workflow begins and a failure notification if any step fails before reaching the notify step.
 
 ---
 
 ## Skills
 
-Skills are Elixir modules registered in `AlexClaw.Workflows.SkillRegistry`. Each skill implements `run/1` (takes a config map, returns `{:ok, result}` or `{:error, reason}`) and optionally `description/0` for runtime introspection.
+Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`description/0` and `run/1`). Registered in `AlexClaw.Workflows.SkillRegistry`.
 
 | Skill | Module | Tier | Description |
 |---|---|---|---|
-| `rss_collector` | `AlexClaw.Skills.RSSCollector` | light | Fetch RSS feeds, score relevance via LLM, notify |
-| `web_search` | `AlexClaw.Skills.WebSearch` | medium | Search the web and synthesize answers |
-| `web_browse` | `AlexClaw.Skills.WebBrowse` | medium | Fetch and summarize a URL |
-| `research` | `AlexClaw.Skills.Research` | medium | Deep research with memory context |
-| `conversational` | `AlexClaw.Skills.Conversational` | light | Free-text conversation with identity/memory |
-| `telegram_notify` | `AlexClaw.Skills.TelegramNotify` | — | Send a Telegram message (workflow glue step) |
-| `llm_transform` | `AlexClaw.Workflows.LLMTransform` | configurable | Run a prompt template through the LLM |
-| `api_request` | `AlexClaw.Skills.ApiRequest` | — | Make an authenticated HTTP request |
-| `github_security_review` | `AlexClaw.Skills.GitHubSecurityReview` | medium | Fetch PR/commit diff, run LLM security analysis |
+| `rss_collector` | `RSSCollector` | light | Fetch RSS feeds, batch-score relevance via LLM, notify |
+| `web_search` | `WebSearch` | medium | Search DuckDuckGo, fetch top results, synthesize answer |
+| `web_browse` | `WebBrowse` | light | Fetch and summarize a URL, optionally answer questions |
+| `research` | `Research` | medium | Deep research with memory context |
+| `conversational` | `Conversational` | light | Free-text conversation with identity and memory |
+| `telegram_notify` | `TelegramNotify` | — | Send workflow output to Telegram (markdown → HTML) |
+| `llm_transform` | `LLMTransform` | configurable | Run a prompt template through the LLM |
+| `api_request` | `ApiRequest` | — | Make an authenticated HTTP request with retries |
+| `github_security_review` | `GitHubSecurityReview` | medium | Fetch PR/commit diff, run LLM security analysis |
+| `google_calendar` | `GoogleCalendar` | — | Fetch upcoming events from Google Calendar |
+| `google_tasks` | `GoogleTasks` | — | List and create Google Tasks |
+| `web_automation` | `WebAutomation` | — | Browser recording and headless replay via sidecar |
+
+Shared utilities (`parse_int`, `parse_float`, `sanitize_utf8`, `strip_noise`, `blank?`) live in `AlexClaw.Skills.Helpers`.
+
+---
+
+## Web Automation
+
+Optional browser automation via a Python/Playwright sidecar (`web-automator/`).
+
+- **Record** — start a browser session with noVNC for live interaction, captures user actions as reproducible steps
+- **Replay** — headless execution of recorded steps with scraping, screenshots, downloads
+- **Resources** — recordings are saved as resources (type: `automation`) with step metadata in JSONB
+
+The sidecar runs as a separate container in docker-compose with Xvfb + noVNC. Enable via `web_automator.enabled` config. Dispatcher commands: `/record`, `/record stop`, `/replay`, `/automate`.
 
 ---
 
@@ -151,8 +243,25 @@ Reviews pull requests and commits for security issues:
 - Truncates diff at 24KB for local model compatibility
 - LLM produces structured output: RISK LEVEL, FINDINGS, SUMMARY, RECOMMENDATION
 - Results stored in Memory (kind: `security_review`)
-- Webhook endpoint at `/webhooks/github` with HMAC-SHA256 signature verification
+- Webhook endpoint at `/webhooks/github` with HMAC-SHA256 signature verification via `CachingBodyReader`
 - Telegram trigger: `/github pr owner/repo 42` or `/github commit owner/repo <sha>`
+- Automatic review on push events to watched branches (configurable)
+
+---
+
+## Resources — `AlexClaw.Resources`
+
+Shared data objects that workflows can reference. Stored in PostgreSQL.
+
+| Type | Description |
+|---|---|
+| `rss_feed` | RSS feed URL with name and enabled flag |
+| `website` | URL for web browsing/scraping |
+| `document` | Inline text content |
+| `api` | API endpoint with auth metadata |
+| `automation` | Recorded browser automation with step metadata |
+
+Resources can be assigned to workflows. Skills access them via `args[:resources]` in `run/1`. The feeds management page is a convenience wrapper around resources filtered by type `rss_feed`.
 
 ---
 
@@ -160,18 +269,20 @@ Reviews pull requests and commits for security issues:
 
 Phoenix LiveView admin UI. Session-based authentication — all routes except `/login` require an authenticated session. No JavaScript hooks — fully server-rendered.
 
-| Page | Description |
-|---|---|
-| Dashboard | System status, recent activity |
-| Workflows | Create/edit/run pipelines, view run history with step results |
-| Skills | Dynamic list from SkillRegistry with descriptions |
-| Scheduler | Cron jobs and scheduled workflows |
-| LLM | Provider status, usage, custom provider management |
-| Feeds | RSS feed management |
-| Resources | Shared resources for workflows |
-| Memory | Browse and search stored knowledge |
-| Database | Schema browser and backup download |
-| Config | Runtime configuration editor (collapsible categories) |
+| Page | Route | Description |
+|---|---|---|
+| Dashboard | `/` | System uptime, memory, LLM usage, Google status, recent activity |
+| Workflows | `/workflows` | Create/edit/run pipelines, step editor, resource assignment |
+| Workflow Runs | `/workflows/:id/runs` | Run history with step-level results and output |
+| Skills | `/skills` | Dynamic list from SkillRegistry with descriptions |
+| Scheduler | `/scheduler` | Cron jobs, next run times, manual triggers |
+| LLM | `/llm` | Provider status, usage counters, custom provider management |
+| Feeds | `/feeds` | RSS feed management (add/remove/toggle) |
+| Resources | `/resources` | Shared resources with type filtering |
+| Memory | `/memory` | Browse and search stored knowledge |
+| Database | `/database` | Schema browser and backup download |
+| Config | `/config` | Runtime configuration editor (collapsible categories) |
+| Logs | `/logs` | Real-time log viewer with severity filtering |
 
 ---
 
@@ -180,61 +291,88 @@ Phoenix LiveView admin UI. Session-based authentication — all routes except `/
 ```
 lib/
   alex_claw/
+    auth/
+      totp.ex                  # TOTP 2FA (setup, verify, challenge)
     config/
-      loader.ex              # Seed env → DB, load into ETS
-      seeder.ex              # Default config definitions
-      setting.ex             # Ecto schema for config entries
+      loader.ex                # Seed env → DB, load into ETS
+      seeder.ex                # Default config definitions
+      setting.ex               # Ecto schema for config entries
+    google/
+      oauth.ex                 # Google OAuth2 flow (state, token exchange)
+      token_manager.ex         # Access token cache + auto-refresh GenServer
     llm/
-      provider.ex            # Custom provider schema
-      usage_tracker.ex       # ETS owner + DB persistence GenServer
+      provider.ex              # Custom provider schema
+      usage_entry.ex           # Usage counter Ecto schema
+      usage_tracker.ex         # ETS owner + DB persistence GenServer
     memory/
-      entry.ex               # Memory entry Ecto schema
+      entry.ex                 # Memory entry Ecto schema (pgvector)
+    resources/
+      resource.ex              # Resource Ecto schema
+      migrator.ex              # Resource migration utilities
     skills/
-      api_request.ex
-      conversational.ex
-      github_security_review.ex
-      research.ex
-      rss_collector.ex
-      telegram_notify.ex
-      web_browse.ex
-      web_search.ex
+      api_request.ex           # HTTP requests with retries
+      conversational.ex        # Free-text LLM conversation
+      github_security_review.ex # PR/commit security analysis
+      google_calendar.ex       # Google Calendar events
+      google_tasks.ex          # Google Tasks list/create
+      helpers.ex               # Shared utilities (parse_int, sanitize_utf8, etc.)
+      research.ex              # Deep research with memory context
+      rss_collector.ex         # RSS fetch, score, notify
+      telegram_notify.ex       # Telegram delivery (markdown → HTML)
+      web_automation.ex        # Browser recording and replay
+      web_browse.ex            # URL fetch and summarize
+      web_search.ex            # DuckDuckGo search and synthesize
     workflows/
-      executor.ex            # Runs workflow steps sequentially
-      llm_transform.ex       # Prompt template skill for workflows
-      scheduler_sync.ex      # Syncs DB schedules → Quantum jobs
-      skill_registry.ex      # Maps skill names → modules
-      workflow.ex            # Workflow Ecto schema
-      workflow_resource.ex   # Shared resource Ecto schema
-      workflow_run.ex        # Workflow run Ecto schema
-      workflow_step.ex       # Workflow step Ecto schema
-    application.ex           # Supervision tree
-    dispatcher.ex            # Telegram command routing
-    gateway.ex               # Telegram bot (long-polling)
-    identity.ex              # Persona / system prompt builder
-    llm.ex                   # Multi-model LLM router
-    memory.ex                # Knowledge store API
-    message.ex               # Internal message struct
-    rate_limiter.ex          # ETS-based login rate limiting
-    rate_limiter/server.ex   # GenServer for ETS ownership + purge
-    scheduler.ex             # Quantum cron scheduler
-    skill.ex                 # Skill behaviour definition
+      executor.ex              # Runs workflow steps sequentially
+      llm_transform.ex         # Prompt template skill for workflows
+      scheduler_sync.ex        # Syncs DB schedules → Quantum jobs
+      skill_registry.ex        # Maps skill names → modules (12 skills)
+      workflow.ex              # Workflow Ecto schema
+      workflow_resource.ex     # Join schema (workflow ↔ resource)
+      workflow_run.ex          # Run history Ecto schema
+      workflow_step.ex         # Step Ecto schema (order, config, input_from)
+    application.ex             # Supervision tree (13 children)
+    dispatcher.ex              # Telegram command routing (pattern matching)
+    gateway.ex                 # Telegram bot (long-polling GenServer)
+    identity.ex                # Persona / system prompt builder
+    llm.ex                     # Multi-model LLM router
+    log_buffer.ex              # In-memory log ring buffer
+    memory.ex                  # Knowledge store API
+    message.ex                 # Internal message struct
+    rate_limiter.ex            # ETS-based login rate limiting
+    rate_limiter/server.ex     # GenServer for ETS ownership + purge
+    release.ex                 # Release tasks (migrate, seed)
+    repo.ex                    # Ecto repo
+    scheduler.ex               # Quantum cron scheduler
+    skill.ex                   # Skill behaviour definition
+    skill_supervisor.ex        # DynamicSupervisor for skill workers
   alex_claw_web/
     controllers/
-      auth_controller.ex     # Login/logout with rate limiting
-      database_controller.ex # Schema browser, backup download
-      github_webhook_controller.ex  # GitHub webhook receiver
-    live/admin_live/         # LiveView pages (dashboard, workflows, config, etc.)
+      auth_controller.ex       # Login/logout with rate limiting
+      database_controller.ex   # Schema browser, backup download
+      github_webhook_controller.ex  # GitHub webhook receiver (HMAC verified)
+      oauth_callback_controller.ex  # Google OAuth callback handler
+    live/admin_live/           # LiveView pages (12 pages)
     plugs/
-      rate_limit.ex          # Plug for POST /login rate limiting
-      raw_body_reader.ex     # Caches raw body for webhook signature verification
-      require_auth.ex        # Session-based auth guard
+      caching_body_reader.ex   # Caches raw body for webhook HMAC verification
+      rate_limit.ex            # Plug for POST /login rate limiting
+      require_auth.ex          # Session-based auth guard
     router.ex
+web-automator/                 # Python/Playwright browser automation sidecar
+  app/
+    main.py                    # FastAPI server
+    recorder.py                # Browser session recording
+    player.py                  # Headless step replay
+    browser.py                 # Playwright browser management
+    models.py                  # Pydantic models
+  Dockerfile
+  supervisord.conf             # Xvfb + noVNC + FastAPI
 priv/repo/
-  migrations/                # All DB migrations
-  seeds/                     # Example workflow seeds
+  migrations/                  # 13 DB migrations
+  seeds/                       # Example workflow seeds
 config/
   config.exs
-  runtime.exs                # Reads env vars for DB, secret key, Telegram token
+  runtime.exs                  # Reads env vars for DB, secret key, Telegram token
 ```
 
 ---
@@ -252,6 +390,8 @@ config/
 {:sweet_xml, "~> 0.7"}        # RSS/XML parsing
 {:floki, "~> 0.37"}           # HTML parsing (web browse/search)
 {:quantum, "~> 3.5"}          # Cron scheduler
+{:nimble_totp, "~> 1.0"}      # TOTP 2FA
+{:eqrcode, "~> 0.2"}          # QR code generation for 2FA setup
 {:jason, "~> 1.4"}            # JSON
 {:telemetry_metrics, "~> 1.0"}
 {:telemetry_poller, "~> 1.0"}
@@ -261,19 +401,26 @@ config/
 
 ## Data Flow Examples
 
-### Scheduled Workflow (RSS Digest)
+### Scheduled Workflow (Morning News Briefing)
 
 ```
-Quantum fires cron job
-  → SchedulerSync dispatches → Workflows.Executor.run(workflow_id)
-    → Step 1: rss_collector skill
-      ├── Fetch feeds (Req + SweetXml)
-      ├── Deduplicate via Memory.exists?
-      ├── Score relevance via LLM (tier: light)
-      ├── Filter by score threshold
-      └── Store in Memory
-    → Step 2: telegram_notify skill
-      └── Send digest to Telegram
+Quantum fires cron job (0 7 * * *)
+  → SchedulerSync dispatches → TaskSupervisor.start_child
+    → Workflows.Executor.run(workflow_id)
+      → Step 1: rss_collector skill
+        ├── Fetch feeds concurrently (Req + SweetXml)
+        ├── Deduplicate via Memory.exists?
+        ├── Batch-score relevance via single LLM call (tier: light)
+        ├── Filter by score threshold, keep top N
+        ├── Store in Memory, notify per item
+        └── Return collected items as output
+      → Step 2: llm_transform skill
+        ├── Interpolate items into prompt template
+        ├── LLM.complete(prompt, tier: step.llm_tier)
+        └── Return summary as output
+      → Step 3: telegram_notify skill
+        ├── Convert markdown → Telegram HTML
+        └── Send to configured chat_id
 ```
 
 ### On-Demand Command
@@ -292,14 +439,34 @@ User sends "/research Elixir 1.19 compilation" via Telegram
 
 ```
 GitHub sends push event → POST /webhooks/github
-  → RawBodyReader caches body
-    → WebhookController verifies HMAC-SHA256 signature
-      → GitHubSecurityReview.review_commit(repo, sha)
-        ├── Fetch diff via GitHub API
-        ├── Truncate to 24KB
-        ├── LLM.complete(analysis_prompt, tier: :medium)
-        ├── Memory.store(:security_review, report)
-        └── Gateway.send_message(report)
+  → CachingBodyReader caches raw body
+    → Plug.Parsers decodes JSON
+      → WebhookController verifies HMAC-SHA256 (raw body vs signature)
+        → TaskSupervisor.start_child
+          → GitHubSecurityReview.review_commit(repo, sha)
+            ├── Fetch diff via GitHub API
+            ├── Truncate to 24KB
+            ├── LLM.complete(analysis_prompt, tier: :medium)
+            ├── Memory.store(:security_review, report)
+            └── Gateway.send_message(report)
+```
+
+### Google OAuth Connection
+
+```
+User sends "/connect google" via Telegram
+  → Dispatcher → OAuth.authorize_url(chat_id)
+    ├── Generate random state token
+    ├── Store {state → chat_id} in ETS (10 min TTL)
+    └── Gateway.send_message(auth_url)
+  → User clicks link, authorizes in Google
+  → Google redirects to /auth/google/callback?code=...&state=...
+    → OAuthCallbackController.google(conn, params)
+      ├── OAuth.handle_callback(code, state)
+      ├── Exchange code for tokens
+      ├── Store refresh_token in Config
+      ├── TokenManager caches access_token in ETS
+      └── Gateway.send_message("Connected!")
 ```
 
 ---
@@ -308,7 +475,10 @@ GitHub sends push event → POST /webhooks/github
 
 - Session-based authentication on all admin routes
 - ETS-based login rate limiting (configurable attempts and block duration)
+- Optional TOTP 2FA for sensitive workflow execution
 - HMAC-SHA256 webhook signature verification with timing-safe comparison
+- CachingBodyReader ensures HMAC is verified against original payload
+- Telegram chat_id filtering (rejects messages from unauthorized users)
 - API keys stored in PostgreSQL (plaintext — restrict DB access at network level)
 - Sensitive values masked in admin UI
 - See [SECURITY.md](SECURITY.md) for full policy and deployment hardening

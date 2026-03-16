@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <title>🦇 AlexClaw Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              claw: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 800: '#075985', 900: '#0c4a6e' }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      [phx-click] { cursor: pointer; }
+    </style>
+    <script src="/assets/phoenix.min.js"></script>
+    <script src="/assets/phoenix_live_view.min.js"></script>
+    <script>
+      let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
+      let liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
+        params: {_csrf_token: csrfToken}
+      });
+      liveSocket.connect();
+      window.liveSocket = liveSocket;
+    </script>
+  </head>
+  <body class="bg-gray-950 text-gray-100 min-h-screen">
+    <nav class="bg-gray-900 border-b border-gray-800">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-14">
+          <div class="flex items-center space-x-8">
+            <a href="/" class="text-claw-500 font-bold text-lg">🦇 AlexClaw</a>
+            <div class="flex space-x-4">
+              <a href="/" class="text-gray-300 hover:text-white text-sm">Dashboard</a>
+              <a href="/skills" class="text-gray-300 hover:text-white text-sm">Skills</a>
+              <a href="/scheduler" class="text-gray-300 hover:text-white text-sm">Scheduler</a>
+              <a href="/llm" class="text-gray-300 hover:text-white text-sm">LLM</a>
+              <a href="/resources" class="text-gray-300 hover:text-white text-sm">Resources</a>
+              <a href="/workflows" class="text-gray-300 hover:text-white text-sm">Workflows</a>
+              <a href="/feeds" class="text-gray-300 hover:text-white text-sm">Feeds</a>
+              <a href="/memory" class="text-gray-300 hover:text-white text-sm">Memory</a>
+              <a href="/database" class="text-gray-300 hover:text-white text-sm">Database</a>
+              <a href="/config" class="text-gray-300 hover:text-white text-sm">Config</a>
+              <a href="/logs" class="text-gray-300 hover:text-white text-sm">Logs</a>
+            </div>
+          </div>
+          <div>
+            <a href="/logout" class="text-gray-500 hover:text-gray-300 text-sm">Logout</a>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {@inner_content}
+    </main>
+  </body>
+</html>

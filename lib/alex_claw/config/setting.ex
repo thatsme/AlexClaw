@@ -10,6 +10,7 @@ defmodule AlexClaw.Config.Setting do
     field :type, :string, default: "string"
     field :description, :string
     field :category, :string, default: "general"
+    field :sensitive, :boolean, default: false
 
     timestamps(type: :utc_datetime)
   end
@@ -21,6 +22,7 @@ defmodule AlexClaw.Config.Setting do
           type: String.t(),
           description: String.t() | nil,
           category: String.t(),
+          sensitive: boolean(),
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
@@ -28,7 +30,7 @@ defmodule AlexClaw.Config.Setting do
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(setting, attrs) do
     setting
-    |> cast(attrs, [:key, :value, :type, :description, :category])
+    |> cast(attrs, [:key, :value, :type, :description, :category, :sensitive])
     |> validate_required([:key, :type])
     |> validate_inclusion(:type, ~w(string integer float boolean json))
     |> unique_constraint(:key)

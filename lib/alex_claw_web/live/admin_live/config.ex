@@ -46,7 +46,8 @@ defmodule AlexClawWeb.AdminLive.Config do
       AlexClaw.Config.set(key, value || "",
         type: params["type"],
         description: params["description"],
-        category: params["category"] |> to_string() |> String.trim() |> String.downcase()
+        category: params["category"] |> to_string() |> String.trim() |> String.downcase(),
+        sensitive: sensitive_key?(key)
       )
 
       {:noreply,
@@ -105,7 +106,7 @@ defmodule AlexClawWeb.AdminLive.Config do
   end
 
   defp display_value(setting) do
-    if sensitive_key?(setting.key) do
+    if setting.sensitive || sensitive_key?(setting.key) do
       mask_value(setting.value)
     else
       String.slice(setting.value, 0, 80)

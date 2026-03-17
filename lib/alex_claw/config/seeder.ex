@@ -5,109 +5,110 @@ defmodule AlexClaw.Config.Seeder do
   """
   alias AlexClaw.Config
 
+  # {key, value_or_fn, type, category, description, sensitive}
   @defaults [
     # Telegram
     {"telegram.bot_token", &__MODULE__.env/1, "string", "telegram",
-     "Telegram Bot API token"},
+     "Telegram Bot API token", true},
     {"telegram.chat_id", &__MODULE__.env/1, "string", "telegram",
-     "Telegram chat ID for notifications"},
+     "Telegram chat ID for notifications", false},
     {"telegram.poll_interval", "1000", "integer", "telegram",
-     "Telegram polling interval in ms"},
+     "Telegram polling interval in ms", false},
 
     # LLM - API Keys
     {"llm.gemini_api_key", &__MODULE__.env/1, "string", "llm",
-     "Google Gemini API key"},
+     "Google Gemini API key", true},
     {"llm.anthropic_api_key", &__MODULE__.env/1, "string", "llm",
-     "Anthropic API key"},
+     "Anthropic API key", true},
 
     # LLM - Ollama
     {"llm.ollama_enabled", &__MODULE__.env/1, "boolean", "llm",
-     "Enable local Ollama model"},
+     "Enable local Ollama model", false},
     {"llm.ollama_host", &__MODULE__.env/1, "string", "llm",
-     "Ollama API host URL"},
+     "Ollama API host URL", false},
     {"llm.ollama_model", &__MODULE__.env/1, "string", "llm",
-     "Ollama model name"},
+     "Ollama model name", false},
 
     # LLM - LM Studio (OpenAI-compatible)
     {"llm.lmstudio_enabled", &__MODULE__.env/1, "boolean", "llm",
-     "Enable LM Studio local model"},
+     "Enable LM Studio local model", false},
     {"llm.lmstudio_host", &__MODULE__.env/1, "string", "llm",
-     "LM Studio API host URL"},
+     "LM Studio API host URL", false},
     {"llm.lmstudio_model", &__MODULE__.env/1, "string", "llm",
-     "LM Studio model name"},
+     "LM Studio model name", false},
 
     # LLM - Tier limits (requests per day)
-    {"llm.limit.gemini_flash", "250", "integer", "llm", "Gemini Flash daily request limit"},
-    {"llm.limit.gemini_pro", "50", "integer", "llm", "Gemini Pro daily request limit"},
-    {"llm.limit.haiku", "1000", "integer", "llm", "Claude Haiku daily request limit"},
-    {"llm.limit.sonnet", "5", "integer", "llm", "Claude Sonnet daily request limit"},
+    {"llm.limit.gemini_flash", "250", "integer", "llm", "Gemini Flash daily request limit", false},
+    {"llm.limit.gemini_pro", "50", "integer", "llm", "Gemini Pro daily request limit", false},
+    {"llm.limit.haiku", "1000", "integer", "llm", "Claude Haiku daily request limit", false},
+    {"llm.limit.sonnet", "5", "integer", "llm", "Claude Sonnet daily request limit", false},
 
     # Skills - RSS
     {"skills.rss.relevance_threshold", "0.7", "float", "skills",
-     "Minimum relevance score for RSS items (0.0-1.0)"},
+     "Minimum relevance score for RSS items (0.0-1.0)", false},
 
     # GitHub
     {"github.token", "", "string", "github",
-     "GitHub personal access token (repo:read scope minimum)"},
+     "GitHub personal access token (repo:read scope minimum)", true},
     {"github.webhook_secret", "", "string", "github",
-     "GitHub webhook HMAC-SHA256 secret"},
+     "GitHub webhook HMAC-SHA256 secret", true},
     {"github.default_repo", "", "string", "github",
-     "Default repo for workflow steps (owner/repo format, e.g. myuser/myrepo)"},
+     "Default repo for workflow steps (owner/repo format, e.g. myuser/myrepo)", false},
     {"github.watched_branches", "main,master", "string", "github",
-     "Comma-separated branch names to review on push events"},
+     "Comma-separated branch names to review on push events", false},
     {"github.security_focus", "", "string", "github",
-     "Custom security focus areas (leave blank to use built-in defaults)"},
+     "Custom security focus areas (leave blank to use built-in defaults)", false},
 
     # Google OAuth (Calendar, Keep, etc.)
     {"google.oauth.client_id", &__MODULE__.env/1, "string", "google",
-     "Google OAuth client ID"},
+     "Google OAuth client ID", false},
     {"google.oauth.client_secret", &__MODULE__.env/1, "string", "google",
-     "Google OAuth client secret"},
+     "Google OAuth client secret", true},
     {"google.oauth.refresh_token", &__MODULE__.env/1, "string", "google",
-     "Google OAuth refresh token (obtained via one-time authorization flow)"},
+     "Google OAuth refresh token (obtained via one-time authorization flow)", true},
     {"google.oauth.redirect_uri", &__MODULE__.env/1, "string", "google",
-     "Google OAuth redirect URI (default: http://localhost:5001/auth/google/callback)"},
+     "Google OAuth redirect URI (default: http://localhost:5001/auth/google/callback)", false},
 
     # Web Automator (optional sidecar)
     {"web_automator.enabled", &__MODULE__.env/1, "boolean", "web_automator",
-     "Enable web-automator browser automation sidecar"},
+     "Enable web-automator browser automation sidecar", false},
     {"web_automator.host", &__MODULE__.env/1, "string", "web_automator",
-     "Web-automator sidecar URL"},
+     "Web-automator sidecar URL", false},
 
     # Auth - Rate limiting
     {"auth.rate_limit.max_attempts", "5", "integer", "auth",
-     "Max failed login attempts before IP is blocked"},
+     "Max failed login attempts before IP is blocked", false},
     {"auth.rate_limit.block_duration_seconds", "900", "integer", "auth",
-     "How long (seconds) to block an IP after max failures (default: 15 minutes)"},
+     "How long (seconds) to block an IP after max failures (default: 15 minutes)", false},
     {"auth.rate_limit.window_seconds", "300", "integer", "auth",
-     "Sliding window in seconds for attempt counting (default: 5 minutes)"},
+     "Sliding window in seconds for attempt counting (default: 5 minutes)", false},
 
     # Prompts - Identity
-    {"identity.name", "AlexClaw", "string", "identity", "Agent display name"},
+    {"identity.name", "AlexClaw", "string", "identity", "Agent display name", false},
     {"identity.persona", "", "string", "identity",
-     "Custom persona additions (appended to system prompt)"},
+     "Custom persona additions (appended to system prompt)", false},
     {"identity.base_prompt",
      "You are {name}, a personal AI agent running on Elixir/OTP.\nYou are direct, technically precise, and occasionally dry. You skip pleasantries.\nYou never pad responses with disclaimers.\nWhen in doubt, ask one focused question rather than making assumptions.",
-     "string", "prompts", "Base identity system prompt. Use {name} as placeholder."},
+     "string", "prompts", "Base identity system prompt. Use {name} as placeholder.", false},
 
     # Prompts - Skill context fragments
     {"prompts.context.rss", "You are currently processing news feeds.", "string", "prompts",
-     "System prompt addition when running RSS skill"},
+     "System prompt addition when running RSS skill", false},
     {"prompts.context.research", "You are conducting deep research.", "string", "prompts",
-     "System prompt addition when running Research skill"},
+     "System prompt addition when running Research skill", false},
     {"prompts.context.conversational",
      "You are in direct conversation with the user via Telegram. Keep responses concise.",
-     "string", "prompts", "System prompt addition for conversational mode"},
+     "string", "prompts", "System prompt addition for conversational mode", false},
 
     # Prompts - RSS scoring
     {"prompts.rss.scoring",
      "Score relevance 0.0-1.0 for the following interests:\nBEAM ecosystem, Elixir, Erlang, infrastructure, DevOps, cybersecurity, world news, geopolitics, international conflicts, technology policy.\n\nTitle: {title}\nDescription: {description}\n\nReply with ONLY a float number, nothing else.",
-     "string", "prompts", "Prompt template for RSS relevance scoring. Use {title} and {description} placeholders."},
+     "string", "prompts", "Prompt template for RSS relevance scoring. Use {title} and {description} placeholders.", false},
 
     # Prompts - Research
     {"prompts.research.system",
      "Provide a concise, technically precise summary. Include key facts and links if known.",
-     "string", "prompts", "System instruction appended to research queries"}
+     "string", "prompts", "System instruction appended to research queries", false}
   ]
 
   @env_mapping %{
@@ -139,7 +140,7 @@ defmodule AlexClaw.Config.Seeder do
 
   @spec seed() :: :ok
   def seed do
-    for {key, value_or_fn, type, category, description} <- @defaults do
+    for {key, value_or_fn, type, category, description, sensitive} <- @defaults do
       existing = Config.get(key)
 
       value =
@@ -149,14 +150,29 @@ defmodule AlexClaw.Config.Seeder do
           value_or_fn
         end
 
+      opts = [type: type, category: category, description: description, sensitive: sensitive]
+
       cond do
         is_nil(existing) ->
-          Config.set(key, value, type: type, category: category, description: description)
+          Config.set(key, value, opts)
 
         is_function(value_or_fn, 1) and value != "" and to_string(existing) != value ->
-          Config.set(key, value, type: type, category: category, description: description)
+          Config.set(key, value, opts)
 
         true ->
+          # Ensure sensitive flag is set even for existing settings
+          if sensitive do
+            case AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: key) do
+              %{sensitive: false} = record ->
+                record
+                |> Ecto.Changeset.change(%{sensitive: true})
+                |> AlexClaw.Repo.update()
+
+              _ ->
+                :ok
+            end
+          end
+
           :ok
       end
     end

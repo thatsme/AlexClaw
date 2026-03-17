@@ -11,8 +11,14 @@ defmodule AlexClaw.Config.Loader do
 
   @impl true
   def init(_) do
+    # 1. Create ETS table and load raw DB values
     AlexClaw.Config.init()
+    # 2. Seed defaults (marks sensitive keys, encrypts new values)
     AlexClaw.Config.Seeder.seed()
+    # 3. Encrypt any remaining plaintext sensitive values
+    AlexClaw.Config.EncryptExisting.run()
+    # 4. Reload ETS with decrypted values
+    AlexClaw.Config.init()
     {:ok, %{}}
   catch
     :error, %Postgrex.Error{} = e ->

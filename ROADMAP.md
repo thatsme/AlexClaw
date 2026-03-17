@@ -72,6 +72,15 @@ Additional notification/command channels beyond Telegram:
 
 Sensitive config values (API keys, tokens) are now encrypted at rest using AES-256-GCM, derived from `SECRET_KEY_BASE`. Existing plaintext values are automatically encrypted on startup.
 
+### SECRET_KEY_BASE Rotation Tool
+
+Changing `SECRET_KEY_BASE` renders all AES-256-GCM encrypted settings unreadable. A CLI migration tool is needed:
+
+- Accept old and new key as arguments
+- Decrypt all sensitive settings with old key, re-encrypt with new key
+- Validate round-trip before committing changes
+- Support dry-run mode to preview affected rows
+
 ### Visual Automation Editor
 
 Replace raw JSON editing for web automation recipes with a visual step editor in the admin UI. Drag-and-drop step ordering, selector picker, live preview.

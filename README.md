@@ -16,7 +16,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 
 ### Core
 
-- **Multi-Model LLM Router** — Tier-based routing (`light` / `medium` / `heavy` / `local`) with automatic fallback. Tracks daily usage per provider in ETS. Supports Gemini Flash, Gemini Pro, Claude Haiku, Claude Sonnet, Claude Opus, Ollama, LM Studio, and custom OpenAI-compatible endpoints.
+- **Multi-Model LLM Router** — Tier-based routing (`light` / `medium` / `heavy` / `local`) with priority-based selection. All providers (cloud and local) are stored in PostgreSQL and fully manageable from the admin UI. Tracks daily usage per provider in ETS. Ships with default providers (Gemini, Claude, Ollama, LM Studio) seeded on first boot — add, remove, or reconfigure any provider at runtime.
 - **Workflow Engine** — Define multi-step pipelines combining skills and LLM transforms. Each step passes output to the next. Runs on schedule (cron) or on demand. Full run history with step-level results in the admin UI.
 - **Telegram Gateway** — Bidirectional communication via long-polling. Command routing is deterministic pattern-matching — no LLM involved in dispatch.
 - **Runtime Configuration** — All settings (API keys, prompts, limits, personas) are stored in PostgreSQL, cached in ETS, and editable at runtime via the admin UI. No restart required for any config change.
@@ -142,14 +142,14 @@ See `.env.example` for the full list of bootstrap variables.
 
 ## LLM Tier System
 
-| Tier | Built-in models | Typical use |
+| Tier | Default providers | Typical use |
 |---|---|---|
 | `light` | Gemini Flash, Claude Haiku | RSS scoring, classification, simple tasks |
 | `medium` | Gemini Pro, Claude Sonnet | Summarization, research, security review |
 | `heavy` | Claude Opus | Deep reasoning (explicit only) |
 | `local` | LM Studio, Ollama | Privacy-sensitive content, offline use, zero cost |
 
-The router selects the cheapest available model per tier, tracks daily usage in ETS against configurable limits, and falls back automatically. A fully local deployment with no API keys is supported — set `LMSTUDIO_ENABLED=true` or `OLLAMA_ENABLED=true` and all tiers route to your local model.
+All providers live in the database and can be added, removed, or reconfigured from the admin UI. The defaults above are seeded on first boot. The router selects by priority within each tier (lower priority number = preferred), tracks daily usage, and falls back to the next available provider. A fully local deployment with no API keys is supported — enable a local provider and all tiers will fall back to it.
 
 ---
 

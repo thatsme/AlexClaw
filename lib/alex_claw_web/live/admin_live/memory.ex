@@ -89,7 +89,7 @@ defmodule AlexClawWeb.AdminLive.Memory do
               <span :if={entry.source} class="text-xs text-gray-600 truncate max-w-xs">{entry.source}</span>
             </div>
             <div class="flex items-center gap-3">
-              <span class="text-xs text-gray-600">{Calendar.strftime(entry.inserted_at, "%Y-%m-%d %H:%M")}</span>
+              <span class="text-xs text-gray-600">{AlexClawWeb.TimeHelpers.format_datetime(entry.inserted_at)}</span>
               <button phx-click="delete" phx-value-id={entry.id}
                 data-confirm="Delete this memory?"
                 class="text-xs text-red-500 hover:text-red-400">Delete</button>

@@ -2,6 +2,7 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
   @moduledoc "LiveView dashboard showing system uptime, memory usage, LLM stats, and recent activity."
 
   use Phoenix.LiveView
+  import AlexClawWeb.TimeHelpers
 
 
   @impl true
@@ -29,35 +30,17 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
       memory_mb: div(memory_bytes, 1_048_576),
       skills_active: skill_children.active,
       skills_total: skill_children.workers,
+      update_status: AlexClaw.UpdateChecker.status(),
       llm_usage: get_llm_usage(),
       google_status: AlexClaw.Google.TokenManager.status(),
-      recent_memories: AlexClaw.Memory.recent(limit: 5)
+      recent_memories: AlexClaw.Memory.recent(limit: 20)
     )
   end
 
   defp get_llm_usage do
-    today = Date.utc_today()
-
-    builtin =
-      [:gemini_flash, :gemini_pro, :haiku, :sonnet, :opus, :ollama]
-      |> Enum.map(fn model -> {model, ets_count({model, today})} end)
-
-    custom =
-      AlexClaw.LLM.list_custom_providers()
-      |> Enum.map(fn p -> {{:custom, p.id}, ets_count({{:custom, p.id}, today}), p.name} end)
-      |> Enum.reject(fn {_, c, _} -> c == 0 end)
-      |> Enum.map(fn {_key, count, name} -> {name, count} end)
-
-    builtin
+    AlexClaw.LLM.list_providers()
+    |> Enum.map(fn p -> {p.name, AlexClaw.LLM.usage_today(p.id)} end)
     |> Enum.reject(fn {_, c} -> c == 0 end)
-    |> Kernel.++(custom)
-  end
-
-  defp ets_count(key) do
-    case :ets.lookup(:alexclaw_llm_usage, key) do
-      [{_, c}] -> c
-      [] -> 0
-    end
   end
 
   @impl true
@@ -66,7 +49,17 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
     <div class="space-y-8">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold text-white">🦇 AlexClaw</h1>
-        <span class="text-sm text-gray-500 font-mono">v{@version}</span>
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-gray-500 font-mono">v{@version}</span>
+          <span :if={@update_status && @update_status.update_available}
+            class="text-xs px-2 py-0.5 rounded bg-yellow-900 text-yellow-300">
+            v{@update_status.latest} available
+          </span>
+          <span :if={@update_status && !@update_status.update_available}
+            class="text-xs px-2 py-0.5 rounded bg-green-900 text-green-300">
+            up to date
+          </span>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -78,7 +71,7 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div class="bg-gray-900 rounded-lg border border-gray-800 p-6">
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-6 min-h-[20rem]">
           <h2 class="text-lg font-semibold mb-4">LLM Usage Today</h2>
           <div :if={@llm_usage == []} class="text-gray-500 text-sm">No calls yet today.</div>
           <div :for={{model, count} <- @llm_usage} class="flex justify-between py-2 border-b border-gray-800 last:border-0">
@@ -87,15 +80,17 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
           </div>
         </div>
 
-        <div class="bg-gray-900 rounded-lg border border-gray-800 p-6">
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-6 min-h-[20rem] flex flex-col">
           <h2 class="text-lg font-semibold mb-4">Recent Memories</h2>
           <div :if={@recent_memories == []} class="text-gray-500 text-sm">No memories yet.</div>
-          <div :for={mem <- @recent_memories} class="py-2 border-b border-gray-800 last:border-0">
-            <div class="flex items-center gap-2 mb-1">
-              <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{mem.kind}</span>
-              <span class="text-xs text-gray-600">{Calendar.strftime(mem.inserted_at, "%H:%M:%S")}</span>
+          <div class="overflow-y-auto flex-1 max-h-[24rem]">
+            <div :for={mem <- @recent_memories} class="py-2 border-b border-gray-800 last:border-0">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{mem.kind}</span>
+                <span class="text-xs text-gray-600">{format_datetime(mem.inserted_at)}</span>
+              </div>
+              <p class="text-sm text-gray-300 truncate">{String.slice(mem.content, 0, 120)}</p>
             </div>
-            <p class="text-sm text-gray-300 truncate">{String.slice(mem.content, 0, 120)}</p>
           </div>
         </div>
       </div>

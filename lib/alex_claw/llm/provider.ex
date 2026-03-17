@@ -1,5 +1,5 @@
 defmodule AlexClaw.LLM.Provider do
-  @moduledoc "Schema for custom LLM provider configurations."
+  @moduledoc "Schema for LLM provider configurations (all providers live in DB)."
 
   use Ecto.Schema
   import Ecto.Changeset
@@ -17,16 +17,18 @@ defmodule AlexClaw.LLM.Provider do
     field :daily_limit, :integer
     field :headers, :map, default: %{}
     field :enabled, :boolean, default: true
+    field :priority, :integer, default: 100
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(provider, attrs) do
     provider
-    |> cast(attrs, [:name, :type, :tier, :host, :model, :api_key, :daily_limit, :headers, :enabled])
-    |> validate_required([:name, :type, :tier, :host, :model])
+    |> cast(attrs, [:name, :type, :tier, :host, :model, :api_key, :daily_limit, :headers, :enabled, :priority])
+    |> validate_required([:name, :type, :tier, :model])
     |> validate_inclusion(:tier, @allowed_tiers)
     |> validate_inclusion(:type, @allowed_types)
+    |> validate_number(:priority, greater_than_or_equal_to: 0)
     |> unique_constraint(:name)
   end
 end

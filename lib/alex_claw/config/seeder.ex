@@ -75,6 +75,10 @@ defmodule AlexClaw.Config.Seeder do
     {"web_automator.host", &__MODULE__.env/1, "string", "web_automator",
      "Web-automator sidecar URL", false},
 
+    # Display
+    {"display.timezone", "Europe/Rome", "string", "display",
+     "Timezone for displaying dates/times in the UI (IANA format, e.g. Europe/Rome)", false},
+
     # Auth - Rate limiting
     {"auth.rate_limit.max_attempts", "5", "integer", "auth",
      "Max failed login attempts before IP is blocked", false},

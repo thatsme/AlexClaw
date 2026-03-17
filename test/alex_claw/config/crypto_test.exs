@@ -50,11 +50,11 @@ defmodule AlexClaw.Config.CryptoTest do
 
   describe "decrypt/1 error cases" do
     test "returns error for tampered ciphertext" do
-      {:ok, encrypted} = Crypto.encrypt("secret")
-      # Flip a character in the base64 payload
-      tampered = String.replace(encrypted, ~r/[A-Za-z]/, fn c ->
-        if c == "A", do: "B", else: "A"
-      end)
+      {:ok, "enc:" <> payload} = Crypto.encrypt("secret")
+      # Decode, flip bytes in the ciphertext portion, re-encode
+      raw = Base.decode64!(payload)
+      flipped = :binary.bin_to_list(raw) |> Enum.map(&Bitwise.bxor(&1, 0xFF)) |> :binary.list_to_bin()
+      tampered = "enc:" <> Base.encode64(flipped)
       assert {:error, _} = Crypto.decrypt(tampered)
     end
 

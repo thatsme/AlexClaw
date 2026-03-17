@@ -14,4 +14,9 @@ config :alex_claw, AlexClaw.Gateway,
   chat_id: "test-chat-id",
   poll_interval: :infinity
 
+config :alex_claw, AlexClawWeb.Endpoint,
+  secret_key_base: "test_only_secret_key_base_that_is_at_least_64_bytes_long_for_alexclaw_test_only!!"
+
+config :alex_claw, skip_provider_seed: true
+
 config :logger, level: :warning

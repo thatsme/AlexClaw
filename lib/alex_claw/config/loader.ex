@@ -19,6 +19,10 @@ defmodule AlexClaw.Config.Loader do
     AlexClaw.Config.EncryptExisting.run()
     # 4. Reload ETS with decrypted values
     AlexClaw.Config.init()
+    # 5. Seed default LLM providers (reads API keys from Config)
+    unless Application.get_env(:alex_claw, :skip_provider_seed, false) do
+      AlexClaw.LLM.ProviderSeeder.seed()
+    end
     {:ok, %{}}
   catch
     :error, %Postgrex.Error{} = e ->

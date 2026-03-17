@@ -56,12 +56,11 @@ defmodule AlexClaw.LLM.ProviderTest do
       assert "can't be blank" in errors_on_field(cs, :tier)
     end
 
-    test "invalid without host" do
+    test "valid without host (cloud providers)" do
       cs = Provider.changeset(%Provider{}, %{
-        name: "X", type: "openai_compatible", tier: "light", model: "m"
+        name: "X", type: "gemini", tier: "light", model: "gemini-2.0-flash"
       })
-      refute cs.valid?
-      assert "can't be blank" in errors_on_field(cs, :host)
+      assert cs.valid?
     end
 
     test "invalid without model" do

@@ -16,6 +16,7 @@ defmodule AlexClaw.Application do
       AlexClaw.SkillSupervisor,
       AlexClaw.Scheduler,
       AlexClaw.Workflows.SchedulerSync,
+      AlexClaw.UpdateChecker,
       AlexClaw.Gateway,
       AlexClawWeb.Endpoint
     ]

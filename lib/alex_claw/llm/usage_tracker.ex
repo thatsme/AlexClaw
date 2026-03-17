@@ -4,6 +4,8 @@ defmodule AlexClaw.LLM.UsageTracker do
   Loads today's counts from PostgreSQL on startup (survives restarts).
   Writes through to DB on every increment.
   Resets ETS daily at midnight UTC.
+
+  Usage keys are provider IDs (integers) — no more atom-based model names.
   """
   use GenServer
   require Logger
@@ -34,11 +36,11 @@ defmodule AlexClaw.LLM.UsageTracker do
     {:noreply, state}
   end
 
-  @doc "Persist current ETS count for a model to the database."
-  @spec persist(atom()) :: :ok
-  def persist(model) do
+  @doc "Persist current ETS count for a provider to the database."
+  @spec persist(integer()) :: :ok
+  def persist(provider_id) when is_integer(provider_id) do
     today = Date.utc_today()
-    key = {model, today}
+    key = {provider_id, today}
 
     count =
       case :ets.lookup(:alexclaw_llm_usage, key) do
@@ -46,7 +48,7 @@ defmodule AlexClaw.LLM.UsageTracker do
         [] -> 0
       end
 
-    model_str = model_to_string(model)
+    model_str = "provider_#{provider_id}"
 
     Repo.insert!(
       %UsageEntry{model: model_str, date: today, count: count},
@@ -57,7 +59,6 @@ defmodule AlexClaw.LLM.UsageTracker do
     :ok
   end
 
-  # Load today's persisted counts from DB into ETS so restarts don't zero them.
   defp load_today_from_db do
     today = Date.utc_today()
 
@@ -66,26 +67,56 @@ defmodule AlexClaw.LLM.UsageTracker do
       |> Repo.all()
 
     for %{model: model_str, count: count} <- entries do
-      model = string_to_model(model_str)
-      key = {model, today}
-      :ets.insert(:alexclaw_llm_usage, {key, count})
+      case parse_model_string(model_str) do
+        {:ok, provider_id} ->
+          key = {provider_id, today}
+          :ets.insert(:alexclaw_llm_usage, {key, count})
+
+        :skip ->
+          :ok
+      end
     end
   catch
     :error, %Postgrex.Error{} = e ->
       Logger.warning("Could not load usage from DB: #{Exception.message(e)}")
   end
 
-  defp model_to_string({:custom, id}), do: "custom_#{id}"
-  defp model_to_string(atom) when is_atom(atom), do: Atom.to_string(atom)
-
-  defp string_to_model("custom_" <> id_str) do
+  # Parse both new "provider_<id>" and legacy formats
+  defp parse_model_string("provider_" <> id_str) do
     case Integer.parse(id_str) do
-      {id, ""} -> {:custom, id}
-      _ -> String.to_existing_atom("custom_#{id_str}")
+      {id, ""} -> {:ok, id}
+      _ -> :skip
     end
   end
 
-  defp string_to_model(model_str), do: String.to_existing_atom(model_str)
+  # Legacy: "custom_<id>" — these map to the same provider IDs
+  defp parse_model_string("custom_" <> id_str) do
+    case Integer.parse(id_str) do
+      {id, ""} -> {:ok, id}
+      _ -> :skip
+    end
+  end
+
+  # Legacy atom-based entries (e.g. "gemini_flash", "lm_studio") — look up by name mapping
+  defp parse_model_string(legacy_str) do
+    name = legacy_name_to_provider_name(legacy_str)
+
+    case AlexClaw.Repo.one(
+           from(p in AlexClaw.LLM.Provider, where: p.name == ^name, select: p.id)
+         ) do
+      nil -> :skip
+      id -> {:ok, id}
+    end
+  end
+
+  defp legacy_name_to_provider_name("gemini_flash"), do: "Gemini Flash"
+  defp legacy_name_to_provider_name("gemini_pro"), do: "Gemini Pro"
+  defp legacy_name_to_provider_name("haiku"), do: "Claude Haiku"
+  defp legacy_name_to_provider_name("sonnet"), do: "Claude Sonnet"
+  defp legacy_name_to_provider_name("opus"), do: "Claude Opus"
+  defp legacy_name_to_provider_name("ollama"), do: "Ollama"
+  defp legacy_name_to_provider_name("lm_studio"), do: "LM Studio"
+  defp legacy_name_to_provider_name(other), do: other
 
   defp schedule_midnight_reset do
     now = DateTime.utc_now()

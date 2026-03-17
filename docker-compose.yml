@@ -53,5 +53,22 @@ services:
       LMSTUDIO_HOST: ${LMSTUDIO_HOST:-http://host.docker.internal:1234}
       LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-}
 
+      # Web automator (optional)
+      WEB_AUTOMATOR_ENABLED: ${WEB_AUTOMATOR_ENABLED:-false}
+      WEB_AUTOMATOR_HOST: ${WEB_AUTOMATOR_HOST:-http://web-automator:6900}
+
+  web-automator:
+    build: ./web-automator
+    restart: unless-stopped
+    ports:
+      - "6080:6080"
+    environment:
+      DISPLAY: ":99"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6900/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   pgdata:

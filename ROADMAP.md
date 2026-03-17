@@ -68,12 +68,9 @@ Additional notification/command channels beyond Telegram:
 
 ## Someday
 
-### Secrets Encryption at Rest
+### ~~Secrets Encryption at Rest~~ ✅ Completed (v0.1.1)
 
-API keys and tokens are stored as plaintext in PostgreSQL. Options under consideration:
-
-- Application-level encryption using `SECRET_KEY_BASE` as the key
-- Per-field encryption for sensitive config values
+Sensitive config values (API keys, tokens) are now encrypted at rest using AES-256-GCM, derived from `SECRET_KEY_BASE`. Existing plaintext values are automatically encrypted on startup.
 
 ### Visual Automation Editor
 

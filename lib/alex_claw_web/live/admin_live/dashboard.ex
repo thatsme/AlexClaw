@@ -38,19 +38,26 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
   defp get_llm_usage do
     today = Date.utc_today()
 
-    [:gemini_flash, :gemini_pro, :haiku, :sonnet, :opus, :ollama]
-    |> Enum.map(fn model ->
-      key = {model, today}
+    builtin =
+      [:gemini_flash, :gemini_pro, :haiku, :sonnet, :opus, :ollama]
+      |> Enum.map(fn model -> {model, ets_count({model, today})} end)
 
-      count =
-        case :ets.lookup(:alexclaw_llm_usage, key) do
-          [{_, c}] -> c
-          [] -> 0
-        end
+    custom =
+      AlexClaw.LLM.list_custom_providers()
+      |> Enum.map(fn p -> {{:custom, p.id}, ets_count({{:custom, p.id}, today}), p.name} end)
+      |> Enum.reject(fn {_, c, _} -> c == 0 end)
+      |> Enum.map(fn {_key, count, name} -> {name, count} end)
 
-      {model, count}
-    end)
+    builtin
     |> Enum.reject(fn {_, c} -> c == 0 end)
+    |> Kernel.++(custom)
+  end
+
+  defp ets_count(key) do
+    case :ets.lookup(:alexclaw_llm_usage, key) do
+      [{_, c}] -> c
+      [] -> 0
+    end
   end
 
   @impl true

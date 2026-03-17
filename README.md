@@ -8,6 +8,8 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 
 "I didn't plan most of this. I just kept solving the next problem."
 
+![AlexClaw Dashboard](docs/screenshot/dashboard.jpg)
+
 ---
 
 ## Features
@@ -22,6 +24,8 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **Cron Scheduler** — Quantum-based. Jobs defined in config or DB.
 
 ### Skills
+
+![AlexClaw Skills](docs/screenshot/skills.jpg)
 
 | Skill | Description |
 |---|---|
@@ -181,6 +185,8 @@ The router selects the cheapest available model per tier, tracks daily usage in 
 ---
 
 ## Admin UI
+
+![AlexClaw Workflows](docs/screenshot/workflows.jpg)
 
 | Page | Description |
 |---|---|

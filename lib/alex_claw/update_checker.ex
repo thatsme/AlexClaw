@@ -40,12 +40,7 @@ defmodule AlexClaw.UpdateChecker do
   defp check_for_updates do
     current = Application.spec(:alex_claw, :vsn) |> to_string() |> strip_build()
 
-    token = AlexClaw.Config.get("github.token") || ""
-
-    headers =
-      if token != "",
-        do: [{"authorization", "Bearer #{token}"}, {"accept", "application/vnd.github+json"}],
-        else: [{"accept", "application/vnd.github+json"}]
+    headers = [{"accept", "application/vnd.github+json"}]
 
     case Req.get("https://api.github.com/repos/#{@repo}/releases/latest", headers: headers) do
       {:ok, %{status: 200, body: %{"tag_name" => tag}}} ->
@@ -61,13 +56,13 @@ defmodule AlexClaw.UpdateChecker do
         if info.update_available, do: Logger.info("Update available: v#{latest} (running v#{current})")
 
       {:ok, %{status: status}} ->
-        Logger.debug("Update check: GitHub API returned #{status}")
+        Logger.warning("Update check: GitHub API returned #{status}")
 
       {:error, reason} ->
-        Logger.debug("Update check failed: #{inspect(reason)}")
+        Logger.warning("Update check failed: #{inspect(reason)}")
     end
   rescue
-    e -> Logger.debug("Update check error: #{Exception.message(e)}")
+    e -> Logger.warning("Update check error: #{Exception.message(e)}")
   end
 
   defp strip_build(version) do

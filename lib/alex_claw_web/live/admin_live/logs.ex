@@ -87,7 +87,7 @@ defmodule AlexClawWeb.AdminLive.Logs do
         <div :if={@entries == []} class="p-8 text-center text-gray-500">No log entries.</div>
         <div :for={entry <- @entries} class={"flex gap-4 px-4 py-2 border-b border-gray-800/50 last:border-0 #{row_bg(entry.severity)}"}>
           <div class="flex-shrink-0 w-20 text-xs text-gray-500 font-mono pt-0.5">
-            {Calendar.strftime(entry.timestamp, "%H:%M:%S")}
+            {AlexClawWeb.TimeHelpers.format_datetime(entry.timestamp)}
           </div>
           <div class="flex-shrink-0">
             <.severity_badge severity={entry.severity} />

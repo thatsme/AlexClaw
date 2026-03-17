@@ -1,7 +1,7 @@
 defmodule AlexClaw.MixProject do
   use Mix.Project
 
-  @version "0.1.1"
+  @version "0.1.3"
 
   def project do
     [
@@ -45,6 +45,7 @@ defmodule AlexClaw.MixProject do
       {:floki, "~> 0.37"},
       {:nimble_totp, "~> 1.0"},
       {:eqrcode, "~> 0.1"},
+      {:tz, "~> 0.28"},
       {:mox, "~> 1.2", only: :test},
       {:bypass, "~> 2.1", only: :test}
     ]

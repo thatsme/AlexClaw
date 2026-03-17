@@ -147,7 +147,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
           diff_minutes < 1 -> "< 1 min"
           diff_minutes < 60 -> "in #{diff_minutes} min"
           diff_minutes < 1440 -> "in #{div(diff_minutes, 60)}h #{rem(diff_minutes, 60)}m"
-          true -> Calendar.strftime(next, "%b %d %H:%M")
+          true -> AlexClawWeb.TimeHelpers.format_datetime(next)
         end
 
       _ ->

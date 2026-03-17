@@ -70,7 +70,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   end
 
   defp format_datetime(nil), do: "-"
-  defp format_datetime(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp format_datetime(dt), do: AlexClawWeb.TimeHelpers.format_datetime(dt)
 
   defp duration(run) do
     if run.started_at && run.completed_at do

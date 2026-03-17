@@ -118,6 +118,8 @@ Builds the system prompt injected into every LLM call. All strings come from `Al
 
 Runtime configuration system. On boot, `Config.Loader` seeds default values from environment variables into PostgreSQL. After that, all changes are made through the admin UI. Values are cached in an ETS table for fast reads. Changes are broadcast via Phoenix PubSub so all processes see updates immediately. No restart required.
 
+Sensitive values (API keys, tokens, OAuth secrets) are encrypted at the application level using AES-256-GCM before storage. The encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256 and cached in `:persistent_term`. Each value gets a unique random IV. On boot, `EncryptExisting` idempotently encrypts any plaintext sensitive values, then `Config.init()` reloads ETS with decrypted values. The `sensitive` boolean flag on each setting controls encryption behavior.
+
 Categories: `identity`, `llm`, `telegram`, `skills`, `github`, `google`, `auth`, `prompts`, `web_automator`.
 
 ### LogBuffer — `AlexClaw.LogBuffer`
@@ -294,9 +296,11 @@ lib/
     auth/
       totp.ex                  # TOTP 2FA (setup, verify, challenge)
     config/
-      loader.ex                # Seed env → DB, load into ETS
-      seeder.ex                # Default config definitions
-      setting.ex               # Ecto schema for config entries
+      crypto.ex                # AES-256-GCM encryption (HKDF key derivation)
+      encrypt_existing.ex      # Idempotent plaintext → encrypted migration on boot
+      loader.ex                # Seed env → DB, encrypt, load into ETS
+      seeder.ex                # Default config definitions (with sensitive flags)
+      setting.ex               # Ecto schema for config entries (includes sensitive field)
     google/
       oauth.ex                 # Google OAuth2 flow (state, token exchange)
       token_manager.ex         # Access token cache + auto-refresh GenServer
@@ -368,7 +372,7 @@ web-automator/                 # Python/Playwright browser automation sidecar
   Dockerfile
   supervisord.conf             # Xvfb + noVNC + FastAPI
 priv/repo/
-  migrations/                  # 13 DB migrations
+  migrations/                  # 14 DB migrations
   seeds/                       # Example workflow seeds
 config/
   config.exs
@@ -479,6 +483,7 @@ User sends "/connect google" via Telegram
 - HMAC-SHA256 webhook signature verification with timing-safe comparison
 - CachingBodyReader ensures HMAC is verified against original payload
 - Telegram chat_id filtering (rejects messages from unauthorized users)
-- API keys stored in PostgreSQL (plaintext — restrict DB access at network level)
+- Sensitive config values (API keys, tokens) encrypted at rest with AES-256-GCM
+- Encryption key derived from `SECRET_KEY_BASE` via HKDF — changing the secret invalidates encrypted values
 - Sensitive values masked in admin UI
 - See [SECURITY.md](SECURITY.md) for full policy and deployment hardening

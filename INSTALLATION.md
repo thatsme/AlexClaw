@@ -601,7 +601,7 @@ If you run two AlexClaw instances with the same `TELEGRAM_BOT_TOKEN` (e.g., dev 
 
 ### Locked out after changing SECRET_KEY_BASE
 
-Changing `SECRET_KEY_BASE` invalidates all existing sessions. This is expected — log in again with your `ADMIN_PASSWORD`. If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
+Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes all encrypted config values (API keys, tokens) unreadable. Log in again with your `ADMIN_PASSWORD` and re-enter any API keys via Admin > Config (or set them in `.env` and restart). If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
 
 ### Web automator noVNC behind HTTPS
 

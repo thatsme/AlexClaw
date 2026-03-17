@@ -58,6 +58,7 @@ AlexClaw can review pull requests and commits for security issues:
 - **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup and confirmation via Telegram (`/setup 2fa`, `/confirm 2fa`)
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
+- **Encryption at rest** — API keys and tokens are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime
 - **Sensitive key masking** — API keys and tokens show partial values in the admin UI
 
 ---
@@ -235,7 +236,7 @@ priv/repo/
 
 - **Semantic search is not yet wired up.** The pgvector column exists in the memory table, but the embedding integration is a stub — `Memory.embed/2` returns nil. Memory deduplication and keyword search work. Semantic search via vector similarity is on the roadmap.
 - **Single-user only.** There is no multi-user access control. The authentication model assumes one trusted operator.
-- **API keys stored as plaintext in PostgreSQL.** See [SECURITY.md](SECURITY.md) for mitigation guidance.
+- **Sensitive config encrypted at rest.** API keys and tokens are AES-256-GCM encrypted in PostgreSQL using `SECRET_KEY_BASE` as key material. Changing `SECRET_KEY_BASE` requires re-entering all API keys. See [SECURITY.md](SECURITY.md) for details.
 - **Web Automator is experimental.** The browser automation sidecar (`web_automation` skill) is under heavy development. APIs, config format, and recording workflow may change without notice.
 
 ---

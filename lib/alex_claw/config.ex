@@ -7,10 +7,10 @@ defmodule AlexClaw.Config do
   require Logger
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Config.Setting
+  alias AlexClaw.Config.{Setting, Crypto}
 
   @type config_value :: String.t() | integer() | float() | boolean() | map() | list() | nil
-  @type set_opts :: [type: String.t(), description: String.t() | nil, category: String.t()]
+  @type set_opts :: [type: String.t(), description: String.t() | nil, category: String.t(), sensitive: boolean()]
 
   @table :alexclaw_config
   @pubsub AlexClaw.PubSub
@@ -30,7 +30,10 @@ defmodule AlexClaw.Config do
   defp load_all_into_ets do
     case Repo.all(Setting) do
       entries when is_list(entries) ->
-        Enum.each(entries, fn s -> :ets.insert(@table, {s.key, cast_value(s)}) end)
+        Enum.each(entries, fn s ->
+          s = decrypt_setting(s)
+          :ets.insert(@table, {s.key, cast_value(s)})
+        end)
 
       _ ->
         :ok
@@ -59,24 +62,44 @@ defmodule AlexClaw.Config do
     description = Keyword.get(opts, :description)
     category = Keyword.get(opts, :category, "general")
 
+    existing_record = Repo.get_by(Setting, key: key)
+
+    sensitive =
+      case Keyword.fetch(opts, :sensitive) do
+        {:ok, val} -> val
+        :error -> (existing_record && existing_record.sensitive) || false
+      end
+
+    encoded = encode_value(value, type)
+
+    db_value =
+      if sensitive and encoded != "" do
+        Crypto.encrypt!(encoded)
+      else
+        encoded
+      end
+
     attrs = %{
       key: key,
-      value: encode_value(value, type),
+      value: db_value,
       type: type,
       description: description,
-      category: category
+      category: category,
+      sensitive: sensitive
     }
 
     result =
-      case Repo.get_by(Setting, key: key) do
+      case existing_record do
         nil -> %Setting{} |> Setting.changeset(attrs) |> Repo.insert()
         existing -> existing |> Setting.changeset(attrs) |> Repo.update()
       end
 
     case result do
       {:ok, setting} ->
-        :ets.insert(@table, {key, cast_value(setting)})
-        broadcast_change(key, cast_value(setting))
+        # ETS gets the plaintext value
+        plain_setting = %{setting | value: encoded}
+        :ets.insert(@table, {key, cast_value(plain_setting)})
+        broadcast_change(key, cast_value(plain_setting))
         {:ok, setting}
 
       error ->
@@ -104,6 +127,7 @@ defmodule AlexClaw.Config do
     |> maybe_filter_category(category)
     |> order_by(:key)
     |> Repo.all()
+    |> Enum.map(&decrypt_setting/1)
   end
 
   @doc "Subscribe to config changes."
@@ -133,6 +157,17 @@ defmodule AlexClaw.Config do
 
   defp encode_value(value, "json") when is_map(value) or is_list(value), do: Jason.encode!(value)
   defp encode_value(value, _type), do: to_string(value)
+
+  defp decrypt_setting(%Setting{sensitive: true, value: v} = s) when is_binary(v) do
+    case Crypto.decrypt(v) do
+      {:ok, plaintext} -> %{s | value: plaintext}
+      {:error, reason} ->
+        Logger.error("Failed to decrypt setting #{s.key}: #{inspect(reason)}")
+        s
+    end
+  end
+
+  defp decrypt_setting(s), do: s
 
   defp maybe_filter_category(q, nil), do: q
   defp maybe_filter_category(q, cat), do: where(q, [s], s.category == ^cat)

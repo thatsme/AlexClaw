@@ -16,9 +16,9 @@ defmodule AlexClaw.Application do
       AlexClaw.SkillSupervisor,
       AlexClaw.Scheduler,
       AlexClaw.Workflows.SchedulerSync,
-      AlexClaw.UpdateChecker,
       AlexClaw.Gateway,
-      AlexClawWeb.Endpoint
+      AlexClawWeb.Endpoint,
+      AlexClaw.UpdateChecker
     ]
 
     opts = [strategy: :one_for_one, name: AlexClaw.Supervisor]

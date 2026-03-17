@@ -82,20 +82,11 @@ DynamicSupervisor. Each skill execution runs as an isolated OTP process. Crashes
 
 ### LLM Router — `AlexClaw.LLM`
 
-Every LLM call declares a tier requirement. The router selects the cheapest available model, tracks daily usage in ETS against configurable limits, and falls back automatically.
+Every LLM call declares a tier requirement. The router queries the `llm_providers` table for enabled providers matching that tier, ordered by `priority` (lower = preferred). If no provider is available for the requested tier, it falls back to the `local` tier.
 
-```
-light:  gemini_flash → haiku → lm_studio → ollama → custom providers
-medium: gemini_pro → sonnet → lm_studio → ollama → custom providers
-heavy:  opus → lm_studio → ollama → custom providers
-local:  lm_studio → ollama → custom providers
-```
+All providers — cloud and local — are stored in PostgreSQL with type (`openai_compatible`, `ollama`, `gemini`, `anthropic`, `custom`), tier assignment, priority, and optional daily limits. Default providers (Gemini Flash/Pro, Claude Haiku/Sonnet/Opus, Ollama, LM Studio) are seeded on first boot by `ProviderSeeder`. Additional providers can be added, removed, or reconfigured from the admin UI at runtime.
 
-Built-in providers: Gemini Flash, Gemini Pro, Claude Haiku, Claude Sonnet, Claude Opus, Ollama, LM Studio.
-
-Custom providers can be added via the admin UI — stored in PostgreSQL with type (`openai_compatible`, `ollama`, `gemini`, `anthropic`, `custom`), tier assignment, and optional daily limits. Custom providers are tried as fallback after built-in models for their tier. This enables multiple local models (e.g., several LM Studio models on the same host with different model names).
-
-Usage counters are keyed by `{provider, Date.utc_today()}` in ETS and persisted to the database so counts survive restarts. Custom providers are tracked as `{:custom, provider_id}`.
+Usage counters are keyed by `{provider_id, Date.utc_today()}` in ETS and persisted to the `llm_usage` table so counts survive restarts.
 
 ### Memory — `AlexClaw.Memory`
 

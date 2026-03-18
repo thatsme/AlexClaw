@@ -88,18 +88,28 @@ All providers — cloud and local — are stored in PostgreSQL with type (`opena
 
 Usage counters are keyed by `{provider_id, Date.utc_today()}` in ETS and persisted to the `llm_usage` table so counts survive restarts.
 
+**Embedding support:** `LLM.embed/2` generates 768-dimension vectors for semantic memory search. Provider resolution is separate from the completion tier system — configured via `embedding.provider` (or auto-detected: Gemini → Ollama → OpenAI-compatible). Each provider type has a dedicated response parser (Gemini `embedContent`, Ollama `/api/embed`, OpenAI `/v1/embeddings`). Embedding calls are tracked in the same usage counters as completions.
+
 ### Memory — `AlexClaw.Memory`
 
 PostgreSQL + pgvector knowledge store. Schema:
 
-- `kind` — `fact`, `summary`, `news_item`, `conversation`, `security_review`
+- `kind` — `fact`, `summary`, `news_item`, `conversation`, `security_review`, `web_search`, `web_page`
 - `content` — the stored text
 - `source` — URL, feed name, skill name
-- `embedding` — pgvector column (cosine similarity search when embeddings available)
+- `embedding` — pgvector column (768 dimensions, HNSW index with cosine distance)
 - `metadata` — JSONB
 - `expires_at` — optional TTL
 
-Search falls back to keyword (ILIKE) when no embeddings are available. Deduplication by URL/content via `Memory.exists?/1`.
+**Async embedding:** `Memory.store/3` inserts the row immediately with a nil embedding, then fires a background task under `TaskSupervisor` to generate the vector via `LLM.embed/2` and update the row. This keeps skill execution non-blocking.
+
+**Hybrid search:** `Memory.search/2` runs both vector similarity and keyword (ILIKE) queries in parallel, merges results with `Enum.uniq_by/2` (vector results first), and returns the top N. Falls back to keyword-only when no embedding provider is available.
+
+**Embedding providers:** `LLM.embed/2` resolves a provider via `embedding.provider` config (or auto-detects: Gemini → Ollama → OpenAI-compatible). Supports Gemini `text-embedding-004` (free tier), Ollama `/api/embed`, and any OpenAI-compatible `/v1/embeddings` endpoint.
+
+**Re-embedding:** `Memory.reembed_all/1` batch-processes all entries with nil embeddings in the background using `Task.async_stream` with configurable concurrency. Used when switching embedding models.
+
+Deduplication by URL/content via `Memory.exists?/1`.
 
 ### Identity — `AlexClaw.Identity`
 
@@ -111,7 +121,7 @@ Runtime configuration system. On boot, `Config.Loader` seeds default values from
 
 Sensitive values (API keys, tokens, OAuth secrets) are encrypted at the application level using AES-256-GCM before storage. The encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256 and cached in `:persistent_term`. Each value gets a unique random IV. On boot, `EncryptExisting` idempotently encrypts any plaintext sensitive values, then `Config.init()` reloads ETS with decrypted values. The `sensitive` boolean flag on each setting controls encryption behavior.
 
-Categories: `identity`, `llm`, `telegram`, `skills`, `github`, `google`, `auth`, `prompts`, `web_automator`.
+Categories: `identity`, `llm`, `embedding`, `telegram`, `skills`, `github`, `google`, `auth`, `prompts`, `web_automator`.
 
 ### LogBuffer — `AlexClaw.LogBuffer`
 
@@ -363,7 +373,7 @@ web-automator/                 # Python/Playwright browser automation sidecar
   Dockerfile
   supervisord.conf             # Xvfb + noVNC + FastAPI
 priv/repo/
-  migrations/                  # 14 DB migrations
+  migrations/                  # 15 DB migrations
   seeds/                       # Example workflow seeds
 config/
   config.exs

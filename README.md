@@ -20,7 +20,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **Workflow Engine** — Define multi-step pipelines combining skills and LLM transforms. Each step passes output to the next. Runs on schedule (cron) or on demand. Full run history with step-level results in the admin UI.
 - **Telegram Gateway** — Bidirectional communication via long-polling. Command routing is deterministic pattern-matching — no LLM involved in dispatch.
 - **Runtime Configuration** — All settings (API keys, prompts, limits, personas) are stored in PostgreSQL, cached in ETS, and editable at runtime via the admin UI. No restart required for any config change.
-- **Persistent Memory** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Semantic search via cosine similarity with keyword fallback.
+- **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `text-embedding-004`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). All skills that store knowledge auto-embed in the background.
 - **Cron Scheduler** — Quantum-based. Jobs defined in config or DB.
 
 ### Skills
@@ -271,7 +271,7 @@ priv/repo/
 
 ## Known Limitations
 
-- **Semantic search is not yet wired up.** The pgvector column exists in the memory table, but the embedding integration is a stub — `Memory.embed/2` returns nil. Memory deduplication and keyword search work. Semantic search via vector similarity is on the roadmap.
+- **Semantic search requires an embedding provider.** Vector search works when at least one embedding-capable provider is configured (Gemini, Ollama, or OpenAI-compatible). Without one, memory falls back to keyword search. Configure via `embedding.provider` and `embedding.model` in the admin UI.
 - **Single-user only.** There is no multi-user access control. The authentication model assumes one trusted operator.
 - **Sensitive config encrypted at rest.** API keys and tokens are AES-256-GCM encrypted in PostgreSQL using `SECRET_KEY_BASE` as key material. Changing `SECRET_KEY_BASE` requires re-entering all API keys. See [SECURITY.md](SECURITY.md) for details.
 - **Web Automator is experimental.** The browser automation sidecar (`web_automation` skill) is under heavy development. APIs, config format, and recording workflow may change without notice.

@@ -57,6 +57,27 @@ feeds = [
     url: "https://krebsonsecurity.com/feed/",
     tags: ["security", "cybersecurity"],
     enabled: true
+  },
+  %{
+    name: "CISA Alerts",
+    type: "rss_feed",
+    url: "https://www.cisa.gov/cybersecurity-advisories/all-advisories.xml",
+    tags: ["security", "cybersecurity", "cisa"],
+    enabled: true
+  },
+  %{
+    name: "CISA KEV",
+    type: "rss_feed",
+    url: "https://www.cisa.gov/cybersecurity-advisories/known-exploited-vulnerabilities.xml",
+    tags: ["security", "cybersecurity", "cisa", "vulnerabilities"],
+    enabled: true
+  },
+  %{
+    name: "CISA ICS",
+    type: "rss_feed",
+    url: "https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml",
+    tags: ["security", "cybersecurity", "cisa", "ics"],
+    enabled: true
   }
 ]
 

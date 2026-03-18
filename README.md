@@ -44,6 +44,8 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 
 ### Dynamic Skill Loading (**experimental**)
 
+![AlexClaw Dynamic Skills](docs/screenshot/dynamic.jpg)
+
 > **This feature is under heavy development.** The API, permission model, and sandboxing may change without notice.
 
 Load custom skills at runtime — no code changes, no Docker rebuild, no restart. Drop an `.ex` file into the skills volume (or upload via the admin UI), and it compiles into the running VM immediately.

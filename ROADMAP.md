@@ -6,12 +6,6 @@ Planned features and improvements, roughly ordered by priority.
 
 ## Next Up
 
-### Semantic Search (Memory)
-
-The pgvector column and search infrastructure already exist but embedding generation is stubbed out. Wiring up an actual embedding model (e.g., Gemini's `text-embedding-004`) would unlock vector-based memory recall instead of keyword fallback.
-
-**Status:** Database schema ready, `LLM.embed/2` returns `nil`.
-
 ### Workflow Retry & Error Handling
 
 Workflows currently fail-fast — if any step errors, the whole run stops. Planned improvements:
@@ -67,6 +61,10 @@ Additional notification/command channels beyond Telegram:
 ---
 
 ## Someday
+
+### ~~Semantic Search (Memory)~~ ✅ Completed (v0.2.1)
+
+Hybrid search combining pgvector cosine similarity and keyword matching. Embeddings generated asynchronously via Gemini `text-embedding-004`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint. 768-dimension vectors with HNSW index. All skills auto-embed stored knowledge in the background. Batch re-embed support for model switching.
 
 ### ~~Dynamic Skill Hot-Loading~~ ✅ Completed (v0.2.0)
 

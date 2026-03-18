@@ -18,7 +18,7 @@ defmodule AlexClaw.LLM do
   @doc "List all LLM providers, ordered by tier and priority."
   @spec list_providers() :: [Provider.t()]
   def list_providers do
-    AlexClaw.Repo.all(from p in Provider, order_by: [p.tier, p.priority, p.name])
+    AlexClaw.Repo.all(from(p in Provider, order_by: [p.tier, p.priority, p.name]))
   end
 
   @doc "Fetch a provider by ID. Returns `{:ok, provider}` or `{:error, :not_found}`."
@@ -108,11 +108,162 @@ defmodule AlexClaw.LLM do
     [%{value: "auto", label: "Auto (tier-based)", group: "auto"} | providers]
   end
 
-  @doc "Generate an embedding for the given text."
-  @spec embed(String.t(), keyword()) :: {:ok, list(float()) | nil}
-  def embed(_text, _opts \\ []) do
-    {:ok, nil}
+  @doc """
+  Generate a 768-dimension embedding for the given text.
+
+  Resolves an embedding provider via config (`embedding.provider`) or auto-detects
+  the first available Gemini → Ollama → OpenAI-compatible provider.
+
+  Options:
+    - `:provider` — explicit provider name (bypasses config/auto-detect)
+  """
+  @spec embed(String.t(), keyword()) :: {:ok, list(float())} | {:error, term()}
+  def embed(text, opts \\ []) when is_binary(text) do
+    case resolve_embedding_provider(opts) do
+      {:ok, provider} ->
+        model = AlexClaw.Config.get("embedding.model") || "text-embedding-004"
+        result = call_embedding(provider, text, model)
+        if match?({:ok, _}, result), do: track_usage(provider.id)
+        result
+
+      {:error, reason} ->
+        Logger.warning("No embedding provider available: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
+
+  defp resolve_embedding_provider(opts) do
+    case Keyword.get(opts, :provider) do
+      name when is_binary(name) and name != "" ->
+        resolve_provider(name, [])
+
+      _ ->
+        configured = AlexClaw.Config.get("embedding.provider")
+
+        if configured && configured != "" do
+          resolve_provider(configured, [])
+        else
+          auto_detect_embedding_provider()
+        end
+    end
+  end
+
+  defp auto_detect_embedding_provider do
+    query =
+      from(p in Provider,
+        where: p.enabled == true,
+        order_by: [asc: p.priority, asc: p.name]
+      )
+
+    providers = AlexClaw.Repo.all(query)
+
+    result =
+      Enum.find(providers, &(&1.type == "gemini")) ||
+        Enum.find(providers, &(&1.type == "ollama")) ||
+        Enum.find(providers, &(&1.type in ["openai_compatible", "custom"]))
+
+    case result do
+      nil -> {:error, :no_embedding_provider}
+      provider -> {:ok, provider}
+    end
+  end
+
+  defp call_embedding(%Provider{type: "gemini"} = p, text, model) do
+    api_key = p.api_key || ""
+
+    if api_key == "",
+      do: {:error, :api_key_not_set},
+      else: call_embedding_gemini(api_key, text, model)
+  end
+
+  defp call_embedding(%Provider{type: "ollama"} = p, text, model) do
+    host = p.host || ""
+    if host == "", do: {:error, :host_not_set}, else: call_embedding_ollama(host, text, model)
+  end
+
+  defp call_embedding(%Provider{type: type} = p, text, model)
+       when type in ["openai_compatible", "custom"] do
+    host = p.host || ""
+
+    if host == "",
+      do: {:error, :host_not_set},
+      else: call_embedding_openai(host, p.api_key, p.headers, text, model)
+  end
+
+  defp call_embedding(%Provider{type: "anthropic"}, _text, _model) do
+    {:error, :anthropic_no_embeddings}
+  end
+
+  # --- Gemini Embeddings ---
+
+  defp call_embedding_gemini(api_key, text, model) do
+    base = embedding_base_url() || "https://generativelanguage.googleapis.com"
+    url = "#{base}/v1beta/models/#{model}:embedContent?key=#{api_key}"
+    body = %{model: "models/#{model}", content: %{parts: [%{text: text}]}}
+
+    case Req.post(url, json: body) do
+      {:ok, %{status: 200, body: %{"embedding" => %{"values" => values}}}} when is_list(values) ->
+        {:ok, values}
+
+      {:ok, %{status: status, body: resp_body}} ->
+        {:error, {:gemini_embed, status, resp_body}}
+
+      {:error, reason} ->
+        {:error, {:gemini_embed, reason}}
+    end
+  end
+
+  # --- Ollama Embeddings ---
+
+  defp call_embedding_ollama(host, text, model) do
+    url = "#{host}/api/embed"
+    body = %{model: model, input: text}
+
+    case Req.post(url, json: body, receive_timeout: 120_000) do
+      {:ok, %{status: 200, body: %{"embeddings" => [vector | _]}}} when is_list(vector) ->
+        {:ok, vector}
+
+      {:ok, %{status: status, body: resp_body}} ->
+        {:error, {:ollama_embed, status, resp_body}}
+
+      {:error, reason} ->
+        {:error, {:ollama_embed, reason}}
+    end
+  end
+
+  # --- OpenAI-compatible Embeddings (LM Studio, etc.) ---
+
+  defp call_embedding_openai(host, api_key, extra_headers, text, model) do
+    url = "#{host}/v1/embeddings"
+
+    headers =
+      (extra_headers || %{})
+      |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+
+    headers =
+      if api_key && api_key != "" do
+        [{"authorization", "Bearer #{api_key}"} | headers]
+      else
+        headers
+      end
+
+    body = %{model: model, input: text}
+
+    case Req.post(url, json: body, headers: headers, receive_timeout: 120_000) do
+      {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vector} | _]}}}
+      when is_list(vector) ->
+        {:ok, vector}
+
+      {:ok, %{status: status, body: resp_body}} ->
+        {:error, {:openai_embed, status, resp_body}}
+
+      {:error, reason} ->
+        {:error, {:openai_embed, reason}}
+    end
+  end
+
+  # Allows overriding the Gemini base URL for testing via application config
+  defp embedding_base_url, do: Application.get_env(:alex_claw, :embedding_base_url)
 
   # --- Model Selection ---
 
@@ -180,12 +331,18 @@ defmodule AlexClaw.LLM do
 
   defp call_provider(%Provider{type: "gemini"} = p, prompt, system) do
     api_key = p.api_key || ""
-    if api_key == "", do: {:error, :api_key_not_set}, else: call_gemini(p.model, api_key, prompt, system)
+
+    if api_key == "",
+      do: {:error, :api_key_not_set},
+      else: call_gemini(p.model, api_key, prompt, system)
   end
 
   defp call_provider(%Provider{type: "anthropic"} = p, prompt, system) do
     api_key = p.api_key || ""
-    if api_key == "", do: {:error, :api_key_not_set}, else: call_anthropic(p.model, api_key, prompt, system)
+
+    if api_key == "",
+      do: {:error, :api_key_not_set},
+      else: call_anthropic(p.model, api_key, prompt, system)
   end
 
   defp call_provider(%Provider{type: "ollama"} = p, prompt, system) do
@@ -193,15 +350,21 @@ defmodule AlexClaw.LLM do
     if host == "", do: {:error, :host_not_set}, else: call_ollama(host, p.model, prompt, system)
   end
 
-  defp call_provider(%Provider{type: type} = p, prompt, system) when type in ["openai_compatible", "custom"] do
+  defp call_provider(%Provider{type: type} = p, prompt, system)
+       when type in ["openai_compatible", "custom"] do
     host = p.host || ""
-    if host == "", do: {:error, :host_not_set}, else: call_openai_compatible(host, p.model, p.api_key, p.headers, prompt, system)
+
+    if host == "",
+      do: {:error, :host_not_set},
+      else: call_openai_compatible(host, p.model, p.api_key, p.headers, prompt, system)
   end
 
   # --- Gemini ---
 
   defp call_gemini(model, api_key, prompt, system) do
-    url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+    url =
+      "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+
     contents = [%{role: "user", parts: [%{text: prompt}]}]
 
     body =
@@ -216,7 +379,11 @@ defmodule AlexClaw.LLM do
 
   defp do_gemini_request(url, body, retries) do
     case Req.post(url, json: body) do
-      {:ok, %{status: 200, body: %{"candidates" => [%{"content" => %{"parts" => [%{"text" => text} | _]}} | _]}}} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{"candidates" => [%{"content" => %{"parts" => [%{"text" => text} | _]}} | _]}
+       }} ->
         {:ok, text}
 
       {:ok, %{status: 429, body: resp_body}} ->
@@ -226,7 +393,11 @@ defmodule AlexClaw.LLM do
         else
           if retries > 0 do
             wait = (4 - retries) * 5_000
-            Logger.warning("Gemini 429 rate limited, retrying in #{div(wait, 1000)}s (#{retries} retries left)")
+
+            Logger.warning(
+              "Gemini 429 rate limited, retrying in #{div(wait, 1000)}s (#{retries} retries left)"
+            )
+
             Process.sleep(wait)
             do_gemini_request(url, body, retries - 1)
           else

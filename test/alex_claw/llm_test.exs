@@ -78,39 +78,45 @@ defmodule AlexClaw.LLMTest do
 
   describe "provider CRUD" do
     test "create_provider with valid attrs" do
-      {:ok, p} = LLM.create_provider(%{
-        name: "my_provider",
-        type: "openai_compatible",
-        host: "https://api.example.com",
-        model: "gpt-4",
-        tier: "medium",
-        priority: 50
-      })
+      {:ok, p} =
+        LLM.create_provider(%{
+          name: "my_provider",
+          type: "openai_compatible",
+          host: "https://api.example.com",
+          model: "gpt-4",
+          tier: "medium",
+          priority: 50
+        })
+
       assert p.name == "my_provider"
       assert p.type == "openai_compatible"
       assert p.enabled == true
     end
 
     test "create_provider without host (cloud provider)" do
-      {:ok, p} = LLM.create_provider(%{
-        name: "cloud_llm",
-        type: "gemini",
-        model: "gemini-2.0-flash",
-        tier: "light",
-        api_key: "test-key"
-      })
+      {:ok, p} =
+        LLM.create_provider(%{
+          name: "cloud_llm",
+          type: "gemini",
+          model: "gemini-2.0-flash",
+          tier: "light",
+          api_key: "test-key"
+        })
+
       assert p.host == nil
     end
 
     test "create_provider with priority" do
-      {:ok, p} = LLM.create_provider(%{
-        name: "prioritized",
-        type: "ollama",
-        host: "http://localhost:11434",
-        model: "llama3",
-        tier: "local",
-        priority: 5
-      })
+      {:ok, p} =
+        LLM.create_provider(%{
+          name: "prioritized",
+          type: "ollama",
+          host: "http://localhost:11434",
+          model: "llama3",
+          tier: "local",
+          priority: 5
+        })
+
       assert p.priority == 5
     end
 
@@ -145,36 +151,43 @@ defmodule AlexClaw.LLMTest do
     end
 
     test "create_provider rejects invalid tier" do
-      assert {:error, cs} = LLM.create_provider(%{
-        name: "bad_tier",
-        type: "ollama",
-        host: "http://localhost",
-        model: "llama3",
-        tier: "invalid_tier"
-      })
+      assert {:error, cs} =
+               LLM.create_provider(%{
+                 name: "bad_tier",
+                 type: "ollama",
+                 host: "http://localhost",
+                 model: "llama3",
+                 tier: "invalid_tier"
+               })
+
       assert %Ecto.Changeset{valid?: false} = cs
     end
 
     test "create_provider rejects invalid type" do
-      assert {:error, cs} = LLM.create_provider(%{
-        name: "bad_type",
-        type: "invalid_type",
-        host: "http://localhost",
-        model: "llama3",
-        tier: "light"
-      })
+      assert {:error, cs} =
+               LLM.create_provider(%{
+                 name: "bad_type",
+                 type: "invalid_type",
+                 host: "http://localhost",
+                 model: "llama3",
+                 tier: "light"
+               })
+
       assert %Ecto.Changeset{valid?: false} = cs
     end
 
     test "create_provider enforces unique name" do
       create_test_provider(%{name: "unique_name"})
-      assert {:error, cs} = LLM.create_provider(%{
-        name: "unique_name",
-        type: "ollama",
-        host: "http://localhost",
-        model: "llama3",
-        tier: "local"
-      })
+
+      assert {:error, cs} =
+               LLM.create_provider(%{
+                 name: "unique_name",
+                 type: "ollama",
+                 host: "http://localhost",
+                 model: "llama3",
+                 tier: "local"
+               })
+
       assert %Ecto.Changeset{} = cs
     end
 
@@ -198,7 +211,7 @@ defmodule AlexClaw.LLMTest do
 
     test "returns error for unknown explicit provider" do
       assert {:error, {:unknown_provider, "nonexistent"}} =
-        LLM.complete("test", provider: "nonexistent")
+               LLM.complete("test", provider: "nonexistent")
     end
 
     test "auto provider string behaves like nil" do
@@ -228,7 +241,7 @@ defmodule AlexClaw.LLMTest do
       create_test_provider(%{name: "Disabled One", enabled: false})
 
       assert {:error, {:unknown_provider, "Disabled One"}} =
-        LLM.complete("test", provider: "Disabled One")
+               LLM.complete("test", provider: "Disabled One")
     end
 
     test "respects daily limit" do
@@ -261,47 +274,169 @@ defmodule AlexClaw.LLMTest do
   end
 
   describe "embed/2" do
-    test "returns {:ok, nil} (not implemented)" do
-      assert {:ok, nil} = LLM.embed("test text")
+    test "returns error when no providers exist" do
+      assert {:error, :no_embedding_provider} = LLM.embed("test text")
     end
 
-    test "ignores opts" do
-      assert {:ok, nil} = LLM.embed("test", model: "fake", dimensions: 1536)
+    test "auto-detects Gemini provider for embeddings" do
+      bypass = Bypass.open()
+      vector = List.duplicate(0.1, 768)
+
+      Bypass.expect_once(
+        bypass,
+        "POST",
+        "/v1beta/models/text-embedding-004:embedContent",
+        fn conn ->
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
+        end
+      )
+
+      Application.put_env(:alex_claw, :embedding_base_url, "http://localhost:#{bypass.port}")
+
+      create_test_provider(%{
+        name: "Gemini Flash",
+        type: "gemini",
+        model: "gemini-2.0-flash",
+        api_key: "test-key",
+        tier: "light"
+      })
+
+      assert {:ok, result} = LLM.embed("test text")
+      assert length(result) == 768
+
+      Application.delete_env(:alex_claw, :embedding_base_url)
+    end
+
+    test "auto-detects Ollama when no Gemini available" do
+      bypass = Bypass.open()
+      vector = List.duplicate(0.2, 768)
+
+      Bypass.expect_once(bypass, "POST", "/api/embed", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"embeddings" => [vector]}))
+      end)
+
+      create_test_provider(%{
+        name: "Local Ollama",
+        type: "ollama",
+        host: "http://localhost:#{bypass.port}",
+        model: "nomic-embed-text",
+        tier: "local"
+      })
+
+      assert {:ok, result} = LLM.embed("test text")
+      assert length(result) == 768
+    end
+
+    test "uses configured embedding provider" do
+      bypass = Bypass.open()
+      vector = List.duplicate(0.3, 768)
+
+      Bypass.expect_once(bypass, "POST", "/v1/embeddings", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"data" => [%{"embedding" => vector}]}))
+      end)
+
+      create_test_provider(%{
+        name: "Custom Embedder",
+        type: "openai_compatible",
+        host: "http://localhost:#{bypass.port}",
+        model: "embed-model",
+        tier: "light"
+      })
+
+      AlexClaw.Config.set("embedding.provider", "Custom Embedder")
+
+      assert {:ok, result} = LLM.embed("test text")
+      assert length(result) == 768
+    end
+
+    test "returns error when API fails" do
+      bypass = Bypass.open()
+
+      Bypass.expect_once(
+        bypass,
+        "POST",
+        "/v1beta/models/text-embedding-004:embedContent",
+        fn conn ->
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(500, Jason.encode!(%{"error" => "internal"}))
+        end
+      )
+
+      Application.put_env(:alex_claw, :embedding_base_url, "http://localhost:#{bypass.port}")
+
+      create_test_provider(%{
+        name: "Failing Gemini",
+        type: "gemini",
+        model: "gemini-2.0-flash",
+        api_key: "test-key",
+        tier: "light"
+      })
+
+      assert {:error, {:gemini_embed, 500, _}} = LLM.embed("test text")
+
+      Application.delete_env(:alex_claw, :embedding_base_url)
+    end
+
+    test "returns error for Anthropic provider (no embedding API)" do
+      create_test_provider(%{
+        name: "Claude",
+        type: "anthropic",
+        model: "claude-haiku",
+        api_key: "test-key",
+        tier: "light"
+      })
+
+      AlexClaw.Config.set("embedding.provider", "Claude")
+
+      assert {:error, :anthropic_no_embeddings} = LLM.embed("test text")
     end
   end
 
   describe "Provider schema" do
     test "default priority is 100" do
-      {:ok, p} = LLM.create_provider(%{
-        name: "default_priority",
-        type: "ollama",
-        host: "http://localhost",
-        model: "llama3",
-        tier: "local"
-      })
+      {:ok, p} =
+        LLM.create_provider(%{
+          name: "default_priority",
+          type: "ollama",
+          host: "http://localhost",
+          model: "llama3",
+          tier: "local"
+        })
+
       assert p.priority == 100
     end
 
     test "default enabled is true" do
-      {:ok, p} = LLM.create_provider(%{
-        name: "default_enabled",
-        type: "ollama",
-        host: "http://localhost",
-        model: "llama3",
-        tier: "local"
-      })
+      {:ok, p} =
+        LLM.create_provider(%{
+          name: "default_enabled",
+          type: "ollama",
+          host: "http://localhost",
+          model: "llama3",
+          tier: "local"
+        })
+
       assert p.enabled == true
     end
 
     test "rejects negative priority" do
-      assert {:error, cs} = LLM.create_provider(%{
-        name: "neg_priority",
-        type: "ollama",
-        host: "http://localhost",
-        model: "llama3",
-        tier: "local",
-        priority: -1
-      })
+      assert {:error, cs} =
+               LLM.create_provider(%{
+                 name: "neg_priority",
+                 type: "ollama",
+                 host: "http://localhost",
+                 model: "llama3",
+                 tier: "local",
+                 priority: -1
+               })
+
       assert %Ecto.Changeset{valid?: false} = cs
     end
   end

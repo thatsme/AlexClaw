@@ -8,40 +8,42 @@ defmodule AlexClaw.Config.Seeder do
   # {key, value_or_fn, type, category, description, sensitive}
   @defaults [
     # Telegram
-    {"telegram.bot_token", &__MODULE__.env/1, "string", "telegram",
-     "Telegram Bot API token", true},
+    {"telegram.bot_token", &__MODULE__.env/1, "string", "telegram", "Telegram Bot API token",
+     true},
     {"telegram.chat_id", &__MODULE__.env/1, "string", "telegram",
      "Telegram chat ID for notifications", false},
-    {"telegram.poll_interval", "1000", "integer", "telegram",
-     "Telegram polling interval in ms", false},
+    {"telegram.poll_interval", "1000", "integer", "telegram", "Telegram polling interval in ms",
+     false},
 
     # LLM - API Keys
-    {"llm.gemini_api_key", &__MODULE__.env/1, "string", "llm",
-     "Google Gemini API key", true},
-    {"llm.anthropic_api_key", &__MODULE__.env/1, "string", "llm",
-     "Anthropic API key", true},
+    {"llm.gemini_api_key", &__MODULE__.env/1, "string", "llm", "Google Gemini API key", true},
+    {"llm.anthropic_api_key", &__MODULE__.env/1, "string", "llm", "Anthropic API key", true},
 
     # LLM - Ollama
-    {"llm.ollama_enabled", &__MODULE__.env/1, "boolean", "llm",
-     "Enable local Ollama model", false},
-    {"llm.ollama_host", &__MODULE__.env/1, "string", "llm",
-     "Ollama API host URL", false},
-    {"llm.ollama_model", &__MODULE__.env/1, "string", "llm",
-     "Ollama model name", false},
+    {"llm.ollama_enabled", &__MODULE__.env/1, "boolean", "llm", "Enable local Ollama model",
+     false},
+    {"llm.ollama_host", &__MODULE__.env/1, "string", "llm", "Ollama API host URL", false},
+    {"llm.ollama_model", &__MODULE__.env/1, "string", "llm", "Ollama model name", false},
 
     # LLM - LM Studio (OpenAI-compatible)
-    {"llm.lmstudio_enabled", &__MODULE__.env/1, "boolean", "llm",
-     "Enable LM Studio local model", false},
-    {"llm.lmstudio_host", &__MODULE__.env/1, "string", "llm",
-     "LM Studio API host URL", false},
-    {"llm.lmstudio_model", &__MODULE__.env/1, "string", "llm",
-     "LM Studio model name", false},
+    {"llm.lmstudio_enabled", &__MODULE__.env/1, "boolean", "llm", "Enable LM Studio local model",
+     false},
+    {"llm.lmstudio_host", &__MODULE__.env/1, "string", "llm", "LM Studio API host URL", false},
+    {"llm.lmstudio_model", &__MODULE__.env/1, "string", "llm", "LM Studio model name", false},
 
     # LLM - Tier limits (requests per day)
-    {"llm.limit.gemini_flash", "250", "integer", "llm", "Gemini Flash daily request limit", false},
+    {"llm.limit.gemini_flash", "250", "integer", "llm", "Gemini Flash daily request limit",
+     false},
     {"llm.limit.gemini_pro", "50", "integer", "llm", "Gemini Pro daily request limit", false},
     {"llm.limit.haiku", "1000", "integer", "llm", "Claude Haiku daily request limit", false},
     {"llm.limit.sonnet", "5", "integer", "llm", "Claude Sonnet daily request limit", false},
+
+    # Embeddings
+    {"embedding.provider", "", "string", "embedding",
+     "Provider name for embeddings (empty = auto-detect: Gemini > Ollama > OpenAI-compatible)",
+     false},
+    {"embedding.model", "text-embedding-004", "string", "embedding",
+     "Embedding model name (Gemini: text-embedding-004, Ollama: nomic-embed-text)", false},
 
     # Skills - RSS
     {"skills.rss.relevance_threshold", "0.7", "float", "skills",
@@ -50,8 +52,7 @@ defmodule AlexClaw.Config.Seeder do
     # GitHub
     {"github.token", "", "string", "github",
      "GitHub personal access token (repo:read scope minimum)", true},
-    {"github.webhook_secret", "", "string", "github",
-     "GitHub webhook HMAC-SHA256 secret", true},
+    {"github.webhook_secret", "", "string", "github", "GitHub webhook HMAC-SHA256 secret", true},
     {"github.default_repo", "", "string", "github",
      "Default repo for workflow steps (owner/repo format, e.g. myuser/myrepo)", false},
     {"github.watched_branches", "main,master", "string", "github",
@@ -60,8 +61,8 @@ defmodule AlexClaw.Config.Seeder do
      "Custom security focus areas (leave blank to use built-in defaults)", false},
 
     # Google OAuth (Calendar, Keep, etc.)
-    {"google.oauth.client_id", &__MODULE__.env/1, "string", "google",
-     "Google OAuth client ID", false},
+    {"google.oauth.client_id", &__MODULE__.env/1, "string", "google", "Google OAuth client ID",
+     false},
     {"google.oauth.client_secret", &__MODULE__.env/1, "string", "google",
      "Google OAuth client secret", true},
     {"google.oauth.refresh_token", &__MODULE__.env/1, "string", "google",
@@ -107,7 +108,9 @@ defmodule AlexClaw.Config.Seeder do
     # Prompts - RSS scoring
     {"prompts.rss.scoring",
      "Score relevance 0.0-1.0 for the following interests:\nBEAM ecosystem, Elixir, Erlang, infrastructure, DevOps, cybersecurity, world news, geopolitics, international conflicts, technology policy.\n\nTitle: {title}\nDescription: {description}\n\nReply with ONLY a float number, nothing else.",
-     "string", "prompts", "Prompt template for RSS relevance scoring. Use {title} and {description} placeholders.", false},
+     "string", "prompts",
+     "Prompt template for RSS relevance scoring. Use {title} and {description} placeholders.",
+     false},
 
     # Prompts - Research
     {"prompts.research.system",
@@ -131,7 +134,7 @@ defmodule AlexClaw.Config.Seeder do
     "google.oauth.refresh_token" => {"GOOGLE_OAUTH_REFRESH_TOKEN", ""},
     "google.oauth.redirect_uri" => {"GOOGLE_OAUTH_REDIRECT_URI", ""},
     "web_automator.enabled" => {"WEB_AUTOMATOR_ENABLED", "false"},
-    "web_automator.host" => {"WEB_AUTOMATOR_HOST", "http://web-automator:6900"},
+    "web_automator.host" => {"WEB_AUTOMATOR_HOST", "http://web-automator:6900"}
   }
 
   @spec env(String.t()) :: String.t()

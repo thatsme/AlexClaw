@@ -20,7 +20,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **Workflow Engine** — Define multi-step pipelines combining skills and LLM transforms. Each step passes output to the next. Runs on schedule (cron) or on demand. Full run history with step-level results in the admin UI.
 - **Telegram Gateway** — Bidirectional communication via long-polling. Command routing is deterministic pattern-matching — no LLM involved in dispatch.
 - **Runtime Configuration** — All settings (API keys, prompts, limits, personas) are stored in PostgreSQL, cached in ETS, and editable at runtime via the admin UI. No restart required for any config change.
-- **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `text-embedding-004`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). All skills that store knowledge auto-embed in the background.
+- **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `gemini-embedding-001`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). 768-dimension vectors with HNSW index. All skills that store knowledge auto-embed in the background.
 - **Cron Scheduler** — Quantum-based. Jobs defined in config or DB.
 
 ### Skills
@@ -29,7 +29,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 
 | Skill | Description |
 |---|---|
-| `rss_collector` | Fetch RSS feeds, deduplicate, score relevance via LLM, notify |
+| `rss_collector` | Fetch RSS feeds, deduplicate, score relevance via LLM, notify. Configurable fetch timeout (global + per-step) |
 | `web_search` | Search the web and synthesize answers |
 | `web_browse` | Fetch and summarize a URL, or answer questions about it |
 | `research` | Deep research with memory context |
@@ -73,7 +73,7 @@ Load custom skills at runtime — no code changes, no Docker rebuild, no restart
 
 #### Getting Started
 
-See [`test/fixtures/skills/skill_template.ex`](test/fixtures/skills/skill_template.ex) for a fully documented template with the complete SkillAPI reference. Dynamic skill examples (RSS, Research, GitHub Review, Web Search, Web Browse) are available in the same directory.
+See [`test/fixtures/skills/skill_template.ex`](test/fixtures/skills/skill_template.ex) for a fully documented template with the complete SkillAPI reference. Dynamic skill examples (RSS with full article fetching, NVD CVE Monitor, Research, GitHub Review, Web Search, Web Browse) are available in the same directory.
 
 ### GitHub Security Review
 
@@ -101,19 +101,20 @@ AlexClaw can review pull requests and commits for security issues:
 ```
 Telegram <──> Gateway <──> Dispatcher ──> Skills
                                 │
-                          SkillSupervisor
-                         (DynamicSupervisor)
+Admin UI (Chat) ──────> SkillSupervisor ──> Dynamic Skills
+                       (DynamicSupervisor)
                                 │
                  ┌──────────────┼──────────────┐
-              RSS            Research        GitHub
-             Skill            Skill       Security Review
+              RSS            Research        NVD CVE
+             Skill            Skill         Monitor
                                 │
                            LLM Router
                     (Gemini / Anthropic / Ollama / LM Studio)
                                 │
                     ┌───────────┴───────────┐
                  Memory                  Config
-              (pgvector)             (DB + ETS + PubSub)
+          (pgvector + embeddings)    (DB + ETS + PubSub)
+           ↑ semantic search ↑
 
 GitHub Webhook ──> WebhookController ──> GitHubSecurityReview
 Scheduler (Quantum) ──> Workflows.Executor ──> Skills
@@ -229,15 +230,17 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | Page | Description |
 |---|---|
 | Dashboard | System status, recent activity |
-| Workflows | Create/edit/run multi-step pipelines, view run history |
+| Chat | Interactive conversation with semantic memory search — pick any provider (cloud or local) |
 | Skills | Core and dynamic skills — upload, reload, unload |
 | Scheduler | Cron jobs and scheduled workflows |
 | LLM | Provider status and usage |
+| Workflows | Create/edit/run multi-step pipelines, view run history |
 | Feeds | RSS feed management |
 | Resources | Shared resources for workflows |
 | Memory | Browse and search stored knowledge |
 | Database | Schema browser and backup download |
 | Config | Runtime configuration editor |
+| Logs | Real-time log viewer with severity filtering |
 
 ---
 
@@ -260,7 +263,7 @@ lib/
     scheduler.ex     # Quantum cron scheduler
   alex_claw_web/
     controllers/     # Auth, database backup, GitHub webhook
-    live/admin_live/ # LiveView admin pages
+    live/admin_live/ # LiveView admin pages (12 pages including Chat)
     plugs/           # RequireAuth, RateLimit, RawBodyReader
 priv/repo/
   migrations/        # All DB migrations

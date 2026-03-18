@@ -275,6 +275,7 @@ Phoenix LiveView admin UI. Session-based authentication — all routes except `/
 | Page | Route | Description |
 |---|---|---|
 | Dashboard | `/` | System uptime, memory, LLM usage, Google status, recent activity |
+| Chat | `/chat` | Interactive conversation with semantic memory search — pick any LLM provider |
 | Workflows | `/workflows` | Create/edit/run pipelines, step editor, resource assignment |
 | Workflow Runs | `/workflows/:id/runs` | Run history with step-level results and output |
 | Skills | `/skills` | Dynamic list from SkillRegistry with descriptions |

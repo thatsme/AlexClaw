@@ -156,10 +156,10 @@ defmodule AlexClaw.Memory do
   defp embed_entry(%Entry{id: id, content: content}) do
     case AlexClaw.LLM.embed(content) do
       {:ok, vector} when is_list(vector) ->
-        Entry
-        |> Repo.get(id)
-        |> Entry.changeset(%{embedding: vector})
-        |> Repo.update()
+        case Repo.get(Entry, id) do
+          nil -> :ok
+          entry -> entry |> Entry.changeset(%{embedding: vector}) |> Repo.update()
+        end
 
       {:error, reason} ->
         Logger.warning("Embedding failed for memory #{id}: #{inspect(reason)}")

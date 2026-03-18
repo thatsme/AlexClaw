@@ -1,0 +1,160 @@
+defmodule AlexClaw.Skills.SkillAPI do
+  @moduledoc """
+  Unified API for all skills — core and dynamic.
+
+  Core skills have `:all` permissions and pass every check.
+  Dynamic skills declare `@permissions` and are enforced at runtime.
+
+  This is the only module dynamic skills should call for side effects.
+  Core skills can also use it for consistency.
+  """
+  require Logger
+
+  @known_permissions ~w(llm telegram_send memory_read memory_write web_read config_read resources_read skill_invoke)a
+
+  def known_permissions, do: @known_permissions
+
+  # --- LLM ---
+
+  @doc "Complete a prompt via LLM. Opts: :tier, :provider, :system"
+  def llm_complete(skill_module, prompt, opts \\ []) do
+    with :ok <- check_permission(skill_module, :llm) do
+      AlexClaw.LLM.complete(prompt, opts)
+    end
+  end
+
+  @doc "Get the system prompt from Identity, with optional context."
+  def system_prompt(skill_module, context \\ %{}) do
+    with :ok <- check_permission(skill_module, :llm) do
+      {:ok, AlexClaw.Identity.system_prompt(context)}
+    end
+  end
+
+  # --- Telegram ---
+
+  @doc "Send a Markdown message to Telegram."
+  def send_telegram(skill_module, message, opts \\ []) do
+    with :ok <- check_permission(skill_module, :telegram_send) do
+      AlexClaw.Gateway.send_message(message, opts)
+      :ok
+    end
+  end
+
+  @doc "Send an HTML message to Telegram."
+  def send_telegram_html(skill_module, message, opts \\ []) do
+    with :ok <- check_permission(skill_module, :telegram_send) do
+      AlexClaw.Gateway.send_html(message, opts)
+      :ok
+    end
+  end
+
+  # --- Memory ---
+
+  @doc "Search memories by semantic similarity. Opts: :limit, :kind"
+  def memory_search(skill_module, query, opts \\ []) do
+    with :ok <- check_permission(skill_module, :memory_read) do
+      {:ok, AlexClaw.Memory.search(query, opts)}
+    end
+  end
+
+  @doc "List recent memories. Opts: :limit, :kind"
+  def memory_recent(skill_module, opts \\ []) do
+    with :ok <- check_permission(skill_module, :memory_read) do
+      {:ok, AlexClaw.Memory.recent(opts)}
+    end
+  end
+
+  @doc "Check if content or source URL already exists in memory."
+  def memory_exists?(skill_module, content_or_source) do
+    with :ok <- check_permission(skill_module, :memory_read) do
+      {:ok, AlexClaw.Memory.exists?(content_or_source)}
+    end
+  end
+
+  @doc "Store a memory entry. Opts: :source, :metadata, :expires_at"
+  def memory_store(skill_module, kind, content, opts \\ []) do
+    with :ok <- check_permission(skill_module, :memory_write) do
+      AlexClaw.Memory.store(kind, content, opts)
+    end
+  end
+
+  # --- HTTP ---
+
+  @doc "HTTP GET. All Req options are passed through (headers, receive_timeout, params, etc)."
+  def http_get(skill_module, url, opts \\ []) do
+    with :ok <- check_permission(skill_module, :web_read) do
+      Req.get(url, opts)
+    end
+  end
+
+  @doc "HTTP POST. All Req options are passed through."
+  def http_post(skill_module, url, opts \\ []) do
+    with :ok <- check_permission(skill_module, :web_read) do
+      Req.post(url, opts)
+    end
+  end
+
+  @doc "HTTP request with explicit method. All Req options are passed through."
+  def http_request(skill_module, method, url, opts \\ []) do
+    with :ok <- check_permission(skill_module, :web_read) do
+      Req.request([method: method, url: url] ++ opts)
+    end
+  end
+
+  # --- Config ---
+
+  @doc "Read a config value by key. Returns {:ok, value} or {:error, :permission_denied}."
+  def config_get(skill_module, key, default \\ nil) do
+    with :ok <- check_permission(skill_module, :config_read) do
+      {:ok, AlexClaw.Config.get(key, default)}
+    end
+  end
+
+  # --- Resources ---
+
+  @doc "List resources with optional filters. Filters: :type, :enabled, :tags"
+  def list_resources(skill_module, filters \\ %{}) do
+    with :ok <- check_permission(skill_module, :resources_read) do
+      {:ok, AlexClaw.Resources.list_resources(filters)}
+    end
+  end
+
+  @doc "Get a single resource by ID."
+  def get_resource(skill_module, id) do
+    with :ok <- check_permission(skill_module, :resources_read) do
+      AlexClaw.Resources.get_resource(id)
+    end
+  end
+
+  # --- Cross-skill invocation ---
+
+  @doc "Invoke another skill by name. Returns the skill's run/1 result."
+  def run_skill(skill_module, skill_name, args) do
+    with :ok <- check_permission(skill_module, :skill_invoke) do
+      case AlexClaw.Workflows.SkillRegistry.resolve(skill_name) do
+        {:ok, target_module} -> target_module.run(args)
+        {:error, :unknown_skill} -> {:error, {:unknown_skill, skill_name}}
+      end
+    end
+  end
+
+  # --- Permission check ---
+
+  defp check_permission(skill_module, permission) do
+    case AlexClaw.Workflows.SkillRegistry.get_permissions(skill_module) do
+      :all ->
+        :ok
+
+      permissions when is_list(permissions) ->
+        if permission in permissions do
+          :ok
+        else
+          Logger.warning("Permission denied: #{inspect(skill_module)} requires #{permission}")
+          {:error, :permission_denied}
+        end
+
+      _ ->
+        {:error, :permission_denied}
+    end
+  end
+end

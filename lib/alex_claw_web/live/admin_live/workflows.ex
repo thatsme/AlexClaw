@@ -8,6 +8,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(AlexClaw.PubSub, "skills:registry")
+    end
+
     {:ok,
      assign(socket,
        page_title: "Workflows",
@@ -17,6 +21,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
        editing_step: nil,
        all_resources: Resources.list_resources(),
        available_skills: SkillRegistry.list_skills(),
+       dynamic_skills: dynamic_skill_names(),
        llm_tiers: ~w(light medium heavy local),
        provider_choices: AlexClaw.LLM.list_provider_choices(),
        custom_schedule: false,
@@ -386,6 +391,30 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     {:noreply, assign(socket, editing: workflow)}
   end
 
+  @impl true
+  def handle_info({:skill_registered, _name}, socket) do
+    {:noreply,
+     assign(socket,
+       available_skills: SkillRegistry.list_skills(),
+       dynamic_skills: dynamic_skill_names()
+     )}
+  end
+
+  def handle_info({:skill_unregistered, _name}, socket) do
+    {:noreply,
+     assign(socket,
+       available_skills: SkillRegistry.list_skills(),
+       dynamic_skills: dynamic_skill_names()
+     )}
+  end
+
+  defp dynamic_skill_names do
+    SkillRegistry.list_all_with_type()
+    |> Enum.filter(fn {_, _, type, _} -> type == :dynamic end)
+    |> Enum.map(&elem(&1, 0))
+    |> MapSet.new()
+  end
+
   defp parse_id(id) when is_binary(id) do
     case Integer.parse(id) do
       {i, ""} -> {:ok, i}
@@ -695,7 +724,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                     <div>
                       <label class="block text-xs text-gray-500 mb-1">Skill</label>
                       <select name="step_skill" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
-                        <option :for={s <- @available_skills} value={s} selected={@editing_step.skill == s}>{s}</option>
+                        <option :for={s <- @available_skills} value={s} selected={@editing_step.skill == s}>{s}{if s in @dynamic_skills, do: " (dynamic)", else: ""}</option>
                       </select>
                     </div>
                     <div :if={skill_uses_llm?(@editing_step.skill)}>
@@ -787,7 +816,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               <label class="block text-xs text-gray-500 mb-1">Add Step</label>
               <select name="skill" class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                 <option value="">Select skill...</option>
-                <option :for={s <- @available_skills} value={s}>{s}</option>
+                <option :for={s <- @available_skills} value={s}>{s}{if s in @dynamic_skills, do: " (dynamic)", else: ""}</option>
               </select>
             </div>
           </form>

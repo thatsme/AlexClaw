@@ -10,6 +10,7 @@ defmodule AlexClaw.Application do
       {Task.Supervisor, name: AlexClaw.TaskSupervisor},
       AlexClaw.LLM.UsageTracker,
       AlexClaw.Config.Loader,
+      AlexClaw.Workflows.SkillRegistry,
       AlexClaw.LogBuffer,
       AlexClaw.Google.TokenManager,
       AlexClaw.RateLimiter.Server,

@@ -66,17 +66,106 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/skills" <> _}) do
     text =
-      AlexClaw.Workflows.SkillRegistry.list_all()
-      |> Enum.map_join("\n", fn {name, module} ->
+      AlexClaw.Workflows.SkillRegistry.list_all_with_type()
+      |> Enum.map_join("\n", fn {name, module, type, perms} ->
         desc =
           if function_exported?(module, :description, 0),
             do: module.description(),
             else: "—"
 
-        "• *#{name}* — #{desc}"
+        tag = if type == :dynamic, do: " `[dynamic]`", else: ""
+        perm_text = if type == :dynamic and is_list(perms),
+          do: " — permissions: #{Enum.join(perms, ", ")}",
+          else: ""
+
+        "• *#{name}*#{tag} — #{desc}#{perm_text}"
       end)
 
     Gateway.send_message("*AlexClaw Skills*\n\n#{text}")
+  end
+
+  # --- Dynamic Skill Management ---
+
+  def dispatch(%Message{text: "/skill load " <> file_path}) do
+    case AlexClaw.Workflows.SkillRegistry.load_skill(String.trim(file_path)) do
+      {:ok, %{name: name, permissions: perms}} ->
+        perm_list = Enum.map_join(perms, ", ", &to_string/1)
+        Gateway.send_message("Skill *#{name}* loaded. Permissions: [#{perm_list}]")
+
+      {:error, :path_traversal} ->
+        Gateway.send_message("Error: file must be inside the skills directory.")
+
+      {:error, :file_not_found} ->
+        Gateway.send_message("Error: file not found.")
+
+      {:error, {:invalid_namespace, ns}} ->
+        Gateway.send_message("Error: module must be under `AlexClaw.Skills.Dynamic.*`, got `#{ns}`")
+
+      {:error, :missing_run_callback} ->
+        Gateway.send_message("Error: module must export `run/1`.")
+
+      {:error, {:unknown_permissions, invalid}} ->
+        Gateway.send_message("Error: unknown permissions: #{inspect(invalid)}")
+
+      {:error, :name_conflicts_with_core} ->
+        Gateway.send_message("Error: name conflicts with a core skill.")
+
+      {:error, {:compilation_error, msg}} ->
+        Gateway.send_message("Compilation error:\n`#{String.slice(msg, 0, 500)}`")
+
+      {:error, reason} ->
+        Gateway.send_message("Failed to load skill: #{inspect(reason)}")
+    end
+  end
+
+  def dispatch(%Message{text: "/skill unload " <> name}) do
+    case AlexClaw.Workflows.SkillRegistry.unload_skill(String.trim(name)) do
+      :ok -> Gateway.send_message("Skill *#{String.trim(name)}* unloaded.")
+      {:error, :cannot_unload_core} -> Gateway.send_message("Cannot unload core skills.")
+      {:error, :not_found} -> Gateway.send_message("Skill not found: `#{String.trim(name)}`")
+    end
+  end
+
+  def dispatch(%Message{text: "/skill reload " <> name}) do
+    case AlexClaw.Workflows.SkillRegistry.reload_skill(String.trim(name)) do
+      {:ok, %{name: n, permissions: perms}} ->
+        perm_list = Enum.map_join(perms, ", ", &to_string/1)
+        Gateway.send_message("Skill *#{n}* reloaded. Permissions: [#{perm_list}]")
+
+      {:error, :not_found} ->
+        Gateway.send_message("Skill not found: `#{String.trim(name)}`")
+
+      {:error, reason} ->
+        Gateway.send_message("Failed to reload: #{inspect(reason)}")
+    end
+  end
+
+  def dispatch(%Message{text: "/skill create " <> name}) do
+    case AlexClaw.Workflows.SkillRegistry.create_skill(String.trim(name)) do
+      {:ok, file_name} ->
+        Gateway.send_message(
+          "Template created: `#{file_name}`\n" <>
+          "Edit the file, then load with: `/skill load #{file_name}`"
+        )
+
+      {:error, :already_exists} ->
+        Gateway.send_message("File already exists for skill `#{String.trim(name)}`.")
+    end
+  end
+
+  def dispatch(%Message{text: "/skill list" <> _} = msg) do
+    dispatch(%{msg | text: "/skills"})
+  end
+
+  def dispatch(%Message{text: "/skill" <> _}) do
+    Gateway.send_message("""
+    *Skill plugin commands*
+    /skill load <filename> — compile and register a skill
+    /skill unload <name> — remove a dynamic skill
+    /skill reload <name> — recompile from stored path
+    /skill create <name> — generate template in skills dir
+    /skill list — list all skills with type
+    """)
   end
 
   def dispatch(%Message{text: "/workflows" <> _}) do
@@ -363,6 +452,7 @@ defmodule AlexClaw.Dispatcher do
     /ping — check if alive
     /status — system status
     /skills — list registered skills
+    /skill load|unload|reload|create — manage dynamic skills
     /llm — show LLM providers status
     /workflows — list all workflows
     /run <id or name> — run a workflow

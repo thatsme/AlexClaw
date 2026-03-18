@@ -11,6 +11,10 @@ defmodule AlexClaw.Config.Loader do
 
   @impl true
   def init(_) do
+    # 0. Ensure skills directory exists
+    skills_dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
+    File.mkdir_p!(skills_dir)
+
     # 1. Create ETS table and load raw DB values
     AlexClaw.Config.init()
     # 2. Seed defaults (marks sensitive keys, encrypts new values)

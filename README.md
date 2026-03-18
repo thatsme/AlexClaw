@@ -42,6 +42,37 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `google_tasks` | Manage Google Tasks lists and items |
 | `web_automation` | Browser automation via headless Playwright sidecar (**experimental**) |
 
+### Dynamic Skill Loading (**experimental**)
+
+> **This feature is under heavy development.** The API, permission model, and sandboxing may change without notice.
+
+Load custom skills at runtime — no code changes, no Docker rebuild, no restart. Drop an `.ex` file into the skills volume (or upload via the admin UI), and it compiles into the running VM immediately.
+
+- **Permission sandbox** — Dynamic skills declare permissions (`llm`, `web_read`, `telegram_send`, `memory_read`, `memory_write`, `config_read`, `resources_read`, `skill_invoke`) and interact through `SkillAPI` only. Undeclared permissions are denied at runtime.
+- **Namespace enforcement** — Module must be `AlexClaw.Skills.Dynamic.*`
+- **Integrity verification** — SHA256 checksum stored on load, verified on boot. Tampered files are skipped with a Telegram alert.
+- **Persistence** — Dynamic skills survive container restarts (DB + Docker volume)
+- **Admin UI** — Upload, reload, and unload skills from the Skills page. Core and dynamic skills are shown separately.
+- **Telegram commands** — `/skill load`, `/skill unload`, `/skill reload`, `/skill create`, `/skill list`
+- **Cross-skill invocation** — Dynamic skills can call other skills (core or dynamic) through `SkillAPI.run_skill/3`
+
+#### Permissions
+
+| Permission | Grants access to |
+|---|---|
+| `:llm` | LLM completion, system prompt |
+| `:web_read` | HTTP GET, POST, and arbitrary requests |
+| `:telegram_send` | Send Markdown or HTML messages to Telegram |
+| `:memory_read` | Search, check existence, list recent memories |
+| `:memory_write` | Store new memory entries |
+| `:config_read` | Read runtime config values |
+| `:resources_read` | List and fetch resources |
+| `:skill_invoke` | Call other skills by name |
+
+#### Getting Started
+
+See [`test/fixtures/skills/skill_template.ex`](test/fixtures/skills/skill_template.ex) for a fully documented template with the complete SkillAPI reference. Dynamic skill examples (RSS, Research, GitHub Review, Web Search, Web Browse) are available in the same directory.
+
 ### GitHub Security Review
 
 AlexClaw can review pull requests and commits for security issues:
@@ -159,7 +190,11 @@ All providers live in the database and can be added, removed, or reconfigured fr
 |---|---|
 | `/ping` | Check if the bot is alive |
 | `/status` | System status (uptime, memory, active skills) |
-| `/skills` | List registered skills |
+| `/skills` | List registered skills (core + dynamic) |
+| `/skill load <file>` | Compile and register a dynamic skill |
+| `/skill unload <name>` | Remove a dynamic skill |
+| `/skill reload <name>` | Recompile a dynamic skill |
+| `/skill create <name>` | Generate a skill template file |
 | `/llm` | Show LLM provider status |
 | `/workflows` | List all workflows with status and ID |
 | `/run <id or name>` | Run a workflow on demand |
@@ -193,7 +228,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 |---|---|
 | Dashboard | System status, recent activity |
 | Workflows | Create/edit/run multi-step pipelines, view run history |
-| Skills | Available skills and status |
+| Skills | Core and dynamic skills — upload, reload, unload |
 | Scheduler | Cron jobs and scheduled workflows |
 | LLM | Provider status and usage |
 | Feeds | RSS feed management |
@@ -212,8 +247,8 @@ lib/
     config/          # Runtime config (DB + ETS + PubSub broadcast)
     llm/             # LLM router, usage tracker, provider schema
     memory/          # Memory entry schema
-    skills/          # All skill modules
-    workflows/       # Executor, scheduler sync, step/run schemas
+    skills/          # Core skill modules, SkillAPI, DynamicSkill schema
+    workflows/       # Executor, scheduler sync, SkillRegistry (GenServer+ETS), step/run schemas
     dispatcher.ex    # Deterministic message routing
     gateway.ex       # Telegram bot
     identity.ex      # Agent persona and system prompts

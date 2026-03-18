@@ -68,6 +68,10 @@ Additional notification/command channels beyond Telegram:
 
 ## Someday
 
+### ~~Dynamic Skill Hot-Loading~~ ✅ Completed (v0.2.0)
+
+Runtime skill loading via `Code.compile_file`. Upload `.ex` files through the admin UI or Telegram commands. Permission sandbox via `SkillAPI`, SHA256 integrity checks, persistence across restarts. Core skills unaffected. **Still under heavy development — API may change.**
+
 ### ~~Secrets Encryption at Rest~~ ✅ Completed (v0.1.1)
 
 Sensitive config values (API keys, tokens) are now encrypted at rest using AES-256-GCM, derived from `SECRET_KEY_BASE`. Existing plaintext values are automatically encrypted on startup.

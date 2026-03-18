@@ -57,6 +57,11 @@ services:
       WEB_AUTOMATOR_ENABLED: ${WEB_AUTOMATOR_ENABLED:-false}
       WEB_AUTOMATOR_HOST: ${WEB_AUTOMATOR_HOST:-http://web-automator:6900}
 
+      # Dynamic skills
+      SKILLS_DIR: /app/skills
+    volumes:
+      - skills_data:/app/skills
+
   web-automator:
     build: ./web-automator
     restart: unless-stopped
@@ -72,3 +77,4 @@ services:
 
 volumes:
   pgdata:
+  skills_data:

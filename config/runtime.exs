@@ -1,5 +1,7 @@
 import Config
 
+config :alex_claw, :skills_dir, System.get_env("SKILLS_DIR", "/app/skills")
+
 if config_env() == :prod do
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||

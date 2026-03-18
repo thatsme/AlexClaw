@@ -83,6 +83,29 @@ or environment variables and restart.
 
 ---
 
+## Dynamic Skill Loading (Experimental)
+
+> **This feature is under heavy development.** The sandboxing model is not yet
+> hardened for adversarial inputs. Only load skills you trust.
+
+Dynamic skills are compiled into the BEAM VM at runtime via `Code.compile_file`.
+The following protections are in place:
+
+- **Path restriction** — only files inside the configured `SKILLS_DIR` volume are accepted
+- **Namespace enforcement** — module must be `AlexClaw.Skills.Dynamic.*`
+- **Behaviour validation** — module must export `run/1`
+- **Permission sandbox** — skills declare permissions; `SkillAPI` enforces them at runtime. Undeclared permissions return `{:error, :permission_denied}`
+- **Integrity checksums** — SHA256 of source file stored on load, verified on boot. Mismatched files are skipped
+- **Core protection** — core skills cannot be unloaded or overwritten by dynamic skills
+- **No NIF compilation** — the Alpine runtime image has no build tools, preventing native code loading
+
+**What is NOT sandboxed:** A dynamic skill runs in the same BEAM VM as the rest
+of AlexClaw. A malicious skill could bypass SkillAPI by calling internal modules
+directly. The permission system is a guardrail, not a security boundary.
+Only load skills from sources you trust.
+
+---
+
 ## Known Limitations and Design Decisions
 
 **LLM prompts may contain user data.**

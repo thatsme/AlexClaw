@@ -1,0 +1,102 @@
+# ==============================================================================
+# AlexClaw Dynamic Skill Template
+# ==============================================================================
+#
+# How to create a dynamic skill:
+#
+# 1. Copy this file and rename it (e.g. my_skill.ex)
+# 2. Rename the module to AlexClaw.Skills.Dynamic.MySkill
+#    (must be under AlexClaw.Skills.Dynamic.*)
+# 3. Set your permissions — only request what you need
+# 4. Implement run/1 — receives args map from the workflow executor
+# 5. Upload via Admin > Skills, or copy to the skills volume and
+#    use /skill load my_skill.ex in Telegram
+#
+# Available permissions:
+#   :llm            — Call LLM models (complete, system_prompt)
+#   :web_read       — HTTP requests (GET, POST, any method)
+#   :telegram_send  — Send messages to Telegram
+#   :memory_read    — Search/check memory entries
+#   :memory_write   — Store new memory entries
+#   :config_read    — Read config values from the database
+#   :resources_read — List and read resources
+#   :skill_invoke   — Call other skills by name
+#
+# The args map passed to run/1 contains:
+#   args[:input]          — Output from the previous workflow step (or user input)
+#   args[:config]         — Step-specific config map (set in the workflow editor)
+#   args[:resources]      — List of resources assigned to the workflow
+#   args[:llm_provider]   — LLM provider name (or nil for auto)
+#   args[:llm_tier]       — Requested tier (light/medium/heavy/local)
+#   args[:prompt_template] — Optional prompt template
+#   args[:workflow_run_id] — Current workflow run ID
+#
+# ==============================================================================
+
+defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
+  @behaviour AlexClaw.Skill
+
+  alias AlexClaw.Skills.SkillAPI
+
+  @impl true
+  def version, do: "1.0.0"
+
+  # Only request the permissions your skill actually uses.
+  @impl true
+  def permissions, do: [:llm]
+
+  @impl true
+  def description, do: "Template skill — replace with your description"
+
+  @impl true
+  def run(args) do
+    input = args[:input]
+    config = args[:config] || %{}
+
+    # Example: simple LLM call
+    prompt = config["prompt"] || "Summarize the following:\n\n#{input}"
+
+    case SkillAPI.llm_complete(__MODULE__, prompt, tier: :light) do
+      {:ok, response} ->
+        {:ok, response}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # SkillAPI reference — uncomment what you need
+  # ---------------------------------------------------------------------------
+  #
+  # LLM
+  #   SkillAPI.llm_complete(__MODULE__, prompt, tier: :light)
+  #   SkillAPI.llm_complete(__MODULE__, prompt, tier: :medium, provider: "gemini-pro")
+  #   SkillAPI.system_prompt(__MODULE__, %{skill: :research})
+  #
+  # Telegram
+  #   SkillAPI.send_telegram(__MODULE__, "markdown *message*")
+  #   SkillAPI.send_telegram_html(__MODULE__, "<b>html message</b>")
+  #
+  # Memory
+  #   SkillAPI.memory_search(__MODULE__, "query", limit: 10, kind: "summary")
+  #   SkillAPI.memory_recent(__MODULE__, limit: 20, kind: "news_item")
+  #   SkillAPI.memory_exists?(__MODULE__, "https://some-url.com")
+  #   SkillAPI.memory_store(__MODULE__, :my_kind, "content", source: "url", metadata: %{})
+  #
+  # HTTP
+  #   SkillAPI.http_get(__MODULE__, url, headers: [...], receive_timeout: 10_000)
+  #   SkillAPI.http_post(__MODULE__, url, json: body, headers: [...])
+  #   SkillAPI.http_request(__MODULE__, :put, url, json: body)
+  #
+  # Config
+  #   SkillAPI.config_get(__MODULE__, "some.config.key", "default")
+  #
+  # Resources
+  #   SkillAPI.list_resources(__MODULE__, %{type: "rss_feed", enabled: true})
+  #   SkillAPI.get_resource(__MODULE__, 42)
+  #
+  # Cross-skill invocation
+  #   SkillAPI.run_skill(__MODULE__, "web_search", %{input: "query"})
+  #
+end

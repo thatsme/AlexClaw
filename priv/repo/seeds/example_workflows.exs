@@ -61,14 +61,14 @@ feeds = [
   %{
     name: "CISA Alerts",
     type: "rss_feed",
-    url: "https://www.cisa.gov/cybersecurity-advisories/all-advisories.xml",
+    url: "https://www.cisa.gov/cybersecurity-advisories/all.xml",
     tags: ["security", "cybersecurity", "cisa"],
     enabled: true
   },
   %{
     name: "CISA KEV",
     type: "rss_feed",
-    url: "https://www.cisa.gov/cybersecurity-advisories/known-exploited-vulnerabilities.xml",
+    url: "https://www.cisa.gov/cybersecurity-advisories/alerts.xml",
     tags: ["security", "cybersecurity", "cisa", "vulnerabilities"],
     enabled: true
   },

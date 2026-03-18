@@ -5,7 +5,9 @@ defmodule AlexClaw.Skills.RSSCollector do
   """
   @behaviour AlexClaw.Skill
   @impl true
-  def description, do: "Fetches RSS feeds, scores relevance via LLM, stores and notifies via Telegram"
+  def description,
+    do: "Fetches RSS feeds, scores relevance via LLM, stores and notifies via Telegram"
+
   use Task, restart: :temporary
   require Logger
 
@@ -28,8 +30,12 @@ defmodule AlexClaw.Skills.RSSCollector do
 
     config = args[:config] || %{}
     feeds = get_feeds(args)
-    threshold = parse_float(config["threshold"], Config.get("skills.rss.relevance_threshold", 0.7))
+
+    threshold =
+      parse_float(config["threshold"], Config.get("skills.rss.relevance_threshold", 0.7))
+
     max_items = parse_int(config["max_items"], Config.get("skills.rss.max_items", 5))
+    fetch_timeout = parse_int(config["fetch_timeout"], Config.get("skills.rss.fetch_timeout", 15))
     force = force || config["force"] == true
 
     llm_opts =
@@ -40,14 +46,24 @@ defmodule AlexClaw.Skills.RSSCollector do
         provider -> [provider: provider]
       end
 
+    recv_timeout = fetch_timeout * 1_000
+    task_timeout = recv_timeout + 5_000
+
     fetched =
       feeds
-      |> Task.async_stream(&fetch_feed/1, max_concurrency: 5, timeout: 15_000, on_timeout: :kill_task)
+      |> Task.async_stream(&fetch_feed(&1, recv_timeout),
+        max_concurrency: 5,
+        timeout: task_timeout,
+        on_timeout: :kill_task
+      )
       |> Enum.flat_map(fn
-        {:ok, {:ok, items}} -> items
+        {:ok, {:ok, items}} ->
+          items
+
         {:ok, {:error, reason}} ->
           Logger.warning("Feed fetch failed: #{inspect(reason)}", skill: :rss)
           []
+
         {:exit, reason} ->
           Logger.warning("Feed fetch crashed: #{inspect(reason)}", skill: :rss)
           []
@@ -57,7 +73,9 @@ defmodule AlexClaw.Skills.RSSCollector do
       if force do
         fetched |> score_and_filter(threshold, max_items, llm_opts, config)
       else
-        fetched |> Enum.reject(&already_seen?/1) |> score_and_filter(threshold, max_items, llm_opts, config)
+        fetched
+        |> Enum.reject(&already_seen?/1)
+        |> score_and_filter(threshold, max_items, llm_opts, config)
       end
 
     Enum.each(results, fn item ->
@@ -96,8 +114,8 @@ defmodule AlexClaw.Skills.RSSCollector do
     |> Enum.map(fn r -> {r.name, r.url} end)
   end
 
-  defp fetch_feed({name, url}) do
-    case Req.get(url, receive_timeout: 10_000) do
+  defp fetch_feed({name, url}, recv_timeout) do
+    case Req.get(url, receive_timeout: recv_timeout, retry: false) do
       {:ok, %{status: 200, body: body}} ->
         items = parse_rss(name, body)
         {:ok, items}
@@ -146,7 +164,7 @@ defmodule AlexClaw.Skills.RSSCollector do
   defp score_and_filter(items, threshold, max_items, llm_opts, config) do
     interests =
       config["interests"] ||
-      Config.get("prompts.rss.interests", "general news, technology, finance, world events")
+        Config.get("prompts.rss.interests", "general news, technology, finance, world events")
 
     # Pre-filter: only recent items (last 48h) and limit total count
     items =
@@ -184,17 +202,27 @@ defmodule AlexClaw.Skills.RSSCollector do
 
   defp parse_rfc2822(date_str) do
     # Best effort: extract date parts from RFC 2822
-    case Regex.run(~r/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})/, date_str) do
+    case Regex.run(
+           ~r/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})/,
+           date_str
+         ) do
       [_, day, month, year, hour, min] ->
         month_num = month_to_num(month)
+
         case NaiveDateTime.new(
-          parse_int(year, 0), month_num, parse_int(day, 0),
-          parse_int(hour, 0), parse_int(min, 0), 0
-        ) do
+               parse_int(year, 0),
+               month_num,
+               parse_int(day, 0),
+               parse_int(hour, 0),
+               parse_int(min, 0),
+               0
+             ) do
           {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
           _ -> :error
         end
-      _ -> :error
+
+      _ ->
+        :error
     end
   end
 
@@ -235,11 +263,16 @@ defmodule AlexClaw.Skills.RSSCollector do
     - Spread your scores: use the full 0.0-1.0 range. The most relevant item should be near 1.0, the least near 0.0.
     """
 
-    Logger.info("Scoring #{count} items in single LLM call (interests: #{String.slice(interests, 0, 80)})", skill: :rss)
+    Logger.info(
+      "Scoring #{count} items in single LLM call (interests: #{String.slice(interests, 0, 80)})",
+      skill: :rss
+    )
 
     case AlexClaw.LLM.complete(prompt, llm_opts ++ [tier: :light]) do
       {:ok, text} ->
-        Logger.info("Scoring response (first 500 chars): #{String.slice(text, 0, 500)}", skill: :rss)
+        Logger.info("Scoring response (first 500 chars): #{String.slice(text, 0, 500)}",
+          skill: :rss
+        )
 
         scores =
           text
@@ -268,10 +301,14 @@ defmodule AlexClaw.Skills.RSSCollector do
         # Relative selection: take top N items, but apply threshold as minimum floor
         passed =
           scored
-          |> Enum.filter(& &1.score >= threshold)
+          |> Enum.filter(&(&1.score >= threshold))
           |> Enum.take(max_items)
 
-        Logger.info("Top-#{max_items} (threshold: #{threshold}): scores=#{inspect(Enum.map(scored, & &1.score))}, passed=#{length(passed)}", skill: :rss)
+        Logger.info(
+          "Top-#{max_items} (threshold: #{threshold}): scores=#{inspect(Enum.map(scored, & &1.score))}, passed=#{length(passed)}",
+          skill: :rss
+        )
+
         passed
 
       {:error, reason} ->
@@ -302,5 +339,4 @@ defmodule AlexClaw.Skills.RSSCollector do
     message = "*#{item.feed}*\n#{title}\n#{item.link}"
     AlexClaw.Gateway.send_message(message)
   end
-
 end

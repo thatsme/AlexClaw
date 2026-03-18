@@ -42,12 +42,14 @@ defmodule AlexClaw.Config.Seeder do
     {"embedding.provider", "", "string", "embedding",
      "Provider name for embeddings (empty = auto-detect: Gemini > Ollama > OpenAI-compatible)",
      false},
-    {"embedding.model", "text-embedding-004", "string", "embedding",
-     "Embedding model name (Gemini: text-embedding-004, Ollama: nomic-embed-text)", false},
+    {"embedding.model", "gemini-embedding-001", "string", "embedding",
+     "Embedding model name (Gemini: gemini-embedding-001, Ollama: nomic-embed-text)", false},
 
     # Skills - RSS
     {"skills.rss.relevance_threshold", "0.7", "float", "skills",
      "Minimum relevance score for RSS items (0.0-1.0)", false},
+    {"skills.rss.fetch_timeout", "15", "integer", "skills",
+     "RSS feed fetch timeout in seconds (per feed)", false},
 
     # GitHub
     {"github.token", "", "string", "github",

@@ -199,7 +199,12 @@ defmodule AlexClaw.LLM do
   defp call_embedding_gemini(api_key, text, model) do
     base = embedding_base_url() || "https://generativelanguage.googleapis.com"
     url = "#{base}/v1beta/models/#{model}:embedContent?key=#{api_key}"
-    body = %{model: "models/#{model}", content: %{parts: [%{text: text}]}}
+
+    body = %{
+      model: "models/#{model}",
+      content: %{parts: [%{text: text}]},
+      outputDimensionality: 768
+    }
 
     case Req.post(url, json: body) do
       {:ok, %{status: 200, body: %{"embedding" => %{"values" => values}}}} when is_list(values) ->

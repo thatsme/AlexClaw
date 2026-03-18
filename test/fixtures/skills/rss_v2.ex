@@ -1,7 +1,8 @@
 defmodule AlexClaw.Skills.Dynamic.RssV2 do
   @moduledoc """
-  Dynamic RSS collector — functionally identical to the core rss_collector,
-  built entirely on SkillAPI. Drop-in replacement for testing hot-loading.
+  Dynamic RSS collector with full article fetching and configurable timeouts.
+  Fetches RSS feeds, scores relevance, then fetches full article content from
+  each link before storing to memory. Built entirely on SkillAPI.
   """
   @behaviour AlexClaw.Skill
 
@@ -10,14 +11,16 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
 
   @max_items_to_score 20
 
+  @max_article_chars 4000
+
   @impl true
-  def version, do: "1.0.0"
+  def version, do: "2.0.0"
 
   @impl true
   def permissions, do: [:llm, :web_read, :telegram_send, :memory_read, :memory_write, :config_read, :resources_read]
 
   @impl true
-  def description, do: "RSS collector v2 (dynamic plugin)"
+  def description, do: "RSS collector v2 — with full article fetch and configurable timeouts"
 
   @impl true
   def run(args) do
@@ -25,13 +28,17 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
     feeds = get_feeds(args)
     threshold = to_float(config["threshold"], 0.7)
     max_items = to_int(config["max_items"], 5)
+    fetch_timeout = to_int(config["fetch_timeout"], config_get("skills.rss.fetch_timeout", 15))
+    fetch_articles = config["fetch_articles"] != false
     force = Map.get(args, :force, false) || config["force"] == true
 
     llm_opts = build_llm_opts(args)
+    recv_timeout = fetch_timeout * 1_000
+    task_timeout = recv_timeout + 5_000
 
     fetched =
       feeds
-      |> Task.async_stream(&fetch_feed/1, max_concurrency: 5, timeout: 15_000, on_timeout: :kill_task)
+      |> Task.async_stream(&fetch_feed(&1, recv_timeout), max_concurrency: 5, timeout: task_timeout, on_timeout: :kill_task)
       |> Enum.flat_map(fn
         {:ok, {:ok, items}} -> items
         _ -> []
@@ -46,15 +53,31 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
 
     results = score_and_filter(items, threshold, max_items, llm_opts, config)
 
+    # Fetch full article content for each result
+    results =
+      if fetch_articles do
+        results
+        |> Task.async_stream(&fetch_article(&1, recv_timeout), max_concurrency: 3, timeout: task_timeout, on_timeout: :kill_task)
+        |> Enum.map(fn
+          {:ok, item} -> item
+          {:exit, _} -> nil
+        end)
+        |> Enum.reject(&is_nil/1)
+      else
+        results
+      end
+
     Enum.each(results, fn item ->
       store_and_notify(item)
-      Process.sleep(2_000)
+      Process.sleep(1_000)
     end)
 
     summary =
       results
       |> Enum.map_join("\n\n", fn item ->
-        "**#{item.feed}**: #{item.title}\n#{String.slice(item.description || "", 0, 300)}\n#{item.link}"
+        article = Map.get(item, :article, "")
+        preview = if article != "", do: "\n#{String.slice(article, 0, 500)}", else: ""
+        "**#{item.feed}**: #{item.title}#{preview}\n#{item.link}"
       end)
 
     {:ok, if(summary == "", do: "No relevant news items found.", else: summary)}
@@ -75,12 +98,38 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
     end
   end
 
-  defp fetch_feed({name, url}) do
-    case SkillAPI.http_get(__MODULE__, url, receive_timeout: 10_000) do
+  defp fetch_feed({name, url}, recv_timeout) do
+    case SkillAPI.http_get(__MODULE__, url, receive_timeout: recv_timeout, retry: false) do
       {:ok, %{status: 200, body: body}} -> {:ok, parse_rss(name, body)}
       {:ok, %{status: status}} -> {:error, {:http, status, url}}
       {:error, reason} -> {:error, {name, reason}}
     end
+  end
+
+  defp fetch_article(item, recv_timeout) do
+    case SkillAPI.http_get(__MODULE__, item.link, receive_timeout: recv_timeout, retry: false) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        article = body |> strip_html() |> String.slice(0, @max_article_chars)
+        Map.put(item, :article, article)
+
+      _ ->
+        Map.put(item, :article, "")
+    end
+  end
+
+  defp strip_html(html) do
+    html
+    |> Floki.parse_document!()
+    |> Floki.find("article, main, .content, .entry-content, body")
+    |> List.first()
+    |> case do
+      nil -> Floki.text(Floki.parse_document!(html))
+      node -> Floki.text(node)
+    end
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  rescue
+    _ -> Regex.replace(~r/<[^>]+>/, html, " ") |> String.replace(~r/\s+/, " ") |> String.trim()
   end
 
   defp parse_rss(feed_name, xml) when is_binary(xml) do
@@ -89,9 +138,14 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
       title: ~x"./title/text()"s,
       link: ~x"./link/text()"s,
       description: ~x"./description/text()"s,
-      pub_date: ~x"./pubDate/text()"s
+      pub_date: ~x"./pubDate/text()"s,
+      dc_date: ~x"./dc:date/text()"s
     )
-    |> Enum.map(&Map.put(&1, :feed, feed_name))
+    |> Enum.map(fn item ->
+      # Use dc:date as fallback when pubDate is empty (RSS 1.0 / RDF feeds like NIST NVD)
+      pub_date = if item.pub_date == "", do: item.dc_date, else: item.pub_date
+      item |> Map.put(:pub_date, pub_date) |> Map.delete(:dc_date) |> Map.put(:feed, feed_name)
+    end)
   rescue
     _ -> []
   catch
@@ -219,11 +273,18 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
   # --- Store & Notify ---
 
   defp store_and_notify(item) do
-    content = "#{item.title}\n#{item.description}"
+    article = Map.get(item, :article, "")
+
+    content =
+      if article != "" do
+        "#{item.title}\n\n#{article}"
+      else
+        "#{item.title}\n#{item.description}"
+      end
 
     SkillAPI.memory_store(__MODULE__, :news_item, content,
       source: item.link,
-      metadata: %{feed: item.feed, score: item.score}
+      metadata: %{feed: item.feed, score: item.score, has_article: article != ""}
     )
 
     title = String.replace(item.title || "", ~r/[*_`\[\]]/, "")
@@ -234,6 +295,13 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
 
   defp build_llm_opts(%{llm_provider: p}) when p not in [nil, "", "auto"], do: [provider: p]
   defp build_llm_opts(_), do: []
+
+  defp config_get(key, default) do
+    case SkillAPI.config_get(__MODULE__, key, default) do
+      {:ok, value} when not is_nil(value) -> value
+      _ -> default
+    end
+  end
 
   defp to_int(nil, default), do: default
   defp to_int(val, _) when is_integer(val), do: val

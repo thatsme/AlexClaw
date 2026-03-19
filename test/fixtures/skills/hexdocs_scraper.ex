@@ -135,9 +135,19 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
     case Regex.run(~r/sidebarNodes=(\{.+\})/, js_body) do
       [_, json_str] ->
         case Jason.decode(json_str) do
-          {:ok, %{"modules" => modules}} ->
-            ids = Enum.map(modules, fn m -> m["id"] end) |> Enum.reject(&is_nil/1)
-            {:ok, ids}
+          {:ok, data} ->
+            module_ids =
+              (data["modules"] || [])
+              |> Enum.map(fn m -> m["id"] end)
+              |> Enum.reject(&is_nil/1)
+
+            guide_ids =
+              (data["extras"] || [])
+              |> Enum.map(fn e -> e["id"] end)
+              |> Enum.reject(&is_nil/1)
+              |> Enum.reject(fn id -> id == "api-reference" end)
+
+            {:ok, module_ids ++ guide_ids}
 
           _ ->
             {:error, :json_parse_failed}

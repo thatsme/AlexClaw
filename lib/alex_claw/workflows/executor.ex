@@ -30,7 +30,8 @@ defmodule AlexClaw.Workflows.Executor do
 
     Logger.info(
       "Workflow '#{workflow.name}' started (run #{run.id}), #{length(steps)} steps, " <>
-        "provider: #{workflow.default_provider || "auto"}"
+        "provider: #{workflow.default_provider || "auto"}",
+      workflow: workflow.name
     )
 
     if notifies?, do: notify_start(workflow)
@@ -52,7 +53,7 @@ defmodule AlexClaw.Workflows.Executor do
             step_results: step_results
           })
 
-        Logger.info("Workflow '#{workflow.name}' completed (run #{run.id})")
+        Logger.info("Workflow '#{workflow.name}' completed (run #{run.id})", workflow: workflow.name)
         {:ok, run}
 
       {:error, step_name, reason, step_results} ->
@@ -64,7 +65,7 @@ defmodule AlexClaw.Workflows.Executor do
             step_results: step_results
           })
 
-        Logger.error("Workflow '#{workflow.name}' failed at step '#{step_name}': #{inspect(reason)}")
+        Logger.error("Workflow '#{workflow.name}' failed at step '#{step_name}': #{inspect(reason)}", workflow: workflow.name)
         if notifies?, do: notify_failure(workflow, step_name, reason)
         {:error, run}
     end
@@ -94,7 +95,7 @@ defmodule AlexClaw.Workflows.Executor do
         state = %{state | visited: MapSet.put(state.visited, pos), max_iterations: state.max_iterations - 1}
         input = resolve_step_input(step, steps, state.outputs)
 
-        Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})")
+        Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})", workflow: workflow.name)
 
         case execute_step(step, input, workflow, run) do
           {:ok, result, branch} ->

@@ -90,7 +90,7 @@ defmodule AlexClawWeb.AdminLive.Logs do
           <div class="flex-shrink-0 w-20 text-xs text-gray-500 font-mono pt-0.5">
             {AlexClawWeb.TimeHelpers.format_datetime(entry.timestamp)}
           </div>
-          <div class="flex-shrink-0">
+          <div class="flex-shrink-0" title={entry[:workflow]}>
             <.severity_badge severity={entry.severity} />
           </div>
           <div class="flex-1 min-w-0">

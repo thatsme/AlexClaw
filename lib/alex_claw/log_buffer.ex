@@ -104,6 +104,7 @@ defmodule AlexClaw.LogBuffer do
         severity: severity,
         message: message,
         module: Map.get(meta, :module),
+        workflow: Map.get(meta, :workflow),
         timestamp: DateTime.utc_now(),
         domain: Map.get(meta, :domain, [])
       }

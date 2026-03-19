@@ -99,6 +99,13 @@ The following protections are in place:
 - **Core protection** — core skills cannot be unloaded or overwritten by dynamic skills
 - **No NIF compilation** — the Alpine runtime image has no build tools, preventing native code loading
 
+**Circuit breaker protection:** Each skill (core and dynamic) is wrapped by an
+OTP circuit breaker. After 3 consecutive failures, the circuit opens and calls
+are rejected instantly without executing the skill. This prevents a failing
+dynamic skill from consuming resources or cascading failures through workflows.
+Workflow steps can be configured to skip or fallback to an alternative skill
+when a circuit is open or a skill is missing.
+
 **What is NOT sandboxed:** A dynamic skill runs in the same BEAM VM as the rest
 of AlexClaw. A malicious skill could bypass SkillAPI by calling internal modules
 directly. The permission system is a guardrail, not a security boundary.

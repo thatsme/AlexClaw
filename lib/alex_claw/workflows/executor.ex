@@ -6,6 +6,7 @@ defmodule AlexClaw.Workflows.Executor do
 
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.SkillRegistry
+  alias AlexClaw.Skills.CircuitBreaker
 
   @doc "Run a workflow by ID. Creates a run record and executes all steps sequentially."
   @spec run(integer()) :: {:ok, AlexClaw.Workflows.WorkflowRun.t()} | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
@@ -130,10 +131,46 @@ defmodule AlexClaw.Workflows.Executor do
 
     case SkillRegistry.resolve(step.skill) do
       {:ok, module} ->
-        module.run(args)
+        case CircuitBreaker.call(step.skill, fn -> module.run(args) end) do
+          {:error, :circuit_open} -> handle_circuit_open(step, args)
+          result -> result
+        end
 
       {:error, :unknown_skill} ->
+        handle_missing_skill(step, args)
+    end
+  end
+
+  defp handle_missing_skill(step, args) do
+    case get_in(step.config, ["on_missing_skill"]) do
+      "skip" ->
+        Logger.warning("[Executor] Skill #{step.skill} not found, skipping step #{step.name}")
+        {:ok, args.input}
+
+      _ ->
         {:error, {:unknown_skill, step.skill}}
+    end
+  end
+
+  defp handle_circuit_open(step, args) do
+    case get_in(step.config, ["on_circuit_open"]) do
+      "skip" ->
+        # args.input is the resolved output from the previous step.
+        # Returning it stores it at this step's position in the outputs map,
+        # so downstream steps see continuity.
+        Logger.warning("[CircuitBreaker] Skipping step #{step.name}, circuit open for #{step.skill}")
+        {:ok, args.input}
+
+      "fallback" ->
+        fallback_name = get_in(step.config, ["fallback_skill"])
+
+        case SkillRegistry.resolve(fallback_name) do
+          {:ok, mod} -> mod.run(args)
+          {:error, :unknown_skill} -> {:error, {:fallback_not_found, fallback_name}}
+        end
+
+      _halt_or_nil ->
+        {:error, :circuit_open}
     end
   end
 

@@ -39,7 +39,7 @@ defmodule AlexClawWeb.AdminLive.Logs do
     {:noreply,
      assign(socket,
        entries: [],
-       counts: %{critical: 0, high: 0, moderate: 0, low: 0}
+       counts: %{critical: 0, high: 0, moderate: 0, low: 0, circuit_breaker: 0}
      )}
   end
 
@@ -81,6 +81,7 @@ defmodule AlexClawWeb.AdminLive.Logs do
         <.filter_btn severity="high" label={"High (#{@counts.high})"} active={@filter == :high} color="orange" />
         <.filter_btn severity="moderate" label={"Moderate (#{@counts.moderate})"} active={@filter == :moderate} color="yellow" />
         <.filter_btn severity="low" label={"Low (#{@counts.low})"} active={@filter == :low} color="gray" />
+        <.filter_btn severity="circuit_breaker" label={"Circuit Breaker (#{@counts.circuit_breaker})"} active={@filter == :circuit_breaker} color="blue" />
       </div>
 
       <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
@@ -127,6 +128,7 @@ defmodule AlexClawWeb.AdminLive.Logs do
         :high -> {"bg-orange-900/50 text-orange-400", "HIGH"}
         :moderate -> {"bg-yellow-900/50 text-yellow-400", "MOD"}
         :low -> {"bg-gray-800 text-gray-500", "LOW"}
+        :circuit_breaker -> {"bg-blue-900/50 text-blue-400", "CB"}
       end
 
     assigns = assign(assigns, bg: bg, text: text)
@@ -138,5 +140,6 @@ defmodule AlexClawWeb.AdminLive.Logs do
 
   defp row_bg(:critical), do: "bg-red-950/20"
   defp row_bg(:high), do: "bg-orange-950/10"
+  defp row_bg(:circuit_breaker), do: "bg-blue-950/10"
   defp row_bg(_), do: ""
 end

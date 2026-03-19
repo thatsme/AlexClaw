@@ -53,7 +53,7 @@ defmodule AlexClaw.LogBuffer do
   end
 
   @doc "Return counts per severity."
-  @spec counts() :: %{critical: non_neg_integer(), high: non_neg_integer(), moderate: non_neg_integer(), low: non_neg_integer()}
+  @spec counts() :: %{critical: non_neg_integer(), high: non_neg_integer(), moderate: non_neg_integer(), low: non_neg_integer(), circuit_breaker: non_neg_integer()}
   def counts do
     entries =
       @table
@@ -65,7 +65,8 @@ defmodule AlexClaw.LogBuffer do
       critical: Enum.count(entries, &(&1 == :critical)),
       high: Enum.count(entries, &(&1 == :high)),
       moderate: Enum.count(entries, &(&1 == :moderate)),
-      low: Enum.count(entries, &(&1 == :low))
+      low: Enum.count(entries, &(&1 == :low)),
+      circuit_breaker: Enum.count(entries, &(&1 == :circuit_breaker))
     }
   end
 
@@ -136,6 +137,7 @@ defmodule AlexClaw.LogBuffer do
 
   defp classify(level, message) do
     cond do
+      circuit_breaker_pattern?(message) -> :circuit_breaker
       level == :emergency or level == :alert -> :critical
       level == :critical -> :critical
       level == :error and critical_pattern?(message) -> :critical
@@ -144,6 +146,10 @@ defmodule AlexClaw.LogBuffer do
       level == :warning -> :moderate
       true -> :low
     end
+  end
+
+  defp circuit_breaker_pattern?(msg) do
+    String.contains?(msg, "[CircuitBreaker]")
   end
 
   defp critical_pattern?(msg) do

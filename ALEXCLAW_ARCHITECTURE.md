@@ -28,6 +28,8 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.LogBuffer              # In-memory ring buffer for recent logs (500 entries)
   ├── AlexClaw.Google.TokenManager    # Google OAuth2 token lifecycle (ETS cache + auto-refresh)
   ├── AlexClaw.RateLimiter.Server     # ETS owner for login rate limiting + periodic purge
+  ├── Registry (CircuitBreakerRegistry)  # Process registry for per-skill circuit breakers
+  ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor — per-skill circuit breakers
   ├── AlexClaw.SkillSupervisor        # DynamicSupervisor — spawns skill worker processes
   ├── AlexClaw.Scheduler              # Quantum cron scheduler
   ├── AlexClaw.Workflows.SchedulerSync # Syncs DB workflow schedules into Quantum jobs
@@ -125,7 +127,33 @@ Categories: `identity`, `llm`, `embedding`, `telegram`, `skills`, `github`, `goo
 
 ### LogBuffer — `AlexClaw.LogBuffer`
 
-In-memory ring buffer (500 entries max) attached to the Erlang Logger. Classifies log entries by severity (`critical`, `high`, `moderate`, `low`) using pattern matching on log level and message content. Filters out verbose OTP/Ecto noise. Exposes `recent/1` for filtered retrieval and `counts/0` for severity aggregates. Powers the real-time log viewer in the admin UI.
+In-memory ring buffer (500 entries max) attached to the Erlang Logger. Classifies log entries by severity (`critical`, `high`, `moderate`, `low`, `circuit_breaker`) using pattern matching on log level and message content. Circuit breaker events are identified by the `[CircuitBreaker]` prefix. Filters out verbose OTP/Ecto noise. Exposes `recent/1` for filtered retrieval and `counts/0` for severity aggregates. Powers the real-time log viewer in the admin UI.
+
+### Circuit Breaker — `AlexClaw.Skills.CircuitBreaker`
+
+Per-skill OTP circuit breaker. One GenServer per skill, managed by `CircuitBreakerSupervisor` (DynamicSupervisor). Uses ETS (`:circuit_breakers`) for lock-free state reads on the hot path and `Process.send_after` for reset timers. Zero external dependencies.
+
+**States:** `:closed` (normal) → `:open` (failing, calls rejected) → `:half_open` (testing with one probe call)
+
+**Behavior:**
+- Skill fails 3 consecutive times → circuit opens → Telegram notification
+- Circuit open → `{:error, :circuit_open}` returned instantly, skill not called
+- After 5 minutes → half-open → one test call allowed
+- Test succeeds → circuit closes (recovered) → Telegram notification
+- Test fails → circuit reopens → wait again
+
+**Integration:** `CircuitBreaker.call/2` wraps skill execution transparently in the Executor. Skills have zero awareness of the breaker — no changes to `run/1` signatures or args.
+
+**Workflow resilience:** Per-step config controls behavior when a circuit is open or skill is missing:
+- `on_circuit_open`: `"halt"` (default) | `"skip"` (pass input through) | `"fallback"` (route to alternative skill)
+- `on_missing_skill`: `"halt"` (default) | `"skip"` (pass input through)
+- `fallback_skill`: name of the alternative skill (used with `"fallback"`)
+
+These are configurable per step via the workflow editor UI (dropdowns, not JSON).
+
+**Dynamic skill lifecycle:** Subscribes to PubSub `"skills:registry"`. When a dynamic skill is unloaded, its breaker is cleaned up. When reloaded, the breaker resets (fresh code = fresh circuit).
+
+**Observability:** Circuit breaker events are classified as `:circuit_breaker` severity in `LogBuffer` (matched by `[CircuitBreaker]` prefix). The Logs page has a dedicated "Circuit Breaker" filter with blue badge.
 
 ### Rate Limiter — `AlexClaw.RateLimiter`
 
@@ -196,6 +224,15 @@ LLM provider selection can be configured at three levels (most specific wins):
 - **Admin UI** — run button on workflow and scheduler pages
 
 All workflow executions run under `AlexClaw.TaskSupervisor`. Run history with step-level results (output, duration, success/failure) is stored in the database and visible in the admin UI.
+
+### Resilience
+
+Each workflow step has per-step resilience controls configured via the workflow editor UI:
+- **On Circuit Open** — what to do when the skill's circuit breaker is open: halt the workflow, skip the step (pass input through to the next step), or route to a fallback skill
+- **On Missing Skill** — what to do when the skill is not loaded (e.g. dynamic skill unloaded): halt or skip
+- **Fallback Skill** — alternative skill to execute when "Fallback skill" is selected
+
+The circuit breaker wraps skill execution transparently in `Executor.execute_step/5`. Skills are unaware of the breaker.
 
 ### Notifications
 
@@ -286,7 +323,7 @@ Phoenix LiveView admin UI. Session-based authentication — all routes except `/
 | Memory | `/memory` | Browse and search stored knowledge |
 | Database | `/database` | Schema browser and backup download |
 | Config | `/config` | Runtime configuration editor (collapsible categories) |
-| Logs | `/logs` | Real-time log viewer with severity filtering |
+| Logs | `/logs` | Real-time log viewer with severity filtering (includes circuit breaker events) |
 
 ---
 
@@ -316,6 +353,8 @@ lib/
       resource.ex              # Resource Ecto schema
       migrator.ex              # Resource migration utilities
     skills/
+      circuit_breaker.ex       # Per-skill OTP circuit breaker (GenServer + ETS)
+      circuit_breaker_supervisor.ex  # DynamicSupervisor + PubSub lifecycle
       api_request.ex           # HTTP requests with retries
       conversational.ex        # Free-text LLM conversation
       github_security_review.ex # PR/commit security analysis
@@ -337,7 +376,7 @@ lib/
       workflow_resource.ex     # Join schema (workflow ↔ resource)
       workflow_run.ex          # Run history Ecto schema
       workflow_step.ex         # Step Ecto schema (order, config, input_from)
-    application.ex             # Supervision tree (13 children)
+    application.ex             # Supervision tree (15 children)
     dispatcher.ex              # Telegram command routing (pattern matching)
     gateway.ex                 # Telegram bot (long-polling GenServer)
     identity.ex                # Persona / system prompt builder

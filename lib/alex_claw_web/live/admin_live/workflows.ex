@@ -198,6 +198,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
     case parse_config_json(params["step_config"]) do
       {:ok, config} ->
+        config = merge_resilience_config(config, params)
+
         attrs = %{
           name: params["step_name"],
           skill: params["step_skill"],
@@ -283,6 +285,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
     case parse_config_json(params["step_config"]) do
       {:ok, config} ->
+        config = merge_resilience_config(config, params)
+
         attrs = %{
           name: params["step_name"],
           skill: params["step_skill"],
@@ -445,6 +449,29 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
   end
 
+  defp merge_resilience_config(config, params) do
+    config =
+      case params["step_on_circuit_open"] do
+        "halt" -> Map.drop(config, ["on_circuit_open", "fallback_skill"])
+        "skip" -> config |> Map.put("on_circuit_open", "skip") |> Map.drop(["fallback_skill"])
+        "fallback" ->
+          config
+          |> Map.put("on_circuit_open", "fallback")
+          |> then(fn c ->
+            case blank_to_nil(params["step_fallback_skill"]) do
+              nil -> c
+              skill -> Map.put(c, "fallback_skill", skill)
+            end
+          end)
+        _ -> config
+      end
+
+    case params["step_on_missing_skill"] do
+      "skip" -> Map.put(config, "on_missing_skill", "skip")
+      _ -> Map.delete(config, "on_missing_skill")
+    end
+  end
+
   defp format_config(nil), do: ""
   defp format_config(config) when config == %{}, do: ""
   defp format_config(config), do: Jason.encode!(config, pretty: true)
@@ -555,6 +582,17 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
   end
 
+  defp tip(assigns) do
+    ~H"""
+    <span class="relative inline-block ml-1 group">
+      <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
+      <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50">
+        {@text}
+      </span>
+    </span>
+    """
+  end
+
   defp skill_has_scaffolds?(skill), do: skill_scaffolds(skill) != %{}
 
   defp skill_help(skill) do
@@ -599,12 +637,12 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         <h2 class="text-lg font-semibold text-white mb-4">New Workflow</h2>
         <form phx-submit="save_workflow" class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Name</label>
+            <label class="block text-sm text-gray-400 mb-1">Name <.tip text="Unique name for this workflow. Shown in the list, Telegram notifications, and run history." /></label>
             <input type="text" name="name" required
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Schedule</label>
+            <label class="block text-sm text-gray-400 mb-1">Schedule <.tip text="When to run this workflow automatically. Choose a preset or write a custom cron expression. Leave as Manual to run only on demand." /></label>
             <select name="schedule_preset" phx-change="schedule_changed"
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
               <option :for={{cron, label} <- schedule_presets()} value={cron}>{label}</option>
@@ -613,7 +651,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               class="w-full mt-2 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono" />
           </div>
           <div class="md:col-span-2">
-            <label class="block text-sm text-gray-400 mb-1">Description</label>
+            <label class="block text-sm text-gray-400 mb-1">Description <.tip text="Optional description shown below the workflow name in the list." /></label>
             <input type="text" name="description"
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
           </div>
@@ -621,7 +659,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
           <div class="flex items-center gap-4">
             <label class="flex items-center gap-2 text-sm text-gray-400">
               <input type="checkbox" name="requires_2fa" value="true" class="rounded bg-gray-800 border-gray-700" />
-              Requires 2FA
+              Requires 2FA <.tip text="When enabled, running this workflow from Telegram requires a TOTP code for confirmation." />
             </label>
           </div>
           <div class="md:col-span-2">
@@ -638,12 +676,12 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
         <form phx-submit="save_workflow" class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Name</label>
+            <label class="block text-sm text-gray-400 mb-1">Name <.tip text="Unique name for this workflow. Shown in the list, Telegram notifications, and run history." /></label>
             <input type="text" name="name" required value={@editing.name}
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Schedule</label>
+            <label class="block text-sm text-gray-400 mb-1">Schedule <.tip text="When to run this workflow automatically. Choose a preset or write a custom cron expression. Leave as Manual to run only on demand." /></label>
             <select name="schedule_preset" phx-change="schedule_changed"
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
               <option :for={{cron, label} <- schedule_presets()} value={cron}
@@ -656,19 +694,19 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               placeholder="*/5 * * * *" />
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Enabled</label>
+            <label class="block text-sm text-gray-400 mb-1">Enabled <.tip text="Disabled workflows won't run on schedule and can't be triggered from Telegram. They can still be run manually from the admin UI." /></label>
             <select name="enabled" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
               <option value="true" selected={@editing.enabled}>Yes</option>
               <option value="false" selected={!@editing.enabled}>No</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Description</label>
+            <label class="block text-sm text-gray-400 mb-1">Description <.tip text="Optional description shown below the workflow name in the list." /></label>
             <input type="text" name="description" value={@editing.description || ""}
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Default Provider</label>
+            <label class="block text-sm text-gray-400 mb-1">Default Provider <.tip text="LLM provider used by all steps unless overridden at the step level. Auto selects the best available." /></label>
             <select name="default_provider" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
               <option :for={pc <- @provider_choices} value={pc.value} selected={(@editing.default_provider || "auto") == pc.value}>
                 {pc.label}
@@ -680,7 +718,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               <input type="checkbox" name="requires_2fa" value="true"
                 checked={@editing.metadata["requires_2fa"] == true}
                 class="rounded bg-gray-800 border-gray-700" />
-              Requires 2FA
+              Requires 2FA <.tip text="When enabled, running this workflow from Telegram requires a TOTP code for confirmation." />
             </label>
           </div>
           <div class="flex items-end">
@@ -717,25 +755,25 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                 <form phx-submit="save_step" class="space-y-3">
                   <div class={["grid grid-cols-1 gap-3", if(skill_uses_llm?(@editing_step.skill), do: "md:grid-cols-4", else: "md:grid-cols-2")]}>
                     <div>
-                      <label class="block text-xs text-gray-500 mb-1">Step Name</label>
+                      <label class="block text-xs text-gray-500 mb-1">Step Name <.tip text="Display name for this step in the workflow." /></label>
                       <input type="text" name="step_name" required value={@editing_step.name}
                         class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
                     </div>
                     <div>
-                      <label class="block text-xs text-gray-500 mb-1">Skill</label>
+                      <label class="block text-xs text-gray-500 mb-1">Skill <.tip text="Which skill to execute at this step. Core skills are built-in, dynamic skills are loaded from .ex files." /></label>
                       <select name="step_skill" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                         <option :for={s <- @available_skills} value={s} selected={@editing_step.skill == s}>{s}{if s in @dynamic_skills, do: " (dynamic)", else: ""}</option>
                       </select>
                     </div>
                     <div :if={skill_uses_llm?(@editing_step.skill)}>
-                      <label class="block text-xs text-gray-500 mb-1">LLM Tier</label>
+                      <label class="block text-xs text-gray-500 mb-1">LLM Tier <.tip text="Reasoning tier: light (fast/cheap), medium (balanced), heavy (deep reasoning), local (on-device model)." /></label>
                       <select name="step_llm_tier" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                         <option value="" selected={!@editing_step.llm_tier}>None</option>
                         <option :for={t <- @llm_tiers} value={t} selected={@editing_step.llm_tier == t}>{t}</option>
                       </select>
                     </div>
                     <div :if={skill_uses_llm?(@editing_step.skill)}>
-                      <label class="block text-xs text-gray-500 mb-1">Provider</label>
+                      <label class="block text-xs text-gray-500 mb-1">Provider <.tip text="Which LLM provider to use. Auto selects the best available based on tier." /></label>
                       <select name="step_llm_model" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                         <option :for={pc <- @provider_choices} value={pc.value} selected={(@editing_step.llm_model || "auto") == pc.value}>
                           {pc.label}
@@ -745,13 +783,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                   </div>
                   <div :if={@editing_step.position > 1}>
                     <label class="block text-xs text-gray-500 mb-1">
-                      Input from
-                      <span class="relative inline-block ml-1 group">
-                        <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
-                        <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50">
-                          Which step's output to use as input. Default: previous step. Override to create branching workflows.
-                        </span>
-                      </span>
+                      Input from <.tip text="Which step's output to use as input. Default: previous step. Override to create branching workflows." />
                     </label>
                     <select name="step_input_from" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                       <option value="" selected={!@editing_step.input_from}>Previous step (default)</option>
@@ -761,15 +793,37 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                       </option>
                     </select>
                   </div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">
+                        On Circuit Open <.tip text="What to do when the circuit breaker is open (skill failing repeatedly). Halt stops the workflow. Skip passes the input to the next step." />
+                      </label>
+                      <select name="step_on_circuit_open" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                        <option value="halt" selected={get_in(@editing_step.config, ["on_circuit_open"]) != "skip" and get_in(@editing_step.config, ["on_circuit_open"]) != "fallback"}>Halt workflow</option>
+                        <option value="skip" selected={get_in(@editing_step.config, ["on_circuit_open"]) == "skip"}>Skip step</option>
+                        <option value="fallback" selected={get_in(@editing_step.config, ["on_circuit_open"]) == "fallback"}>Fallback skill</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">
+                        On Missing Skill <.tip text="What to do when the skill is not loaded (e.g. dynamic skill unloaded). Halt stops the workflow. Skip passes the input to the next step." />
+                      </label>
+                      <select name="step_on_missing_skill" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                        <option value="halt" selected={get_in(@editing_step.config, ["on_missing_skill"]) != "skip"}>Halt workflow</option>
+                        <option value="skip" selected={get_in(@editing_step.config, ["on_missing_skill"]) == "skip"}>Skip step</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">Fallback Skill <.tip text="Alternative skill to run when the primary skill's circuit is open. Only used when On Circuit Open is set to Fallback." /></label>
+                      <select name="step_fallback_skill" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                        <option value="">None</option>
+                        <option :for={s <- @available_skills} value={s} selected={get_in(@editing_step.config, ["fallback_skill"]) == s}>{s}</option>
+                      </select>
+                    </div>
+                  </div>
                   <div :if={skill_uses_llm?(@editing_step.skill)}>
                     <label class="block text-xs text-gray-500 mb-1">
-                      Prompt Template
-                      <span class="relative inline-block ml-1 group">
-                        <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
-                        <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50">
-                          {skill_help(@editing_step.skill).prompt}
-                        </span>
-                      </span>
+                      Prompt Template <.tip text={skill_help(@editing_step.skill).prompt} />
                     </label>
                     <textarea name="step_prompt_template" rows="5"
                       placeholder="Use {input} for previous step output, {resources} for assigned resources, {context} for step config context"
@@ -778,13 +832,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                   <div>
                     <div class="flex items-center justify-between mb-1">
                       <label class="text-xs text-gray-500">
-                        Config (JSON)
-                        <span class="relative inline-block ml-1 group">
-                          <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
-                          <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-72 hidden group-hover:block z-50">
-                            {skill_help(@editing_step.skill).config}
-                          </span>
-                        </span>
+                        Config (JSON) <.tip text={skill_help(@editing_step.skill).config} />
                       </label>
                       <div class="flex gap-1">
                         <button :if={!skill_has_scaffolds?(@editing_step.skill)} type="button" phx-click="scaffold_config"
@@ -830,24 +878,24 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               <input type="hidden" name="step_skill" value={@adding_step} />
               <div class={["grid grid-cols-1 gap-3", if(skill_uses_llm?(@adding_step), do: "md:grid-cols-4", else: "md:grid-cols-2")]}>
                 <div>
-                  <label class="block text-xs text-gray-500 mb-1">Step Name</label>
+                  <label class="block text-xs text-gray-500 mb-1">Step Name <.tip text="Display name for this step in the workflow." /></label>
                   <input type="text" name="step_name" required
                     class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
                 </div>
                 <div>
-                  <label class="block text-xs text-gray-500 mb-1">Skill</label>
+                  <label class="block text-xs text-gray-500 mb-1">Skill <.tip text="Which skill to execute at this step. Core skills are built-in, dynamic skills are loaded from .ex files." /></label>
                   <input type="text" disabled value={@adding_step}
                     class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-gray-400 text-sm" />
                 </div>
                 <div :if={skill_uses_llm?(@adding_step)}>
-                  <label class="block text-xs text-gray-500 mb-1">LLM Tier</label>
+                  <label class="block text-xs text-gray-500 mb-1">LLM Tier <.tip text="Reasoning tier: light (fast/cheap), medium (balanced), heavy (deep reasoning), local (on-device model)." /></label>
                   <select name="step_llm_tier" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                     <option value="">None</option>
                     <option :for={t <- @llm_tiers} value={t}>{t}</option>
                   </select>
                 </div>
                 <div :if={skill_uses_llm?(@adding_step)}>
-                  <label class="block text-xs text-gray-500 mb-1">Provider</label>
+                  <label class="block text-xs text-gray-500 mb-1">Provider <.tip text="Which LLM provider to use. Auto selects the best available based on tier." /></label>
                   <select name="step_llm_model" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                     <option :for={pc <- @provider_choices} value={pc.value}>{pc.label}</option>
                   </select>
@@ -855,13 +903,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               </div>
               <div :if={@editing && length(@editing.steps) > 0}>
                 <label class="block text-xs text-gray-500 mb-1">
-                  Input from
-                  <span class="relative inline-block ml-1 group">
-                    <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
-                    <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50">
-                      Which step's output to use as input. Default: previous step. Override to create branching workflows.
-                    </span>
-                  </span>
+                  Input from <.tip text="Which step's output to use as input. Default: previous step. Override to create branching workflows." />
                 </label>
                 <select name="step_input_from" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                   <option value="">Previous step (default)</option>
@@ -870,15 +912,33 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                   </option>
                 </select>
               </div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">On Circuit Open <.tip text="What to do when the circuit breaker is open (skill failing repeatedly). Halt stops the workflow. Skip passes the input to the next step." /></label>
+                  <select name="step_on_circuit_open" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                    <option value="halt">Halt workflow</option>
+                    <option value="skip">Skip step</option>
+                    <option value="fallback">Fallback skill</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">On Missing Skill <.tip text="What to do when the skill is not loaded (e.g. dynamic skill unloaded). Halt stops the workflow. Skip passes the input to the next step." /></label>
+                  <select name="step_on_missing_skill" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                    <option value="halt">Halt workflow</option>
+                    <option value="skip">Skip step</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">Fallback Skill <.tip text="Alternative skill to run when the primary skill's circuit is open. Only used when On Circuit Open is set to Fallback." /></label>
+                  <select name="step_fallback_skill" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                    <option value="">None</option>
+                    <option :for={s <- @available_skills} value={s}>{s}</option>
+                  </select>
+                </div>
+              </div>
               <div :if={skill_uses_llm?(@adding_step)}>
                 <label class="block text-xs text-gray-500 mb-1">
-                  Prompt Template
-                  <span class="relative inline-block ml-1 group">
-                    <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
-                    <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50">
-                      {skill_help(@adding_step).prompt}
-                    </span>
-                  </span>
+                  Prompt Template <.tip text={skill_help(@adding_step).prompt} />
                 </label>
                 <textarea name="step_prompt_template" rows="4"
                   placeholder="Use {input} for previous step output"
@@ -887,13 +947,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               <div>
                 <div class="flex items-center justify-between mb-1">
                   <label class="text-xs text-gray-500">
-                    Config (JSON)
-                    <span class="relative inline-block ml-1 group">
-                      <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
-                      <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-72 hidden group-hover:block z-50">
-                        {skill_help(@adding_step).config}
-                      </span>
-                    </span>
+                    Config (JSON) <.tip text={skill_help(@adding_step).config} />
                   </label>
                   <div :if={skill_has_scaffolds?(@adding_step)} class="flex gap-1">
                     <button :for={{label, _json} <- skill_scaffolds(@adding_step)}

@@ -17,7 +17,10 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 ### Core
 
 - **Multi-Model LLM Router** — Tier-based routing (`light` / `medium` / `heavy` / `local`) with priority-based selection. All providers (cloud and local) are stored in PostgreSQL and fully manageable from the admin UI. Tracks daily usage per provider in ETS. Ships with default providers (Gemini, Claude, Ollama, LM Studio) seeded on first boot — add, remove, or reconfigure any provider at runtime.
-- **Workflow Engine** — Define multi-step pipelines combining skills and LLM transforms. Each step passes output to the next. Runs on schedule (cron) or on demand. Full run history with step-level results in the admin UI.
+- **Workflow Engine** — Define multi-step pipelines combining skills and LLM transforms. Each step passes output to the next. Runs on schedule (cron) or on demand. Full run history with step-level results in the admin UI. Per-step resilience controls (circuit breaker, missing skill handling, fallback routing).
+- **OTP Circuit Breaker** — Per-skill circuit breaker using GenServer + ETS. After consecutive failures a skill is temporarily disabled (circuit open), then automatically re-tested after a cooldown. Telegram notifications on state transitions. Dead letter routing: workflow steps can skip, halt, or fallback to an alternative skill when a circuit is open or a skill is missing. Zero external dependencies — pure OTP.
+
+![AlexClaw Circuit Breaker](docs/screenshot/circuit_break.jpg)
 - **Telegram Gateway** — Bidirectional communication via long-polling. Command routing is deterministic pattern-matching — no LLM involved in dispatch.
 - **Runtime Configuration** — All settings (API keys, prompts, limits, personas) are stored in PostgreSQL, cached in ETS, and editable at runtime via the admin UI. No restart required for any config change.
 - **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `gemini-embedding-001`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). 768-dimension vectors with HNSW index. All skills that store knowledge auto-embed in the background.
@@ -117,11 +120,11 @@ Admin UI (Chat) ──────> SkillSupervisor ──> Dynamic Skills
            ↑ semantic search ↑
 
 GitHub Webhook ──> WebhookController ──> GitHubSecurityReview
-Scheduler (Quantum) ──> Workflows.Executor ──> Skills
-Phoenix LiveView Admin ──> all of the above
+Scheduler (Quantum) ──> Workflows.Executor ──┬──> CircuitBreaker ──> Skills
+Phoenix LiveView Admin ──> all of the above  └──> Fallback / Skip / Halt
 ```
 
-Every skill runs as an isolated OTP process. Crashes are contained and supervised. The `Dispatcher` is deterministic pattern-matching — no LLM token cost for routing.
+Every skill runs as an isolated OTP process. Crashes are contained and supervised. The circuit breaker wraps each skill transparently — skills have zero awareness of it. The `Dispatcher` is deterministic pattern-matching — no LLM token cost for routing.
 
 See [ALEXCLAW_ARCHITECTURE.md](ALEXCLAW_ARCHITECTURE.md) for the full design document.
 
@@ -252,7 +255,7 @@ lib/
     config/          # Runtime config (DB + ETS + PubSub broadcast)
     llm/             # LLM router, usage tracker, provider schema
     memory/          # Memory entry schema
-    skills/          # Core skill modules, SkillAPI, DynamicSkill schema
+    skills/          # Core skill modules, SkillAPI, DynamicSkill schema, CircuitBreaker
     workflows/       # Executor, scheduler sync, SkillRegistry (GenServer+ETS), step/run schemas
     dispatcher.ex    # Deterministic message routing
     gateway.ex       # Telegram bot

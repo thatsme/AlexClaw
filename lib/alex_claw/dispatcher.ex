@@ -8,6 +8,10 @@ defmodule AlexClaw.Dispatcher do
   alias AlexClaw.{Config, Message, Gateway, SkillSupervisor}
 
   @spec dispatch(Message.t()) :: :ok | :ignored | term()
+  def dispatch(%Message{text: "/start" <> _}) do
+    Gateway.send_message("🦇 *AlexClaw* is ready.\nType /help for commands.")
+  end
+
   def dispatch(%Message{text: "/ping" <> _} = msg) do
     Gateway.send_message("pong", chat_id: msg.chat_id)
   end

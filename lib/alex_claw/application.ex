@@ -14,6 +14,8 @@ defmodule AlexClaw.Application do
       AlexClaw.LogBuffer,
       AlexClaw.Google.TokenManager,
       AlexClaw.RateLimiter.Server,
+      {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
+      AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,
       AlexClaw.Scheduler,
       AlexClaw.Workflows.SchedulerSync,

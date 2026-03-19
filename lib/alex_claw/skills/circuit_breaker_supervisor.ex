@@ -6,6 +6,7 @@ defmodule AlexClaw.Skills.CircuitBreakerSupervisor do
   """
   use Supervisor
 
+  @spec start_link(any()) :: Supervisor.on_start()
   def start_link(init_arg) do
     Supervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
   end
@@ -67,6 +68,7 @@ defmodule AlexClaw.Skills.CircuitBreakerLifecycle do
   @ets_table :circuit_breakers
   @pubsub_topic "skills:registry"
 
+  @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end

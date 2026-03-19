@@ -89,21 +89,25 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   @doc "Load a dynamic skill from a file in the skills directory."
+  @spec load_skill(String.t()) :: {:ok, map()} | {:error, term()}
   def load_skill(file_path) do
     GenServer.call(__MODULE__, {:load_skill, file_path}, 30_000)
   end
 
   @doc "Unload a dynamic skill by name."
+  @spec unload_skill(String.t()) :: :ok | {:error, atom()}
   def unload_skill(name) do
     GenServer.call(__MODULE__, {:unload_skill, name})
   end
 
   @doc "Reload a dynamic skill by name."
+  @spec reload_skill(String.t()) :: {:ok, map()} | {:error, term()}
   def reload_skill(name) do
     GenServer.call(__MODULE__, {:reload_skill, name})
   end
 
   @doc "Create a template skill file in the skills directory."
+  @spec create_skill(String.t()) :: {:ok, String.t()} | {:error, atom()}
   def create_skill(name) do
     GenServer.call(__MODULE__, {:create_skill, name})
   end
@@ -372,6 +376,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   defp extract_routes(module) do
+    Code.ensure_loaded(module)
+
     if function_exported?(module, :routes, 0) do
       module.routes()
     else

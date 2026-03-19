@@ -37,6 +37,7 @@ docker-compose_*.yml
 
 # Claude Code
 .claude/
+TEST_RULES.md
 
 # IDE
 .elixir_ls/

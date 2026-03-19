@@ -17,13 +17,14 @@ defmodule AlexClaw.Workflows.WorkflowStep do
     field :prompt_template, :string
     field :config, :map, default: %{}
     field :input_from, :integer
+    field :routes, {:array, :map}, default: []
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(step, attrs) do
     step
-    |> cast(attrs, [:workflow_id, :position, :name, :skill, :llm_tier, :llm_model, :prompt_template, :config, :input_from])
+    |> cast(attrs, [:workflow_id, :position, :name, :skill, :llm_tier, :llm_model, :prompt_template, :config, :input_from, :routes])
     |> validate_required([:position, :name, :skill])
     |> validate_inclusion(:llm_tier, @allowed_tiers, message: "must be one of: #{Enum.join(@allowed_tiers, ", ")}")
     |> foreign_key_constraint(:workflow_id)

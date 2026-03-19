@@ -15,6 +15,9 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Fetches PR/commit diffs from GitHub, runs LLM security analysis, notifies via Telegram"
+
+  @impl true
+  def routes, do: [:on_clean, :on_findings, :on_error]
   require Logger
 
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
@@ -44,7 +47,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
         true ->
           case latest_open_pr(repo, token) do
             {:ok, pr_number} -> analyse_pr(repo, pr_number, focus, llm_opts, token)
-            {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}."}
+            {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}.", :on_clean}
             {:error, reason} -> {:error, reason}
           end
       end
@@ -65,13 +68,13 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
         else
           case latest_open_pr(repo, token) do
             {:ok, number} -> analyse_pr(repo, number, focus, [tier: :medium], token)
-            {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}."}
+            {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}.", :on_clean}
             {:error, reason} -> {:error, reason}
           end
         end
 
       case result do
-        {:ok, report} ->
+        {:ok, report, _branch} ->
           Gateway.send_message(report)
 
         {:error, reason} ->
@@ -90,7 +93,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       case analyse_commit(repo, sha, focus, [tier: :medium], token) do
-        {:ok, report} ->
+        {:ok, report, _branch} ->
           Gateway.send_message(report)
 
         {:error, reason} ->
@@ -142,7 +145,8 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
           }
         )
 
-        {:ok, report}
+        branch = if extract_risk_level(analysis) in ["NONE", "LOW"], do: :on_clean, else: :on_findings
+        {:ok, report, branch}
 
       {:error, reason} ->
         {:error, {:llm_failed, reason}}

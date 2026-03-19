@@ -36,7 +36,7 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         input: nil
       })
 
-      assert match?({:ok, _}, result) or match?({:error, {:summarize_failed, _}}, result)
+      assert match?({:ok, _, _}, result) or match?({:error, {:summarize_failed, _}}, result)
     end
 
     test "uses config url over input" do
@@ -53,7 +53,7 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         input: "http://ignored.example.com"
       })
 
-      assert match?({:ok, _}, result) or match?({:error, _}, result)
+      assert match?({:ok, _, _}, result) or match?({:error, _}, result)
     end
 
     test "handles HTTP errors" do
@@ -68,7 +68,7 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         input: nil
       })
 
-      assert {:error, {:http, 404}} = result
+      assert {:ok, nil, :on_not_found} = result
     end
 
     test "passes question to QA mode" do
@@ -88,7 +88,7 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         input: nil
       })
 
-      assert match?({:ok, _}, result) or match?({:error, {:qa_failed, _}}, result)
+      assert match?({:ok, _, _}, result) or match?({:error, {:qa_failed, _}}, result)
     end
   end
 end

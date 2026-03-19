@@ -1,6 +1,9 @@
 defmodule AlexClaw.Workflows.Executor do
   @moduledoc """
-  Executes a workflow by running its steps in order, passing data between them.
+  Executes a workflow by walking its step graph. Supports conditional branching:
+  each skill returns a branch atom, and the executor follows the matching route
+  to the next step. Steps without routes fall through to the next position
+  (backward compatible with linear workflows).
   """
   require Logger
 
@@ -8,7 +11,7 @@ defmodule AlexClaw.Workflows.Executor do
   alias AlexClaw.Workflows.SkillRegistry
   alias AlexClaw.Skills.CircuitBreaker
 
-  @doc "Run a workflow by ID. Creates a run record and executes all steps sequentially."
+  @doc "Run a workflow by ID. Creates a run record and walks the step graph."
   @spec run(integer()) :: {:ok, AlexClaw.Workflows.WorkflowRun.t()} | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
   def run(workflow_id) do
     workflow = Workflows.get_workflow!(workflow_id)
@@ -22,16 +25,24 @@ defmodule AlexClaw.Workflows.Executor do
 
   defp execute(workflow) do
     {:ok, run} = Workflows.create_run(workflow)
-    resources = workflow.resources
     steps = workflow.steps
-    default_provider = workflow.default_provider
     notifies? = Enum.any?(steps, &(&1.skill == "telegram_notify"))
 
-    Logger.info("Workflow '#{workflow.name}' started (run #{run.id}), #{length(steps)} steps, provider: #{default_provider || "auto"}")
+    Logger.info(
+      "Workflow '#{workflow.name}' started (run #{run.id}), #{length(steps)} steps, " <>
+        "provider: #{workflow.default_provider || "auto"}"
+    )
 
     if notifies?, do: notify_start(workflow)
 
-    case execute_steps(steps, resources, run, default_provider) do
+    state = %{
+      outputs: %{},
+      step_results: %{},
+      visited: MapSet.new(),
+      max_iterations: length(steps) * 2
+    }
+
+    case walk(first_position(steps), steps, workflow, run, state) do
       {:ok, final_result, step_results} ->
         {:ok, run} =
           Workflows.update_run(run, %{
@@ -59,69 +70,69 @@ defmodule AlexClaw.Workflows.Executor do
     end
   end
 
-  defp notify_start(workflow) do
-    step_names = workflow.steps |> Enum.map(& &1.name) |> Enum.join(" → ")
-    AlexClaw.Gateway.send_message("⚙️ *#{workflow.name}* started\n#{step_names}")
+  # --- Graph Walker ---
+
+  defp walk(nil, _steps, _workflow, _run, state) do
+    # No more steps — workflow complete
+    last_result = last_output(state)
+    {:ok, last_result, state.step_results}
   end
 
-  defp notify_failure(workflow, step_name, reason) do
-    AlexClaw.Gateway.send_message("❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`")
+  defp walk(_pos, _steps, _workflow, _run, %{max_iterations: 0} = state) do
+    {:error, "loop_protection", :loop_detected, state.step_results}
   end
 
-  defp execute_steps(steps, resources, run, default_provider) do
-    Enum.reduce_while(steps, {:ok, nil, %{}, %{}}, fn step, {:ok, _last_output, step_results, outputs} ->
-      Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})")
+  defp walk(pos, steps, workflow, run, state) do
+    step = find_step(steps, pos)
 
-      input = resolve_step_input(step, steps, outputs)
+    unless step do
+      {:ok, last_output(state), state.step_results}
+    else
+      if MapSet.member?(state.visited, pos) do
+        {:error, step.name, :loop_detected, state.step_results}
+      else
+        state = %{state | visited: MapSet.put(state.visited, pos), max_iterations: state.max_iterations - 1}
+        input = resolve_step_input(step, steps, state.outputs)
 
-      case execute_step(step, input, resources, run, default_provider) do
-        {:ok, result} ->
-          step_results = Map.put(step_results, to_string(step.position), %{
-            "name" => step.name,
-            "skill" => step.skill,
-            "output" => serialize_result(result)
-          })
+        Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})")
 
-          outputs = Map.put(outputs, step.position, result)
+        case execute_step(step, input, workflow, run) do
+          {:ok, result, branch} ->
+            state = record_step_result(state, step, result, branch)
+            next = resolve_next(step, branch, steps)
+            walk(next, steps, workflow, run, state)
 
-          {:cont, {:ok, result, step_results, outputs}}
+          {:skipped, result} ->
+            state = record_step_result(state, step, result, :skipped)
+            next = next_position(step.position, steps)
+            walk(next, steps, workflow, run, state)
 
-        {:error, reason} ->
-          step_results = Map.put(step_results, to_string(step.position), %{
-            "name" => step.name,
-            "skill" => step.skill,
-            "error" => inspect(reason)
-          })
+          {:error, reason} ->
+            state = record_step_error(state, step, reason)
+            next = resolve_next(step, :on_error, steps)
 
-          {:halt, {:error, step.name, reason, step_results}}
+            case next do
+              nil ->
+                {:error, step.name, reason, state.step_results}
+
+              next_pos ->
+                # Error is routed to another step — store error info in outputs for that step's input
+                state = %{state | outputs: Map.put(state.outputs, step.position, %{error: reason})}
+                walk(next_pos, steps, workflow, run, state)
+            end
+        end
       end
-    end)
-    |> case do
-      {:ok, final, step_results, _outputs} -> {:ok, final, step_results}
-      {:error, step_name, reason, step_results} -> {:error, step_name, reason, step_results}
     end
   end
 
-  defp resolve_step_input(step, steps, outputs) do
-    case step.input_from do
-      nil ->
-        prev = steps
-          |> Enum.filter(&(&1.position < step.position))
-          |> Enum.max_by(& &1.position, fn -> nil end)
+  # --- Step Execution ---
 
-        if prev, do: Map.get(outputs, prev.position), else: nil
-
-      position ->
-        Map.get(outputs, position)
-    end
-  end
-
-  defp execute_step(step, input, resources, run, default_provider) do
-    provider = step.llm_model || default_provider
+  defp execute_step(step, input, workflow, run) do
+    provider = step.llm_model || workflow.default_provider
 
     args = %{
       input: input,
-      resources: resources,
+      resources: workflow.resources,
       config: step.config || %{},
       workflow_run_id: run.id,
       llm_provider: provider,
@@ -132,8 +143,10 @@ defmodule AlexClaw.Workflows.Executor do
     case SkillRegistry.resolve(step.skill) do
       {:ok, module} ->
         case CircuitBreaker.call(step.skill, fn -> module.run(args) end) do
+          {:ok, result, branch} -> {:ok, result, branch}
+          {:ok, result} -> {:ok, result, :on_success}
           {:error, :circuit_open} -> handle_circuit_open(step, args)
-          result -> result
+          {:error, reason} -> {:error, reason}
         end
 
       {:error, :unknown_skill} ->
@@ -141,38 +154,151 @@ defmodule AlexClaw.Workflows.Executor do
     end
   end
 
-  defp handle_missing_skill(step, args) do
-    case get_in(step.config, ["on_missing_skill"]) do
-      "skip" ->
-        Logger.warning("[Executor] Skill #{step.skill} not found, skipping step #{step.name}")
-        {:ok, args.input}
-
-      _ ->
-        {:error, {:unknown_skill, step.skill}}
-    end
-  end
-
   defp handle_circuit_open(step, args) do
     case get_in(step.config, ["on_circuit_open"]) do
       "skip" ->
-        # args.input is the resolved output from the previous step.
-        # Returning it stores it at this step's position in the outputs map,
-        # so downstream steps see continuity.
         Logger.warning("[CircuitBreaker] Skipping step #{step.name}, circuit open for #{step.skill}")
-        {:ok, args.input}
+        {:skipped, args.input}
 
       "fallback" ->
         fallback_name = get_in(step.config, ["fallback_skill"])
 
         case SkillRegistry.resolve(fallback_name) do
-          {:ok, mod} -> mod.run(args)
-          {:error, :unknown_skill} -> {:error, {:fallback_not_found, fallback_name}}
+          {:ok, mod} ->
+            case mod.run(args) do
+              {:ok, result, branch} -> {:ok, result, branch}
+              {:ok, result} -> {:ok, result, :on_success}
+              {:error, reason} -> {:error, reason}
+            end
+
+          {:error, :unknown_skill} ->
+            {:error, {:fallback_not_found, fallback_name}}
         end
 
       _halt_or_nil ->
         {:error, :circuit_open}
     end
   end
+
+  defp handle_missing_skill(step, args) do
+    case get_in(step.config, ["on_missing_skill"]) do
+      "skip" ->
+        Logger.warning("[Executor] Skill #{step.skill} not found, skipping step #{step.name}")
+        {:skipped, args.input}
+
+      _ ->
+        {:error, {:unknown_skill, step.skill}}
+    end
+  end
+
+  # --- Route Resolution ---
+
+  defp resolve_next(step, branch, steps) do
+    case step.routes do
+      routes when routes == [] or is_nil(routes) ->
+        # No routes defined — fall through to next position on success,
+        # halt on error (backward compatible)
+        if branch == :on_error, do: nil, else: next_position(step.position, steps)
+
+      routes ->
+        branch_str = to_string(branch)
+
+        case Enum.find(routes, &(&1["branch"] == branch_str)) do
+          %{"goto" => pos} ->
+            pos
+
+          nil ->
+            # No matching route — check for default
+            case Enum.find(routes, &(&1["branch"] == "default")) do
+              %{"goto" => pos} -> pos
+              nil -> nil
+            end
+        end
+    end
+  end
+
+  # --- Input Resolution ---
+
+  defp resolve_step_input(step, steps, outputs) do
+    case step.input_from do
+      nil ->
+        prev =
+          steps
+          |> Enum.filter(&(&1.position < step.position))
+          |> Enum.max_by(& &1.position, fn -> nil end)
+
+        if prev, do: Map.get(outputs, prev.position), else: nil
+
+      position ->
+        Map.get(outputs, position)
+    end
+  end
+
+  # --- State Helpers ---
+
+  defp record_step_result(state, step, result, branch) do
+    step_results =
+      Map.put(state.step_results, to_string(step.position), %{
+        "name" => step.name,
+        "skill" => step.skill,
+        "branch" => to_string(branch),
+        "output" => serialize_result(result)
+      })
+
+    outputs = Map.put(state.outputs, step.position, result)
+    %{state | step_results: step_results, outputs: outputs}
+  end
+
+  defp record_step_error(state, step, reason) do
+    step_results =
+      Map.put(state.step_results, to_string(step.position), %{
+        "name" => step.name,
+        "skill" => step.skill,
+        "error" => inspect(reason)
+      })
+
+    %{state | step_results: step_results}
+  end
+
+  defp find_step(steps, pos) do
+    Enum.find(steps, &(&1.position == pos))
+  end
+
+  defp first_position([]), do: nil
+  defp first_position(steps), do: hd(steps).position
+
+  defp next_position(current, steps) do
+    steps
+    |> Enum.filter(&(&1.position > current))
+    |> Enum.min_by(& &1.position, fn -> nil end)
+    |> case do
+      nil -> nil
+      step -> step.position
+    end
+  end
+
+  defp last_output(%{outputs: outputs}) when map_size(outputs) == 0, do: nil
+
+  defp last_output(%{outputs: outputs}) do
+    outputs
+    |> Enum.max_by(&elem(&1, 0))
+    |> elem(1)
+  end
+
+  # --- Notifications ---
+
+  defp notify_start(workflow) do
+    step_names = workflow.steps |> Enum.map(& &1.name) |> Enum.join(" → ")
+    AlexClaw.Gateway.send_message("⚙️ *#{workflow.name}* started\n#{step_names}")
+  end
+
+  defp notify_failure(workflow, step_name, reason) do
+    AlexClaw.Gateway.send_message(
+      "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`"
+    )
+  end
+
+  # --- Serialization ---
 
   defp serialize_result(nil), do: nil
   defp serialize_result(val) when is_binary(val), do: val

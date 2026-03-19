@@ -26,7 +26,7 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
       }
 
       result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _}, result)
+      assert match?({:ok, _, _}, result)
     end
 
     test "handles empty XML response gracefully" do
@@ -46,7 +46,7 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
       }
 
       result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _}, result)
+      assert match?({:ok, _, _}, result)
     end
 
     test "handles XML with missing item fields" do
@@ -81,7 +81,7 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
       }
 
       result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _}, result)
+      assert match?({:ok, _, _}, result)
     end
 
     test "handles XML with HTML entities in title" do
@@ -115,7 +115,7 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
       }
 
       result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _}, result)
+      assert match?({:ok, _, _}, result)
     end
 
     test "handles feed HTTP error (404)" do
@@ -133,7 +133,7 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
       }
 
       result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert {:ok, "No relevant news items found."} = result
+      assert {:ok, "No relevant news items found.", _branch} = result
     end
 
     @tag :skip
@@ -151,7 +151,7 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
       }
 
       result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert {:ok, "No relevant news items found."} = result
+      assert {:ok, "No relevant news items found.", _branch} = result
     end
 
     test "skips non-rss_feed resources" do
@@ -163,29 +163,29 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
       }
 
       result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert {:ok, "No relevant news items found."} = result
+      assert {:ok, "No relevant news items found.", _branch} = result
     end
   end
 
   describe "config parsing" do
     test "threshold as string" do
       result = RSSCollector.run(%{resources: [], config: %{"threshold" => "0.5"}})
-      assert {:ok, _} = result
+      assert {:ok, _, _branch} = result
     end
 
     test "threshold as invalid string" do
       result = RSSCollector.run(%{resources: [], config: %{"threshold" => "not_a_number"}})
-      assert {:ok, _} = result
+      assert {:ok, _, _branch} = result
     end
 
     test "force as boolean" do
       result = RSSCollector.run(%{resources: [], config: %{"force" => true}})
-      assert {:ok, _} = result
+      assert {:ok, _, _branch} = result
     end
 
     test "completely nil config" do
       result = RSSCollector.run(%{resources: []})
-      assert {:ok, _} = result
+      assert {:ok, _, _branch} = result
     end
   end
 end

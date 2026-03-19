@@ -17,6 +17,9 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Fetches upcoming events from Google Calendar"
+
+  @impl true
+  def routes, do: [:on_events, :on_empty, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
 
@@ -57,13 +60,13 @@ defmodule AlexClaw.Skills.GoogleCalendar do
     headers = [{"authorization", "Bearer #{token}"}]
 
     case Req.get(url, params: params, headers: headers, receive_timeout: 10_000) do
-      {:ok, %{status: 200, body: %{"items" => events}}} ->
+      {:ok, %{status: 200, body: %{"items" => events}}} when events != [] ->
         formatted = format_events(events)
         Logger.info("GoogleCalendar: fetched #{length(events)} events", skill: :google_calendar)
-        {:ok, formatted}
+        {:ok, formatted, :on_events}
 
-      {:ok, %{status: 200, body: %{}}} ->
-        {:ok, "No upcoming events."}
+      {:ok, %{status: 200, body: _}} ->
+        {:ok, "No upcoming events.", :on_empty}
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Google Calendar API error: #{status}", skill: :google_calendar)

@@ -6,6 +6,9 @@ defmodule AlexClaw.Skills.WebBrowse do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Fetches a URL, extracts readable text, optionally answers questions via LLM"
+
+  @impl true
+  def routes, do: [:on_success, :on_not_found, :on_timeout, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
 
@@ -39,6 +42,12 @@ defmodule AlexClaw.Skills.WebBrowse do
             run_summarize(url, content, llm_opts)
           end
 
+        {:error, {:http, 404}} ->
+          {:ok, nil, :on_not_found}
+
+        {:error, %Req.TransportError{reason: :timeout}} ->
+          {:ok, nil, :on_timeout}
+
         {:error, reason} ->
           {:error, reason}
       end
@@ -60,7 +69,7 @@ defmodule AlexClaw.Skills.WebBrowse do
     case LLM.complete(prompt, llm_opts ++ [tier: :light, system: system]) do
       {:ok, response} ->
         Memory.store(:web_page, response, source: url, metadata: %{type: "summary"})
-        {:ok, response}
+        {:ok, response, :on_success}
 
       {:error, reason} ->
         {:error, {:summarize_failed, reason}}
@@ -84,7 +93,7 @@ defmodule AlexClaw.Skills.WebBrowse do
     case LLM.complete(prompt, llm_opts ++ [tier: :light, system: system]) do
       {:ok, response} ->
         Memory.store(:web_page, response, source: url, metadata: %{type: "qa", question: question})
-        {:ok, response}
+        {:ok, response, :on_success}
 
       {:error, reason} ->
         {:error, {:qa_failed, reason}}
@@ -99,7 +108,7 @@ defmodule AlexClaw.Skills.WebBrowse do
     config = if question, do: Map.put(config, "question", question), else: config
 
     case run(%{config: config}) do
-      {:ok, response} -> Gateway.send_message(response)
+      {:ok, response, _branch} -> Gateway.send_message(response)
       {:error, reason} ->
         Logger.warning("WebBrowse failed: #{inspect(reason)}", skill: :web)
         Gateway.send_message("Failed: #{inspect(reason)}")

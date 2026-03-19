@@ -39,7 +39,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @spec resolve(String.t()) :: {:ok, module()} | {:error, :unknown_skill}
   def resolve(name) when is_binary(name) do
     case :ets.lookup(@ets_table, name) do
-      [{^name, module, _type, _perms}] -> {:ok, module}
+      [{^name, module, _type, _perms, _routes}] -> {:ok, module}
       [] -> {:error, :unknown_skill}
     end
   end
@@ -58,12 +58,12 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   def list_all do
     @ets_table
     |> :ets.tab2list()
-    |> Enum.map(fn {name, module, _type, _perms} -> {name, module} end)
+    |> Enum.map(fn {name, module, _type, _perms, _routes} -> {name, module} end)
     |> Enum.sort_by(&elem(&1, 0))
   end
 
-  @doc "List all skills with type and permissions."
-  @spec list_all_with_type() :: [{String.t(), module(), :core | :dynamic, :all | [atom()]}]
+  @doc "List all skills with type, permissions, and routes."
+  @spec list_all_with_type() :: [{String.t(), module(), :core | :dynamic, :all | [atom()], [atom()]}]
   def list_all_with_type do
     @ets_table
     |> :ets.tab2list()
@@ -73,9 +73,18 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @doc "Get permissions for a module."
   @spec get_permissions(module()) :: :all | [atom()] | nil
   def get_permissions(module) do
-    case :ets.match(@ets_table, {:_, module, :_, :"$1"}) do
+    case :ets.match(@ets_table, {:_, module, :_, :"$1", :_}) do
       [[perms]] -> perms
       _ -> nil
+    end
+  end
+
+  @doc "Get routes for a skill by name."
+  @spec get_routes(String.t()) :: [atom()]
+  def get_routes(name) do
+    case :ets.lookup(@ets_table, name) do
+      [{_, _, _, _, routes}] -> routes
+      [] -> [:on_success, :on_error]
     end
   end
 
@@ -107,7 +116,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
     # Register core skills
     for {name, module} <- @core_skills do
-      :ets.insert(table, {name, module, :core, :all})
+      routes = extract_routes(module)
+      :ets.insert(table, {name, module, :core, :all, routes})
     end
 
     # Load dynamic skills from DB
@@ -156,7 +166,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
         if current_checksum == skill.checksum do
           case compile_and_validate(full_path) do
             {:ok, module, permissions} ->
-              :ets.insert(@ets_table, {skill.name, module, :dynamic, permissions})
+              routes = extract_routes(module)
+              :ets.insert(@ets_table, {skill.name, module, :dynamic, permissions, routes})
               Logger.info("Dynamic skill loaded: #{skill.name}")
 
             {:error, reason} ->
@@ -191,22 +202,24 @@ defmodule AlexClaw.Workflows.SkillRegistry do
              to_string(module),
              file_path,
              permissions,
+             extract_routes(module),
              compute_checksum(source)
            ) do
       skill_name = skill_name_from_module(module)
-      :ets.insert(@ets_table, {skill_name, module, :dynamic, permissions})
+      routes = extract_routes(module)
+      :ets.insert(@ets_table, {skill_name, module, :dynamic, permissions, routes})
       broadcast({:skill_registered, skill_name})
-      Logger.info("Dynamic skill loaded: #{skill_name} with permissions: #{inspect(permissions)}")
-      {:ok, %{name: skill_name, module: module, permissions: permissions}}
+      Logger.info("Dynamic skill loaded: #{skill_name} with permissions: #{inspect(permissions)}, routes: #{inspect(routes)}")
+      {:ok, %{name: skill_name, module: module, permissions: permissions, routes: routes}}
     end
   end
 
   defp do_unload_skill(name) do
     case :ets.lookup(@ets_table, name) do
-      [{^name, _module, :core, _}] ->
+      [{^name, _module, :core, _, _}] ->
         {:error, :cannot_unload_core}
 
-      [{^name, module, :dynamic, _}] ->
+      [{^name, module, :dynamic, _, _}] ->
         :ets.delete(@ets_table, name)
 
         import Ecto.Query
@@ -236,7 +249,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
         # Purge old module
         case :ets.lookup(@ets_table, name) do
-          [{^name, old_module, :dynamic, _}] ->
+          [{^name, old_module, :dynamic, _, _}] ->
             :code.purge(old_module)
             :code.delete(old_module)
 
@@ -248,18 +261,21 @@ defmodule AlexClaw.Workflows.SkillRegistry do
              {:ok, module, permissions} <- compile_and_validate(full_path) do
           checksum = compute_checksum(source)
 
+          routes = extract_routes(module)
+
           Repo.update!(
             DynamicSkill.changeset(record, %{
               checksum: checksum,
               permissions: Enum.map(permissions, &to_string/1),
+              routes: Enum.map(routes, &to_string/1),
               module_name: to_string(module)
             })
           )
 
-          :ets.insert(@ets_table, {name, module, :dynamic, permissions})
+          :ets.insert(@ets_table, {name, module, :dynamic, permissions, routes})
           broadcast({:skill_registered, name})
           Logger.info("Dynamic skill reloaded: #{name}")
-          {:ok, %{name: name, module: module, permissions: permissions}}
+          {:ok, %{name: name, module: module, permissions: permissions, routes: routes}}
         end
     end
   end
@@ -297,7 +313,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
           # SkillAPI.http_get(__MODULE__, "https://...")
           # SkillAPI.config_get(__MODULE__, "key")
 
-          {:ok, "Hello from #{name}!"}
+          # Return triple tuple for conditional routing:
+          # {:ok, result, :branch_name}
+          {:ok, "Hello from #{name}!", :on_success}
         end
       end
       """
@@ -353,6 +371,14 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       {:error, {:compilation_error, Exception.message(e)}}
   end
 
+  defp extract_routes(module) do
+    if function_exported?(module, :routes, 0) do
+      module.routes()
+    else
+      [:on_success, :on_error]
+    end
+  end
+
   defp extract_permissions(module) do
     cond do
       function_exported?(module, :permissions, 0) ->
@@ -395,15 +421,17 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     |> Macro.underscore()
   end
 
-  defp persist_skill(name, module_name, file_path, permissions, checksum) do
+  defp persist_skill(name, module_name, file_path, permissions, routes, checksum) do
     import Ecto.Query
     perm_strings = Enum.map(permissions, &to_string/1)
+    route_strings = Enum.map(routes, &to_string/1)
 
     attrs = %{
       name: name,
       module_name: module_name,
       file_path: file_path,
       permissions: perm_strings,
+      routes: route_strings,
       checksum: checksum,
       enabled: true
     }

@@ -8,6 +8,7 @@ defmodule AlexClaw.Skills.DynamicSkill do
     field :module_name, :string
     field :file_path, :string
     field :permissions, {:array, :string}, default: []
+    field :routes, {:array, :string}, default: []
     field :checksum, :string
     field :enabled, :boolean, default: true
 
@@ -16,7 +17,7 @@ defmodule AlexClaw.Skills.DynamicSkill do
 
   def changeset(skill, attrs) do
     skill
-    |> cast(attrs, [:name, :module_name, :file_path, :permissions, :checksum, :enabled])
+    |> cast(attrs, [:name, :module_name, :file_path, :permissions, :routes, :checksum, :enabled])
     |> validate_required([:name, :module_name, :file_path, :checksum])
     |> unique_constraint(:name)
     |> unique_constraint(:module_name)

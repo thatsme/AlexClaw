@@ -67,6 +67,22 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
       cs = WorkflowStep.changeset(%WorkflowStep{}, %{position: 1, name: "S", skill: "s"})
       assert Ecto.Changeset.get_field(cs, :config) == %{}
     end
+
+    test "defaults routes to empty list" do
+      cs = WorkflowStep.changeset(%WorkflowStep{}, %{position: 1, name: "S", skill: "s"})
+      assert Ecto.Changeset.get_field(cs, :routes) == []
+    end
+
+    test "accepts routes as list of maps" do
+      routes = [%{"branch" => "on_success", "goto" => 2}, %{"branch" => "on_error", "goto" => 3}]
+
+      cs = WorkflowStep.changeset(%WorkflowStep{}, %{
+        position: 1, name: "S", skill: "s", routes: routes
+      })
+
+      assert cs.valid?
+      assert Ecto.Changeset.get_field(cs, :routes) == routes
+    end
   end
 
   defp errors_on_field(changeset, field) do

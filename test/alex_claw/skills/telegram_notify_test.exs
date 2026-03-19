@@ -50,5 +50,25 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
       })
       assert {:error, :no_chat_id} = result
     end
+
+    test "treats empty string chat_id as nil — uses gateway default" do
+      result = TelegramNotify.run(%{
+        input: "test message",
+        config: %{"chat_id" => "", "bot_token" => ""}
+      })
+
+      # Empty strings treated as nil → falls through to Gateway default
+      # Gateway sends via cast (async), skill returns delivered immediately
+      assert {:ok, %{delivered: true, chat_id: "default"}, :on_delivered} = result
+    end
+
+    test "treats nil config values same as missing" do
+      result = TelegramNotify.run(%{
+        input: "test",
+        config: %{"chat_id" => nil, "bot_token" => nil}
+      })
+
+      assert {:ok, %{delivered: true, chat_id: "default"}, :on_delivered} = result
+    end
   end
 end

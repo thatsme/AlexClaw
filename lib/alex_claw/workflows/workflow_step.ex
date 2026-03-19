@@ -22,6 +22,7 @@ defmodule AlexClaw.Workflows.WorkflowStep do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset(%__MODULE__{} | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(step, attrs) do
     step
     |> cast(attrs, [:workflow_id, :position, :name, :skill, :llm_tier, :llm_model, :prompt_template, :config, :input_from, :routes])

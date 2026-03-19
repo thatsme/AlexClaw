@@ -326,4 +326,32 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       assert record == nil
     end
   end
+
+  describe "get_routes/1" do
+    test "returns custom routes for core skills that declare them" do
+      assert [:on_items, :on_empty, :on_error] = SkillRegistry.get_routes("rss_collector")
+      assert [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error] = SkillRegistry.get_routes("api_request")
+      assert [:on_delivered, :on_error] = SkillRegistry.get_routes("telegram_notify")
+      assert [:on_results, :on_no_results, :on_timeout, :on_error] = SkillRegistry.get_routes("web_search")
+      assert [:on_clean, :on_findings, :on_error] = SkillRegistry.get_routes("github_security_review")
+    end
+
+    test "returns default routes for skills without routes/0" do
+      assert [:on_success, :on_error] = SkillRegistry.get_routes("conversational")
+      assert [:on_success, :on_error] = SkillRegistry.get_routes("llm_transform")
+    end
+
+    test "returns default routes for unknown skill" do
+      assert [:on_success, :on_error] = SkillRegistry.get_routes("nonexistent_skill")
+    end
+  end
+
+  describe "routes in ETS tuple" do
+    test "list_all_with_type includes routes in 5th position" do
+      entries = SkillRegistry.list_all_with_type()
+
+      rss = Enum.find(entries, fn {name, _, _, _, _} -> name == "rss_collector" end)
+      assert {_, _, :core, :all, [:on_items, :on_empty, :on_error]} = rss
+    end
+  end
 end

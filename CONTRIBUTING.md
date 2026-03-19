@@ -80,12 +80,23 @@ defmodule AlexClaw.Skills.MySkill do
   @impl true
   def description, do: "Short description for the skill registry"
 
+  # Optional: declare branches for conditional workflow routing.
+  # Default is [:on_success, :on_error] if not implemented.
+  @impl true
+  def routes, do: [:on_results, :on_empty, :on_error]
+
   @impl true
   def run(args) do
     # args[:input] — output from previous workflow step
     # args[:config] — step configuration from the workflow editor
     # args[:resources] — attached resources
-    {:ok, result}
+
+    # Return triple tuple with branch name for conditional routing:
+    {:ok, result, :on_results}
+
+    # Or on empty/error:
+    # {:ok, "No results found.", :on_empty}
+    # {:error, reason}  — implicit :on_error
   end
 end
 ```

@@ -410,7 +410,7 @@ lib/
       database_controller.ex   # Schema browser, backup download
       github_webhook_controller.ex  # GitHub webhook receiver (HMAC verified)
       oauth_callback_controller.ex  # Google OAuth callback handler
-    live/admin_live/           # LiveView pages (12 pages)
+    live/admin_live/           # LiveView pages (13 pages, .ex logic + .html.heex templates)
     plugs/
       caching_body_reader.ex   # Caches raw body for webhook HMAC verification
       rate_limit.ex            # Plug for POST /login rate limiting

@@ -768,7 +768,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                 <div class="flex items-center space-x-3 cursor-pointer" phx-click="edit_step" phx-value-id={step.id}>
                   <span class="text-xs text-gray-500 font-mono w-6">{step.position}</span>
                   <span class="text-sm text-white font-semibold">{step.name}</span>
-                  <span class="text-xs px-2 py-0.5 rounded bg-gray-700 text-claw-500">{step.skill}</span>
+                  <span class={"text-xs px-2 py-0.5 rounded #{if step.skill in @available_skills, do: "bg-gray-700 text-claw-500", else: "bg-red-900/50 text-red-400"}"}>{step.skill}{if step.skill not in @available_skills, do: " (missing)", else: ""}</span>
                   <span :if={step.llm_tier} class="text-xs px-2 py-0.5 rounded bg-gray-700 text-yellow-400">{step.llm_tier}</span>
                   <span :if={step.llm_model && step.llm_model != "" && step.llm_model != "auto"} class="text-xs px-2 py-0.5 rounded bg-gray-700 text-green-400">{step.llm_model}</span>
                   <span :if={step.prompt_template} class="text-xs text-gray-600">has prompt</span>
@@ -797,6 +797,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                     <div>
                       <label class="block text-xs text-gray-500 mb-1">Skill <.tip text="Which skill to execute at this step. Core skills are built-in, dynamic skills are loaded from .ex files." /></label>
                       <select name="step_skill" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                        <option :if={@editing_step.skill not in @available_skills} value={@editing_step.skill} selected class="text-red-400">{@editing_step.skill} (missing)</option>
                         <option :for={s <- @available_skills} value={s} selected={@editing_step.skill == s}>{s}{if s in @dynamic_skills, do: " (dynamic)", else: ""}</option>
                       </select>
                     </div>

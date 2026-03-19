@@ -93,7 +93,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
         transition(state, :open, new_count, reason)
 
       :half_open ->
-        transition(state, :open, new_count, reason)
+        transition(state, :open, @max_failures, reason)
 
       _ ->
         :ets.insert(@ets_table, {state.skill_name, current_state, new_count, reason, DateTime.utc_now()})
@@ -101,6 +101,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
     end
   end
 
+  @impl true
   def handle_cast(:record_success, state) do
     {_, current_state, _, _, _} = lookup!(state.skill_name)
 

@@ -1,19 +1,23 @@
 defmodule AlexClaw.Skills.CircuitBreakerSupervisor do
   @moduledoc """
-  DynamicSupervisor for circuit breaker GenServers.
-  Creates the ETS table, manages lifecycle, and subscribes to
-  skill registry PubSub events to clean up / reset breakers.
+  Supervisor module for circuit breaker infrastructure.
+  Starts a DynamicSupervisor for breaker GenServers and a
+  lifecycle manager that handles PubSub events and ETS ownership.
   """
-  use DynamicSupervisor
-  require Logger
-
-  alias AlexClaw.Skills.CircuitBreaker
-
-  @ets_table :circuit_breakers
-  @pubsub_topic "skills:registry"
+  use Supervisor
 
   def start_link(init_arg) do
-    DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
+    Supervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_init_arg) do
+    children = [
+      {DynamicSupervisor, name: AlexClaw.Skills.CircuitBreakerDynSup, strategy: :one_for_one},
+      AlexClaw.Skills.CircuitBreakerLifecycle
+    ]
+
+    Supervisor.init(children, strategy: :rest_for_one)
   end
 
   @doc "Ensure a circuit breaker is running for the given skill. Idempotent."
@@ -24,7 +28,10 @@ defmodule AlexClaw.Skills.CircuitBreakerSupervisor do
         {:ok, pid}
 
       [] ->
-        case DynamicSupervisor.start_child(__MODULE__, {CircuitBreaker, skill_name}) do
+        case DynamicSupervisor.start_child(
+               AlexClaw.Skills.CircuitBreakerDynSup,
+               {AlexClaw.Skills.CircuitBreaker, skill_name}
+             ) do
           {:ok, pid} -> {:ok, pid}
           {:error, {:already_started, pid}} -> {:ok, pid}
         end
@@ -36,29 +43,44 @@ defmodule AlexClaw.Skills.CircuitBreakerSupervisor do
   def stop_breaker(skill_name) do
     case Registry.lookup(AlexClaw.CircuitBreakerRegistry, skill_name) do
       [{pid, _}] ->
-        DynamicSupervisor.terminate_child(__MODULE__, pid)
-        :ets.delete(@ets_table, skill_name)
+        DynamicSupervisor.terminate_child(AlexClaw.Skills.CircuitBreakerDynSup, pid)
+        :ets.delete(:circuit_breakers, skill_name)
+        require Logger
         Logger.info("[CircuitBreaker] Breaker removed for #{skill_name}")
 
       [] ->
         :ok
     end
   end
+end
 
-  # --- DynamicSupervisor callbacks ---
+defmodule AlexClaw.Skills.CircuitBreakerLifecycle do
+  @moduledoc """
+  GenServer that owns the circuit breaker ETS table and handles
+  PubSub events for skill lifecycle (unload/reload).
+  """
+  use GenServer
+  require Logger
 
-  @impl true
-  def init(_init_arg) do
-    :ets.new(@ets_table, [:named_table, :public, :set, read_concurrency: true])
-    Phoenix.PubSub.subscribe(AlexClaw.PubSub, @pubsub_topic)
-    DynamicSupervisor.init(strategy: :one_for_one)
+  alias AlexClaw.Skills.{CircuitBreaker, CircuitBreakerSupervisor}
+
+  @ets_table :circuit_breakers
+  @pubsub_topic "skills:registry"
+
+  def start_link(_opts) do
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
-  # --- PubSub handlers for skill lifecycle ---
+  @impl true
+  def init(_opts) do
+    :ets.new(@ets_table, [:named_table, :public, :set, read_concurrency: true])
+    Phoenix.PubSub.subscribe(AlexClaw.PubSub, @pubsub_topic)
+    {:ok, %{}}
+  end
 
-  @doc false
+  @impl true
   def handle_info({:skill_unregistered, name}, state) do
-    stop_breaker(name)
+    CircuitBreakerSupervisor.stop_breaker(name)
     {:noreply, state}
   end
 

@@ -440,4 +440,69 @@ defmodule AlexClaw.LLMTest do
       assert %Ecto.Changeset{valid?: false} = cs
     end
   end
+
+  describe "API key resolution (config fallback)" do
+    test "Gemini embed uses api_key from config when provider has none" do
+      bypass = Bypass.open()
+      vector = List.duplicate(0.1, 768)
+
+      Bypass.expect_once(bypass, "POST", "/v1beta/models/text-embedding-004:embedContent", fn conn ->
+        # Verify the key came from config (present in query string)
+        assert conn.query_string =~ "key=test-config-gemini-key"
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
+      end)
+
+      Application.put_env(:alex_claw, :embedding_base_url, "http://localhost:#{bypass.port}")
+
+      # Provider with nil api_key
+      create_test_provider(%{
+        type: "gemini",
+        model: "gemini-2.0-flash",
+        api_key: nil,
+        tier: "light"
+      })
+
+      # Set API key in config
+      AlexClaw.Config.set("llm.gemini_api_key", "test-config-gemini-key")
+
+      assert {:ok, result} = LLM.embed("test")
+      assert length(result) == 768
+
+      Application.delete_env(:alex_claw, :embedding_base_url)
+      AlexClaw.Config.set("llm.gemini_api_key", "")
+    end
+
+    test "Gemini embed prefers provider api_key over config" do
+      bypass = Bypass.open()
+      vector = List.duplicate(0.1, 768)
+
+      Bypass.expect_once(bypass, "POST", "/v1beta/models/text-embedding-004:embedContent", fn conn ->
+        assert conn.query_string =~ "key=provider-level-key"
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
+      end)
+
+      Application.put_env(:alex_claw, :embedding_base_url, "http://localhost:#{bypass.port}")
+
+      create_test_provider(%{
+        type: "gemini",
+        model: "gemini-2.0-flash",
+        api_key: "provider-level-key",
+        tier: "light"
+      })
+
+      AlexClaw.Config.set("llm.gemini_api_key", "config-level-key")
+
+      assert {:ok, result} = LLM.embed("test")
+      assert length(result) == 768
+
+      Application.delete_env(:alex_claw, :embedding_base_url)
+      AlexClaw.Config.set("llm.gemini_api_key", "")
+    end
+  end
 end

@@ -43,61 +43,6 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
     |> Enum.reject(fn {_, c} -> c == 0 end)
   end
 
-  @impl true
-  def render(assigns) do
-    ~H"""
-    <div class="space-y-8">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-white">🦇 AlexClaw</h1>
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-gray-500 font-mono">v{@version}</span>
-          <span :if={@update_status && @update_status.update_available}
-            class="text-xs px-2 py-0.5 rounded bg-yellow-900 text-yellow-300">
-            v{@update_status.latest} available
-          </span>
-          <span :if={@update_status && !@update_status.update_available}
-            class="text-xs px-2 py-0.5 rounded bg-green-900 text-green-300">
-            up to date
-          </span>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <.stat_card title="Uptime" value={@uptime} />
-        <.stat_card title="Memory" value={"#{@memory_mb} MB"} />
-        <.stat_card title="Active Skills" value={@skills_active} />
-        <.stat_card title="Total Workers" value={@skills_total} />
-        <.stat_card title="Google" value={google_label(@google_status)} />
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div class="bg-gray-900 rounded-lg border border-gray-800 p-6 min-h-[20rem]">
-          <h2 class="text-lg font-semibold mb-4">LLM Usage Today</h2>
-          <div :if={@llm_usage == []} class="text-gray-500 text-sm">No calls yet today.</div>
-          <div :for={{model, count} <- @llm_usage} class="flex justify-between py-2 border-b border-gray-800 last:border-0">
-            <span class="text-gray-300 font-mono text-sm">{model}</span>
-            <span class="text-claw-500 font-bold">{count}</span>
-          </div>
-        </div>
-
-        <div class="bg-gray-900 rounded-lg border border-gray-800 p-6 min-h-[20rem] flex flex-col">
-          <h2 class="text-lg font-semibold mb-4">Recent Memories</h2>
-          <div :if={@recent_memories == []} class="text-gray-500 text-sm">No memories yet.</div>
-          <div class="overflow-y-auto flex-1 max-h-[24rem]">
-            <div :for={mem <- @recent_memories} class="py-2 border-b border-gray-800 last:border-0">
-              <div class="flex items-center gap-2 mb-1">
-                <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{mem.kind}</span>
-                <span class="text-xs text-gray-600">{format_datetime(mem.inserted_at)}</span>
-              </div>
-              <p class="text-sm text-gray-300 truncate">{String.slice(mem.content, 0, 120)}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
   defp format_uptime(total_seconds) do
     days = div(total_seconds, 86400)
     hours = div(rem(total_seconds, 86400), 3600)

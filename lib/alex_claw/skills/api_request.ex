@@ -7,6 +7,9 @@ defmodule AlexClaw.Skills.ApiRequest do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Generic REST client — GET/POST/PUT/PATCH/DELETE with {input} interpolation"
+
+  @impl true
+  def routes, do: [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error]
   require Logger
 
   @allowed_methods ~w(GET POST PUT PATCH DELETE)
@@ -49,12 +52,23 @@ defmodule AlexClaw.Skills.ApiRequest do
 
     case result do
       {:ok, %{status: status, body: resp_body}} when status in 200..299 ->
-        output = format_response(resp_body)
-        {:ok, output}
+        {:ok, format_response(resp_body), :on_2xx}
+
+      {:ok, %{status: status, body: resp_body}} when status in 400..499 ->
+        Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
+        {:ok, format_response(resp_body), :on_4xx}
+
+      {:ok, %{status: status, body: resp_body}} when status in 500..599 ->
+        Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
+        {:ok, format_response(resp_body), :on_5xx}
 
       {:ok, %{status: status, body: resp_body}} ->
         Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
         {:error, {:http, status, format_response(resp_body)}}
+
+      {:error, %Req.TransportError{reason: :timeout}} ->
+        Logger.warning("ApiRequest timeout", skill: :api_request)
+        {:ok, nil, :on_timeout}
 
       {:error, reason} ->
         Logger.error("ApiRequest error: #{inspect(reason)}", skill: :api_request)
@@ -69,7 +83,10 @@ defmodule AlexClaw.Skills.ApiRequest do
     |> String.replace("{input}", input)
   end
   defp interpolate(template, input) when is_map(input) do
-    json = Jason.encode!(input)
+    json = case Jason.encode(input) do
+      {:ok, encoded} -> encoded
+      {:error, _} -> inspect(input)
+    end
     template
     |> String.replace("{input_encoded}", URI.encode(json))
     |> String.replace("{input}", json)

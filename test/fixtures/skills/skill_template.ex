@@ -31,6 +31,16 @@
 #   args[:prompt_template] — Optional prompt template
 #   args[:workflow_run_id] — Current workflow run ID
 #
+# Return format:
+#   {:ok, result, :branch_name}  — success with branch for conditional routing
+#   {:ok, result}                — success (treated as :on_success for routing)
+#   {:error, reason}             — failure (treated as :on_error for routing)
+#
+# Optional routes/0 callback:
+#   Declares available branches for the workflow editor. If not implemented,
+#   defaults to [:on_success, :on_error]. Example:
+#     def routes, do: [:on_results, :on_empty, :on_error]
+#
 # ==============================================================================
 
 defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
@@ -48,17 +58,24 @@ defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
   @impl true
   def description, do: "Template skill — replace with your description"
 
+  # Optional: declare branches for conditional workflow routing.
+  # The workflow editor will show these as routing options per step.
+  # @impl true
+  # def routes, do: [:on_success, :on_empty, :on_error]
+
   @impl true
   def run(args) do
     input = args[:input]
     config = args[:config] || %{}
 
-    # Example: simple LLM call
+    # Example: simple LLM call with branch routing
     prompt = config["prompt"] || "Summarize the following:\n\n#{input}"
 
     case SkillAPI.llm_complete(__MODULE__, prompt, tier: :light) do
       {:ok, response} ->
-        {:ok, response}
+        # Return triple tuple: {:ok, result, :branch_name}
+        # The branch determines which workflow path to take next
+        {:ok, response, :on_success}
 
       {:error, reason} ->
         {:error, reason}

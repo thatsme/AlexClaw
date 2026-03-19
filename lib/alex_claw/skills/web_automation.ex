@@ -12,6 +12,9 @@ defmodule AlexClaw.Skills.WebAutomation do
   def description, do: "Browser automation — record interactions and replay headlessly"
 
   @impl true
+  def routes, do: [:on_success, :on_timeout, :on_error]
+
+  @impl true
   def run(args) do
     if enabled?() do
       config = args[:config] || %{}
@@ -41,7 +44,7 @@ defmodule AlexClaw.Skills.WebAutomation do
 
       case post("/record", body) do
         {:ok, %{"session_id" => sid, "novnc_url" => novnc}} ->
-          {:ok, "Recording started!\nSession: `#{sid}`\nBrowser: #{novnc}"}
+          {:ok, "Recording started!\nSession: `#{sid}`\nBrowser: #{novnc}", :on_success}
 
         {:error, reason} ->
           {:error, reason}
@@ -91,7 +94,7 @@ defmodule AlexClaw.Skills.WebAutomation do
           msg
         end
 
-        {:ok, msg}
+        {:ok, msg, :on_success}
 
       {:ok, %{"status" => "error", "error" => error}} ->
         {:error, {:automation_failed, error}}

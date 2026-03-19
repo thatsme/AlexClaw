@@ -27,21 +27,21 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/task add " <> title}) do
     case AlexClaw.Skills.GoogleTasks.run(%{config: %{"action" => "add"}, input: String.trim(title)}) do
-      {:ok, result} -> Gateway.send_message(result)
+      {:ok, result, _branch} -> Gateway.send_message(result)
       {:error, reason} -> Gateway.send_message("Failed to add task: #{inspect(reason)}")
     end
   end
 
   def dispatch(%Message{text: "/tasklists" <> _}) do
     case AlexClaw.Skills.GoogleTasks.run(%{config: %{"action" => "lists"}}) do
-      {:ok, result} -> Gateway.send_message("*Your Task Lists*\n\n#{result}")
+      {:ok, result, _branch} -> Gateway.send_message("*Your Task Lists*\n\n#{result}")
       {:error, reason} -> Gateway.send_message("Failed to fetch task lists: #{inspect(reason)}")
     end
   end
 
   def dispatch(%Message{text: "/tasks" <> _}) do
     case AlexClaw.Skills.GoogleTasks.run(%{config: %{"action" => "list"}}) do
-      {:ok, result} -> Gateway.send_message("*Your Tasks*\n\n#{result}")
+      {:ok, result, _branch} -> Gateway.send_message("*Your Tasks*\n\n#{result}")
       {:error, reason} -> Gateway.send_message("Failed to fetch tasks: #{inspect(reason)}")
     end
   end
@@ -67,7 +67,7 @@ defmodule AlexClaw.Dispatcher do
   def dispatch(%Message{text: "/skills" <> _}) do
     text =
       AlexClaw.Workflows.SkillRegistry.list_all_with_type()
-      |> Enum.map_join("\n", fn {name, module, type, perms} ->
+      |> Enum.map_join("\n", fn {name, module, type, perms, _routes} ->
         desc =
           if function_exported?(module, :description, 0),
             do: module.description(),
@@ -327,7 +327,7 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/record " <> url}) do
     case AlexClaw.Skills.WebAutomation.record(%{"url" => String.trim(url)}) do
-      {:ok, result} ->
+      {:ok, result, _branch} ->
         sid = case Regex.run(~r/Session: `([^`]+)`/, result) do
           [_, id] -> id
           _ -> nil
@@ -355,7 +355,7 @@ defmodule AlexClaw.Dispatcher do
             Gateway.send_message("Replaying *#{resource.name}*...")
 
             case AlexClaw.Skills.WebAutomation.play(config, []) do
-              {:ok, result} -> Gateway.send_message(result)
+              {:ok, result, _branch} -> Gateway.send_message(result)
               {:error, :web_automator_disabled} -> Gateway.send_message("Web automator is disabled. Enable in Admin > Config.")
               {:error, reason} -> Gateway.send_message("Replay failed: #{inspect(reason)}")
             end
@@ -369,7 +369,7 @@ defmodule AlexClaw.Dispatcher do
   def dispatch(%Message{text: "/automate " <> url}) do
     config = %{"url" => String.trim(url), "steps" => [%{"action" => "scrape"}, %{"action" => "screenshot", "value" => "result"}]}
     case AlexClaw.Skills.WebAutomation.play(config, []) do
-      {:ok, result} -> Gateway.send_message(result)
+      {:ok, result, _branch} -> Gateway.send_message(result)
       {:error, :web_automator_disabled} -> Gateway.send_message("Web automator is disabled. Enable in Admin > Config.")
       {:error, reason} -> Gateway.send_message("Failed: #{inspect(reason)}")
     end

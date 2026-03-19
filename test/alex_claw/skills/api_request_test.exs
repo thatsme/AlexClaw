@@ -25,7 +25,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         input: "AAPL"
       })
 
-      assert {:ok, body} = result
+      assert {:ok, body, _branch} = result
       assert body =~ "AAPL"
     end
 
@@ -43,7 +43,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         input: "hello world"
       })
 
-      assert {:ok, "ok"} = result
+      assert {:ok, "ok", _branch} = result
     end
 
     test "handles GET request" do
@@ -53,7 +53,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, ~s({"status": "ok"}))
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
         config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/data"}
       })
     end
@@ -67,7 +67,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, ~s({"received": true}))
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
         config: %{
           "method" => "POST",
           "url" => "http://localhost:#{bypass.port}/submit",
@@ -83,7 +83,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 404, "not found")
       end)
 
-      assert {:error, {:http, 404, _}} = ApiRequest.run(%{
+      assert {:ok, "not found", :on_4xx} = ApiRequest.run(%{
         config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/fail"}
       })
     end
@@ -97,7 +97,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, "ok"} = ApiRequest.run(%{
+      assert {:ok, "ok", _branch} = ApiRequest.run(%{
         config: %{
           "method" => "GET",
           "url" => "http://localhost:#{bypass.port}/auth",
@@ -113,7 +113,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
         config: %{"url" => "http://localhost:#{bypass.port}/default"}
       })
     end

@@ -6,6 +6,9 @@ defmodule AlexClaw.Skills.WebSearch do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Searches DuckDuckGo, fetches top results, synthesizes an answer via LLM"
+
+  @impl true
+  def routes, do: [:on_results, :on_no_results, :on_timeout, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
 
@@ -39,7 +42,10 @@ defmodule AlexClaw.Skills.WebSearch do
           synthesize_for_workflow(query, pages, llm_opts)
 
         {:ok, []} ->
-          {:ok, "No search results found for: #{query}"}
+          {:ok, "No search results found for: #{query}", :on_no_results}
+
+        {:error, %Req.TransportError{reason: :timeout}} ->
+          {:ok, nil, :on_timeout}
 
         {:error, reason} ->
           {:error, reason}
@@ -53,7 +59,7 @@ defmodule AlexClaw.Skills.WebSearch do
     Gateway.send_message("Searching: #{query}...")
 
     case run(%{input: query}) do
-      {:ok, response} -> Gateway.send_message(response)
+      {:ok, response, _branch} -> Gateway.send_message(response)
       {:error, :no_query} -> Gateway.send_message("No query provided.")
       {:error, reason} ->
         Logger.warning("WebSearch failed: #{inspect(reason)}", skill: :web_search)
@@ -180,7 +186,7 @@ defmodule AlexClaw.Skills.WebSearch do
           source: "search:#{query}",
           metadata: %{query: query, urls: Enum.map(pages, & &1.url)}
         )
-        {:ok, response}
+        {:ok, response, :on_results}
 
       {:error, reason} ->
         {:error, {:synthesis_failed, reason}}

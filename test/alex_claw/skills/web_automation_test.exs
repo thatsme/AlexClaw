@@ -40,7 +40,7 @@ defmodule AlexClaw.Skills.WebAutomationTest do
         resources: []
       })
 
-      assert {:ok, msg} = result
+      assert {:ok, msg, _branch} = result
       assert msg =~ "Automation complete"
       assert msg =~ "2 steps"
     end
@@ -77,7 +77,7 @@ defmodule AlexClaw.Skills.WebAutomationTest do
         resources: [resource]
       })
 
-      assert {:ok, _msg} = result
+      assert {:ok, _msg, _branch} = result
     end
 
     test "appends extra_steps to resource steps", %{bypass: bypass} do
@@ -119,7 +119,7 @@ defmodule AlexClaw.Skills.WebAutomationTest do
         resources: [resource]
       })
 
-      assert {:ok, _} = result
+      assert {:ok, _, _branch} = result
     end
 
     test "includes scraped text data in result message", %{bypass: bypass} do
@@ -134,7 +134,7 @@ defmodule AlexClaw.Skills.WebAutomationTest do
         }))
       end)
 
-      {:ok, msg} = WebAutomation.run(%{
+      {:ok, msg, _branch} = WebAutomation.run(%{
         config: %{"url" => "https://example.com", "steps" => [%{"action" => "scrape_text"}]},
         resources: []
       })
@@ -159,7 +159,7 @@ defmodule AlexClaw.Skills.WebAutomationTest do
         }))
       end)
 
-      {:ok, msg} = WebAutomation.run(%{
+      {:ok, msg, _branch} = WebAutomation.run(%{
         config: %{"url" => "https://example.com", "steps" => [%{"action" => "scrape"}]},
         resources: []
       })
@@ -214,7 +214,7 @@ defmodule AlexClaw.Skills.WebAutomationTest do
         config: %{"action" => "record", "url" => "https://example.com"}
       })
 
-      assert {:ok, msg} = result
+      assert {:ok, msg, _branch} = result
       assert msg =~ "abc123"
       assert msg =~ "Recording started"
     end

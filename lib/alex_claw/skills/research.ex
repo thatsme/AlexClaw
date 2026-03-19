@@ -6,6 +6,9 @@ defmodule AlexClaw.Skills.Research do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Deep research with memory context and LLM synthesis"
+
+  @impl true
+  def routes, do: [:on_results, :on_error]
   require Logger
 
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
@@ -24,7 +27,7 @@ defmodule AlexClaw.Skills.Research do
   @spec handle(String.t()) :: :ok
   def handle(query) do
     case do_research(query) do
-      {:ok, response} -> Gateway.send_message(response)
+      {:ok, response, _branch} -> Gateway.send_message(response)
       {:error, reason} ->
         Logger.warning("Research failed: #{inspect(reason)}", skill: :research)
         Gateway.send_message("Research failed: #{inspect(reason)}")
@@ -62,7 +65,7 @@ defmodule AlexClaw.Skills.Research do
           metadata: %{query: query}
         )
 
-        {:ok, response}
+        {:ok, response, :on_results}
 
       {:error, reason} ->
         {:error, reason}

@@ -16,7 +16,7 @@ defmodule AlexClaw.Workflows.LLMTransform do
     template = args[:prompt_template] || args[:prompt] || args[:config]["prompt"] || ""
 
     if template == "" do
-      {:ok, to_string_safe(args[:input]) || ""}
+      {:ok, to_string_safe(args[:input]) || "", :on_success}
     else
       prompt = interpolate_template(template, args)
       tier = parse_tier(args[:llm_tier]) || :light
@@ -27,7 +27,10 @@ defmodule AlexClaw.Workflows.LLMTransform do
 
       Logger.info("LLM Transform: #{String.slice(prompt, 0, 100)}...")
 
-      AlexClaw.LLM.complete(prompt, llm_opts)
+      case AlexClaw.LLM.complete(prompt, llm_opts) do
+        {:ok, response} -> {:ok, response, :on_success}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

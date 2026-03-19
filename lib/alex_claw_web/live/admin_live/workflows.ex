@@ -199,6 +199,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     case parse_config_json(params["step_config"]) do
       {:ok, config} ->
         config = merge_resilience_config(config, params)
+        routes = parse_routes_from_params(params, params["step_skill"] || step.skill)
 
         attrs = %{
           name: params["step_name"],
@@ -207,7 +208,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
           llm_model: blank_to_nil(params["step_llm_model"]),
           prompt_template: blank_to_nil(params["step_prompt_template"]),
           config: config,
-          input_from: parse_input_from(params["step_input_from"])
+          input_from: parse_input_from(params["step_input_from"]),
+          routes: routes
         }
 
         case Workflows.update_step(step, attrs) do
@@ -286,6 +288,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     case parse_config_json(params["step_config"]) do
       {:ok, config} ->
         config = merge_resilience_config(config, params)
+        routes = parse_routes_from_params(params, params["step_skill"])
 
         attrs = %{
           name: params["step_name"],
@@ -294,7 +297,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
           llm_model: blank_to_nil(params["step_llm_model"]),
           prompt_template: blank_to_nil(params["step_prompt_template"]),
           config: config,
-          input_from: parse_input_from(params["step_input_from"])
+          input_from: parse_input_from(params["step_input_from"]),
+          routes: routes
         }
 
         case Workflows.add_step(workflow, attrs) do
@@ -414,7 +418,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   defp dynamic_skill_names do
     SkillRegistry.list_all_with_type()
-    |> Enum.filter(fn {_, _, type, _} -> type == :dynamic end)
+    |> Enum.filter(fn tuple -> elem(tuple, 2) == :dynamic end)
     |> Enum.map(&elem(&1, 0))
     |> MapSet.new()
   end
@@ -447,6 +451,36 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       {:ok, _} -> {:error, "must be a JSON object"}
       {:error, %Jason.DecodeError{} = err} -> {:error, Exception.message(err)}
     end
+  end
+
+  defp routes_for_skill(skill_name) do
+    SkillRegistry.get_routes(skill_name)
+    |> Enum.map(&to_string/1)
+  end
+
+  defp route_target(step, branch) do
+    case Enum.find(step.routes || [], &(&1["branch"] == branch)) do
+      %{"goto" => "end"} -> "end"
+      %{"goto" => pos} -> pos
+      nil -> nil
+    end
+  end
+
+  defp parse_routes_from_params(params, skill_name) do
+    routes_for_skill(skill_name)
+    |> Enum.reduce([], fn branch, acc ->
+      case params["route_#{branch}"] do
+        nil -> acc
+        "" -> acc
+        "end" -> [%{"branch" => branch, "goto" => "end"} | acc]
+        pos_str ->
+          case Integer.parse(pos_str) do
+            {pos, _} -> [%{"branch" => branch, "goto" => pos} | acc]
+            :error -> acc
+          end
+      end
+    end)
+    |> Enum.reverse()
   end
 
   defp merge_resilience_config(config, params) do
@@ -739,6 +773,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                   <span :if={step.llm_model && step.llm_model != "" && step.llm_model != "auto"} class="text-xs px-2 py-0.5 rounded bg-gray-700 text-green-400">{step.llm_model}</span>
                   <span :if={step.prompt_template} class="text-xs text-gray-600">has prompt</span>
                   <span :if={step.input_from} class="text-xs px-2 py-0.5 rounded bg-gray-700 text-orange-400">input from step {step.input_from}</span>
+                  <span :for={route <- step.routes || []} class="text-xs px-2 py-0.5 rounded bg-gray-700 text-purple-400">{route["branch"]}→{route["goto"]}</span>
                 </div>
                 <div class="flex items-center space-x-2">
                   <button phx-click="edit_step" phx-value-id={step.id}
@@ -850,6 +885,24 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                       placeholder={skill_config_hint(@editing_step.skill)}
                       class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono">{format_config(@editing_step.config)}</textarea>
                   </div>
+                  <div>
+                    <label class="block text-xs text-gray-500 mb-2">
+                      Routes <.tip text="Conditional branching: for each branch the skill can return, choose which step to go to next. Leave as 'Next step' for linear flow." />
+                    </label>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      <div :for={branch <- routes_for_skill(@editing_step.skill)}>
+                        <label class="block text-xs text-gray-600 mb-0.5">{branch}</label>
+                        <select name={"route_#{branch}"} class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                          <option value="" selected={route_target(@editing_step, to_string(branch)) == nil}>Next step (default)</option>
+                          <option :for={s <- @editing.steps} value={s.position}
+                            selected={route_target(@editing_step, to_string(branch)) == s.position}>
+                            Step {s.position}: {s.name}
+                          </option>
+                          <option value="end" selected={route_target(@editing_step, to_string(branch)) == "end"}>End workflow</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
                   <div class="flex space-x-2">
                     <button type="submit" class="px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white text-sm rounded transition">Save Step</button>
                     <button type="button" phx-click="cancel_edit_step" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition">Cancel</button>
@@ -960,6 +1013,23 @@ defmodule AlexClawWeb.AdminLive.Workflows do
                 <textarea name="step_config" rows="3"
                   placeholder={skill_config_hint(@adding_step)}
                   class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono">{@adding_step_config || skill_config_scaffold(@adding_step)}</textarea>
+              </div>
+              <div :if={@editing}>
+                <label class="block text-xs text-gray-500 mb-2">
+                  Routes <.tip text="Conditional branching: for each branch the skill can return, choose which step to go to next. Leave as 'Next step' for linear flow." />
+                </label>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                  <div :for={branch <- routes_for_skill(@adding_step)}>
+                    <label class="block text-xs text-gray-600 mb-0.5">{branch}</label>
+                    <select name={"route_#{branch}"} class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+                      <option value="">Next step (default)</option>
+                      <option :for={s <- @editing.steps} value={s.position}>
+                        Step {s.position}: {s.name}
+                      </option>
+                      <option value="end">End workflow</option>
+                    </select>
+                  </div>
+                </div>
               </div>
               <div class="flex space-x-2">
                 <button type="submit" class="px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white text-sm rounded transition">Save Step</button>

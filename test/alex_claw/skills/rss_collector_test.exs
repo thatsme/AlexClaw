@@ -11,17 +11,17 @@ defmodule AlexClaw.Skills.RSSCollectorTest do
   describe "run/1" do
     test "returns ok with no feeds available" do
       result = RSSCollector.run(%{resources: [], config: %{}})
-      assert {:ok, "No relevant news items found."} = result
+      assert {:ok, "No relevant news items found.", _branch} = result
     end
 
     test "accepts force flag from config" do
       result = RSSCollector.run(%{resources: [], config: %{"force" => true}})
-      assert {:ok, "No relevant news items found."} = result
+      assert {:ok, "No relevant news items found.", _branch} = result
     end
 
     test "accepts threshold from config" do
       result = RSSCollector.run(%{resources: [], config: %{"threshold" => 0.5}})
-      assert {:ok, "No relevant news items found."} = result
+      assert {:ok, "No relevant news items found.", _branch} = result
     end
 
     test "fetches and parses RSS feed from bypass" do
@@ -59,7 +59,7 @@ defmodule AlexClaw.Skills.RSSCollectorTest do
         config: %{"threshold" => 0.0}
       })
 
-      assert {:ok, _} = result
+      assert {:ok, _, _branch} = result
     end
   end
 end

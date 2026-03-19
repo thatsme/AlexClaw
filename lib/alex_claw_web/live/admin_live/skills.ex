@@ -116,12 +116,13 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   defp build_skill_list do
     SkillRegistry.list_all_with_type()
-    |> Enum.map(fn {name, module, type, permissions} ->
+    |> Enum.map(fn {name, module, type, permissions, routes} ->
       %{
         name: name,
         module: module,
         type: type,
         permissions: permissions,
+        routes: routes,
         display_name:
           name
           |> String.replace("_", " ")

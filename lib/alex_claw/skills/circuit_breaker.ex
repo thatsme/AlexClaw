@@ -28,13 +28,17 @@ defmodule AlexClaw.Skills.CircuitBreaker do
   executes the function if allowed, records the result.
   Skills see no difference — the breaker is invisible.
   """
-  @spec call(String.t(), (-> {:ok, any()} | {:error, any()})) ::
-          {:ok, any()} | {:error, any()} | {:error, :circuit_open}
+  @spec call(String.t(), (-> {:ok, any(), atom()} | {:ok, any()} | {:error, any()})) ::
+          {:ok, any(), atom()} | {:ok, any()} | {:error, any()} | {:error, :circuit_open}
   def call(skill_name, fun) do
     AlexClaw.Skills.CircuitBreakerSupervisor.ensure_started(skill_name)
 
     if allow?(skill_name) do
       case fun.() do
+        {:ok, result, branch} ->
+          record_success(skill_name)
+          {:ok, result, branch}
+
         {:ok, result} ->
           record_success(skill_name)
           {:ok, result}

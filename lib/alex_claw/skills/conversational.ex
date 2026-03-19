@@ -19,7 +19,7 @@ defmodule AlexClaw.Skills.Conversational do
   @spec handle(AlexClaw.Message.t()) :: :ok
   def handle(message) do
     case do_converse(message.text) do
-      {:ok, response} ->
+      {:ok, response, _branch} ->
         Memory.store(:conversation, "User: #{message.text}", source: "telegram")
         Memory.store(:conversation, "AlexClaw: #{response}", source: "telegram")
         Gateway.send_message(response)
@@ -50,7 +50,7 @@ defmodule AlexClaw.Skills.Conversational do
     prompt = "#{context}\n\nUser: #{text}"
 
     case LLM.complete(prompt, tier: :light, system: system) do
-      {:ok, response} -> {:ok, response}
+      {:ok, response} -> {:ok, response, :on_success}
       {:error, reason} -> {:error, reason}
     end
   end

@@ -204,7 +204,20 @@ GenServer that caches the current Google access token in ETS. Automatically refr
 
 ## Workflow Engine
 
-Workflows are multi-step pipelines stored in PostgreSQL. Each step specifies a skill name, a config JSON, an execution order, and optional LLM tier/provider overrides. The executor runs steps sequentially, passing each step's output as input to the next.
+Workflows are directed graphs stored in PostgreSQL. Each step specifies a skill name, a config JSON, optional LLM tier/provider overrides, and conditional routes. The executor walks the graph recursively, following routes based on the branch each skill returns.
+
+### Conditional Branching
+
+Each skill declares its possible outcomes via the `routes/0` callback (e.g. `[:on_items, :on_empty, :on_error]`). Skills return a triple tuple `{:ok, result, :branch_name}` indicating which outcome occurred. The executor matches the branch against the step's routes to determine the next step.
+
+```
+Step 1: Fetch RSS feeds
+  → on_items: Step 2 (score items)
+  → on_empty: Step 4 (send "no news today")
+  → on_error: Step 5 (notify failure)
+```
+
+Steps without routes fall through to the next position (backward compatible with linear workflows). Errors without an `:on_error` route halt the workflow (backward compatible). Loop protection via visited set prevents infinite cycles.
 
 ### Step Wiring
 
@@ -242,7 +255,7 @@ When a workflow contains a `telegram_notify` step, the executor sends a start no
 
 ## Skills
 
-Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`description/0` and `run/1`). Registered in `AlexClaw.Workflows.SkillRegistry`.
+Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, optional `description/0`, `routes/0`, `permissions/0`, `version/0`). Skills return `{:ok, result, :branch}` for conditional routing or `{:ok, result}` for backward compatibility. Registered in `AlexClaw.Workflows.SkillRegistry` with routes stored in ETS alongside permissions.
 
 | Skill | Module | Tier | Description |
 |---|---|---|---|
@@ -375,7 +388,7 @@ lib/
       workflow.ex              # Workflow Ecto schema
       workflow_resource.ex     # Join schema (workflow ↔ resource)
       workflow_run.ex          # Run history Ecto schema
-      workflow_step.ex         # Step Ecto schema (order, config, input_from)
+      workflow_step.ex         # Step Ecto schema (order, config, input_from, routes)
     application.ex             # Supervision tree (15 children)
     dispatcher.ex              # Telegram command routing (pattern matching)
     gateway.ex                 # Telegram bot (long-polling GenServer)
@@ -413,7 +426,7 @@ web-automator/                 # Python/Playwright browser automation sidecar
   Dockerfile
   supervisord.conf             # Xvfb + noVNC + FastAPI
 priv/repo/
-  migrations/                  # 15 DB migrations
+  migrations/                  # 16 DB migrations
   seeds/                       # Example workflow seeds
 config/
   config.exs

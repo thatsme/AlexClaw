@@ -34,7 +34,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/test", "method" => "get"}
              })
     end
@@ -48,7 +48,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/test"},
                input: nil
              })
@@ -61,7 +61,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/data"},
                input: %{"key" => "value"}
              })
@@ -74,7 +74,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/data"},
                input: 42
              })
@@ -89,7 +89,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/search?q={input_encoded}"},
                input: "hello world & more"
              })
@@ -102,7 +102,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/test"},
                input: "; rm -rf / && echo pwned"
              })
@@ -115,7 +115,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{
                  "url" => "http://localhost:#{bypass.port}/data",
                  "method" => "POST",
@@ -134,7 +134,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "")
       end)
 
-      assert {:ok, ""} = ApiRequest.run(%{
+      assert {:ok, "", _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/empty"}
              })
     end
@@ -147,7 +147,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, huge)
       end)
 
-      assert {:ok, body} = ApiRequest.run(%{
+      assert {:ok, body, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/huge"}
              })
 
@@ -168,7 +168,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         |> Plug.Conn.resp(200, json)
       end)
 
-      assert {:ok, body} = ApiRequest.run(%{
+      assert {:ok, body, _branch} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/json"}
              })
 
@@ -182,7 +182,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 500, "Internal Server Error")
       end)
 
-      assert {:error, {:http, 500, _}} = ApiRequest.run(%{
+      assert {:ok, "Internal Server Error", :on_5xx} = ApiRequest.run(%{
                config: %{"url" => "http://localhost:#{bypass.port}/error"}
              })
     end
@@ -200,7 +200,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{
                  "url" => "http://localhost:#{bypass.port}/test",
                  "headers" => "not-a-map"
@@ -217,7 +217,7 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _} = ApiRequest.run(%{
+      assert {:ok, _, _branch} = ApiRequest.run(%{
                config: %{
                  "url" => "http://localhost:#{bypass.port}/data",
                  "method" => "POST",

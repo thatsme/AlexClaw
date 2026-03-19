@@ -55,14 +55,14 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       entries = SkillRegistry.list_all_with_type()
       assert is_list(entries)
 
-      rss = Enum.find(entries, fn {name, _, _, _} -> name == "rss_collector" end)
-      assert {"rss_collector", AlexClaw.Skills.RSSCollector, :core, :all} = rss
+      rss = Enum.find(entries, fn {name, _, _, _, _} -> name == "rss_collector" end)
+      assert {"rss_collector", AlexClaw.Skills.RSSCollector, :core, :all, _branch} = rss
     end
 
     test "all core skills have type :core" do
       entries = SkillRegistry.list_all_with_type()
 
-      for {_name, _mod, type, perms} <- entries do
+      for {_name, _mod, type, perms, _branch} <- entries do
         if type == :core, do: assert(perms == :all)
       end
     end
@@ -128,8 +128,8 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
 
       # Verify type and permissions
       entries = SkillRegistry.list_all_with_type()
-      entry = Enum.find(entries, fn {name, _, _, _} -> name == "test_loader" end)
-      assert {"test_loader", _, :dynamic, [:llm, :web_read]} = entry
+      entry = Enum.find(entries, fn {name, _, _, _, _} -> name == "test_loader" end)
+      assert {"test_loader", _, :dynamic, [:llm, :web_read], _branch} = entry
 
       # Verify get_permissions
       assert [:llm, :web_read] = SkillRegistry.get_permissions(AlexClaw.Skills.Dynamic.TestLoader)

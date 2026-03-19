@@ -21,6 +21,9 @@ defmodule AlexClaw.Skills.GoogleTasks do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Lists and creates Google Tasks"
+
+  @impl true
+  def routes, do: [:on_tasks, :on_empty, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
 
@@ -63,13 +66,13 @@ defmodule AlexClaw.Skills.GoogleTasks do
         headers = [{"authorization", "Bearer #{token}"}]
 
         case Req.get(url, params: params, headers: headers, receive_timeout: 10_000) do
-          {:ok, %{status: 200, body: %{"items" => tasks}}} ->
+          {:ok, %{status: 200, body: %{"items" => tasks}}} when tasks != [] ->
             formatted = format_tasks(tasks)
             Logger.info("GoogleTasks: fetched #{length(tasks)} tasks", skill: :google_tasks)
-            {:ok, formatted}
+            {:ok, formatted, :on_tasks}
 
           {:ok, %{status: 200, body: _}} ->
-            {:ok, "No tasks found."}
+            {:ok, "No tasks found.", :on_empty}
 
           {:ok, %{status: status, body: body}} ->
             Logger.warning("Google Tasks API error: #{status}", skill: :google_tasks)
@@ -91,7 +94,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
           |> Enum.map(fn l -> "• #{l["title"]}" end)
           |> Enum.join("\n")
         Logger.info("GoogleTasks: fetched #{length(lists)} task lists", skill: :google_tasks)
-        {:ok, formatted}
+        {:ok, formatted, :on_tasks}
 
       {:error, reason} ->
         {:error, reason}
@@ -164,7 +167,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
           case Req.post(url, json: task, headers: headers, receive_timeout: 10_000) do
             {:ok, %{status: 200, body: %{"title" => created_title}}} ->
               Logger.info("GoogleTasks: created '#{created_title}'", skill: :google_tasks)
-              {:ok, "Task created: #{created_title}"}
+              {:ok, "Task created: #{created_title}", :on_tasks}
 
             {:ok, %{status: status, body: body}} ->
               Logger.warning("Google Tasks create failed: #{status}", skill: :google_tasks)

@@ -14,7 +14,7 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
       })
 
       # Result depends on whether Telegram API is reachable in test env
-      assert match?({:ok, _}, result) or match?({:error, _}, result)
+      assert match?({:ok, _, _}, result) or match?({:error, _}, result)
     end
 
     test "sends via gateway when no bot_token" do
@@ -24,23 +24,23 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
       })
 
       # Gateway is a cast, always returns ok
-      assert {:ok, %{delivered: true}} = result
+      assert {:ok, %{delivered: true}, _branch} = result
     end
 
     test "formats nil input" do
       result = TelegramNotify.run(%{input: nil, config: %{}})
-      assert {:ok, %{delivered: true}} = result
+      assert {:ok, %{delivered: true}, _branch} = result
     end
 
     test "formats map input" do
       result = TelegramNotify.run(%{input: %{"output" => "map text"}, config: %{}})
-      assert {:ok, %{delivered: true}} = result
+      assert {:ok, %{delivered: true}, _branch} = result
     end
 
     test "truncates long messages" do
       long = String.duplicate("x", 5000)
       result = TelegramNotify.run(%{input: long, config: %{}})
-      assert {:ok, %{delivered: true}} = result
+      assert {:ok, %{delivered: true}, _branch} = result
     end
 
     test "returns error when custom bot has no chat_id" do

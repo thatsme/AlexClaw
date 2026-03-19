@@ -9,6 +9,9 @@ defmodule AlexClaw.Skills.TelegramNotify do
   @behaviour AlexClaw.Skill
   @impl true
   def description, do: "Sends workflow output to Telegram chat"
+
+  @impl true
+  def routes, do: [:on_delivered, :on_error]
   require Logger
 
   @telegram_api "https://api.telegram.org/bot"
@@ -39,7 +42,7 @@ defmodule AlexClaw.Skills.TelegramNotify do
     else
       opts = if chat_id, do: [chat_id: chat_id], else: []
       AlexClaw.Gateway.send_html(html_message, opts)
-      {:ok, %{delivered: true, chat_id: chat_id || "default"}}
+      {:ok, %{delivered: true, chat_id: chat_id || "default"}, :on_delivered}
     end
   end
 
@@ -53,13 +56,13 @@ defmodule AlexClaw.Skills.TelegramNotify do
     case Req.post(url, json: %{chat_id: chat_id, text: text, parse_mode: parse_mode}) do
       {:ok, %{status: 200}} ->
         Logger.info("TelegramNotify sent to chat #{chat_id} via custom bot", skill: :telegram_notify)
-        {:ok, %{delivered: true, chat_id: chat_id, custom_bot: true}}
+        {:ok, %{delivered: true, chat_id: chat_id, custom_bot: true}, :on_delivered}
 
       {:ok, %{status: 400, body: body}} ->
         Logger.warning("TelegramNotify markdown failed, retrying plain: #{inspect(body)}", skill: :telegram_notify)
         case Req.post(url, json: %{chat_id: chat_id, text: text}) do
           {:ok, %{status: 200}} ->
-            {:ok, %{delivered: true, chat_id: chat_id, custom_bot: true, plain_fallback: true}}
+            {:ok, %{delivered: true, chat_id: chat_id, custom_bot: true, plain_fallback: true}, :on_delivered}
           {:ok, %{status: s, body: b}} ->
             {:error, {:telegram, s, b}}
           {:error, reason} ->

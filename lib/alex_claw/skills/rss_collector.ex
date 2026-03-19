@@ -8,6 +8,9 @@ defmodule AlexClaw.Skills.RSSCollector do
   def description,
     do: "Fetches RSS feeds, scores relevance via LLM, stores and notifies via Telegram"
 
+  @impl true
+  def routes, do: [:on_items, :on_empty, :on_error]
+
   use Task, restart: :temporary
   require Logger
 
@@ -91,7 +94,11 @@ defmodule AlexClaw.Skills.RSSCollector do
         "**#{item.feed}**: #{item.title}\n#{String.slice(item.description || "", 0, 300)}\n#{item.link}"
       end)
 
-    {:ok, if(summary == "", do: "No relevant news items found.", else: summary)}
+    if summary == "" do
+      {:ok, "No relevant news items found.", :on_empty}
+    else
+      {:ok, summary, :on_items}
+    end
   end
 
   # --- Feed Fetching ---

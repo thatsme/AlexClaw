@@ -143,6 +143,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
                     Step {pos}: {step_data["name"]}
                   </span>
                   <span class="text-xs px-2 py-0.5 rounded bg-gray-700 text-claw-500">{step_data["skill"]}</span>
+                  <span :if={step_data["branch"]} class="text-xs px-2 py-0.5 rounded bg-purple-900/50 text-purple-400">{step_data["branch"]}</span>
                 </div>
                 <div :if={step_data["output"]} class="text-xs text-gray-400 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
                   {truncate_output(step_data["output"])}

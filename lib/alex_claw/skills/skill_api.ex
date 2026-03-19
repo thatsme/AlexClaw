@@ -10,7 +10,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   """
   require Logger
 
-  @known_permissions ~w(llm telegram_send memory_read memory_write web_read config_read resources_read skill_invoke)a
+  @known_permissions ~w(llm telegram_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke)a
 
   def known_permissions, do: @known_permissions
 
@@ -75,6 +75,29 @@ defmodule AlexClaw.Skills.SkillAPI do
   def memory_store(skill_module, kind, content, opts \\ []) do
     with :ok <- check_permission(skill_module, :memory_write) do
       AlexClaw.Memory.store(kind, content, opts)
+    end
+  end
+
+  # --- Knowledge ---
+
+  @doc "Search knowledge base by semantic similarity. Opts: :limit, :kind"
+  def knowledge_search(skill_module, query, opts \\ []) do
+    with :ok <- check_permission(skill_module, :knowledge_read) do
+      {:ok, AlexClaw.Knowledge.search(query, opts)}
+    end
+  end
+
+  @doc "Check if a source URL already exists in knowledge base."
+  def knowledge_exists?(skill_module, source_url) do
+    with :ok <- check_permission(skill_module, :knowledge_read) do
+      {:ok, AlexClaw.Knowledge.exists?(source_url)}
+    end
+  end
+
+  @doc "Store a knowledge entry. Opts: :source, :metadata, :expires_at"
+  def knowledge_store(skill_module, kind, content, opts \\ []) do
+    with :ok <- check_permission(skill_module, :knowledge_write) do
+      AlexClaw.Knowledge.store(kind, content, opts)
     end
   end
 

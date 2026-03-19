@@ -61,48 +61,6 @@ defmodule AlexClawWeb.AdminLive.Logs do
      )}
   end
 
-  @impl true
-  def render(assigns) do
-    ~H"""
-    <div class="space-y-6">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-white">Logs</h1>
-        <div class="flex items-center gap-4">
-          <span class="text-sm text-gray-500">{length(@entries)} entries</span>
-          <button phx-click="clear" data-confirm="Clear all logs?" class="px-3 py-1.5 rounded text-sm font-medium bg-red-900/50 text-red-400 hover:bg-red-900 transition-colors">
-            Clear
-          </button>
-        </div>
-      </div>
-
-      <div class="flex gap-2">
-        <.filter_btn severity="all" label="All" active={@filter == nil} />
-        <.filter_btn severity="critical" label={"Critical (#{@counts.critical})"} active={@filter == :critical} color="red" />
-        <.filter_btn severity="high" label={"High (#{@counts.high})"} active={@filter == :high} color="orange" />
-        <.filter_btn severity="moderate" label={"Moderate (#{@counts.moderate})"} active={@filter == :moderate} color="yellow" />
-        <.filter_btn severity="low" label={"Low (#{@counts.low})"} active={@filter == :low} color="gray" />
-        <.filter_btn severity="circuit_breaker" label={"Circuit Breaker (#{@counts.circuit_breaker})"} active={@filter == :circuit_breaker} color="blue" />
-      </div>
-
-      <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
-        <div :if={@entries == []} class="p-8 text-center text-gray-500">No log entries.</div>
-        <div :for={entry <- @entries} class={"flex gap-4 px-4 py-2 border-b border-gray-800/50 last:border-0 #{row_bg(entry.severity)}"}>
-          <div class="flex-shrink-0 w-20 text-xs text-gray-500 font-mono pt-0.5">
-            {AlexClawWeb.TimeHelpers.format_datetime(entry.timestamp)}
-          </div>
-          <div class="flex-shrink-0" title={entry[:workflow]}>
-            <.severity_badge severity={entry.severity} />
-          </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm text-gray-300 font-mono break-all">{String.slice(entry.message, 0, 500)}</p>
-            <p :if={entry.module} class="text-xs text-gray-600 mt-0.5">{inspect(entry.module)}</p>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
   defp filter_btn(assigns) do
     assigns = assign_new(assigns, :color, fn -> "blue" end)
 

@@ -60,6 +60,7 @@ Load custom skills at runtime — no code changes, no Docker rebuild, no restart
 - **Admin UI** — Upload, reload, and unload skills from the Skills page. Core and dynamic skills are shown separately.
 - **Telegram commands** — `/skill load`, `/skill unload`, `/skill reload`, `/skill create`, `/skill list`
 - **Cross-skill invocation** — Dynamic skills can call other skills (core or dynamic) through `SkillAPI.run_skill/3`
+- **Conditional branching** — Dynamic skills can declare `routes/0` (e.g. `[:on_results, :on_empty, :on_error]`) and return triple tuples `{:ok, result, :branch_name}` for workflow routing. Routes are persisted in the database on load and cleaned up on unload — same behavior as core skills.
 
 #### Permissions
 

@@ -62,6 +62,10 @@ Additional notification/command channels beyond Telegram:
 
 ## Someday
 
+### ~~Knowledge Base RAG~~ ✅ Completed (v0.3.3)
+
+Separate `knowledge_entries` table with pgvector HNSW index for documentation and reference material. HexDocs scraper skill discovers modules via sidebar JSON, chunks by section/function, and embeds via local nomic-embed-text or Gemini. Chat RAG integration with context source selector (Docs/Memory/Both/None). Keyword-first hybrid search for precise documentation retrieval. LLM API key resolution falls back from provider record to config settings. Currently 22 packages scraped (4200+ chunks), including full Elixir stdlib and 53 official guides.
+
 ### ~~Semantic Search (Memory)~~ ✅ Completed (v0.2.1)
 
 Hybrid search combining pgvector cosine similarity and keyword matching. Embeddings generated asynchronously via Gemini `text-embedding-004`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint. 768-dimension vectors with HNSW index. All skills auto-embed stored knowledge in the background. Batch re-embed support for model switching.

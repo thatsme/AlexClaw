@@ -169,7 +169,7 @@ defmodule AlexClaw.LLM do
   end
 
   defp call_embedding(%Provider{type: "gemini"} = p, text, model) do
-    api_key = p.api_key || ""
+    api_key = resolve_api_key(p)
 
     if api_key == "",
       do: {:error, :api_key_not_set},
@@ -192,6 +192,22 @@ defmodule AlexClaw.LLM do
 
   defp call_embedding(%Provider{type: "anthropic"}, _text, _model) do
     {:error, :anthropic_no_embeddings}
+  end
+
+  # --- API Key Resolution ---
+
+  @config_key_map %{
+    "gemini" => "llm.gemini_api_key",
+    "anthropic" => "llm.anthropic_api_key"
+  }
+
+  defp resolve_api_key(%Provider{api_key: key}) when is_binary(key) and key != "", do: key
+
+  defp resolve_api_key(%Provider{type: type}) do
+    case Map.get(@config_key_map, type) do
+      nil -> ""
+      config_key -> AlexClaw.Config.get(config_key) || ""
+    end
   end
 
   # --- Gemini Embeddings ---
@@ -335,7 +351,7 @@ defmodule AlexClaw.LLM do
   # --- Provider Calls ---
 
   defp call_provider(%Provider{type: "gemini"} = p, prompt, system) do
-    api_key = p.api_key || ""
+    api_key = resolve_api_key(p)
 
     if api_key == "",
       do: {:error, :api_key_not_set},
@@ -343,7 +359,7 @@ defmodule AlexClaw.LLM do
   end
 
   defp call_provider(%Provider{type: "anthropic"} = p, prompt, system) do
-    api_key = p.api_key || ""
+    api_key = resolve_api_key(p)
 
     if api_key == "",
       do: {:error, :api_key_not_set},

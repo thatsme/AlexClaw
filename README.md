@@ -24,6 +24,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **Telegram Gateway** — Bidirectional communication via long-polling. Command routing is deterministic pattern-matching — no LLM involved in dispatch.
 - **Runtime Configuration** — All settings (API keys, prompts, limits, personas) are stored in PostgreSQL, cached in ETS, and editable at runtime via the admin UI. No restart required for any config change.
 - **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `gemini-embedding-001`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). 768-dimension vectors with HNSW index. All skills that store knowledge auto-embed in the background.
+- **Knowledge Base RAG** — Separate `knowledge_entries` table for documentation and reference material, isolated from news/conversation memory. Scraper skills fetch, chunk, and embed documentation from hexdocs.pm (API reference + official guides). Chat integrates both Knowledge and Memory search with a context source selector (Docs only / Memory only / Both / None). System prompt instructs the LLM to cite provided documentation over general knowledge. Currently covers 22 Elixir ecosystem packages including full Elixir stdlib and 53 official guides.
 - **Cron Scheduler** — Quantum-based. Jobs defined in config or DB.
 
 ### Skills
@@ -44,6 +45,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `google_calendar` | Fetch upcoming Google Calendar events |
 | `google_tasks` | Manage Google Tasks lists and items |
 | `web_automation` | Browser automation via headless Playwright sidecar (**experimental**) |
+| `hexdocs_scraper` | Scrape hexdocs.pm docs into knowledge base embeddings (dynamic) |
 
 ### Dynamic Skill Loading (**experimental**)
 

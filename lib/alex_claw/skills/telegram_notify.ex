@@ -32,8 +32,8 @@ defmodule AlexClaw.Skills.TelegramNotify do
         message
       end
 
-    bot_token = config["bot_token"]
-    chat_id = config["chat_id"]
+    bot_token = blank_to_nil(config["bot_token"])
+    chat_id = blank_to_nil(config["chat_id"])
 
     html_message = format_for_telegram(message)
 
@@ -128,4 +128,8 @@ defmodule AlexClaw.Skills.TelegramNotify do
   defp convert_inline_code(text) do
     Regex.replace(~r/`(.+?)`/, text, "<code>\\1</code>")
   end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(val), do: val
 end

@@ -72,7 +72,8 @@ defmodule AlexClaw.Gateway do
     if token && token != "" && chat_id && chat_id != "" do
       do_send_message(token, chat_id, text)
     else
-      Logger.warning("Cannot send: Telegram token or chat_id not configured")
+      preview = String.slice(to_string(text), 0, 80)
+      Logger.warning("Cannot send: Telegram token or chat_id not configured — \"#{preview}\"")
     end
 
     {:noreply, state}
@@ -86,7 +87,8 @@ defmodule AlexClaw.Gateway do
     if token && token != "" && chat_id && chat_id != "" do
       do_send_html(token, chat_id, text)
     else
-      Logger.warning("Cannot send: Telegram token or chat_id not configured")
+      preview = String.slice(to_string(text), 0, 80)
+      Logger.warning("Cannot send: Telegram token or chat_id not configured — \"#{preview}\"")
     end
 
     {:noreply, state}

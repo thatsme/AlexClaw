@@ -356,6 +356,8 @@ lib/
     google/
       oauth.ex                 # Google OAuth2 flow (state, token exchange)
       token_manager.ex         # Access token cache + auto-refresh GenServer
+    knowledge/
+      entry.ex                 # Knowledge entry Ecto schema (pgvector)
     llm/
       provider.ex              # Custom provider schema
       usage_entry.ex           # Usage counter Ecto schema
@@ -393,6 +395,7 @@ lib/
     dispatcher.ex              # Telegram command routing (pattern matching)
     gateway.ex                 # Telegram bot (long-polling GenServer)
     identity.ex                # Persona / system prompt builder
+    knowledge.ex               # Knowledge base store (hybrid search, async embed)
     llm.ex                     # Multi-model LLM router
     log_buffer.ex              # In-memory log ring buffer
     memory.ex                  # Knowledge store API
@@ -426,7 +429,7 @@ web-automator/                 # Python/Playwright browser automation sidecar
   Dockerfile
   supervisord.conf             # Xvfb + noVNC + FastAPI
 priv/repo/
-  migrations/                  # 16 DB migrations
+  migrations/                  # 19 DB migrations
   seeds/                       # Example workflow seeds
 config/
   config.exs

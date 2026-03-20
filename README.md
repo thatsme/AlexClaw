@@ -75,6 +75,8 @@ Load custom skills at runtime — no code changes, no Docker rebuild, no restart
 | `:memory_write` | Store new memory entries |
 | `:config_read` | Read runtime config values |
 | `:resources_read` | List and fetch resources |
+| `:knowledge_read` | Search and check existence in knowledge base |
+| `:knowledge_write` | Store knowledge entries |
 | `:skill_invoke` | Call other skills by name |
 
 #### Getting Started
@@ -256,6 +258,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 lib/
   alex_claw/
     config/          # Runtime config (DB + ETS + PubSub broadcast)
+    knowledge/       # Knowledge base entry schema (pgvector)
     llm/             # LLM router, usage tracker, provider schema
     memory/          # Memory entry schema
     skills/          # Core skill modules, SkillAPI, DynamicSkill schema, CircuitBreaker
@@ -269,7 +272,7 @@ lib/
     scheduler.ex     # Quantum cron scheduler
   alex_claw_web/
     controllers/     # Auth, database backup, GitHub webhook
-    live/admin_live/ # LiveView admin pages (12 pages including Chat)
+    live/admin_live/ # LiveView admin pages (13 pages including Chat)
     plugs/           # RequireAuth, RateLimit, RawBodyReader
 priv/repo/
   migrations/        # All DB migrations

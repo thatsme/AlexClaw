@@ -15,6 +15,16 @@ defmodule AlexClaw.Config.Seeder do
     {"telegram.poll_interval", "1000", "integer", "telegram", "Telegram polling interval in ms",
      false},
 
+    # Discord — static defaults only, no env override (configured from Admin UI)
+    {"discord.enabled", "false", "boolean", "discord",
+     "Enable Discord gateway (requires bot token and container restart)", false},
+    {"discord.bot_token", "", "string", "discord",
+     "Discord Bot token from Developer Portal", true},
+    {"discord.channel_id", "", "string", "discord",
+     "Discord channel ID for commands (auto-detected on first message)", false},
+    {"discord.guild_id", "", "string", "discord",
+     "Discord server (guild) ID", false},
+
     # LLM - API Keys
     {"llm.gemini_api_key", &__MODULE__.env/1, "string", "llm", "Google Gemini API key", true},
     {"llm.anthropic_api_key", &__MODULE__.env/1, "string", "llm", "Anthropic API key", true},
@@ -136,7 +146,7 @@ defmodule AlexClaw.Config.Seeder do
     "google.oauth.refresh_token" => {"GOOGLE_OAUTH_REFRESH_TOKEN", ""},
     "google.oauth.redirect_uri" => {"GOOGLE_OAUTH_REDIRECT_URI", ""},
     "web_automator.enabled" => {"WEB_AUTOMATOR_ENABLED", "false"},
-    "web_automator.host" => {"WEB_AUTOMATOR_HOST", "http://web-automator:6900"}
+    "web_automator.host" => {"WEB_AUTOMATOR_HOST", "http://web-automator:6900"},
   }
 
   @spec env(String.t()) :: String.t()

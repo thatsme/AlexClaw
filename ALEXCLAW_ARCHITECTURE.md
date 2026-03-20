@@ -33,7 +33,8 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.SkillSupervisor        # DynamicSupervisor — spawns skill worker processes
   ├── AlexClaw.Scheduler              # Quantum cron scheduler
   ├── AlexClaw.Workflows.SchedulerSync # Syncs DB workflow schedules into Quantum jobs
-  ├── AlexClaw.Gateway                # Telegram long-polling bot
+  ├── AlexClaw.Gateway.Telegram       # Telegram long-polling bot
+  ├── AlexClaw.Gateway.Discord        # Discord bot via Nostrum (conditional — only if token set)
   └── AlexClawWeb.Endpoint            # Phoenix HTTP server (LiveView admin UI)
 ```
 
@@ -43,13 +44,21 @@ All async work (workflow execution, GitHub reviews, background tasks) runs under
 
 ## Core Components
 
-### Gateway — `AlexClaw.Gateway`
+### Gateway — Multi-Transport Architecture
 
-GenServer that long-polls the Telegram Bot API. Normalizes inbound updates into `%Message{}` structs and passes them to the Dispatcher. Outbound messages go through `Gateway.send_message/2` which calls the Telegram `sendMessage` API with Markdown parsing.
+The gateway layer supports multiple messaging transports via a behaviour pattern:
+
+- **`AlexClaw.Gateway.Behaviour`** — defines the contract: `send_message/2`, `send_html/2`, `send_photo/3`, `name/0`, `configured?/0`
+- **`AlexClaw.Gateway.Telegram`** — GenServer that long-polls the Telegram Bot API. Normalizes inbound updates into `%Message{gateway: :telegram}` structs.
+- **`AlexClaw.Gateway.Discord`** — Nostrum consumer that receives Discord MESSAGE_CREATE events. Normalizes into `%Message{gateway: :discord}`. Uses Nostrum's REST API for sending. Only started when `DISCORD_BOT_TOKEN` is set at boot.
+- **`AlexClaw.Gateway.Router`** — resolves the correct gateway from `opts[:gateway]` and delegates. Falls back to the first configured gateway (Telegram preferred). Provides `broadcast/2` for system-level notifications to all active gateways.
+- **`AlexClaw.Gateway`** — thin facade with `defdelegate` to Router for backward compatibility. All existing code calls this module unchanged.
+
+The Dispatcher threads `gateway: msg.gateway` through all send calls, ensuring responses route back to the originating transport.
 
 ### Dispatcher — `AlexClaw.Dispatcher`
 
-Deterministic pattern-matching router. No LLM involved in routing — zero token cost for dispatch. Maps Telegram commands to skills:
+Deterministic pattern-matching router. No LLM involved in routing — zero token cost for dispatch. Maps commands to skills:
 
 ```
 /ping              → pong
@@ -265,6 +274,7 @@ Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, 
 | `research` | `Research` | medium | Deep research with memory context |
 | `conversational` | `Conversational` | light | Free-text conversation with identity and memory |
 | `telegram_notify` | `TelegramNotify` | — | Send workflow output to Telegram (markdown → HTML) |
+| `discord_notify` | `DiscordNotify` | — | Send workflow output to a Discord channel (configurable `channel_id` per step) |
 | `llm_transform` | `LLMTransform` | configurable | Run a prompt template through the LLM |
 | `api_request` | `ApiRequest` | — | Make an authenticated HTTP request with retries |
 | `github_security_review` | `GitHubSecurityReview` | medium | Fetch PR/commit diff, run LLM security analysis |
@@ -379,6 +389,7 @@ lib/
       circuit_breaker_supervisor.ex  # DynamicSupervisor + PubSub lifecycle
       api_request.ex           # HTTP requests with retries
       conversational.ex        # Free-text LLM conversation
+      discord_notify.ex        # Discord channel delivery (workflow step)
       github_security_review.ex # PR/commit security analysis
       google_calendar.ex       # Google Calendar events
       google_tasks.ex          # Google Tasks list/create
@@ -398,9 +409,14 @@ lib/
       workflow_resource.ex     # Join schema (workflow ↔ resource)
       workflow_run.ex          # Run history Ecto schema
       workflow_step.ex         # Step Ecto schema (order, config, input_from, routes)
-    application.ex             # Supervision tree (15 children)
-    dispatcher.ex              # Telegram command routing (pattern matching)
-    gateway.ex                 # Telegram bot (long-polling GenServer)
+    gateway/
+      behaviour.ex             # Gateway behaviour contract
+      discord.ex               # Discord bot (Nostrum consumer + REST API)
+      router.ex                # Multi-gateway message routing
+      telegram.ex              # Telegram bot (long-polling GenServer)
+    application.ex             # Supervision tree
+    dispatcher.ex              # Command routing (pattern matching, transport-agnostic)
+    gateway.ex                 # Facade — defdelegate to Router
     identity.ex                # Persona / system prompt builder
     knowledge.ex               # Knowledge base store (hybrid search, async embed)
     llm.ex                     # Multi-model LLM router

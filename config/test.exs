@@ -20,4 +20,6 @@ config :alex_claw, AlexClawWeb.Endpoint,
 config :alex_claw, skip_provider_seed: true
 config :alex_claw, :skills_dir, Path.expand("../tmp/test_skills", __DIR__)
 
+config :nostrum, token: ""
+
 config :logger, level: :warning

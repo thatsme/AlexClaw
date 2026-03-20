@@ -551,6 +551,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp skill_uses_llm?("telegram_notify"), do: false
+  defp skill_uses_llm?("discord_notify"), do: false
   defp skill_uses_llm?("api_request"), do: false
   defp skill_uses_llm?("rss_collector"), do: false
   defp skill_uses_llm?("web_browse"), do: false
@@ -565,6 +566,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_config_hint("web_browse"), do: ~s|{"url": "https://...", "question": "optional"}|
   defp skill_config_hint("llm_transform"), do: ~s|{"context": "extra context for {context} placeholder"}|
   defp skill_config_hint("telegram_notify"), do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|
+  defp skill_config_hint("discord_notify"), do: ~s|{"channel_id": "Discord channel ID (optional, default: main channel)"}|
   defp skill_config_hint("google_calendar"), do: ~s|{"action": "list", "days": 1} or {"action": "create", "title": "Meeting", "date": "2026-03-20", "time": "14:00"}|
   defp skill_config_hint("google_tasks"), do: ~s|{"action": "list"} or {"action": "create", "title": "Task title"}|
   defp skill_config_hint("github_security_review"), do: ~s|{"repo": "owner/repo", "pr": 42}|
@@ -581,6 +583,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "web_browse" -> %{"url" => "", "question" => ""}
       "llm_transform" -> %{"context" => ""}
       "telegram_notify" -> %{"chat_id" => "", "bot_token" => "", "parse_mode" => "Markdown"}
+      "discord_notify" -> %{"channel_id" => ""}
       "google_calendar" -> %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}
       "google_tasks" -> %{"action" => "list", "task_list" => "@default"}
       "github_security_review" -> %{"repo" => "", "pr" => nil}
@@ -644,6 +647,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "web_browse" -> "url: page to fetch. question: optional question to answer about the page content."
       "llm_transform" -> "context: extra text available as {context} in the prompt template. Usually empty — most config goes in the prompt."
       "telegram_notify" -> "Optional overrides. Leave empty to use default bot/chat. parse_mode: Markdown or HTML."
+      "discord_notify" -> "channel_id: target Discord channel. Leave empty to send to the default channel."
       "google_calendar" -> "action: list (fetch events) or create (new event with title, date, time). calendar_id: which calendar (default: primary). days: how many days ahead. max_results: event limit."
       "google_tasks" -> "action: list or add. For add: set title in config and the step input becomes notes automatically. Or leave title empty and input becomes the title. due: optional date (YYYY-MM-DD). task_list: list ID (default: @default)."
       "github_security_review" -> "repo: owner/repo format. pr: PR number. Or commit_sha for commit review."

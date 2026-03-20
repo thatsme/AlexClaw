@@ -22,6 +22,8 @@ config :alex_claw, AlexClaw.LLM,
   ollama_host: "http://localhost:11434",
   ollama_model: "llama3.2"
 
+config :nostrum, :ffmpeg, false
+
 config :elixir, :time_zone_database, Tz.TimeZoneDatabase
 
 config :logger, :console,

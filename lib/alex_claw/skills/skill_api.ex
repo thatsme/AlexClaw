@@ -10,7 +10,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   """
   require Logger
 
-  @known_permissions ~w(llm telegram_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke)a
+  @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke)a
 
   def known_permissions, do: @known_permissions
 
@@ -30,21 +30,47 @@ defmodule AlexClaw.Skills.SkillAPI do
     end
   end
 
-  # --- Telegram ---
+  # --- Gateway (transport-agnostic) ---
 
-  @doc "Send a Markdown message to Telegram."
+  @doc "Send a Markdown message via the gateway. Routes based on :gateway opt."
+  def send_message(skill_module, message, opts \\ []) do
+    with :ok <- check_gateway_permission(skill_module) do
+      AlexClaw.Gateway.Router.send_message(message, opts)
+      :ok
+    end
+  end
+
+  @doc "Send an HTML message via the gateway."
+  def send_html(skill_module, message, opts \\ []) do
+    with :ok <- check_gateway_permission(skill_module) do
+      AlexClaw.Gateway.Router.send_html(message, opts)
+      :ok
+    end
+  end
+
+  # --- Telegram (backward compat aliases) ---
+
+  @doc "Send a Markdown message to Telegram. Alias for send_message/3."
   def send_telegram(skill_module, message, opts \\ []) do
-    with :ok <- check_permission(skill_module, :telegram_send) do
+    with :ok <- check_gateway_permission(skill_module) do
       AlexClaw.Gateway.send_message(message, opts)
       :ok
     end
   end
 
-  @doc "Send an HTML message to Telegram."
+  @doc "Send an HTML message to Telegram. Alias for send_html/3."
   def send_telegram_html(skill_module, message, opts \\ []) do
-    with :ok <- check_permission(skill_module, :telegram_send) do
+    with :ok <- check_gateway_permission(skill_module) do
       AlexClaw.Gateway.send_html(message, opts)
       :ok
+    end
+  end
+
+  defp check_gateway_permission(skill_module) do
+    # Accept either :telegram_send or :gateway_send
+    case check_permission(skill_module, :gateway_send) do
+      :ok -> :ok
+      {:error, _} -> check_permission(skill_module, :telegram_send)
     end
   end
 

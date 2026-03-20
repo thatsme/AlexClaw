@@ -51,12 +51,13 @@ The current dashboard shows basic stats. Planned additions:
 
 SMTP skill for sending email notifications as a workflow step. IMAP polling as a workflow trigger source.
 
-### Multi-Gateway Support
+### ~~Multi-Gateway Support~~ ✅ Discord (v0.4.0)
 
-Additional notification/command channels beyond Telegram:
+Gateway behaviour abstraction with multi-transport Router. Telegram and Discord run simultaneously. Discord uses Nostrum (WebSocket + REST API). Responses route back to the originating transport via explicit `gateway: msg.gateway` threading. Both gateways auto-detect channel/chat ID on first message. Slack planned as a future addition.
 
-- Slack (bot + incoming webhooks)
-- Discord (webhook notifications)
+### Slack Gateway
+
+Slack bot + incoming webhooks. Same Gateway behaviour pattern as Telegram and Discord.
 
 ---
 

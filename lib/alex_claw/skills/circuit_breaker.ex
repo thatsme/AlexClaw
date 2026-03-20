@@ -190,7 +190,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
 
   defp notify_opened(skill_name, count, reason) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Gateway.send_message(
+      AlexClaw.Gateway.Router.broadcast(
         "⚡ Circuit *OPEN* for skill `#{skill_name}`\n" <>
           "#{count} consecutive failures. Auto-retry in #{div(@reset_timeout, 60_000)} min.\n" <>
           "Last error: `#{String.slice(inspect(reason), 0, 200)}`"
@@ -200,7 +200,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
 
   defp notify_closed(skill_name) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Gateway.send_message("✅ Circuit *CLOSED* for skill `#{skill_name}` — recovered.")
+      AlexClaw.Gateway.Router.broadcast("✅ Circuit *CLOSED* for skill `#{skill_name}` — recovered.")
     end)
   end
 end

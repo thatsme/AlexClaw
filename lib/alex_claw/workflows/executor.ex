@@ -26,7 +26,7 @@ defmodule AlexClaw.Workflows.Executor do
   defp execute(workflow) do
     {:ok, run} = Workflows.create_run(workflow)
     steps = workflow.steps
-    notifies? = Enum.any?(steps, &(&1.skill == "telegram_notify"))
+    gateways = workflow_gateways(steps)
 
     Logger.info(
       "Workflow '#{workflow.name}' started (run #{run.id}), #{length(steps)} steps, " <>
@@ -34,7 +34,7 @@ defmodule AlexClaw.Workflows.Executor do
       workflow: workflow.name
     )
 
-    if notifies?, do: notify_start(workflow)
+    if gateways != [], do: notify_start(workflow, gateways)
 
     state = %{
       outputs: %{},
@@ -66,7 +66,7 @@ defmodule AlexClaw.Workflows.Executor do
           })
 
         Logger.error("Workflow '#{workflow.name}' failed at step '#{step_name}': #{inspect(reason)}", workflow: workflow.name)
-        if notifies?, do: notify_failure(workflow, step_name, reason)
+        if gateways != [], do: notify_failure(workflow, step_name, reason, gateways)
         {:error, run}
     end
   end
@@ -288,15 +288,28 @@ defmodule AlexClaw.Workflows.Executor do
 
   # --- Notifications ---
 
-  defp notify_start(workflow) do
+  defp notify_start(workflow, gateways) do
     step_names = workflow.steps |> Enum.map(& &1.name) |> Enum.join(" → ")
-    AlexClaw.Gateway.send_message("⚙️ *#{workflow.name}* started\n#{step_names}")
+    msg = "⚙️ *#{workflow.name}* started\n#{step_names}"
+    Enum.each(gateways, fn gw -> gw.send_message(msg, []) end)
   end
 
-  defp notify_failure(workflow, step_name, reason) do
-    AlexClaw.Gateway.send_message(
-      "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`"
-    )
+  defp notify_failure(workflow, step_name, reason, gateways) do
+    msg = "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`"
+    Enum.each(gateways, fn gw -> gw.send_message(msg, []) end)
+  end
+
+  # Detect which gateways a workflow targets based on its notify steps
+  defp workflow_gateways(steps) do
+    steps
+    |> Enum.flat_map(fn step ->
+      case step.skill do
+        "telegram_notify" -> [AlexClaw.Gateway.Telegram]
+        "discord_notify" -> [AlexClaw.Gateway.Discord]
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
   end
 
   # --- Serialization ---

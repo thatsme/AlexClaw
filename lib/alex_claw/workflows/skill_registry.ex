@@ -463,7 +463,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp notify_checksum_mismatch(skill_name) do
     Task.start(fn ->
-      AlexClaw.Gateway.send_message(
+      AlexClaw.Gateway.Router.broadcast(
         "Warning: Dynamic skill '#{skill_name}' file changed since last load. " <>
           "Use /skill reload #{skill_name} to update, or /skill unload #{skill_name} to remove."
       )

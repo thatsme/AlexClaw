@@ -259,8 +259,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | Scheduler | Cron jobs and scheduled workflows |
 | LLM | Provider status and usage |
 | Workflows | Create/edit/run multi-step pipelines, view run history |
-| Feeds | RSS feed management |
-| Resources | Shared resources for workflows |
+| Resources | Shared resources for workflows (RSS feeds, websites, APIs, automations) |
 | Memory | Browse and search stored knowledge |
 | Database | Schema browser and backup download |
 | Config | Runtime configuration editor |
@@ -288,7 +287,7 @@ lib/
     scheduler.ex     # Quantum cron scheduler
   alex_claw_web/
     controllers/     # Auth, database backup, GitHub webhook
-    live/admin_live/ # LiveView admin pages (13 pages including Chat)
+    live/admin_live/ # LiveView admin pages (12 pages including Chat)
     plugs/           # RequireAuth, RateLimit, RawBodyReader
 priv/repo/
   migrations/        # All DB migrations

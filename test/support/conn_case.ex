@@ -30,6 +30,7 @@ defmodule AlexClawWeb.ConnCase do
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
     |> Plug.Conn.put_session(:authenticated, true)
+    |> Plug.Conn.put_session(:authenticated_at, System.system_time(:second))
   end
 
   defp ensure_ets_table(name) do

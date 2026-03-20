@@ -20,6 +20,13 @@ defmodule AlexClaw.Auth.TOTPTest do
       assert is_binary(pending)
       assert pending != ""
     end
+
+    test "pending secret is encrypted at rest in database" do
+      {:ok, _} = TOTP.setup()
+      record = AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.pending_secret")
+      assert record.sensitive == true
+      assert AlexClaw.Config.Crypto.encrypted?(record.value)
+    end
   end
 
   describe "confirm_setup/1" do
@@ -38,6 +45,16 @@ defmodule AlexClaw.Auth.TOTPTest do
 
       assert :ok = TOTP.confirm_setup(code)
       assert TOTP.enabled?()
+    end
+
+    test "active secret is encrypted at rest in database" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      code = NimbleTOTP.verification_code(secret)
+      :ok = TOTP.confirm_setup(code)
+
+      record = AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.secret")
+      assert record.sensitive == true
+      assert AlexClaw.Config.Crypto.encrypted?(record.value)
     end
   end
 

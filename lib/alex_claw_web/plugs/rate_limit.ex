@@ -26,12 +26,19 @@ defmodule AlexClawWeb.Plugs.RateLimit do
 
   def call(conn, _opts), do: conn
 
-  @doc "Extract client IP, supporting X-Forwarded-For for reverse proxy deployments."
+  @doc """
+  Extract client IP. Only trusts X-Forwarded-For when `auth.trust_proxy_headers`
+  is enabled in config (for deployments behind a reverse proxy).
+  """
   def get_client_ip(conn) do
-    forwarded = get_req_header(conn, "x-forwarded-for") |> List.first()
+    if AlexClaw.Config.get("auth.trust_proxy_headers") == true do
+      forwarded = get_req_header(conn, "x-forwarded-for") |> List.first()
 
-    if forwarded && forwarded != "" do
-      forwarded |> String.split(",") |> List.first() |> String.trim()
+      if forwarded && forwarded != "" do
+        forwarded |> String.split(",") |> List.first() |> String.trim()
+      else
+        conn.remote_ip |> :inet.ntoa() |> to_string()
+      end
     else
       conn.remote_ip |> :inet.ntoa() |> to_string()
     end

@@ -116,7 +116,7 @@ defmodule AlexClaw.Gateway.Discord do
         category: "discord"
       )
 
-      Logger.info("Auto-saved Discord channel_id: #{channel_id}")
+      Logger.warning("Auto-saved Discord channel_id: #{channel_id} — verify this is your channel. Set discord.channel_id in config to disable auto-detect.")
     end
   end
 

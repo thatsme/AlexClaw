@@ -50,7 +50,8 @@ defmodule AlexClaw.Auth.TOTP do
     Config.set("auth.totp.pending_secret", Base.encode32(secret, padding: false),
       type: "string",
       category: "auth",
-      description: "Pending TOTP secret (awaiting confirmation)"
+      description: "Pending TOTP secret (awaiting confirmation)",
+      sensitive: true
     )
 
     {:ok, %{secret: secret, uri: uri, qr_png: qr_png}}
@@ -70,7 +71,8 @@ defmodule AlexClaw.Auth.TOTP do
         Config.set("auth.totp.secret", pending,
           type: "string",
           category: "auth",
-          description: "Active TOTP secret for 2FA"
+          description: "Active TOTP secret for 2FA",
+          sensitive: true
         )
 
         Config.set("auth.totp.enabled", "true",

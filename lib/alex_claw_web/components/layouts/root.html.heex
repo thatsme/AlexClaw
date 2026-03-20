@@ -54,7 +54,10 @@
             </div>
           </div>
           <div>
-            <a href="/logout" class="text-gray-500 hover:text-gray-300 text-sm">Logout</a>
+            <form method="post" action="/logout" style="display:inline">
+              <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+              <button type="submit" class="text-gray-500 hover:text-gray-300 text-sm bg-transparent border-none cursor-pointer">Logout</button>
+            </form>
           </div>
         </div>
       </div>

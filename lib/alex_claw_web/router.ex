@@ -33,7 +33,7 @@ defmodule AlexClawWeb.Router do
 
     get("/login", AuthController, :login)
     post("/login", AuthController, :authenticate)
-    get("/logout", AuthController, :logout)
+    post("/logout", AuthController, :logout)
 
     get("/auth/google/callback", OAuthCallbackController, :google)
   end

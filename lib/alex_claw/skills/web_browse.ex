@@ -100,18 +100,18 @@ defmodule AlexClaw.Skills.WebBrowse do
     end
   end
 
-  @spec handle(String.t(), String.t() | nil) :: :ok
-  def handle(url, question \\ nil) do
+  @spec handle(String.t(), String.t() | nil, keyword()) :: :ok
+  def handle(url, question \\ nil, opts \\ []) do
     Logger.info("WebBrowse: #{url}#{if question, do: " — #{question}", else: ""}", skill: :web)
 
     config = %{"url" => url}
     config = if question, do: Map.put(config, "question", question), else: config
 
     case run(%{config: config}) do
-      {:ok, response, _branch} -> Gateway.send_message(response)
+      {:ok, response, _branch} -> Gateway.send_message(response, opts)
       {:error, reason} ->
         Logger.warning("WebBrowse failed: #{inspect(reason)}", skill: :web)
-        Gateway.send_message("Failed: #{inspect(reason)}")
+        Gateway.send_message("Failed: #{inspect(reason)}", opts)
     end
   end
 

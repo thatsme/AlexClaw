@@ -341,9 +341,5 @@ defmodule AlexClaw.Skills.RSSCollector do
       {:ok, _} -> :ok
       {:error, _} -> :already_stored
     end
-
-    title = escape_markdown(item.title)
-    message = "*#{item.feed}*\n#{title}\n#{item.link}"
-    AlexClaw.Gateway.send_message(message)
   end
 end

@@ -24,13 +24,13 @@ defmodule AlexClaw.Skills.Research do
     end
   end
 
-  @spec handle(String.t()) :: :ok
-  def handle(query) do
+  @spec handle(String.t(), keyword()) :: :ok
+  def handle(query, opts \\ []) do
     case do_research(query) do
-      {:ok, response, _branch} -> Gateway.send_message(response)
+      {:ok, response, _branch} -> Gateway.send_message(response, opts)
       {:error, reason} ->
         Logger.warning("Research failed: #{inspect(reason)}", skill: :research)
-        Gateway.send_message("Research failed: #{inspect(reason)}")
+        Gateway.send_message("Research failed: #{inspect(reason)}", opts)
     end
   end
 

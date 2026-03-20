@@ -17,30 +17,30 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
       assert match?({:ok, _, _}, result) or match?({:error, _}, result)
     end
 
-    test "sends via gateway when no bot_token" do
+    test "sends via gateway when no bot_token and passes through input" do
       result = TelegramNotify.run(%{
         input: "Test message",
         config: %{}
       })
 
-      # Gateway is a cast, always returns ok
-      assert {:ok, %{delivered: true}, _branch} = result
+      assert {:ok, "Test message", :on_delivered} = result
     end
 
-    test "formats nil input" do
+    test "passes through nil input" do
       result = TelegramNotify.run(%{input: nil, config: %{}})
-      assert {:ok, %{delivered: true}, _branch} = result
+      assert {:ok, nil, :on_delivered} = result
     end
 
-    test "formats map input" do
-      result = TelegramNotify.run(%{input: %{"output" => "map text"}, config: %{}})
-      assert {:ok, %{delivered: true}, _branch} = result
+    test "passes through map input" do
+      input = %{"output" => "map text"}
+      result = TelegramNotify.run(%{input: input, config: %{}})
+      assert {:ok, ^input, :on_delivered} = result
     end
 
-    test "truncates long messages" do
+    test "truncates long messages but passes through original input" do
       long = String.duplicate("x", 5000)
       result = TelegramNotify.run(%{input: long, config: %{}})
-      assert {:ok, %{delivered: true}, _branch} = result
+      assert {:ok, ^long, :on_delivered} = result
     end
 
     test "returns error when custom bot has no chat_id" do
@@ -57,9 +57,7 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
         config: %{"chat_id" => "", "bot_token" => ""}
       })
 
-      # Empty strings treated as nil → falls through to Gateway default
-      # Gateway sends via cast (async), skill returns delivered immediately
-      assert {:ok, %{delivered: true, chat_id: "default"}, :on_delivered} = result
+      assert {:ok, "test message", :on_delivered} = result
     end
 
     test "treats nil config values same as missing" do
@@ -68,7 +66,7 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
         config: %{"chat_id" => nil, "bot_token" => nil}
       })
 
-      assert {:ok, %{delivered: true, chat_id: "default"}, :on_delivered} = result
+      assert {:ok, "test", :on_delivered} = result
     end
   end
 end

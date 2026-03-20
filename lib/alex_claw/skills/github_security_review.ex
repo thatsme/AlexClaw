@@ -56,8 +56,8 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   # --- Public API for webhook controller and Telegram commands ---
 
-  @spec review_pr(String.t(), integer() | nil) :: :ok
-  def review_pr(repo, pr_number) do
+  @spec review_pr(String.t(), integer() | nil, keyword()) :: :ok
+  def review_pr(repo, pr_number, opts \\ []) do
     focus = Config.get("github.security_focus", default_focus())
     token = Config.get("github.token", "")
 
@@ -75,30 +75,30 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
       case result do
         {:ok, report, _branch} ->
-          Gateway.send_message(report)
+          Gateway.send_message(report, opts)
 
         {:error, reason} ->
           Logger.warning("PR review failed: #{inspect(reason)}", skill: :github)
-          Gateway.send_message("⚠️ Security review failed for PR ##{pr_number}: #{inspect(reason)}")
+          Gateway.send_message("⚠️ Security review failed for PR ##{pr_number}: #{inspect(reason)}", opts)
       end
     end)
 
     :ok
   end
 
-  @spec review_commit(String.t(), String.t()) :: :ok
-  def review_commit(repo, sha) do
+  @spec review_commit(String.t(), String.t(), keyword()) :: :ok
+  def review_commit(repo, sha, opts \\ []) do
     focus = Config.get("github.security_focus", default_focus())
     token = Config.get("github.token", "")
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       case analyse_commit(repo, sha, focus, [tier: :medium], token) do
         {:ok, report, _branch} ->
-          Gateway.send_message(report)
+          Gateway.send_message(report, opts)
 
         {:error, reason} ->
           Logger.warning("Commit review failed: #{inspect(reason)}", skill: :github)
-          Gateway.send_message("⚠️ Security review failed for `#{String.slice(sha, 0, 8)}`: #{inspect(reason)}")
+          Gateway.send_message("⚠️ Security review failed for `#{String.slice(sha, 0, 8)}`: #{inspect(reason)}", opts)
       end
     end)
 

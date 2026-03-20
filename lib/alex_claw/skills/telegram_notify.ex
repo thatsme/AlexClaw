@@ -38,31 +38,32 @@ defmodule AlexClaw.Skills.TelegramNotify do
     html_message = format_for_telegram(message)
 
     if bot_token && bot_token != "" do
-      send_direct(bot_token, chat_id, html_message, "HTML")
+      send_direct(bot_token, chat_id, html_message, "HTML", input)
     else
       opts = if chat_id, do: [chat_id: chat_id], else: []
       AlexClaw.Gateway.send_html(html_message, opts)
-      {:ok, %{delivered: true, chat_id: chat_id || "default"}, :on_delivered}
+      # Pass through original input so downstream steps still have the data
+      {:ok, input, :on_delivered}
     end
   end
 
-  defp send_direct(_token, chat_id, _text, _parse_mode) when chat_id in [nil, ""] do
+  defp send_direct(_token, chat_id, _text, _parse_mode, _input) when chat_id in [nil, ""] do
     {:error, :no_chat_id}
   end
 
-  defp send_direct(token, chat_id, text, parse_mode) do
+  defp send_direct(token, chat_id, text, parse_mode, input) do
     url = "#{@telegram_api}#{token}/sendMessage"
 
     case Req.post(url, json: %{chat_id: chat_id, text: text, parse_mode: parse_mode}) do
       {:ok, %{status: 200}} ->
         Logger.info("TelegramNotify sent to chat #{chat_id} via custom bot", skill: :telegram_notify)
-        {:ok, %{delivered: true, chat_id: chat_id, custom_bot: true}, :on_delivered}
+        {:ok, input, :on_delivered}
 
       {:ok, %{status: 400, body: body}} ->
         Logger.warning("TelegramNotify markdown failed, retrying plain: #{inspect(body)}", skill: :telegram_notify)
         case Req.post(url, json: %{chat_id: chat_id, text: text}) do
           {:ok, %{status: 200}} ->
-            {:ok, %{delivered: true, chat_id: chat_id, custom_bot: true, plain_fallback: true}, :on_delivered}
+            {:ok, input, :on_delivered}
           {:ok, %{status: s, body: b}} ->
             {:error, {:telegram, s, b}}
           {:error, reason} ->

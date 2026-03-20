@@ -213,11 +213,13 @@ GenServer that caches the current Google access token in ETS. Automatically refr
 
 ## Workflow Engine
 
-Workflows are directed graphs stored in PostgreSQL. Each step specifies a skill name, a config JSON, optional LLM tier/provider overrides, and conditional routes. The executor walks the graph recursively, following routes based on the branch each skill returns.
+Workflows are **linear pipelines** with conditional branching. The executor walks the step graph sequentially — each step has exactly one successor per branch. There is no fan-out (one step broadcasting to multiple parallel successors). A step's output feeds into the next step's input, forming a single execution path per run.
+
+**Current limitation:** A step cannot fork into multiple parallel paths. For example, you cannot wire `rss_collector` to simultaneously feed `telegram_notify` AND `llm_transform`. The workaround is chaining notify steps sequentially — notify skills pass through their input unchanged, so downstream steps still receive the original data.
 
 ### Conditional Branching
 
-Each skill declares its possible outcomes via the `routes/0` callback (e.g. `[:on_items, :on_empty, :on_error]`). Skills return a triple tuple `{:ok, result, :branch_name}` indicating which outcome occurred. The executor matches the branch against the step's routes to determine the next step.
+Each skill declares its possible outcomes via the `routes/0` callback (e.g. `[:on_items, :on_empty, :on_error]`). Skills return a triple tuple `{:ok, result, :branch_name}` indicating which outcome occurred. The executor matches the branch against the step's routes to determine the next step. Only **one** branch is followed per step — this is conditional routing, not fan-out.
 
 ```
 Step 1: Fetch RSS feeds

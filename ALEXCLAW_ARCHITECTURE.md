@@ -343,8 +343,7 @@ Phoenix LiveView admin UI. Session-based authentication — all routes except `/
 | Skills | `/skills` | Dynamic list from SkillRegistry with descriptions |
 | Scheduler | `/scheduler` | Cron jobs, next run times, manual triggers |
 | LLM | `/llm` | Provider status, usage counters, custom provider management |
-| Feeds | `/feeds` | RSS feed management (add/remove/toggle) |
-| Resources | `/resources` | Shared resources with type filtering |
+| Resources | `/resources` | Shared resources with type filtering (RSS feeds, websites, APIs, automations) |
 | Memory | `/memory` | Browse and search stored knowledge |
 | Database | `/database` | Schema browser and backup download |
 | Config | `/config` | Runtime configuration editor (collapsible categories) |
@@ -440,7 +439,7 @@ lib/
       health_controller.ex     # GET /health — liveness check (unauthenticated)
       metrics_controller.ex    # GET /metrics — system/LLM/workflow/skill stats (authenticated)
       oauth_callback_controller.ex  # Google OAuth callback handler
-    live/admin_live/           # LiveView pages (13 pages, .ex logic + .html.heex templates)
+    live/admin_live/           # LiveView pages (12 pages, .ex logic + .html.heex templates)
     plugs/
       caching_body_reader.ex   # Caches raw body for webhook HMAC verification
       rate_limit.ex            # Plug for POST /login rate limiting

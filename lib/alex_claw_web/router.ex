@@ -46,7 +46,6 @@ defmodule AlexClawWeb.Router do
     live("/skills", AdminLive.Skills)
     live("/scheduler", AdminLive.Scheduler)
     live("/llm", AdminLive.LLM)
-    live("/feeds", AdminLive.Feeds)
     live("/resources", AdminLive.Resources)
     live("/workflows", AdminLive.Workflows)
     live("/workflows/:id/runs", AdminLive.WorkflowRuns)

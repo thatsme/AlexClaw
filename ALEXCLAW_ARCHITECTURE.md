@@ -320,7 +320,7 @@ Resources can be assigned to workflows. Skills access them via `args[:resources]
 
 ## Web Interface
 
-Phoenix LiveView admin UI. Session-based authentication — all routes except `/login` require an authenticated session. No JavaScript hooks — fully server-rendered.
+Phoenix LiveView admin UI. Session-based authentication — all routes except `/login` and `/health` require an authenticated session. No JavaScript hooks — fully server-rendered.
 
 | Page | Route | Description |
 |---|---|---|
@@ -337,6 +337,13 @@ Phoenix LiveView admin UI. Session-based authentication — all routes except `/
 | Database | `/database` | Schema browser and backup download |
 | Config | `/config` | Runtime configuration editor (collapsible categories) |
 | Logs | `/logs` | Real-time log viewer with severity filtering (includes circuit breaker events) |
+
+### API Endpoints
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /health` | None | Lightweight liveness check — DB ping, version, status (`ok` / `degraded`). Returns HTTP 503 when DB is unreachable. |
+| `GET /metrics` | Session | Rich JSON: system stats, LLM usage, workflow run counts, skill/circuit breaker states, log severity counts, knowledge/memory entry counts |
 
 ---
 
@@ -412,6 +419,8 @@ lib/
       auth_controller.ex       # Login/logout with rate limiting
       database_controller.ex   # Schema browser, backup download
       github_webhook_controller.ex  # GitHub webhook receiver (HMAC verified)
+      health_controller.ex     # GET /health — liveness check (unauthenticated)
+      metrics_controller.ex    # GET /metrics — system/LLM/workflow/skill stats (authenticated)
       oauth_callback_controller.ex  # Google OAuth callback handler
     live/admin_live/           # LiveView pages (13 pages, .ex logic + .html.heex templates)
     plugs/

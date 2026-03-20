@@ -93,9 +93,14 @@ AlexClaw can review pull requests and commits for security issues:
 - Diff truncation at 24KB — works with local models
 - Structured output: RISK LEVEL, FINDINGS, SUMMARY, RECOMMENDATION
 
+### Observability
+
+- **Health endpoint** — `GET /health` (unauthenticated) returns `{"status":"ok","version":"...","db":"connected"}` for load balancers and Docker healthchecks. Returns HTTP 503 when the database is unreachable.
+- **Metrics endpoint** — `GET /metrics` (authenticated) returns a JSON payload with system stats (uptime, memory, BEAM processes), LLM provider usage, workflow run counts, skill and circuit breaker states, log severity counts, and knowledge/memory entry counts.
+
 ### Security
 
-- **Session-based authentication** — all routes except `/login` require an authenticated session
+- **Session-based authentication** — all routes except `/login` and `/health` require an authenticated session
 - **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup and confirmation via Telegram (`/setup 2fa`, `/confirm 2fa`)
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation

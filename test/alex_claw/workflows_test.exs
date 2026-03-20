@@ -123,6 +123,31 @@ defmodule AlexClaw.WorkflowsTest do
     end
   end
 
+  describe "run_stats_today/0" do
+    test "returns zero counts when no runs exist" do
+      stats = Workflows.run_stats_today()
+      assert stats.total == 0
+      assert stats.completed == 0
+      assert stats.failed == 0
+      assert stats.running == 0
+    end
+
+    test "counts runs by status for today" do
+      wf = create_workflow()
+      {:ok, r1} = Workflows.create_run(wf)
+      {:ok, _} = Workflows.update_run(r1, %{status: "completed", completed_at: DateTime.utc_now()})
+      {:ok, r2} = Workflows.create_run(wf)
+      {:ok, _} = Workflows.update_run(r2, %{status: "failed", completed_at: DateTime.utc_now()})
+      {:ok, _} = Workflows.create_run(wf)
+
+      stats = Workflows.run_stats_today()
+      assert stats.total == 3
+      assert stats.completed == 1
+      assert stats.failed == 1
+      assert stats.running == 1
+    end
+  end
+
   describe "list_scheduled_workflows/0" do
     test "only returns enabled workflows with schedule" do
       create_workflow(%{name: "Scheduled", enabled: true, schedule: "0 7 * * *"})

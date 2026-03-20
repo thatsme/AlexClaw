@@ -202,6 +202,27 @@ defmodule AlexClaw.Workflows do
     |> Repo.delete_all()
   end
 
+  @doc "Aggregate run statistics for today (UTC). Returns counts by status."
+  @spec run_stats_today() :: %{total: non_neg_integer(), completed: non_neg_integer(), failed: non_neg_integer(), running: non_neg_integer()}
+  def run_stats_today do
+    today_start = DateTime.new!(Date.utc_today(), ~T[00:00:00], "Etc/UTC")
+
+    results =
+      WorkflowRun
+      |> where([r], r.started_at >= ^today_start)
+      |> group_by([r], r.status)
+      |> select([r], {r.status, count(r.id)})
+      |> Repo.all()
+      |> Map.new()
+
+    %{
+      total: Map.values(results) |> Enum.sum(),
+      completed: Map.get(results, "completed", 0),
+      failed: Map.get(results, "failed", 0),
+      running: Map.get(results, "running", 0)
+    }
+  end
+
   @doc "List workflows that have a schedule defined and are enabled."
   @spec list_scheduled_workflows() :: [Workflow.t()]
   def list_scheduled_workflows do

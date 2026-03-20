@@ -21,7 +21,8 @@ defmodule AlexClaw.Application do
       AlexClaw.Workflows.SchedulerSync,
       AlexClaw.Gateway.Telegram,
       AlexClawWeb.Endpoint,
-      AlexClaw.UpdateChecker
+      AlexClaw.UpdateChecker,
+      AlexClaw.Gateway.DiscordStarter
     ]
 
     opts = [strategy: :one_for_one, name: AlexClaw.Supervisor]

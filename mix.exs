@@ -21,6 +21,7 @@ defmodule AlexClaw.MixProject do
   def application do
     [
       extra_applications: [:logger],
+      included_applications: [:nostrum],
       mod: {AlexClaw.Application, []}
     ]
   end
@@ -45,6 +46,9 @@ defmodule AlexClaw.MixProject do
       {:floki, "~> 0.37"},
       {:nimble_totp, "~> 1.0"},
       {:eqrcode, "~> 0.1"},
+      {:nostrum, "~> 0.10"},
+      {:certifi, "~> 2.12"},
+      {:gun, "~> 2.0", override: true},
       {:tz, "~> 0.28"},
       {:mox, "~> 1.2", only: :test},
       {:bypass, "~> 2.1", only: :test}

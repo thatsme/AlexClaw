@@ -21,7 +21,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **OTP Circuit Breaker** — Per-skill circuit breaker using GenServer + ETS. After consecutive failures a skill is temporarily disabled (circuit open), then automatically re-tested after a cooldown. Telegram notifications on state transitions. Dead letter routing: workflow steps can skip, halt, or fallback to an alternative skill when a circuit is open or a skill is missing. Zero external dependencies — pure OTP.
 
 ![AlexClaw Circuit Breaker](docs/screenshot/circuit_break.jpg)
-- **Telegram Gateway** — Bidirectional communication via long-polling. Command routing is deterministic pattern-matching — no LLM involved in dispatch.
+- **Multi-Gateway (Telegram + Discord)** — Bidirectional communication via Telegram long-polling or Discord bot WebSocket. Command routing is deterministic pattern-matching — no LLM involved in dispatch. Both gateways can run simultaneously; responses route back to the originating transport. The Gateway behaviour allows adding new transports without changing skills or the Dispatcher.
 - **Runtime Configuration** — All settings (API keys, prompts, limits, personas) are stored in PostgreSQL, cached in ETS, and editable at runtime via the admin UI. No restart required for any config change.
 - **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `gemini-embedding-001`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). 768-dimension vectors with HNSW index. All skills that store knowledge auto-embed in the background.
 - **Knowledge Base RAG** — Separate `knowledge_entries` table for documentation and reference material, isolated from news/conversation memory. Scraper skills fetch, chunk, and embed documentation from hexdocs.pm (API reference + official guides). Chat integrates both Knowledge and Memory search with a context source selector (Docs only / Memory only / Both / None). System prompt instructs the LLM to cite provided documentation over general knowledge. Currently covers 22 Elixir ecosystem packages including full Elixir stdlib and 53 official guides.
@@ -39,6 +39,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `research` | Deep research with memory context |
 | `conversational` | Free-text LLM conversation |
 | `telegram_notify` | Send a Telegram message as a workflow step |
+| `discord_notify` | Send workflow output to a Discord channel. Configurable `channel_id` per step — deliver to different channels in the same workflow |
 | `llm_transform` | Run a prompt template through the LLM (workflow glue step) |
 | `api_request` | Make an authenticated HTTP request |
 | `github_security_review` | Fetch PR/commit diff, run LLM security analysis |
@@ -112,7 +113,8 @@ AlexClaw can review pull requests and commits for security issues:
 ## Architecture
 
 ```
-Telegram <──> Gateway <──> Dispatcher ──> Skills
+Telegram <──> TelegramGateway ──┐
+Discord  <──> DiscordGateway  ──┼──> Router ──> Dispatcher ──> Skills
                                 │
 Admin UI (Chat) ──────> SkillSupervisor ──> Dynamic Skills
                        (DynamicSupervisor)
@@ -180,6 +182,15 @@ All configuration is managed at runtime through the admin UI (`/config`). On fir
 | `ANTHROPIC_API_KEY` | Anthropic Claude |
 | `OLLAMA_ENABLED=true` + `OLLAMA_HOST` | Local Ollama instance |
 | `LMSTUDIO_ENABLED=true` + `LMSTUDIO_HOST` | Local LM Studio instance |
+
+### Discord (optional)
+
+| Variable | Description |
+|---|---|
+| `DISCORD_ENABLED=true` | Enable the Discord gateway |
+| `DISCORD_BOT_TOKEN` | Discord bot token from Developer Portal |
+| `DISCORD_CHANNEL_ID` | Channel ID for commands (auto-detected on first message) |
+| `DISCORD_GUILD_ID` | Server (guild) ID |
 
 All other settings (GitHub tokens, webhook secrets, LLM limits, prompts, skill config) are managed at runtime through the Config UI after first boot.
 

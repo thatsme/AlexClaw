@@ -4,7 +4,7 @@ defmodule AlexClaw.Gateway.Router do
   Falls back to the first configured gateway (Telegram preferred).
   """
 
-  @gateways [AlexClaw.Gateway.Telegram]
+  @gateways [AlexClaw.Gateway.Telegram, AlexClaw.Gateway.Discord]
 
   @spec send_message(String.t(), keyword()) :: :ok
   def send_message(text, opts \\ []) do
@@ -37,6 +37,7 @@ defmodule AlexClaw.Gateway.Router do
   defp resolve_gateway(opts) do
     case Keyword.get(opts, :gateway) do
       :telegram -> AlexClaw.Gateway.Telegram
+      :discord -> AlexClaw.Gateway.Discord
       nil -> default_gateway()
       _other -> default_gateway()
     end

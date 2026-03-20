@@ -301,6 +301,55 @@ Tasks can also be used as a workflow step with the `google_tasks` skill. You can
 
 ---
 
+## Discord Setup (Optional)
+
+AlexClaw supports Discord as a full bidirectional gateway — you can use Discord instead of (or alongside) Telegram for all commands and notifications. No `.env` changes needed — configure entirely from the admin UI.
+
+### 1. Create a Discord Application
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click **New Application**, give it a name (e.g. "AlexClaw")
+3. Go to the **Bot** tab
+4. Click **Reset Token** and copy the token — you'll need it in step 4
+
+### 2. Enable Privileged Intents
+
+Still on the **Bot** tab, scroll down to **Privileged Gateway Intents** and enable:
+
+- **Message Content Intent** — required for the bot to read message text
+
+### 3. Invite the Bot to Your Server
+
+Build this URL (replace `YOUR_APPLICATION_ID` with the ID from **General Information**):
+
+```
+https://discord.com/api/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=101376&scope=bot
+```
+
+Open it in your browser, select your server, and authorize. The bot appears in the member list.
+
+The permissions included (101376) are: View Channels, Send Messages, Attach Files, Read Message History.
+
+### 4. Configure AlexClaw
+
+1. Open **Admin > Config** in AlexClaw
+2. Expand the **discord** section
+3. Set `discord.enabled` to `true`
+4. Paste your bot token into `discord.bot_token`
+5. Restart the container: `docker compose restart alexclaw`
+
+The bot should appear online in Discord within a few seconds. `discord.channel_id` is auto-detected when you send the bot its first message — no need to set it manually.
+
+### 5. Verify
+
+Type `/ping` in any text channel where the bot has access. You should get `pong` back.
+
+All commands listed under `/help` work identically in Discord and Telegram.
+
+> **Note:** After changing the Discord bot token in Admin > Config, you must restart the container for the change to take effect (`docker compose restart alexclaw`).
+
+---
+
 ## Two-Factor Authentication (Optional)
 
 AlexClaw supports TOTP-based 2FA for sensitive operations (workflow 2FA checkboxes).

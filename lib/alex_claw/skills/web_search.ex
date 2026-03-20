@@ -53,17 +53,17 @@ defmodule AlexClaw.Skills.WebSearch do
     end
   end
 
-  @spec handle(String.t()) :: :ok
-  def handle(query) do
+  @spec handle(String.t(), keyword()) :: :ok
+  def handle(query, opts \\ []) do
     Logger.info("WebSearch: #{query}", skill: :web_search)
-    Gateway.send_message("Searching: #{query}...")
+    Gateway.send_message("Searching: #{query}...", opts)
 
     case run(%{input: query}) do
-      {:ok, response, _branch} -> Gateway.send_message(response)
-      {:error, :no_query} -> Gateway.send_message("No query provided.")
+      {:ok, response, _branch} -> Gateway.send_message(response, opts)
+      {:error, :no_query} -> Gateway.send_message("No query provided.", opts)
       {:error, reason} ->
         Logger.warning("WebSearch failed: #{inspect(reason)}", skill: :web_search)
-        Gateway.send_message("Search failed: #{inspect(reason)}")
+        Gateway.send_message("Search failed: #{inspect(reason)}", opts)
     end
   end
 

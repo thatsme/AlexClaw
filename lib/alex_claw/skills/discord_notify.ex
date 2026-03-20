@@ -22,14 +22,6 @@ defmodule AlexClaw.Skills.DiscordNotify do
 
     message = format_input(input)
 
-    # Discord's message limit is 2000 chars
-    message =
-      if String.length(message) > 1900 do
-        String.slice(message, 0, 1900) <> "\n... (truncated)"
-      else
-        message
-      end
-
     channel_id = config["channel_id"]
 
     opts =
@@ -40,11 +32,26 @@ defmodule AlexClaw.Skills.DiscordNotify do
       end
 
     if AlexClaw.Gateway.Discord.configured?() do
-      AlexClaw.Gateway.Discord.send_message(message, opts)
-      {:ok, %{delivered: true, channel_id: channel_id || "default"}, :on_delivered}
+      # Discord limit is 2000 chars — split into multiple messages if needed
+      message
+      |> chunk_message(1900)
+      |> Enum.each(fn chunk -> AlexClaw.Gateway.Discord.send_message(chunk, opts) end)
+      # Pass through the original input so downstream steps still have the data
+      {:ok, input, :on_delivered}
     else
       Logger.warning("DiscordNotify: Discord gateway not configured", skill: :discord_notify)
       {:error, :discord_not_configured}
+    end
+  end
+
+  defp chunk_message(text, max) do
+    if String.length(text) <= max do
+      [text]
+    else
+      text
+      |> String.graphemes()
+      |> Enum.chunk_every(max)
+      |> Enum.map(&Enum.join/1)
     end
   end
 

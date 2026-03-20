@@ -50,21 +50,21 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
-  def dispatch(%Message{text: "/research " <> query}) do
-    AlexClaw.Skills.Research.handle(String.trim(query))
+  def dispatch(%Message{text: "/research " <> query} = msg) do
+    AlexClaw.Skills.Research.handle(String.trim(query), gateway: msg.gateway)
   end
 
-  def dispatch(%Message{text: "/search " <> query}) do
-    AlexClaw.Skills.WebSearch.handle(String.trim(query))
+  def dispatch(%Message{text: "/search " <> query} = msg) do
+    AlexClaw.Skills.WebSearch.handle(String.trim(query), gateway: msg.gateway)
   end
 
-  def dispatch(%Message{text: "/web " <> rest}) do
+  def dispatch(%Message{text: "/web " <> rest} = msg) do
     case String.split(String.trim(rest), " ", parts: 2) do
       [url, question] ->
-        AlexClaw.Skills.WebBrowse.handle(url, question)
+        AlexClaw.Skills.WebBrowse.handle(url, question, gateway: msg.gateway)
 
       [url] ->
-        AlexClaw.Skills.WebBrowse.handle(url)
+        AlexClaw.Skills.WebBrowse.handle(url, nil, gateway: msg.gateway)
     end
   end
 
@@ -261,7 +261,7 @@ defmodule AlexClaw.Dispatcher do
       [repo, pr] ->
         case Integer.parse(pr) do
           {pr_number, ""} ->
-            AlexClaw.Skills.GitHubSecurityReview.review_pr(repo, pr_number)
+            AlexClaw.Skills.GitHubSecurityReview.review_pr(repo, pr_number, gateway: msg.gateway)
             Gateway.send_message("GitHub security review started for PR ##{pr_number} on #{repo}.", gateway: msg.gateway)
 
           _ ->
@@ -269,7 +269,7 @@ defmodule AlexClaw.Dispatcher do
         end
 
       [repo] ->
-        AlexClaw.Skills.GitHubSecurityReview.review_pr(repo, nil)
+        AlexClaw.Skills.GitHubSecurityReview.review_pr(repo, nil, gateway: msg.gateway)
         Gateway.send_message("GitHub security review started for latest PR on #{repo}.", gateway: msg.gateway)
     end
   end
@@ -277,7 +277,7 @@ defmodule AlexClaw.Dispatcher do
   def dispatch(%Message{text: "/github commit " <> rest} = msg) do
     case String.split(String.trim(rest), " ", parts: 2) do
       [repo, sha] ->
-        AlexClaw.Skills.GitHubSecurityReview.review_commit(repo, sha)
+        AlexClaw.Skills.GitHubSecurityReview.review_commit(repo, sha, gateway: msg.gateway)
         Gateway.send_message("GitHub security review started for commit #{String.slice(sha, 0, 8)} on #{repo}.", gateway: msg.gateway)
 
       _ ->

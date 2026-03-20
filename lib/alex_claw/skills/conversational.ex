@@ -18,15 +18,18 @@ defmodule AlexClaw.Skills.Conversational do
 
   @spec handle(AlexClaw.Message.t()) :: :ok
   def handle(message) do
+    opts = [gateway: message.gateway]
+    source = to_string(message.gateway || "chat")
+
     case do_converse(message.text) do
       {:ok, response, _branch} ->
-        Memory.store(:conversation, "User: #{message.text}", source: "telegram")
-        Memory.store(:conversation, "AlexClaw: #{response}", source: "telegram")
-        Gateway.send_message(response)
+        Memory.store(:conversation, "User: #{message.text}", source: source)
+        Memory.store(:conversation, "AlexClaw: #{response}", source: source)
+        Gateway.send_message(response, opts)
 
       {:error, reason} ->
         Logger.warning("Conversational skill failed: #{inspect(reason)}")
-        Gateway.send_message("Something went wrong. Try again.")
+        Gateway.send_message("Something went wrong. Try again.", opts)
     end
   end
 

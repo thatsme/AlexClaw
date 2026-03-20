@@ -51,6 +51,17 @@ Gateway behaviour abstraction with multi-transport Router. Telegram and Discord 
 
 Slack bot + incoming webhooks. Same Gateway behaviour pattern as Telegram and Discord.
 
+### Shell Skill (Container Introspection)
+
+Execute OS commands inside the AlexClaw container via Telegram/Discord. Useful for container diagnostics, network debugging, BEAM introspection (`bin/alex_claw eval`), log inspection, and quick database checks — all from your phone without SSH.
+
+- `/shell <command>` Telegram/Discord command
+- Available as a workflow step for automated health checks
+- 2FA-gated by default (`requires_2fa: true`)
+- Configurable command whitelist/blocklist in admin config
+- Optional mounted `/workspace` volume for repo cloning and code inspection
+- Container sandbox is the security boundary — no host access
+
 ---
 
 ## Someday

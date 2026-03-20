@@ -218,7 +218,7 @@ defmodule AlexClaw.Gateway.Telegram do
 
     if current == nil or current == "" do
       Config.set("telegram.chat_id", to_string(chat_id), type: "string", category: "telegram")
-      Logger.info("Auto-saved Telegram chat_id: #{chat_id}")
+      Logger.warning("Auto-saved Telegram chat_id: #{chat_id} — verify this is your chat. Set telegram.chat_id in config to disable auto-detect.")
     end
   end
 

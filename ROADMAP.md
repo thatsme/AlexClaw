@@ -6,14 +6,6 @@ Planned features and improvements, roughly ordered by priority.
 
 ## Next Up
 
-### Workflow Retry & Error Handling
-
-Workflows currently fail-fast — if any step errors, the whole run stops. Planned improvements:
-
-- Configurable retry count per step (with backoff)
-- Skip-on-error option for non-critical steps
-- Conditional step execution based on previous step outcome
-
 ### Google Calendar Event Creation
 
 Calendar is currently read-only (`fetch_events`). Adding event creation would complete the integration:

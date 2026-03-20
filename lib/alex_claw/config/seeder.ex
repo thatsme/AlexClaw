@@ -92,6 +92,10 @@ defmodule AlexClaw.Config.Seeder do
     {"display.timezone", "Europe/Rome", "string", "display",
      "Timezone for displaying dates/times in the UI (IANA format, e.g. Europe/Rome)", false},
 
+    # Auth - Security
+    {"auth.trust_proxy_headers", "false", "boolean", "auth",
+     "Trust X-Forwarded-For header for client IP (enable only behind a reverse proxy)", false},
+
     # Auth - Rate limiting
     {"auth.rate_limit.max_attempts", "5", "integer", "auth",
      "Max failed login attempts before IP is blocked", false},

@@ -30,7 +30,9 @@ defmodule AlexClawWeb.AuthController do
       Plug.Crypto.secure_compare(password, admin_password) ->
         AlexClaw.RateLimiter.clear(ip)
         conn
+        |> configure_session(renew: true)
         |> put_session(:authenticated, true)
+        |> put_session(:authenticated_at, System.system_time(:second))
         |> redirect(to: "/")
 
       true ->

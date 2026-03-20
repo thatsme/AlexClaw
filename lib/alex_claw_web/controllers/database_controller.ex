@@ -6,21 +6,41 @@ defmodule AlexClawWeb.DatabaseController do
 
   def download(conn, _params) do
     db_config = db_connection_env()
+    timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d_%H%M%S")
+    filename = "alexclaw_backup_#{timestamp}.sql"
 
-    case System.cmd("pg_dump", pg_dump_args(db_config), env: [{"PGPASSWORD", db_config.password}], stderr_to_stdout: true) do
-      {dump, 0} ->
-        timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d_%H%M%S")
-        filename = "alexclaw_backup_#{timestamp}.sql"
+    port =
+      Port.open(
+        {:spawn_executable, System.find_executable("pg_dump")},
+        [:binary, :exit_status, :stderr_to_stdout, args: pg_dump_args(db_config), env: [{~c"PGPASSWORD", String.to_charlist(db_config.password)}]]
+      )
 
+    conn =
+      conn
+      |> put_resp_content_type("application/sql")
+      |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
+      |> send_chunked(200)
+
+    stream_port(conn, port)
+  end
+
+  defp stream_port(conn, port) do
+    receive do
+      {^port, {:data, chunk}} ->
+        case Plug.Conn.chunk(conn, chunk) do
+          {:ok, conn} -> stream_port(conn, port)
+          {:error, :closed} -> conn
+        end
+
+      {^port, {:exit_status, 0}} ->
         conn
-        |> put_resp_content_type("application/sql")
-        |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
-        |> send_resp(200, dump)
 
-      {error, _code} ->
+      {^port, {:exit_status, _code}} ->
         conn
-        |> put_resp_content_type("text/plain")
-        |> send_resp(500, "pg_dump failed: #{error}")
+    after
+      60_000 ->
+        Port.close(port)
+        conn
     end
   end
 

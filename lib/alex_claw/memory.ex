@@ -89,6 +89,14 @@ defmodule AlexClaw.Memory do
     |> Repo.all()
   end
 
+  @doc "Count memory entries, optionally filtered by kind."
+  @spec count(atom() | String.t() | nil) :: non_neg_integer()
+  def count(kind \\ nil) do
+    Entry
+    |> maybe_filter_kind(kind)
+    |> Repo.aggregate(:count)
+  end
+
   @doc """
   Re-embed all memories with nil embeddings. Runs in the background under TaskSupervisor.
   Returns `{:ok, count}` where count is the number of entries queued for processing.

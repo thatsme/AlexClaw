@@ -110,6 +110,28 @@ defmodule AlexClaw.MemoryTest do
     end
   end
 
+  describe "count/1" do
+    test "returns 0 when no entries exist" do
+      assert Memory.count() == 0
+    end
+
+    test "counts all entries" do
+      {:ok, _} = Memory.store(:test, "one")
+      {:ok, _} = Memory.store(:test, "two")
+      {:ok, _} = Memory.store(:news, "three")
+
+      assert Memory.count() == 3
+    end
+
+    test "filters by kind" do
+      {:ok, _} = Memory.store(:test, "one")
+      {:ok, _} = Memory.store(:news, "two")
+
+      assert Memory.count(:test) == 1
+      assert Memory.count(:news) == 1
+    end
+  end
+
   describe "search/2" do
     test "keyword search matches content when no embedding provider" do
       {:ok, _} = Memory.store(:test, "Elixir pattern matching is great")

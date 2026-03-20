@@ -14,8 +14,18 @@ defmodule AlexClawWeb.Router do
     plug(AlexClawWeb.Plugs.RateLimit)
   end
 
+  pipeline :api do
+    plug(:accepts, ["json"])
+  end
+
   pipeline :require_auth do
     plug(AlexClawWeb.Plugs.RequireAuth)
+  end
+
+  # Health check — unauthenticated, no session overhead
+  scope "/", AlexClawWeb do
+    pipe_through(:api)
+    get("/health", HealthController, :check)
   end
 
   scope "/", AlexClawWeb do
@@ -46,6 +56,7 @@ defmodule AlexClawWeb.Router do
     live("/logs", AdminLive.Logs)
 
     get("/database/download", DatabaseController, :download)
+    get("/metrics", MetricsController, :index)
   end
 
   # Webhook routes (authenticate via HMAC, not session)

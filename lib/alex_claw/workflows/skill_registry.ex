@@ -28,7 +28,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     "google_calendar" => AlexClaw.Skills.GoogleCalendar,
     "google_tasks" => AlexClaw.Skills.GoogleTasks,
     "web_automation" => AlexClaw.Skills.WebAutomation,
-    "shell" => AlexClaw.Skills.Shell
+    "shell" => AlexClaw.Skills.Shell,
+    "coder" => AlexClaw.Skills.Coder
   }
 
   # --- Client API (backward-compatible) ---

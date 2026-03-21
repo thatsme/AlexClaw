@@ -257,14 +257,38 @@ All entries should have non-null embeddings.
 
 ---
 
-## Next Steps
+## Next Steps — Progress
 
-1. **Guided skill generation** — manually test more complex skills (HTTP requests, LLM calls, memory access) to establish reliability baseline
-2. **Feedback loop** — generate → compile → if error, feed error back to model → retry (max 3 attempts)
-3. **Autonomous workflow creation** — model creates the skill AND the workflow that uses it
-4. **Goal-driven autonomy** — model receives a high-level goal, reasons about what skill to create, generates it, tests it, and reports results
+| Step | Status | Implementation |
+|------|--------|----------------|
+| 1. Guided skill generation | Done | Manual testing via Chat UI proved the approach works reliably with embeddings |
+| 2. Feedback loop | Done | `Coder.generation_loop/5` — compile error appended to prompt, retry (configurable, default 3) |
+| 3. Autonomous workflow creation | Done | `Coder` creates workflow + telegram_notify step when `create_workflow: true` (disabled by default) |
+| 4. Goal-driven autonomy | Done | `/coder <goal>` — model receives goal, searches knowledge base, generates skill, loads it, optionally wires workflow |
 
-All experimentation uses the local model — zero API token cost until the approach is proven reliable.
+### What's New: The Coder Skill
+
+`AlexClaw.Skills.Coder` (`lib/alex_claw/skills/coder.ex`) is a core skill that orchestrates the full generate, write, load, wire cycle:
+
+1. Derives a snake_case module name from the goal
+2. Searches knowledge base for architecture docs + skill template (RAG context)
+3. Sends goal + context to local LLM with a system prompt specifying the skill contract
+4. Extracts code block from response
+5. Writes to skills directory via `SkillAPI.write_skill/3` (filename validated)
+6. Loads via `SkillAPI.load_skill/2` (namespace, behaviour, permissions validated by SkillRegistry)
+7. On compile error: appends error to prompt, retries (up to `max_retries`)
+8. On success: optionally creates a disabled workflow with the skill + telegram_notify
+
+**SkillAPI extensions** enabling this:
+- `:skill_write` — write/read `.ex` files (path traversal prevention)
+- `:skill_manage` — load/unload/reload dynamic skills
+- `:workflow_manage` — create workflows, add steps, run, get results
+
+### Remaining Goals
+
+- **Self-improvement loop** — model evaluates its own generated skills, identifies issues, and iterates
+- **Multi-skill composition** — model generates multiple skills that work together in a pipeline
+- **Proactive goal generation** — model identifies gaps in its capabilities and proposes new skills
 
 ---
 

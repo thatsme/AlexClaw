@@ -285,6 +285,26 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
+  # --- Coder (Autonomous Skill Generation) ---
+
+  def dispatch(%Message{text: "/coder " <> goal} = msg) do
+    goal = String.trim(goal)
+    Gateway.send_message("Generating skill: _#{goal}_...", gateway: msg.gateway)
+
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      AlexClaw.Skills.Coder.handle(goal, gateway: msg.gateway)
+    end)
+  end
+
+  def dispatch(%Message{text: "/coder" <> _} = msg) do
+    Gateway.send_message("""
+    *Coder — autonomous skill generation*
+    /coder <goal> — generate a dynamic skill from a natural language description
+
+    Example: `/coder a skill that returns the current BEAM process count and memory usage`
+    """, gateway: msg.gateway)
+  end
+
   # --- Shell (Container Introspection) ---
 
   def dispatch(%Message{text: "/shell " <> command} = msg) do
@@ -502,6 +522,7 @@ defmodule AlexClaw.Dispatcher do
     /tasks — list your Google Tasks
     /tasklists — list your task lists with IDs
     /task add <title> — add a new task
+    /coder <goal> — generate a dynamic skill from a description
     /shell <command> — run whitelisted OS command (2FA-gated)
     /record <url> — start browser recording (returns noVNC link)
     /record stop <session\_id> — stop recording, get captured actions

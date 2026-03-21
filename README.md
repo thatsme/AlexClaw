@@ -45,6 +45,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `github_security_review` | Fetch PR/commit diff, run LLM security analysis |
 | `google_calendar` | Fetch upcoming Google Calendar events |
 | `google_tasks` | Manage Google Tasks lists and items |
+| `shell` | Execute whitelisted OS commands for container introspection (2FA-gated) |
 | `web_automation` | Browser automation via headless Playwright sidecar (**experimental**) |
 | `hexdocs_scraper` | Scrape hexdocs.pm docs into knowledge base embeddings (dynamic) |
 
@@ -107,6 +108,7 @@ AlexClaw can review pull requests and commits for security issues:
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
 - **Encryption at rest** — API keys and tokens are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime
 - **Sensitive key masking** — API keys and tokens show partial values in the admin UI
+- **Shell command security** — 5-layer defense: disabled by default, 2FA gate, whitelist with word-boundary check, blocklist for shell metacharacters, no shell interpretation (`System.cmd/3` with args as list), configurable timeout + output truncation
 
 ---
 
@@ -236,6 +238,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/tasks` | List Google Tasks |
 | `/tasklists` | List your task lists by name |
 | `/task add <title>` | Add a task to Google Tasks |
+| `/shell <command>` | Execute a whitelisted OS command (2FA-gated) |
 | `/record <url>` | Start browser recording session (web-automator) |
 | `/record stop <session_id>` | Stop a recording session |
 | `/automations` | List automation resources |

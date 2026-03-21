@@ -9,44 +9,33 @@
     </button>
   </div>
 
-  <div :if={@show_form} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
+  <div :if={@show_form && !@editing} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
     <form phx-submit="save" class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
         <label class="block text-sm text-gray-400 mb-1">Key</label>
-        <input type="text" name="key" required value={@editing && @editing.key}
+        <input type="text" name="key" required
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
       </div>
       <div>
         <label class="block text-sm text-gray-400 mb-1">Type</label>
         <select name="type" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
-          <option :for={t <- ~w(string integer float boolean json)} value={t} selected={@editing && @editing.type == t}>{t}</option>
+          <option :for={t <- ~w(string integer float boolean json)} value={t}>{t}</option>
         </select>
       </div>
       <div>
         <label class="block text-sm text-gray-400 mb-1">Category</label>
-        <input type="text" name="category" value={(@editing && @editing.category) || "general"}
+        <input type="text" name="category" value="general"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
       </div>
       <div>
         <label class="block text-sm text-gray-400 mb-1">Description</label>
-        <input type="text" name="description" value={@editing && @editing.description}
+        <input type="text" name="description"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
       </div>
       <div class="md:col-span-2">
         <label class="block text-sm text-gray-400 mb-1">Value</label>
-        <%= if @editing && sensitive_key?(@editing.key) do %>
-          <input type="password" name="value" placeholder={mask_value(@editing.value)}
-            class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono" />
-          <p class="text-xs text-gray-600 mt-1">Leave empty to keep current value, or enter a new one to replace it.</p>
-          <input type="hidden" name="_clear" value="false" />
-          <button type="submit" name="_clear" value="true"
-            class="mt-2 px-3 py-1 bg-red-800 hover:bg-red-700 text-white text-xs rounded transition">
-            Clear value
-          </button>
-        <% else %>
-          <textarea name="value" rows="3"
-            class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono">{@editing && @editing.value}</textarea>
-        <% end %>
+        <textarea name="value" rows="3"
+          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono"></textarea>
       </div>
       <div class="md:col-span-2">
         <button type="submit" class="px-4 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded transition">
@@ -83,21 +72,77 @@
       </thead>
       <tbody>
         <tr :for={setting <- items} class="border-t border-gray-800/50 hover:bg-gray-800/30">
-          <td class="px-4 py-2.5 text-sm font-mono text-white truncate" title={setting.key}>{setting.key}</td>
-          <td class="px-4 py-2.5 text-sm font-mono text-gray-300 truncate" title={if(!sensitive_key?(setting.key), do: setting.value, else: "")}>
-            <span :if={sensitive_key?(setting.key)} class="text-gray-500">{display_value(setting)}</span>
-            <span :if={!sensitive_key?(setting.key)}>{display_value(setting)}</span>
-          </td>
-          <td class="px-4 py-2.5">
-            <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{setting.type}</span>
-          </td>
-          <td class="px-4 py-2.5 text-right space-x-2 whitespace-nowrap">
-            <span class="text-xs text-gray-600 mr-2" title={setting.description}>{truncate_desc(setting.description)}</span>
-            <button phx-click="edit" phx-value-id={setting.id} class="text-xs text-claw-500 hover:text-claw-400">Edit</button>
-            <button phx-click="delete" phx-value-key={setting.key}
-              data-confirm="Delete this setting?"
-              class="text-xs text-red-500 hover:text-red-400">Del</button>
-          </td>
+          <%= if @editing && @editing.id == setting.id do %>
+            <td colspan="4" class="px-4 py-3">
+              <form phx-submit="save" class="space-y-3">
+                <input type="hidden" name="key" value={setting.key} />
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="font-mono text-sm text-white">{setting.key}</span>
+                  <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{setting.type}</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label class="block text-xs text-gray-500 mb-1">Type</label>
+                    <select name="type" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm">
+                      <option :for={t <- ~w(string integer float boolean json)} value={t} selected={setting.type == t}>{t}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs text-gray-500 mb-1">Category</label>
+                    <input type="text" name="category" value={setting.category || "general"}
+                      class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-gray-500 mb-1">Description</label>
+                    <input type="text" name="description" value={setting.description}
+                      class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">Value</label>
+                  <%= if sensitive_key?(setting.key) do %>
+                    <input type="password" name="value" placeholder={mask_value(setting.value)}
+                      class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono" />
+                    <p class="text-xs text-gray-600 mt-1">Leave empty to keep current value.</p>
+                    <input type="hidden" name="_clear" value="false" />
+                  <% else %>
+                    <textarea name="value" rows="2"
+                      class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono">{setting.value}</textarea>
+                  <% end %>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button type="submit" class="px-4 py-1.5 bg-green-700 hover:bg-green-600 text-white text-sm rounded transition">
+                    Save
+                  </button>
+                  <button type="button" phx-click="cancel_edit" class="px-4 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition">
+                    Cancel
+                  </button>
+                  <%= if sensitive_key?(setting.key) do %>
+                    <button type="submit" name="_clear" value="true"
+                      class="px-3 py-1.5 bg-red-800 hover:bg-red-700 text-white text-xs rounded transition ml-auto">
+                      Clear value
+                    </button>
+                  <% end %>
+                </div>
+              </form>
+            </td>
+          <% else %>
+            <td class="px-4 py-2.5 text-sm font-mono text-white truncate" title={setting.key}>{setting.key}</td>
+            <td class="px-4 py-2.5 text-sm font-mono text-gray-300 truncate" title={if(!sensitive_key?(setting.key), do: setting.value, else: "")}>
+              <span :if={sensitive_key?(setting.key)} class="text-gray-500">{display_value(setting)}</span>
+              <span :if={!sensitive_key?(setting.key)}>{display_value(setting)}</span>
+            </td>
+            <td class="px-4 py-2.5">
+              <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{setting.type}</span>
+            </td>
+            <td class="px-4 py-2.5 text-right space-x-2 whitespace-nowrap">
+              <span class="text-xs text-gray-600 mr-2" title={setting.description}>{truncate_desc(setting.description)}</span>
+              <button phx-click="edit" phx-value-id={setting.id} class="text-xs text-claw-500 hover:text-claw-400">Edit</button>
+              <button phx-click="delete" phx-value-key={setting.key}
+                data-confirm="Delete this setting?"
+                class="text-xs text-red-500 hover:text-red-400">Del</button>
+            </td>
+          <% end %>
         </tr>
       </tbody>
     </table>

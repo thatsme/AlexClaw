@@ -285,6 +285,36 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
+  # --- Shell (Container Introspection) ---
+
+  def dispatch(%Message{text: "/shell " <> command} = msg) do
+    command = String.trim(command)
+    if Config.get("shell.enabled") == true do
+      case require_2fa(msg, %{type: :shell_command, command: command},
+             "Execute: `#{String.slice(command, 0, 80)}`") do
+        :challenged -> :ok
+        :proceed ->
+          Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+            case AlexClaw.Skills.Shell.run(%{input: command}) do
+              {:ok, result, _branch} -> Gateway.send_message(result, gateway: msg.gateway)
+              {:error, reason} -> Gateway.send_message("Shell error: #{inspect(reason)}", gateway: msg.gateway)
+            end
+          end)
+      end
+    else
+      Gateway.send_message("Shell commands are disabled. Enable in Admin > Config.", gateway: msg.gateway)
+    end
+  end
+
+  def dispatch(%Message{text: "/shell" <> _} = msg) do
+    Gateway.send_message("""
+    *Shell — container introspection*
+    /shell <command> — execute a whitelisted command (2FA-gated)
+
+    Examples: `df -h`, `ps aux`, `free -m`, `uptime`
+    """, gateway: msg.gateway)
+  end
+
   # --- Web Automation ---
 
   def dispatch(%Message{text: "/record stop " <> session_id} = msg) do
@@ -472,6 +502,7 @@ defmodule AlexClaw.Dispatcher do
     /tasks — list your Google Tasks
     /tasklists — list your task lists with IDs
     /task add <title> — add a new task
+    /shell <command> — run whitelisted OS command (2FA-gated)
     /record <url> — start browser recording (returns noVNC link)
     /record stop <session\_id> — stop recording, get captured actions
     /replay <resource\_id> — replay a recorded automation
@@ -513,6 +544,15 @@ defmodule AlexClaw.Dispatcher do
 
   defp execute_2fa_action(%{type: :run_workflow, workflow_id: id}, _msg) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> AlexClaw.Workflows.Executor.run(id) end)
+  end
+
+  defp execute_2fa_action(%{type: :shell_command, command: command}, msg) do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      case AlexClaw.Skills.Shell.run(%{input: command}) do
+        {:ok, result, _branch} -> Gateway.send_message(result, gateway: msg.gateway)
+        {:error, reason} -> Gateway.send_message("Shell error: #{inspect(reason)}", gateway: msg.gateway)
+      end
+    end)
   end
 
   defp execute_2fa_action(action, msg) do

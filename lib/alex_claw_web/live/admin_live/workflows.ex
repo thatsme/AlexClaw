@@ -558,6 +558,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_uses_llm?("google_calendar"), do: false
   defp skill_uses_llm?("google_tasks"), do: false
   defp skill_uses_llm?("web_automation"), do: false
+  defp skill_uses_llm?("shell"), do: false
   defp skill_uses_llm?(_), do: true
 
   defp skill_config_hint("api_request"), do: ~s|{"method": "GET", "url": "https://...", "headers": {}, "body": ""}|
@@ -571,6 +572,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_config_hint("google_tasks"), do: ~s|{"action": "list"} or {"action": "create", "title": "Task title"}|
   defp skill_config_hint("github_security_review"), do: ~s|{"repo": "owner/repo", "pr": 42}|
   defp skill_config_hint("web_automation"), do: ~s|{"action": "play"} — runs the automation config from the assigned Resource|
+  defp skill_config_hint("shell"), do: ~s|{"command": "df -h"} — whitelisted OS command for container introspection|
   defp skill_config_hint("research"), do: ~s|{"query": "research topic"}|
   defp skill_config_hint("conversational"), do: ~s|{"message": "text to send"}|
   defp skill_config_hint(_), do: ""
@@ -588,6 +590,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "google_tasks" -> %{"action" => "list", "task_list" => "@default"}
       "github_security_review" -> %{"repo" => "", "pr" => nil}
       "web_automation" -> %{"action" => "play", "resource" => "automation resource name"}
+      "shell" -> %{"command" => "df -h"}
       "research" -> %{"query" => ""}
       "conversational" -> %{"message" => ""}
       _ -> %{}
@@ -614,6 +617,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "web_automation" -> %{
         "Play" => Jason.encode!(%{"action" => "play"}, pretty: true),
         "Record" => Jason.encode!(%{"action" => "record", "url" => "https://..."}, pretty: true)
+      }
+      "shell" -> %{
+        "Memory" => Jason.encode!(%{"command" => "free -m"}, pretty: true),
+        "Disk" => Jason.encode!(%{"command" => "df -h"}, pretty: true),
+        "Processes" => Jason.encode!(%{"command" => "ps aux"}, pretty: true),
+        "Uptime" => Jason.encode!(%{"command" => "uptime"}, pretty: true),
+        "BEAM node" => Jason.encode!(%{"command" => "bin/alex_claw eval \"Node.self()\""}, pretty: true),
+        "Git clone" => Jason.encode!(%{"command" => "git clone https://github.com/user/repo.git /tmp/repo"}, pretty: true)
       }
       _ -> %{}
     end
@@ -652,6 +663,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "google_tasks" -> "action: list or add. For add: set title in config and the step input becomes notes automatically. Or leave title empty and input becomes the title. due: optional date (YYYY-MM-DD). task_list: list ID (default: @default)."
       "github_security_review" -> "repo: owner/repo format. pr: PR number. Or commit_sha for commit review."
       "web_automation" -> "action: play (run automation), record (start recording), status (check sidecar). The automation config comes from the assigned Resource (type: automation)."
+      "shell" -> "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked. Timeout and output length are configurable in Admin > Config."
       "research" -> "query: the research topic. Leave empty to use {input} from the previous step."
       "conversational" -> "message: text to send to the LLM. Leave empty to use {input} from the previous step."
       _ -> "Skill-specific parameters as JSON. Click Scaffold to see available options."

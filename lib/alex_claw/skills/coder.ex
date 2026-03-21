@@ -17,7 +17,7 @@ defmodule AlexClaw.Skills.Coder do
   @impl true
   def permissions, do: :all
 
-  @default_max_retries 3
+  @default_max_retries 5
 
   @system_prompt """
   You are a code generator for AlexClaw, an Elixir/OTP agent.
@@ -28,12 +28,14 @@ defmodule AlexClaw.Skills.Coder do
   - MUST have: @behaviour AlexClaw.Skill
   - MUST mark all callbacks with @impl true
   - run/1 receives args map, MUST return {:ok, result_string, :on_success} or {:error, reason}
+  - The result MUST be a string
   - MUST implement: description/0, permissions/0 (list only what you need)
   - For external access use AlexClaw.Skills.SkillAPI (alias as SkillAPI)
   - Available permissions: llm, web_read, memory_read, memory_write,
     knowledge_read, knowledge_write, config_read, resources_read,
     skill_invoke, gateway_send
   - Return ONLY the code wrapped in ```elixir ... ```, no explanation
+  - Check the provided documentation for correct function signatures and return types
   """
 
   @impl true
@@ -105,8 +107,17 @@ defmodule AlexClaw.Skills.Coder do
 
                 case SkillAPI.load_skill(__MODULE__, file_name) do
                   {:ok, info} ->
-                    Logger.info("Coder: generated skill code:\n#{code}", skill: :coder)
-                    {:ok, Map.put(info, :code, code)}
+                    case validate_runtime(info.module) do
+                      :ok ->
+                        Logger.info("Coder: generated skill code:\n#{code}", skill: :coder)
+                        {:ok, Map.put(info, :code, code)}
+
+                      {:error, runtime_error} ->
+                        Logger.warning("Coder: runtime validation failed (#{retries_left - 1} retries left): #{inspect(runtime_error)}", skill: :coder)
+                        SkillAPI.unload_skill(__MODULE__, info.name)
+                        error_hint = "\n\nThe code compiled but failed at runtime: #{inspect(runtime_error)}\nFix the code and try again."
+                        generation_loop(prompt <> error_hint, skill_name, retries_left - 1, config, runtime_error)
+                    end
 
                   {:error, reason} ->
                     error_hint = "\n\nThe previous code had this error: #{inspect(reason)}\nFix the code and try again."
@@ -127,6 +138,22 @@ defmodule AlexClaw.Skills.Coder do
     end
   end
 
+  defp validate_runtime(module) do
+    try do
+      case module.run(%{input: "test", config: %{}}) do
+        {:ok, result, _branch} when is_binary(result) -> :ok
+        {:ok, result, _branch} -> {:error, {:runtime_bad_result, "run/1 returned non-string result: #{inspect(result)}"}}
+        {:ok, _} -> {:error, {:runtime_bad_result, "run/1 must return {:ok, string, :branch}, got 2-tuple"}}
+        {:error, reason} -> {:error, {:runtime_error_returned, "run/1 returned {:error, #{inspect(reason)}} — the skill must return {:ok, result_string, :on_success} for a successful run"}}
+        other -> {:error, {:runtime_bad_result, "run/1 returned unexpected: #{inspect(other)}"}}
+      end
+    rescue
+      e -> {:error, {:runtime_crash, Exception.message(e)}}
+    catch
+      kind, reason -> {:error, {:runtime_crash, "#{kind}: #{inspect(reason)}"}}
+    end
+  end
+
   defp extract_code(response) do
     case Regex.run(~r/```elixir\s*\n(.*?)```/s, response) do
       [_, code] -> {:ok, String.trim(code)}
@@ -139,19 +166,19 @@ defmodule AlexClaw.Skills.Coder do
   end
 
   defp gather_knowledge(goal) do
-    arch_results =
-      case SkillAPI.knowledge_search(__MODULE__, "AlexClaw Skill behaviour SkillAPI dynamic template", limit: 5) do
+    queries = [
+      {"AlexClaw Skill behaviour SkillAPI dynamic template", 5},
+      {goal, 5},
+      {"Elixir Erlang #{goal}", 3}
+    ]
+
+    queries
+    |> Enum.flat_map(fn {query, limit} ->
+      case SkillAPI.knowledge_search(__MODULE__, query, limit: limit) do
         {:ok, entries} -> entries
         _ -> []
       end
-
-    goal_results =
-      case SkillAPI.knowledge_search(__MODULE__, goal, limit: 3) do
-        {:ok, entries} -> entries
-        _ -> []
-      end
-
-    (arch_results ++ goal_results)
+    end)
     |> Enum.uniq_by(& &1.id)
     |> Enum.map_join("\n---\n", & &1.content)
   end
@@ -179,12 +206,15 @@ defmodule AlexClaw.Skills.Coder do
     """
   end
 
+  @filler_words ~w(a an the that which returns gets fetches creates makes builds generates is are was were will would should could can do does did have has had been being be for from with into onto upon about above below between through during before after since until of in on at to by and or but not skill skills)
+
   defp derive_skill_name(goal) do
     goal
     |> String.downcase()
     |> String.replace(~r/[^a-z0-9\s]/, "")
     |> String.split()
-    |> Enum.take(5)
+    |> Enum.reject(&(&1 in @filler_words))
+    |> Enum.take(4)
     |> Enum.join("_")
     |> String.slice(0, 40)
     |> then(fn name ->

@@ -316,6 +316,71 @@ Enum.each(fin_feed_resources, fn resource ->
   end
 end)
 
+# --- Workflow 4: Container Health Check ---
+
+IO.puts("\n--- Creating 'Container Health Check' workflow ---")
+
+{:ok, health_wf} =
+  Workflows.create_workflow(%{
+    name: "Container Health Check",
+    description:
+      "Checks container memory, disk, and uptime via shell skill, summarizes health status, and delivers via Telegram.",
+    enabled: true,
+    schedule: nil,
+    metadata: %{}
+  })
+
+{:ok, _} =
+  Workflows.add_step(health_wf, %{
+    name: "Check Memory",
+    skill: "shell",
+    position: 1,
+    config: %{"command" => "free -m"}
+  })
+
+{:ok, _} =
+  Workflows.add_step(health_wf, %{
+    name: "Check Disk",
+    skill: "shell",
+    position: 2,
+    config: %{"command" => "df -h"}
+  })
+
+{:ok, _} =
+  Workflows.add_step(health_wf, %{
+    name: "Check Uptime",
+    skill: "shell",
+    position: 3,
+    config: %{"command" => "uptime"}
+  })
+
+{:ok, _} =
+  Workflows.add_step(health_wf, %{
+    name: "Summarize Health",
+    skill: "llm_transform",
+    position: 4,
+    prompt_template: """
+    You are a DevOps assistant. Analyze the following container diagnostics and provide a brief health report.
+
+    Flag any concerns: high memory usage (>80%), low disk space (<20% free), or high load average.
+    Keep it under 1000 characters.
+
+    Diagnostics:
+    {input}
+    """,
+    llm_tier: "light"
+  })
+
+{:ok, _} =
+  Workflows.add_step(health_wf, %{
+    name: "Deliver to Telegram",
+    skill: "telegram_notify",
+    position: 5,
+    config: %{}
+  })
+
+IO.puts("  + Created workflow: #{health_wf.name} (5 steps)")
+
 IO.puts("""
 
 === Done! ===
@@ -325,5 +390,6 @@ Next steps:
   2. Click "Run Now" to test each workflow
   3. Set a schedule (e.g. "0 8 * * *" for daily 8am) via Admin > Workflows
   4. Manage RSS feeds via Admin > Feeds
-  5. Create your own workflows from the Admin UI
+  5. Enable shell.enabled in Admin > Config to use the Container Health Check workflow
+  6. Create your own workflows from the Admin UI
 """)

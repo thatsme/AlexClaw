@@ -72,6 +72,7 @@ Deterministic pattern-matching router. No LLM involved in routing — zero token
 /web <url> [q]     → WebBrowse skill
 /github pr <r> [n] → GitHubSecurityReview — review PR
 /github commit <r> <sha> → GitHubSecurityReview — review commit
+/shell <command>   → Shell — execute whitelisted OS command (2FA-gated)
 /record <url>      → WebAutomation — start browser recording
 /record stop <sid> → WebAutomation — stop recording, save as resource
 /replay <id>       → WebAutomation — replay a saved automation
@@ -132,7 +133,7 @@ Runtime configuration system. On boot, `Config.Loader` seeds default values from
 
 Sensitive values (API keys, tokens, OAuth secrets) are encrypted at the application level using AES-256-GCM before storage. The encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256 and cached in `:persistent_term`. Each value gets a unique random IV. On boot, `EncryptExisting` idempotently encrypts any plaintext sensitive values, then `Config.init()` reloads ETS with decrypted values. The `sensitive` boolean flag on each setting controls encryption behavior.
 
-Categories: `identity`, `llm`, `embedding`, `telegram`, `skills`, `github`, `google`, `auth`, `prompts`, `web_automator`.
+Categories: `identity`, `llm`, `embedding`, `telegram`, `skills`, `github`, `google`, `auth`, `prompts`, `web_automator`, `shell`.
 
 ### LogBuffer — `AlexClaw.LogBuffer`
 
@@ -282,6 +283,7 @@ Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, 
 | `github_security_review` | `GitHubSecurityReview` | medium | Fetch PR/commit diff, run LLM security analysis |
 | `google_calendar` | `GoogleCalendar` | — | Fetch upcoming events from Google Calendar |
 | `google_tasks` | `GoogleTasks` | — | List and create Google Tasks |
+| `shell` | `Shell` | — | Execute whitelisted OS commands for container introspection |
 | `web_automation` | `WebAutomation` | — | Browser recording and headless replay via sidecar |
 
 Shared utilities (`parse_int`, `parse_float`, `sanitize_utf8`, `strip_noise`, `blank?`) live in `AlexClaw.Skills.Helpers`.
@@ -400,12 +402,13 @@ lib/
       telegram_notify.ex       # Telegram delivery (markdown → HTML)
       web_automation.ex        # Browser recording and replay
       web_browse.ex            # URL fetch and summarize
+      shell.ex                 # Whitelisted OS command execution (5-layer security)
       web_search.ex            # DuckDuckGo search and synthesize
     workflows/
       executor.ex              # Runs workflow steps sequentially
       llm_transform.ex         # Prompt template skill for workflows
       scheduler_sync.ex        # Syncs DB schedules → Quantum jobs
-      skill_registry.ex        # Maps skill names → modules (12 skills)
+      skill_registry.ex        # Maps skill names → modules (13 skills)
       workflow.ex              # Workflow Ecto schema
       workflow_resource.ex     # Join schema (workflow ↔ resource)
       workflow_run.ex          # Run history Ecto schema

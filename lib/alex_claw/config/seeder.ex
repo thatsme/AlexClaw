@@ -88,6 +88,20 @@ defmodule AlexClaw.Config.Seeder do
     {"web_automator.host", &__MODULE__.env/1, "string", "web_automator",
      "Web-automator sidecar URL", false},
 
+    # Shell (container introspection)
+    {"shell.enabled", "false", "boolean", "shell",
+     "Enable /shell command for container introspection", false},
+    {"shell.whitelist",
+     ~s(["df","free","ps","uptime","cat /proc","ping","nslookup","curl","bin/alex_claw","uname","whoami","hostname","date","ls","git"]),
+     "string", "shell", "JSON array of allowed command prefixes", false},
+    {"shell.blocklist",
+     ~s(["&&","||","|",";","`","$(",">","<","\\n"]),
+     "string", "shell", "JSON array of blocked metacharacters/sequences", false},
+    {"shell.timeout_seconds", "30", "integer", "shell",
+     "Max seconds before killing a shell command", false},
+    {"shell.max_output_chars", "4000", "integer", "shell",
+     "Max characters of command output before truncation", false},
+
     # Display
     {"display.timezone", "Europe/Rome", "string", "display",
      "Timezone for displaying dates/times in the UI (IANA format, e.g. Europe/Rome)", false},

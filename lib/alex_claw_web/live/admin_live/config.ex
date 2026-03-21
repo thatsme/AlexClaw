@@ -14,7 +14,7 @@ defmodule AlexClawWeb.AdminLive.Config do
        page_title: "Configuration",
        settings: settings,
        grouped: group_by_category(settings),
-       collapsed: MapSet.new(),
+       collapsed: group_by_category(settings) |> Enum.map(&elem(&1, 0)) |> MapSet.new(),
        show_form: false,
        editing: nil
      )}
@@ -62,11 +62,16 @@ defmodule AlexClawWeb.AdminLive.Config do
     case parse_id(id_str) do
       {:ok, id} ->
         setting = Enum.find(socket.assigns.settings, &(&1.id == id))
-        {:noreply, assign(socket, editing: setting, show_form: true)}
+        {:noreply, assign(socket, editing: setting, show_form: false)}
 
       :error ->
         {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_event("cancel_edit", _, socket) do
+    {:noreply, assign(socket, editing: nil)}
   end
 
   @impl true

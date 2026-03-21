@@ -52,6 +52,25 @@ Set `github.webhook_secret` in Admin > Config (GitHub category).
 
 ---
 
+## Shell Skill (Container Introspection)
+
+The `/shell` command allows the owner to run OS commands inside the container
+for diagnostics (disk, memory, connectivity, BEAM status). It is protected
+by 5 layers of defense-in-depth:
+
+1. **Disabled by default** — `shell.enabled` must be explicitly set to `true` in Admin > Config. The check is enforced both in the Dispatcher and inside the skill itself.
+2. **2FA gate** — every `/shell` command requires TOTP verification when 2FA is enabled.
+3. **Whitelist with word-boundary check** — the command must start with an allowed prefix (`df`, `free`, `ps`, `uptime`, `git`, etc.). The prefix is boundary-checked: `"df"` allows `"df -h"` but not `"define"`. The whitelist is stored as a JSON array in the database and editable from Admin > Config.
+4. **Blocklist** — commands containing shell metacharacters (`&&`, `||`, `|`, `;`, `` ` ``, `$(`, `>`, `<`, `\n`) are rejected even if the prefix is whitelisted.
+5. **No shell interpretation** — commands are executed via `System.cmd/3` with arguments passed as a list (parsed by `OptionParser.split/1`). No shell is invoked — no globbing, no piping, no variable expansion.
+
+Additional protections:
+- **Timeout** — commands are killed after 30 seconds (configurable via `shell.timeout_seconds`)
+- **Output truncation** — output is capped at 4000 characters (configurable via `shell.max_output_chars`)
+- **Workflow mode** — when used in workflows, the command comes from step config (not user input), preventing injection through workflow chaining
+
+---
+
 ## Web Automator Sidecar
 
 The web-automator sidecar runs a real browser with network access.

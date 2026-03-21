@@ -37,7 +37,7 @@ CMD ["sh", "-c", "mix ecto.create && mix ecto.migrate && mix test"]
 # --- Runtime ---
 FROM alpine:3.22 AS runtime
 
-RUN apk add --no-cache libstdc++ openssl ncurses-libs postgresql-client
+RUN apk add --no-cache libstdc++ openssl ncurses-libs postgresql-client git
 
 WORKDIR /app
 

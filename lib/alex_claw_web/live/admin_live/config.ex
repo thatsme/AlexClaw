@@ -118,15 +118,21 @@ defmodule AlexClawWeb.AdminLive.Config do
     end
   end
 
-  @category_order ~w(telegram llm github auth skills prompts identity general)
+  @category_order ~w(telegram discord llm embedding github google auth shell web_automator skills prompts identity display general)
   @category_labels %{
     "telegram" => "Telegram",
+    "discord" => "Discord",
     "llm" => "LLM Providers",
+    "embedding" => "Embedding",
     "github" => "GitHub",
+    "google" => "Google",
     "auth" => "Authentication",
+    "shell" => "Shell",
+    "web_automator" => "Web Automator",
     "skills" => "Skills",
     "prompts" => "Prompts",
     "identity" => "Identity",
+    "display" => "Display",
     "general" => "General"
   }
 

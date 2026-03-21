@@ -10,7 +10,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   """
   require Logger
 
-  @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke)a
+  @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke skill_write skill_manage workflow_manage)a
 
   def known_permissions, do: @known_permissions
 
@@ -184,6 +184,93 @@ defmodule AlexClaw.Skills.SkillAPI do
         {:ok, target_module} -> target_module.run(args)
         {:error, :unknown_skill} -> {:error, {:unknown_skill, skill_name}}
       end
+    end
+  end
+
+  # --- Skill File I/O ---
+
+  @doc "Write a skill file to the skills directory. Validates filename safety."
+  def write_skill(skill_module, file_name, code_string) do
+    with :ok <- check_permission(skill_module, :skill_write),
+         :ok <- validate_skill_filename(file_name) do
+      dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
+      File.mkdir_p!(dir)
+      File.write(Path.join(dir, file_name), code_string)
+    end
+  end
+
+  @doc "Read a skill file from the skills directory."
+  def read_skill(skill_module, file_name) do
+    with :ok <- check_permission(skill_module, :skill_write),
+         :ok <- validate_skill_filename(file_name) do
+      dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
+      File.read(Path.join(dir, file_name))
+    end
+  end
+
+  defp validate_skill_filename(file_name) do
+    cond do
+      String.contains?(file_name, "..") -> {:error, :invalid_filename}
+      String.contains?(file_name, "/") -> {:error, :invalid_filename}
+      String.contains?(file_name, "\\") -> {:error, :invalid_filename}
+      not String.ends_with?(file_name, ".ex") -> {:error, :invalid_filename}
+      true -> :ok
+    end
+  end
+
+  # --- Skill Lifecycle ---
+
+  @doc "Load a dynamic skill from a file in the skills directory."
+  def load_skill(skill_module, file_name) do
+    with :ok <- check_permission(skill_module, :skill_manage) do
+      AlexClaw.Workflows.SkillRegistry.load_skill(file_name)
+    end
+  end
+
+  @doc "Unload a dynamic skill by name."
+  def unload_skill(skill_module, skill_name) do
+    with :ok <- check_permission(skill_module, :skill_manage) do
+      AlexClaw.Workflows.SkillRegistry.unload_skill(skill_name)
+    end
+  end
+
+  @doc "Reload a dynamic skill by name."
+  def reload_skill(skill_module, skill_name) do
+    with :ok <- check_permission(skill_module, :skill_manage) do
+      AlexClaw.Workflows.SkillRegistry.reload_skill(skill_name)
+    end
+  end
+
+  # --- Workflow Management ---
+
+  @doc "Create a new workflow."
+  def create_workflow(skill_module, attrs) do
+    with :ok <- check_permission(skill_module, :workflow_manage) do
+      AlexClaw.Workflows.create_workflow(attrs)
+    end
+  end
+
+  @doc "Add a step to a workflow."
+  def add_workflow_step(skill_module, workflow_id, step_attrs) do
+    with :ok <- check_permission(skill_module, :workflow_manage) do
+      case AlexClaw.Workflows.get_workflow(workflow_id) do
+        {:ok, workflow} -> AlexClaw.Workflows.add_step(workflow, step_attrs)
+        {:error, _} = err -> err
+      end
+    end
+  end
+
+  @doc "Run a workflow by ID."
+  def run_workflow(skill_module, workflow_id) do
+    with :ok <- check_permission(skill_module, :workflow_manage) do
+      AlexClaw.Workflows.Executor.run(workflow_id)
+    end
+  end
+
+  @doc "Get a workflow run result by run ID."
+  def get_workflow_result(skill_module, run_id) do
+    with :ok <- check_permission(skill_module, :workflow_manage) do
+      AlexClaw.Workflows.get_run(run_id)
     end
   end
 

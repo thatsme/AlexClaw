@@ -125,6 +125,19 @@ dynamic skill from consuming resources or cascading failures through workflows.
 Workflow steps can be configured to skip or fallback to an alternative skill
 when a circuit is open or a skill is missing.
 
+**Autonomous Skill Generation (Coder Skill):**
+The `/coder` command uses a local LLM to generate dynamic skills from natural
+language descriptions. Generated code passes through the same validation pipeline
+as manually-loaded skills (namespace, behaviour, permission checks). Additional
+safety measures:
+- Filename validation rejects path traversal (`..`, `/`, `\`)
+- Only `.ex` files can be written
+- Writes are confined to the configured skills directory
+- Generated workflows are created in disabled state
+- All generated code is logged via `Logger.info` for audit
+- Always uses `tier: :local` — zero cloud API cost
+- Retry bound prevents infinite loops (configurable, default 3)
+
 **What is NOT sandboxed:** A dynamic skill runs in the same BEAM VM as the rest
 of AlexClaw. A malicious skill could bypass SkillAPI by calling internal modules
 directly. The permission system is a guardrail, not a security boundary.

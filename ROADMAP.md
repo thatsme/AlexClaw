@@ -51,16 +51,13 @@ Gateway behaviour abstraction with multi-transport Router. Telegram and Discord 
 
 Slack bot + incoming webhooks. Same Gateway behaviour pattern as Telegram and Discord.
 
-### Shell Skill (Container Introspection)
+### ~~Shell Skill (Container Introspection)~~ ✅ Completed (v0.3.4)
 
-Execute OS commands inside the AlexClaw container via Telegram/Discord. Useful for container diagnostics, network debugging, BEAM introspection (`bin/alex_claw eval`), log inspection, and quick database checks — all from your phone without SSH.
+Execute OS commands inside the AlexClaw container via Telegram/Discord. 5-layer defense-in-depth: disabled by default, 2FA gate, command whitelist with word-boundary check, metacharacter blocklist, no shell interpretation. Configurable timeout and output truncation. Available as both `/shell <command>` and a workflow step.
 
-- `/shell <command>` Telegram/Discord command
-- Available as a workflow step for automated health checks
-- 2FA-gated by default (`requires_2fa: true`)
-- Configurable command whitelist/blocklist in admin config
-- Optional mounted `/workspace` volume for repo cloning and code inspection
-- Container sandbox is the security boundary — no host access
+### ~~Autonomous Skill Generation (Coder)~~ ✅ Completed (v0.3.5)
+
+Local LLM generates dynamic skills from natural language goals via `/coder <goal>`. SkillAPI extended with `:skill_write`, `:skill_manage`, `:workflow_manage` permissions. Retry loop with error feedback, knowledge base RAG context, optional workflow creation. Zero cloud API cost (always uses `tier: :local`). Generated code passes full validation pipeline (namespace, behaviour, permissions). See [SELF_AWARENESS.md](docs/SELF_AWARENESS.md).
 
 ---
 

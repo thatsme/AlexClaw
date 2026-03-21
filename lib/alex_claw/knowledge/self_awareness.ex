@@ -94,21 +94,9 @@ defmodule AlexClaw.Knowledge.SelfAwareness do
     :crypto.hash(:sha256, content) |> Base.encode16(case: :lower) |> String.slice(0, 16)
   end
 
-  defp needs_update?(source, new_hash) do
-    import Ecto.Query
-
-    case AlexClaw.Repo.one(
-           from(e in AlexClaw.Knowledge.Entry,
-             where: e.source == ^source,
-             limit: 1,
-             select: e.metadata
-           )
-         ) do
-      nil -> true
-      %{"content_hash" => ^new_hash} -> false
-      _ -> true
-    end
-  end
+  # Always re-embed on boot — these are small (30 chunks) and must
+  # always have fresh embeddings regardless of content changes.
+  defp needs_update?(_source, _new_hash), do: true
 
   defp delete_by_source(source) do
     import Ecto.Query

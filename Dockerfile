@@ -23,6 +23,15 @@ RUN mkdir -p priv/static/assets && \
     cp deps/phoenix/priv/static/phoenix.min.js priv/static/assets/ && \
     cp deps/phoenix_live_view/priv/static/phoenix_live_view.min.js priv/static/assets/
 
+# Bundle self-awareness docs for knowledge base embedding at boot
+COPY ALEXCLAW_ARCHITECTURE.md SECURITY.md ./
+COPY test/fixtures/skills/skill_template.ex ./
+RUN mkdir -p priv/self_awareness && \
+    cp ALEXCLAW_ARCHITECTURE.md priv/self_awareness/ && \
+    cp SECURITY.md priv/self_awareness/ && \
+    cp lib/alex_claw/skill.ex priv/self_awareness/ && \
+    cp skill_template.ex priv/self_awareness/
+
 RUN mix compile && mix release
 
 # --- Test stage (used by docker-compose.test.yml) ---

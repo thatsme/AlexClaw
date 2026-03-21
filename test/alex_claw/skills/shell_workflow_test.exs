@@ -5,6 +5,11 @@ defmodule AlexClaw.Skills.ShellWorkflowTest do
   alias AlexClaw.Workflows.Executor
 
   describe "shell skill in workflow" do
+    setup do
+      AlexClaw.Config.set("shell.enabled", "true", type: "boolean", category: "shell")
+      :ok
+    end
+
     test "executes OS memory check via workflow" do
       {:ok, workflow} =
         Workflows.create_workflow(%{

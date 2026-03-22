@@ -1,0 +1,154 @@
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-white">Authorization</h1>
+    <div class="flex gap-2">
+      <button phx-click="switch_tab" phx-value-tab="policies"
+        class={"px-3 py-1.5 rounded text-sm font-medium transition-colors " <>
+          if(@tab == :policies, do: "bg-claw-600 text-white", else: "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700")}>
+        Policies
+      </button>
+      <button phx-click="switch_tab" phx-value-tab="audit"
+        class={"px-3 py-1.5 rounded text-sm font-medium transition-colors " <>
+          if(@tab == :audit, do: "bg-claw-600 text-white", else: "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700")}>
+        Audit Log
+      </button>
+    </div>
+  </div>
+
+  <%= if @tab == :policies do %>
+    <!-- Create Policy Form -->
+    <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
+      <h2 class="text-lg font-semibold text-white mb-4">New Policy</h2>
+      <.form for={@form} phx-submit="create_policy" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Name</label>
+            <input type="text" name="policy[name]" required
+              class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Rule Type</label>
+            <select name="policy[rule_type]" required
+              class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+              <option value="rate_limit">Rate Limit</option>
+              <option value="time_window">Time Window</option>
+              <option value="chain_restriction">Chain Restriction</option>
+              <option value="permission_override">Permission Override</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Description</label>
+          <input type="text" name="policy[description]"
+            class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Config (JSON)</label>
+            <textarea name="policy[config_json]" rows="3" placeholder='{"max_calls": 10, "window_seconds": 60}'
+              class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono"></textarea>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Priority</label>
+              <input type="number" name="policy[priority]" value="0"
+                class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="hidden" name="policy[enabled]" value="false" />
+              <input type="checkbox" name="policy[enabled]" value="true" checked
+                class="rounded bg-gray-800 border-gray-600" />
+              <label class="text-sm text-gray-400">Enabled</label>
+            </div>
+          </div>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-claw-600 hover:bg-claw-500 text-white rounded text-sm font-medium transition-colors">
+          Create Policy
+        </button>
+      </.form>
+    </div>
+
+    <!-- Policy List -->
+    <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+      <div :if={@policies == []} class="p-8 text-center text-gray-500">No policies configured.</div>
+      <div :for={policy <- @policies} class="flex items-center gap-4 px-4 py-3 border-b border-gray-800/50 last:border-0">
+        <div class="flex-shrink-0">
+          <span class={"px-2 py-0.5 rounded text-xs font-bold " <>
+            if(policy.enabled, do: "bg-green-900/50 text-green-400", else: "bg-gray-800 text-gray-500")}>
+            {if policy.enabled, do: "ON", else: "OFF"}
+          </span>
+        </div>
+        <div class="flex-shrink-0">
+          <span class={"px-2 py-0.5 rounded text-xs font-mono " <>
+            case policy.rule_type do
+              "rate_limit" -> "bg-blue-900/50 text-blue-400"
+              "time_window" -> "bg-purple-900/50 text-purple-400"
+              "chain_restriction" -> "bg-orange-900/50 text-orange-400"
+              "permission_override" -> "bg-red-900/50 text-red-400"
+              _ -> "bg-gray-800 text-gray-400"
+            end}>
+            {policy.rule_type}
+          </span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-white font-medium">{policy.name}</p>
+          <p :if={policy.description} class="text-xs text-gray-500">{policy.description}</p>
+          <p class="text-xs text-gray-600 font-mono mt-0.5">{Jason.encode!(policy.config)}</p>
+        </div>
+        <div class="flex-shrink-0 text-xs text-gray-600">P{policy.priority}</div>
+        <div class="flex-shrink-0 flex gap-2">
+          <button phx-click="toggle_policy" phx-value-id={policy.id}
+            class="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:text-white transition-colors">
+            {if policy.enabled, do: "Disable", else: "Enable"}
+          </button>
+          <button phx-click="delete_policy" phx-value-id={policy.id}
+            data-confirm="Delete this policy?"
+            class="px-2 py-1 rounded text-xs bg-red-900/50 text-red-400 hover:bg-red-900 transition-colors">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <%= if @tab == :audit do %>
+    <div class="flex items-center justify-between">
+      <span class="text-sm text-gray-500">{length(@audit_entries)} entries</span>
+      <div class="flex gap-2">
+        <button phx-click="refresh_audit" class="px-3 py-1.5 rounded text-sm font-medium bg-gray-800 text-gray-400 hover:text-white transition-colors">
+          Refresh
+        </button>
+        <button phx-click="prune_audit" data-confirm="Prune entries older than 30 days?"
+          class="px-3 py-1.5 rounded text-sm font-medium bg-red-900/50 text-red-400 hover:bg-red-900 transition-colors">
+          Prune Old
+        </button>
+      </div>
+    </div>
+
+    <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+      <div :if={@audit_entries == []} class="p-8 text-center text-gray-500">No audit entries.</div>
+      <div :for={entry <- @audit_entries} class={"flex gap-4 px-4 py-2 border-b border-gray-800/50 last:border-0 " <>
+        if(entry.decision == "deny", do: "bg-red-950/10", else: "")}>
+        <div class="flex-shrink-0 w-20 text-xs text-gray-500 font-mono pt-0.5">
+          {Calendar.strftime(entry.inserted_at, "%H:%M:%S")}
+        </div>
+        <div class="flex-shrink-0">
+          <span class={"px-2 py-0.5 rounded text-xs font-bold " <>
+            if(entry.decision == "deny", do: "bg-red-900/50 text-red-400", else: "bg-green-900/50 text-green-400")}>
+            {String.upcase(entry.decision)}
+          </span>
+        </div>
+        <div class="flex-shrink-0">
+          <span class="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-400">{entry.caller_type}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-gray-300 font-mono">{entry.caller} : {entry.permission}</p>
+          <p :if={entry.reason} class="text-xs text-gray-500">{entry.reason}</p>
+        </div>
+        <div :if={entry.workflow_run_id} class="flex-shrink-0 text-xs text-gray-600">
+          run #{entry.workflow_run_id}
+        </div>
+      </div>
+    </div>
+  <% end %>
+</div>

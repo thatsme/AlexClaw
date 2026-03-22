@@ -181,8 +181,18 @@ defmodule AlexClaw.Skills.SkillAPI do
   def run_skill(skill_module, skill_name, args) do
     with :ok <- check_permission(skill_module, :skill_invoke) do
       case AlexClaw.Workflows.SkillRegistry.resolve(skill_name) do
-        {:ok, target_module} -> target_module.run(args)
-        {:error, :unknown_skill} -> {:error, {:unknown_skill, skill_name}}
+        {:ok, target_module} ->
+          depth = Process.get(:auth_chain_depth, 0)
+          Process.put(:auth_chain_depth, depth + 1)
+
+          try do
+            target_module.run(args)
+          after
+            Process.put(:auth_chain_depth, depth)
+          end
+
+        {:error, :unknown_skill} ->
+          {:error, {:unknown_skill, skill_name}}
       end
     end
   end
@@ -277,20 +287,12 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Permission check ---
 
   defp check_permission(skill_module, permission) do
-    case AlexClaw.Workflows.SkillRegistry.get_permissions(skill_module) do
-      :all ->
-        :ok
+    permissions = AlexClaw.Workflows.SkillRegistry.get_permissions(skill_module)
+    ctx = AlexClaw.Auth.AuthContext.build(skill_module, permission, permissions)
 
-      permissions when is_list(permissions) ->
-        if permission in permissions do
-          :ok
-        else
-          Logger.warning("Permission denied: #{inspect(skill_module)} requires #{permission}")
-          {:error, :permission_denied}
-        end
-
-      _ ->
-        {:error, :permission_denied}
+    case AlexClaw.Auth.PolicyEngine.evaluate(ctx, permissions) do
+      :allow -> :ok
+      {:deny, _reason} -> {:error, :permission_denied}
     end
   end
 end

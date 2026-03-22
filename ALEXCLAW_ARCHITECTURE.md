@@ -192,6 +192,25 @@ Once enabled, workflows with `requires_2fa: true` in their metadata trigger a ch
 
 `POST /webhooks/github` with HMAC-SHA256 signature verification. The `CachingBodyReader` plug caches the raw request body before JSON parsing so the HMAC is verified against the original payload, not re-serialized JSON. Push events on watched branches trigger automatic security reviews.
 
+### Agent Authorization Layer
+
+Composable authorization system for skill execution, built in three layers:
+
+**Context-Aware Permission Checks** — `AlexClaw.Auth.PolicyEngine`
+Every `SkillAPI` call builds an `AuthContext` (caller, type, permission, chain depth, workflow run ID) and evaluates it through the `PolicyEngine`. Core skills bypass all checks. Dynamic skills are checked against declared permissions, capability tokens, and active policy rules. Chain depth limited to 3 to prevent infinite skill→skill recursion.
+
+**Capability Tokens** — `AlexClaw.Auth.CapabilityToken`
+Macaroon-style HMAC-signed tokens. When a workflow runs, each step gets a token scoped to the skill's declared permissions. Cross-skill invocation via `run_skill/3` attenuates the token — child skills can only receive a subset. Signing key derived from `SECRET_KEY_BASE` via HKDF-SHA256.
+
+**Process Isolation** — `AlexClaw.Auth.SafeExecutor`
+Dynamic skills run in a spawned, monitored process. The capability token is set in the child's process dictionary, isolating it from the caller. Core skills run in-process (no overhead).
+
+**Policy Rules** — `AlexClaw.Auth.Policy` (PostgreSQL, cached in ETS)
+Configurable rules evaluated by PolicyEngine: `rate_limit`, `time_window`, `chain_restriction`, `permission_override`. Managed via Admin > Policies.
+
+**Audit Logging** — `AlexClaw.Auth.AuditLog`
+All authorization denials persisted to `auth_audit_log` table. Viewable from Admin > Policies > Audit Log. Auto-pruned after 30 days.
+
 ---
 
 ## Google Integration
@@ -404,6 +423,14 @@ Phoenix LiveView admin UI. Session-based authentication — all routes except `/
 lib/
   alex_claw/
     auth/
+      auth_context.ex          # Authorization context struct (caller, type, permission, chain depth)
+      policy_engine.ex         # Context-aware policy evaluation (chain depth, tokens, DB rules)
+      capability_token.ex      # HMAC-signed Macaroon-style permission tokens
+      safe_executor.ex         # Process-isolated execution for dynamic skills
+      policy.ex                # Ecto schema for policy rules (rate_limit, time_window, etc.)
+      audit_log.ex             # Authorization audit logging (Logger + DB persistence)
+      audit_entry.ex           # Ecto schema for auth_audit_log table
+      skill_rate_limiter.ex    # Per-skill ETS-based rate limiting GenServer
       totp.ex                  # TOTP 2FA (setup, verify, challenge)
     config/
       crypto.ex                # AES-256-GCM encryption (HKDF key derivation)

@@ -54,11 +54,9 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `elixir_source_scraper` | Fetch Elixir stdlib source from GitHub for pattern learning (dynamic) |
 | `skill_source_indexer` | Index existing skill source code into knowledge base (dynamic) |
 
-### Dynamic Skill Loading (**experimental**)
+### Dynamic Skill Loading
 
 ![AlexClaw Dynamic Skills](docs/screenshot/dynamic.jpg)
-
-> **This feature is under heavy development.** The API, permission model, and sandboxing may change without notice.
 
 Load custom skills at runtime — no code changes, no Docker rebuild, no restart. Drop an `.ex` file into the skills volume (or upload via the admin UI), and it compiles into the running VM immediately.
 

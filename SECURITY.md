@@ -102,10 +102,7 @@ or environment variables and restart.
 
 ---
 
-## Dynamic Skill Loading (Experimental)
-
-> **This feature is under heavy development.** The sandboxing model is not yet
-> hardened for adversarial inputs. Only load skills you trust.
+## Dynamic Skill Loading
 
 Dynamic skills are compiled into the BEAM VM at runtime via `Code.compile_file`.
 The following protections are in place:

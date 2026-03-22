@@ -185,10 +185,27 @@ defmodule AlexClaw.Skills.SkillAPI do
           depth = Process.get(:auth_chain_depth, 0)
           Process.put(:auth_chain_depth, depth + 1)
 
+          # Attenuate current token to target skill's permissions
+          current_token = Process.get(:auth_token)
+          target_perms = AlexClaw.Workflows.SkillRegistry.get_permissions(target_module)
+
+          attenuated =
+            if current_token && is_list(target_perms) do
+              case AlexClaw.Auth.CapabilityToken.attenuate(current_token, target_perms) do
+                {:ok, token} -> token
+                _ -> current_token
+              end
+            else
+              current_token
+            end
+
+          if attenuated, do: Process.put(:auth_token, attenuated)
+
           try do
             target_module.run(args)
           after
             Process.put(:auth_chain_depth, depth)
+            if current_token, do: Process.put(:auth_token, current_token)
           end
 
         {:error, :unknown_skill} ->

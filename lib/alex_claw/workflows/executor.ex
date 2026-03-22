@@ -10,6 +10,7 @@ defmodule AlexClaw.Workflows.Executor do
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.SkillRegistry
   alias AlexClaw.Skills.CircuitBreaker
+  alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
 
   @doc "Run a workflow by ID. Creates a run record and walks the step graph."
   @spec run(integer()) :: {:ok, AlexClaw.Workflows.WorkflowRun.t()} | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
@@ -146,7 +147,16 @@ defmodule AlexClaw.Workflows.Executor do
 
     case SkillRegistry.resolve(step.skill) do
       {:ok, module} ->
-        case CircuitBreaker.call(step.skill, fn -> module.run(args) end) do
+        skill_type = SkillRegistry.get_type(module) || :dynamic
+        token = mint_step_token(module, skill_type)
+        if token, do: Process.put(:auth_token, token)
+
+        result =
+          CircuitBreaker.call(step.skill, fn ->
+            SafeExecutor.run(module, args, skill_type, token, [])
+          end)
+
+        case result do
           {:ok, result, branch} -> {:ok, result, branch}
           {:ok, result} -> {:ok, result, :on_success}
           {:error, :circuit_open} -> handle_circuit_open(step, args)
@@ -287,6 +297,17 @@ defmodule AlexClaw.Workflows.Executor do
     outputs
     |> Enum.max_by(&elem(&1, 0))
     |> elem(1)
+  end
+
+  # --- Token Minting ---
+
+  defp mint_step_token(_module, :core), do: nil
+
+  defp mint_step_token(module, :dynamic) do
+    case SkillRegistry.get_permissions(module) do
+      perms when is_list(perms) -> CapabilityToken.mint(perms)
+      _ -> nil
+    end
   end
 
   # --- Notifications ---

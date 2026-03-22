@@ -25,6 +25,7 @@ defmodule AlexClaw.Workflows.Executor do
 
   defp execute(workflow) do
     {:ok, run} = Workflows.create_run(workflow)
+    Process.put(:auth_workflow_run_id, run.id)
     steps = workflow.steps
     gateways = workflow_gateways(steps)
 
@@ -140,6 +141,8 @@ defmodule AlexClaw.Workflows.Executor do
       llm_tier: step.llm_tier,
       prompt_template: step.prompt_template
     }
+
+    Process.put(:auth_chain_depth, 0)
 
     case SkillRegistry.resolve(step.skill) do
       {:ok, module} ->

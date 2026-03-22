@@ -24,7 +24,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **Multi-Gateway (Telegram + Discord)** — Bidirectional communication via Telegram long-polling or Discord bot WebSocket. Command routing is deterministic pattern-matching — no LLM involved in dispatch. Both gateways can run simultaneously; responses route back to the originating transport. The Gateway behaviour allows adding new transports without changing skills or the Dispatcher.
 - **Runtime Configuration** — All settings (API keys, prompts, limits, personas) are stored in PostgreSQL, cached in ETS, and editable at runtime via the admin UI. No restart required for any config change.
 - **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `gemini-embedding-001`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). 768-dimension vectors with HNSW index. All skills that store knowledge auto-embed in the background.
-- **Knowledge Base RAG** — Separate `knowledge_entries` table for documentation and reference material, isolated from news/conversation memory. Scraper skills fetch, chunk, and embed documentation from hexdocs.pm (API reference + official guides). Chat integrates both Knowledge and Memory search with a context source selector (Docs only / Memory only / Both / None). System prompt instructs the LLM to cite provided documentation over general knowledge. Currently covers 22 Elixir ecosystem packages including full Elixir stdlib and 53 official guides.
+- **Knowledge Base RAG** — Separate `knowledge_entries` table for documentation and reference material, isolated from news/conversation memory. Scraper skills fetch, chunk, and embed documentation from hexdocs.pm, Erlang/OTP source (GitHub), Elixir stdlib source, Learn You Some Erlang, and existing skill code. Chat integrates both Knowledge and Memory search with a context source selector. ~7200 embeddings across 6 knowledge kinds.
 - **Cron Scheduler** — Quantum-based. Jobs defined in config or DB.
 
 ### Skills
@@ -47,7 +47,12 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `google_tasks` | Manage Google Tasks lists and items |
 | `shell` | Execute whitelisted OS commands for container introspection (2FA-gated) |
 | `web_automation` | Browser automation via headless Playwright sidecar (**experimental**) |
+| `coder` | Generate dynamic skills from natural language via local LLM |
 | `hexdocs_scraper` | Scrape hexdocs.pm docs into knowledge base embeddings (dynamic) |
+| `erlang_docs_scraper` | Fetch Erlang/OTP docs from GitHub into knowledge base (dynamic) |
+| `lyse_scraper` | Scrape Learn You Some Erlang chapters into knowledge base (dynamic) |
+| `elixir_source_scraper` | Fetch Elixir stdlib source from GitHub for pattern learning (dynamic) |
+| `skill_source_indexer` | Index existing skill source code into knowledge base (dynamic) |
 
 ### Dynamic Skill Loading (**experimental**)
 
@@ -57,7 +62,9 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 
 Load custom skills at runtime — no code changes, no Docker rebuild, no restart. Drop an `.ex` file into the skills volume (or upload via the admin UI), and it compiles into the running VM immediately.
 
-- **Permission sandbox** — Dynamic skills declare permissions (`llm`, `web_read`, `telegram_send`, `memory_read`, `memory_write`, `config_read`, `resources_read`, `skill_invoke`) and interact through `SkillAPI` only. Undeclared permissions are denied at runtime.
+- **Permission sandbox** — Dynamic skills declare permissions and interact through `SkillAPI` only. Undeclared permissions are denied at runtime. Context-aware `PolicyEngine` evaluates chain depth, capability tokens, and configurable policy rules.
+- **Capability tokens** — Macaroon-style HMAC-signed tokens attenuate permissions through the call chain. Workflow steps get scoped tokens; cross-skill invocation further restricts.
+- **Process isolation** — Dynamic skills execute in spawned processes via `SafeExecutor`, isolating auth state from the caller.
 - **Namespace enforcement** — Module must be `AlexClaw.Skills.Dynamic.*`
 - **Integrity verification** — SHA256 checksum stored on load, verified on boot. Tampered files are skipped with a Telegram alert.
 - **Persistence** — Dynamic skills survive container restarts (DB + Docker volume)
@@ -108,6 +115,7 @@ AlexClaw can review pull requests and commits for security issues:
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
 - **Encryption at rest** — API keys and tokens are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime
 - **Sensitive key masking** — API keys and tokens show partial values in the admin UI
+- **Agent authorization layer** — Context-aware PolicyEngine with HMAC capability tokens, chain-depth enforcement, process isolation for dynamic skills, configurable policy rules (rate_limit, time_window, chain_restriction, permission_override), and persistent audit logging
 - **Shell command security** — 5-layer defense: disabled by default, 2FA gate, whitelist with word-boundary check, blocklist for shell metacharacters, no shell interpretation (`System.cmd/3` with args as list), configurable timeout + output truncation
 
 ---
@@ -238,6 +246,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/tasks` | List Google Tasks |
 | `/tasklists` | List your task lists by name |
 | `/task add <title>` | Add a task to Google Tasks |
+| `/coder <goal>` | Generate a dynamic skill from natural language via local LLM |
 | `/shell <command>` | Execute a whitelisted OS command (2FA-gated) |
 | `/record <url>` | Start browser recording session (web-automator) |
 | `/record stop <session_id>` | Stop a recording session |
@@ -267,6 +276,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | Database | Schema browser and backup download |
 | Config | Runtime configuration editor |
 | Logs | Real-time log viewer with severity filtering |
+| Policies | Authorization policy rules, audit log viewer |
 
 ---
 
@@ -279,6 +289,7 @@ lib/
     knowledge/       # Knowledge base entry schema (pgvector)
     llm/             # LLM router, usage tracker, provider schema
     memory/          # Memory entry schema
+    auth/            # Authorization layer (PolicyEngine, CapabilityToken, SafeExecutor, AuditLog)
     skills/          # Core skill modules, SkillAPI, DynamicSkill schema, CircuitBreaker
     workflows/       # Executor, scheduler sync, SkillRegistry (GenServer+ETS), step/run schemas
     dispatcher.ex    # Deterministic message routing

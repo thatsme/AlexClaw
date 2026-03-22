@@ -60,6 +60,53 @@ defmodule AlexClawWeb.AdminLive.Policies do
     end
   end
 
+  def handle_event("edit_policy", %{"id" => id}, socket) do
+    policy = Repo.get!(Policy, id)
+
+    form_data = %{
+      "id" => to_string(policy.id),
+      "name" => policy.name,
+      "description" => policy.description || "",
+      "rule_type" => policy.rule_type,
+      "config_json" => Jason.encode!(policy.config),
+      "priority" => to_string(policy.priority),
+      "enabled" => to_string(policy.enabled)
+    }
+
+    {:noreply, assign(socket, editing: policy.id, form: to_form(form_data, as: :policy))}
+  end
+
+  def handle_event("cancel_edit", _, socket) do
+    {:noreply, assign(socket, editing: nil, form: to_form(%{}, as: :policy))}
+  end
+
+  def handle_event("update_policy", %{"policy" => params}, socket) do
+    policy = Repo.get!(Policy, params["id"])
+    config = parse_config(params["config_json"] || "{}")
+
+    attrs = %{
+      name: params["name"],
+      description: params["description"],
+      rule_type: params["rule_type"],
+      config: config,
+      priority: parse_int(params["priority"], 0),
+      enabled: params["enabled"] == "true"
+    }
+
+    case policy |> Policy.changeset(attrs) |> Repo.update() do
+      {:ok, _} ->
+        PolicyEngine.reload_policies()
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Policy updated")
+         |> assign(editing: nil, policies: list_policies(), form: to_form(%{}, as: :policy))}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Invalid policy")}
+    end
+  end
+
   def handle_event("toggle_policy", %{"id" => id}, socket) do
     policy = Repo.get!(Policy, id)
     {:ok, _} = policy |> Policy.changeset(%{enabled: !policy.enabled}) |> Repo.update()

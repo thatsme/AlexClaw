@@ -53,6 +53,7 @@ defmodule AlexClawWeb.Router do
     live("/config", AdminLive.Config)
     live("/memory", AdminLive.Memory)
     live("/logs", AdminLive.Logs)
+    live("/policies", AdminLive.Policies)
 
     get("/database/download", DatabaseController, :download)
     get("/metrics", MetricsController, :index)

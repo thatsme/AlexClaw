@@ -145,6 +145,85 @@ Only load skills from sources you trust.
 
 ---
 
+## Agent Authorization Layer
+
+AlexClaw implements a composable authorization layer for skill execution,
+inspired by Macaroon-style capability tokens and policy-as-code evaluation.
+
+**Context-aware permission checks:**
+Every `SkillAPI` call builds an `AuthContext` (caller, type, permission,
+chain depth, workflow run ID, timestamp) and evaluates it through the
+`PolicyEngine`. Core skills bypass all checks (trusted code). Dynamic
+skills are checked against their declared permissions, capability tokens,
+and active policy rules.
+
+**Capability tokens (Macaroon-style):**
+When a workflow executes, each step receives an HMAC-signed capability
+token scoped to the skill's declared permissions. Cross-skill invocation
+via `run_skill/3` attenuates the token — a child skill can only receive
+a subset of the caller's permissions, never more. Tokens are signed
+with a key derived from `SECRET_KEY_BASE` via HKDF-SHA256.
+
+**Chain depth enforcement:**
+Skill-invokes-skill chains are limited to depth 3 (configurable).
+Prevents infinite recursion and limits blast radius of cross-skill calls.
+
+**Process isolation for dynamic skills:**
+Dynamic skills run in a separate spawned process (`SafeExecutor`).
+The capability token is set in the child's process dictionary, isolating
+it from the caller. Core skills run in-process (no overhead).
+
+**Policy rules (configurable via Admin > Policies):**
+
+All policy configs are JSON objects. The `permission` field is optional —
+omit it to apply the rule to all permissions. Higher `priority` rules
+are evaluated first.
+
+**`rate_limit`** — max N calls per time window per skill/permission.
+```json
+{"permission": "llm", "max_calls": 20, "window_seconds": 60}
+```
+Blocks the skill after 20 LLM calls within 60 seconds. Omit `permission`
+to limit all SkillAPI calls globally. Counters are per-skill, in-memory
+(reset on restart).
+
+**`time_window`** — deny a permission during specific UTC hours.
+```json
+{"permission": "web_read", "deny_start_hour": 0, "deny_end_hour": 6}
+```
+Blocks `web_read` between 00:00 and 06:00 UTC. Useful to prevent
+scheduled workflows from hitting external APIs during maintenance windows.
+
+**`chain_restriction`** — prevent a skill from invoking other skills.
+```json
+{"caller_pattern": "Coder"}
+```
+Any skill whose module name contains "Coder" will be denied when it
+tries to invoke another skill via `run_skill/3` (chain_depth > 0).
+The pattern is a substring match on the full module name.
+
+**`permission_override`** — temporarily deny (or allow) a specific permission.
+```json
+{"permission": "memory_write", "action": "deny", "expires_at": "2026-04-01T00:00:00Z"}
+```
+Denies `memory_write` for all dynamic skills until the expiry date.
+Omit `expires_at` for a permanent override. Set `action` to `"deny"`
+to block — any other value (or omitting it) has no effect.
+
+Policies are stored in PostgreSQL, cached in ETS (30s TTL), and
+manageable from Admin > Policies. Changes take effect within 30 seconds.
+
+**Audit logging:**
+All authorization denials are persisted to the `auth_audit_log` table
+with full context (caller, permission, reason, chain depth, workflow run).
+Viewable from Admin > Policies > Audit Log. Auto-pruned after 30 days.
+
+**Limitation:** A malicious dynamic skill can still bypass SkillAPI by
+calling internal modules directly. The authorization layer is enforcement
+at the API boundary, not a sandbox. Only load skills from trusted sources.
+
+---
+
 ## Known Limitations and Design Decisions
 
 **LLM prompts may contain user data.**

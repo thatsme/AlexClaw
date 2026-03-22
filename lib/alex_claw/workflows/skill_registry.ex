@@ -82,6 +82,15 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  @doc "Get the type (:core or :dynamic) for a module."
+  @spec get_type(module()) :: :core | :dynamic | nil
+  def get_type(module) do
+    case :ets.match(@ets_table, {:_, module, :"$1", :_, :_}) do
+      [[type]] -> type
+      _ -> nil
+    end
+  end
+
   @doc "Get routes for a skill by name."
   @spec get_routes(String.t()) :: [atom()]
   def get_routes(name) do

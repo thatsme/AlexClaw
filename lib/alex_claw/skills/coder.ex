@@ -36,6 +36,8 @@ defmodule AlexClaw.Skills.Coder do
     skill_invoke, gateway_send
   - Return ONLY the code wrapped in ```elixir ... ```, no explanation
   - Check the provided documentation for correct function signatures and return types
+  - Erlang modules in docs (e.g. erlang:foo(), os:bar()) are called in Elixir as :erlang.foo(), :os.bar()
+  - Only use modules and functions that exist in the provided documentation. Do NOT invent APIs
   """
 
   @impl true
@@ -166,21 +168,31 @@ defmodule AlexClaw.Skills.Coder do
   end
 
   defp gather_knowledge(goal) do
-    queries = [
-      {"AlexClaw Skill behaviour SkillAPI dynamic template", 5},
-      {goal, 5},
-      {"Elixir Erlang #{goal}", 3}
-    ]
+    # 1. Skill template/pattern (how to structure the skill)
+    template_chunks = search_kb("AlexClaw Skill behaviour SkillAPI dynamic template", 3)
 
-    queries
-    |> Enum.flat_map(fn {query, limit} ->
-      case SkillAPI.knowledge_search(__MODULE__, query, limit: limit) do
-        {:ok, entries} -> entries
-        _ -> []
-      end
-    end)
+    # 2. Goal-specific across all knowledge (general relevance)
+    goal_chunks = search_kb(goal, 3)
+
+    # 3. Targeted Erlang/OTP API docs (exact function signatures)
+    erlang_chunks = search_kb(goal, 3, kind: "erlang_docs")
+
+    # 4. Elixir stdlib patterns (idiomatic code examples)
+    elixir_chunks = search_kb(goal, 2, kind: "elixir_source")
+
+    # 5. Existing skill source (real working examples)
+    skill_chunks = search_kb(goal, 2, kind: "skill_source")
+
+    (template_chunks ++ erlang_chunks ++ elixir_chunks ++ goal_chunks ++ skill_chunks)
     |> Enum.uniq_by(& &1.id)
     |> Enum.map_join("\n---\n", & &1.content)
+  end
+
+  defp search_kb(query, limit, opts \\ []) do
+    case SkillAPI.knowledge_search(__MODULE__, query, Keyword.merge([limit: limit], opts)) do
+      {:ok, entries} -> entries
+      _ -> []
+    end
   end
 
   defp build_prompt(goal, skill_name, kb_context) do

@@ -16,54 +16,58 @@
   </div>
 
   <%= if @tab == :policies do %>
-    <!-- Create Policy Form -->
+    <!-- Create / Edit Policy Form -->
     <div class="bg-gray-900 rounded-lg border border-gray-800 p-4">
-      <h2 class="text-lg font-semibold text-white mb-4">New Policy</h2>
-      <.form for={@form} phx-submit="create_policy" class="space-y-3">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-white">{if @editing, do: "Edit Policy", else: "New Policy"}</h2>
+        <button :if={@editing} phx-click="cancel_edit" class="text-sm text-gray-400 hover:text-white">Cancel</button>
+      </div>
+      <.form for={@form} phx-submit={if @editing, do: "update_policy", else: "create_policy"} class="space-y-3">
+        <input :if={@editing} type="hidden" name="policy[id]" value={@form[:id].value} />
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-sm text-gray-400 mb-1">Name</label>
-            <input type="text" name="policy[name]" required
+            <input type="text" name="policy[name]" value={@form[:name].value} required
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Rule Type</label>
             <select name="policy[rule_type]" required
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
-              <option value="rate_limit">Rate Limit</option>
-              <option value="time_window">Time Window</option>
-              <option value="chain_restriction">Chain Restriction</option>
-              <option value="permission_override">Permission Override</option>
+              <option value="rate_limit" selected={@form[:rule_type].value == "rate_limit"}>Rate Limit</option>
+              <option value="time_window" selected={@form[:rule_type].value == "time_window"}>Time Window</option>
+              <option value="chain_restriction" selected={@form[:rule_type].value == "chain_restriction"}>Chain Restriction</option>
+              <option value="permission_override" selected={@form[:rule_type].value == "permission_override"}>Permission Override</option>
             </select>
           </div>
         </div>
         <div>
           <label class="block text-sm text-gray-400 mb-1">Description</label>
-          <input type="text" name="policy[description]"
+          <input type="text" name="policy[description]" value={@form[:description].value}
             class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-sm text-gray-400 mb-1">Config (JSON)</label>
             <textarea name="policy[config_json]" rows="3" placeholder='{"max_calls": 10, "window_seconds": 60}'
-              class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono"></textarea>
+              class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono">{@form[:config_json].value}</textarea>
           </div>
           <div class="space-y-3">
             <div>
               <label class="block text-sm text-gray-400 mb-1">Priority</label>
-              <input type="number" name="policy[priority]" value="0"
+              <input type="number" name="policy[priority]" value={@form[:priority].value || "0"}
                 class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
             </div>
             <div class="flex items-center gap-2">
               <input type="hidden" name="policy[enabled]" value="false" />
-              <input type="checkbox" name="policy[enabled]" value="true" checked
+              <input type="checkbox" name="policy[enabled]" value="true" checked={@form[:enabled].value == "true"}
                 class="rounded bg-gray-800 border-gray-600" />
               <label class="text-sm text-gray-400">Enabled</label>
             </div>
           </div>
         </div>
         <button type="submit" class="px-4 py-2 bg-claw-600 hover:bg-claw-500 text-white rounded text-sm font-medium transition-colors">
-          Create Policy
+          {if @editing, do: "Update Policy", else: "Create Policy"}
         </button>
       </.form>
     </div>
@@ -97,6 +101,10 @@
         </div>
         <div class="flex-shrink-0 text-xs text-gray-600">P{policy.priority}</div>
         <div class="flex-shrink-0 flex gap-2">
+          <button phx-click="edit_policy" phx-value-id={policy.id}
+            class="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:text-white transition-colors">
+            Edit
+          </button>
           <button phx-click="toggle_policy" phx-value-id={policy.id}
             class="px-2 py-1 rounded text-xs bg-gray-800 text-gray-400 hover:text-white transition-colors">
             {if policy.enabled, do: "Disable", else: "Enable"}

@@ -219,7 +219,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 
 ---
 
-## Telegram Commands
+## Telegram/Discord Commands
 
 | Command | Description |
 |---|---|

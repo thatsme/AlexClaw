@@ -26,7 +26,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
        provider_choices: AlexClaw.LLM.list_provider_choices(),
        custom_schedule: false,
        adding_step: nil,
-       adding_step_config: nil
+       adding_step_config: nil,
+       cluster_nodes: cluster_node_names()
      )}
   end
 
@@ -84,6 +85,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       schedule: blank_to_nil(schedule),
       enabled: params["enabled"] == "true",
       default_provider: blank_to_nil(params["default_provider"]),
+      node: blank_to_nil(params["node"]),
       metadata: metadata
     }
 
@@ -550,6 +552,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
   end
 
+  defp workflow_uses_resources?(workflow) do
+    Enum.any?(workflow.steps, fn step -> skill_uses_resources?(step.skill) end)
+  end
+
+  defp skill_uses_resources?("rss_collector"), do: true
+  defp skill_uses_resources?("web_automation"), do: true
+  defp skill_uses_resources?(_), do: false
+
   defp skill_uses_llm?("telegram_notify"), do: false
   defp skill_uses_llm?("discord_notify"), do: false
   defp skill_uses_llm?("api_request"), do: false
@@ -560,6 +570,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_uses_llm?("web_automation"), do: false
   defp skill_uses_llm?("shell"), do: false
   defp skill_uses_llm?("coder"), do: false
+  defp skill_uses_llm?("send_to_workflow"), do: false
+  defp skill_uses_llm?("receive_from_workflow"), do: false
   defp skill_uses_llm?(_), do: true
 
   defp skill_config_hint("api_request"), do: ~s|{"method": "GET", "url": "https://...", "headers": {}, "body": ""}|
@@ -577,6 +589,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_config_hint("coder"), do: ~s|{"goal": "describe what the skill should do", "create_workflow": false, "max_retries": 3}|
   defp skill_config_hint("research"), do: ~s|{"query": "research topic"}|
   defp skill_config_hint("conversational"), do: ~s|{"message": "text to send"}|
+  defp skill_config_hint("send_to_workflow"), do: ~s|{"target_node": "node_name@host", "target_workflow": "workflow name", "timeout": 5000}|
+  defp skill_config_hint("receive_from_workflow"), do: ~s|{"allowed_nodes": []} — leave empty to accept from any registered node|
   defp skill_config_hint(_), do: ""
 
   defp skill_config_scaffold(skill) do
@@ -596,6 +610,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "coder" -> %{"goal" => "", "create_workflow" => false, "max_retries" => 3}
       "research" -> %{"query" => ""}
       "conversational" -> %{"message" => ""}
+      "send_to_workflow" -> %{"target_node" => "", "target_workflow" => "", "timeout" => 5000}
+      "receive_from_workflow" -> %{"allowed_nodes" => []}
       _ -> %{}
     end
     |> Jason.encode!(pretty: true)
@@ -674,10 +690,25 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "shell" -> "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked. Timeout and output length are configurable in Admin > Config."
       "research" -> "query: the research topic. Leave empty to use {input} from the previous step."
       "conversational" -> "message: text to send to the LLM. Leave empty to use {input} from the previous step."
+      "send_to_workflow" -> "target_node: BEAM node name (e.g. node_work@192.168.1.20). target_workflow: name of the workflow on the remote node. timeout: RPC timeout in ms (default 5000)."
+      "receive_from_workflow" -> "Gate skill — must be step 1. allowed_nodes: optional list of node names that can trigger this workflow. Leave empty to accept from any registered cluster node."
       _ -> "Skill-specific parameters as JSON. Click Scaffold to see available options."
     end
 
     %{prompt: prompt, config: config}
+  end
+
+  defp workflow_cluster_role(workflow_id) do
+    steps = load_steps(workflow_id)
+    skills = Enum.map(steps, & &1.skill)
+    first_skill = List.first(steps) && List.first(steps).skill
+
+    cond do
+      first_skill == "receive_from_workflow" and "send_to_workflow" in skills -> :bridge
+      first_skill == "receive_from_workflow" -> :receiver
+      "send_to_workflow" in skills -> :sender
+      true -> :local
+    end
   end
 
   defp load_steps(workflow_id) do
@@ -700,5 +731,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp unassigned_resources(all_resources, workflow_resources) do
     assigned_ids = MapSet.new(workflow_resources, & &1.resource_id)
     Enum.reject(all_resources, &MapSet.member?(assigned_ids, &1.id))
+  end
+
+  defp cluster_node_names do
+    [to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)]
+    |> Enum.uniq()
   end
 end

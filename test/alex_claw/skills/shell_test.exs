@@ -3,6 +3,12 @@ defmodule AlexClaw.Skills.ShellTest do
 
   alias AlexClaw.Skills.Shell
 
+  setup do
+    # Shell skill requires shell.enabled = true in config
+    insert_setting("shell.enabled", "true", type: "boolean", category: "shell")
+    :ok
+  end
+
   describe "whitelist validation" do
     test "allowed command passes" do
       assert {:ok, _result, _branch} = Shell.run(%{input: "df -h"})

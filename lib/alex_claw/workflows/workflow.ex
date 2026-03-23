@@ -11,6 +11,7 @@ defmodule AlexClaw.Workflows.Workflow do
     field :schedule, :string
     field :metadata, :map, default: %{}
     field :default_provider, :string
+    field :node, :string
 
     has_many :steps, AlexClaw.Workflows.WorkflowStep, preload_order: [asc: :position]
     has_many :workflow_resources, AlexClaw.Workflows.WorkflowResource
@@ -22,7 +23,7 @@ defmodule AlexClaw.Workflows.Workflow do
 
   def changeset(workflow, attrs) do
     workflow
-    |> cast(attrs, [:name, :description, :enabled, :schedule, :metadata, :default_provider])
+    |> cast(attrs, [:name, :description, :enabled, :schedule, :metadata, :default_provider, :node])
     |> validate_required([:name])
     |> unique_constraint(:name)
   end

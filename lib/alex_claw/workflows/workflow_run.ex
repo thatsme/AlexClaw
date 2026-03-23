@@ -13,13 +13,14 @@ defmodule AlexClaw.Workflows.WorkflowRun do
     field :result, :map, default: %{}
     field :error, :string
     field :step_results, :map, default: %{}
+    field :node, :string
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(run, attrs) do
     run
-    |> cast(attrs, [:workflow_id, :status, :started_at, :completed_at, :result, :error, :step_results])
+    |> cast(attrs, [:workflow_id, :status, :started_at, :completed_at, :result, :error, :step_results, :node])
     |> validate_required([:status, :started_at])
     |> validate_inclusion(:status, ~w(running completed failed cancelled))
     |> foreign_key_constraint(:workflow_id)

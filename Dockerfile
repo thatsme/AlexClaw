@@ -51,6 +51,9 @@ RUN apk add --no-cache libstdc++ openssl ncurses-libs postgresql-client git
 WORKDIR /app
 
 COPY --from=build /app/_build/prod/rel/alex_claw ./
+
+# EPMD is needed for BEAM long-name distribution (clustering)
+COPY --from=build /usr/local/lib/erlang/erts-*/bin/epmd /usr/local/bin/epmd
 COPY entrypoint.sh ./
 RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
 

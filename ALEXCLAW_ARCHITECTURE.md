@@ -31,6 +31,7 @@ AlexClaw.Application (one_for_one)
   ├── Registry (CircuitBreakerRegistry)  # Process registry for per-skill circuit breakers
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor — per-skill circuit breakers
   ├── AlexClaw.SkillSupervisor        # DynamicSupervisor — spawns skill worker processes
+  ├── AlexClaw.Cluster.Manager       # Node registration, discovery, remote workflow triggers
   ├── AlexClaw.Scheduler              # Quantum cron scheduler
   ├── AlexClaw.Workflows.SchedulerSync # Syncs DB workflow schedules into Quantum jobs
   ├── AlexClaw.Gateway.Telegram       # Telegram long-polling bot
@@ -283,6 +284,29 @@ The circuit breaker wraps skill execution transparently in `Executor.execute_ste
 
 When a workflow contains a `telegram_notify` step, the executor sends a start notification when the workflow begins and a failure notification if any step fails before reaching the notify step.
 
+### Multi-Node Distribution — `AlexClaw.Cluster.Manager`
+
+AlexClaw supports multi-node BEAM clustering. Each node runs its own sequential executor — no parallel step changes. Nodes exchange workflow outputs over Erlang distribution.
+
+**ClusterManager** is a GenServer that:
+- Auto-registers itself and connecting nodes via `:net_kernel.monitor_nodes/1`
+- Pings known nodes from the DB 5 seconds after boot
+- Updates node status on `:nodeup`/`:nodedown` events
+- Handles incoming remote workflow triggers via `receive_workflow_data/3` (called by `:rpc.call` from remote nodes)
+- Validates the target workflow has `receive_from_workflow` as step 1 before allowing execution
+
+**Cross-node workflow flow:**
+1. Node A runs a workflow with a `send_to_workflow` step
+2. `send_to_workflow` calls `:rpc.call(node_b, ClusterManager, :receive_workflow_data, ...)` with a 5s default timeout
+3. Node B's ClusterManager validates the gate, spawns the target workflow via `Task.Supervisor`
+4. The target workflow's `receive_from_workflow` step receives the data as input with `_source_node` in config
+
+**Node assignment:** Workflows have an optional `node` field. If set, only that node's scheduler picks it up. If null, it's cluster-wide (any node can run it). The admin UI shows a "Run on" dropdown populated from connected cluster nodes.
+
+**Gateway behavior in cluster:** Single-node mode ignores `telegram.node` and `discord.node` — gateways always start. In a cluster (connected peers detected), gateways only start on the assigned node. Setting `telegram.enabled = true` from a node's Config UI auto-assigns `telegram.node` to that node. Cross-node config changes propagate via PubSub over BEAM distribution.
+
+**Configuration:** `NODE_NAME` (default: `alexclaw@node1.local`) and `CLUSTER_COOKIE` env vars. Long names (containing `.`) use EPMD for distribution. The naming convention is `alexclaw@nodeN.local` — same format for single-node and swarm.
+
 ---
 
 ## Skills
@@ -306,6 +330,8 @@ Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, 
 | `shell` | `Shell` | — | Execute whitelisted OS commands for container introspection |
 | `coder` | `Coder` | local | Autonomous skill generation from natural language goals |
 | `web_automation` | `WebAutomation` | — | Browser recording and headless replay via sidecar |
+| `send_to_workflow` | `SendToWorkflow` | — | Send data to a workflow on another BEAM node via RPC |
+| `receive_from_workflow` | `ReceiveFromWorkflow` | — | Gate: accepts remote triggers when placed as step 1 |
 
 ### Skill API — `AlexClaw.Skills.SkillAPI`
 

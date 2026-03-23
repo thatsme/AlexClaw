@@ -28,6 +28,13 @@
         <input type="text" name="description"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
       </div>
+      <div :if={length(@cluster_nodes) > 1}>
+        <label class="block text-sm text-gray-400 mb-1">Run on <.tip text="Which node runs this workflow's schedule. Cluster-wide means any node can run it." /></label>
+        <select name="node" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+          <option value="">Cluster-wide</option>
+          <option :for={n <- @cluster_nodes} value={n}>{n}</option>
+        </select>
+      </div>
       <input type="hidden" name="enabled" value="true" />
       <div class="flex items-center gap-4">
         <label class="flex items-center gap-2 text-sm text-gray-400">
@@ -41,7 +48,7 @@
     </form>
   </div>
 
-  <div :if={@editing} class="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-6">
+  <div :if={@editing} class="bg-gray-900 rounded-lg p-6 space-y-6" style="border: 3px solid rgba(14, 165, 233, 0.5);">
     <div class="flex justify-between items-center">
       <h2 class="text-lg font-semibold text-white">Editing: {@editing.name}</h2>
       <button phx-click="toggle_form" class="text-sm text-gray-400 hover:text-white">Close</button>
@@ -84,6 +91,13 @@
           <option :for={pc <- @provider_choices} value={pc.value} selected={(@editing.default_provider || "auto") == pc.value}>
             {pc.label}
           </option>
+        </select>
+      </div>
+      <div :if={length(@cluster_nodes) > 1}>
+        <label class="block text-sm text-gray-400 mb-1">Run on <.tip text="Which node runs this workflow's schedule. Cluster-wide means any node can run it." /></label>
+        <select name="node" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+          <option value="" selected={is_nil(@editing.node) or @editing.node == ""}>Cluster-wide</option>
+          <option :for={n <- @cluster_nodes} value={n} selected={@editing.node == n}>{n}</option>
         </select>
       </div>
       <div class="flex items-center gap-4">
@@ -379,7 +393,7 @@
       </div>
     </div>
 
-    <div>
+    <div :if={workflow_uses_resources?(@editing)}>
       <h3 class="text-md font-semibold text-white mb-3">Assigned Resources</h3>
       <div class="space-y-1 mb-3">
         <div :for={wr <- @editing.workflow_resources} class="bg-gray-800 rounded p-2 flex items-center justify-between">
@@ -425,8 +439,16 @@
         </tr>
         <tr :for={wf <- @workflows} class="border-t border-gray-800">
           <td class="px-4 py-3">
-            <div class="text-sm font-semibold text-white truncate">{wf.name}</div>
-            <div :if={wf.description} class="text-xs text-gray-500 break-words">{wf.description}</div>
+            <div class="text-sm font-semibold text-white truncate">
+              {wf.name}
+              <span :if={workflow_cluster_role(wf.id) == :receiver} class="ml-1 text-xs px-1.5 py-0.5 rounded bg-purple-900/50 text-purple-300" title="Receives data from remote nodes">recv</span>
+              <span :if={workflow_cluster_role(wf.id) == :sender} class="ml-1 text-xs px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-300" title="Sends data to remote nodes">send</span>
+              <span :if={workflow_cluster_role(wf.id) == :bridge} class="ml-1 text-xs px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-300" title="Receives and sends data across nodes">bridge</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <span :if={wf.description} class="text-xs text-gray-500 break-words">{wf.description}</span>
+              <span :if={wf.node && wf.node != ""} class="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono" title={"Pinned to #{wf.node}"}>{wf.node}</span>
+            </div>
           </td>
           <td class="px-4 py-3 text-sm text-gray-400">
             <span>{schedule_label(wf.schedule)}</span>

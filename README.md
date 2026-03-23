@@ -26,6 +26,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **Persistent Memory with Semantic Search** — PostgreSQL + pgvector for knowledge storage. Deduplication by URL. Hybrid search combines vector cosine similarity and keyword matching — vector results are prioritized, keyword results fill gaps for exact matches. Embeddings are generated asynchronously via the LLM router (Gemini `gemini-embedding-001`, Ollama `nomic-embed-text`, or any OpenAI-compatible endpoint). 768-dimension vectors with HNSW index. All skills that store knowledge auto-embed in the background.
 - **Knowledge Base RAG** — Separate `knowledge_entries` table for documentation and reference material, isolated from news/conversation memory. Scraper skills fetch, chunk, and embed documentation from hexdocs.pm, Erlang/OTP source (GitHub), Elixir stdlib source, Learn You Some Erlang, and existing skill code. Chat integrates both Knowledge and Memory search with a context source selector. ~7200 embeddings across 6 knowledge kinds.
 - **Cron Scheduler** — Quantum-based. Jobs defined in config or DB.
+- **Multi-Node BEAM Clustering** — Multiple AlexClaw instances connected via Erlang distribution. Each node runs its own executor independently; nodes exchange workflow outputs via `send_to_workflow` and `receive_from_workflow` skills. Auto-discovery, node status monitoring, and per-workflow node assignment from the admin UI. `docker-compose_swarm.yml` included for local multi-node testing.
 
 ### Skills
 
@@ -48,6 +49,8 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `shell` | Execute whitelisted OS commands for container introspection (2FA-gated) |
 | `web_automation` | Browser automation via headless Playwright sidecar (**experimental**) |
 | `coder` | Generate dynamic skills from natural language via local LLM |
+| `send_to_workflow` | Send data to a workflow on another BEAM node |
+| `receive_from_workflow` | Gate: accepts remote triggers when placed as step 1 |
 | `hexdocs_scraper` | Scrape hexdocs.pm docs into knowledge base embeddings (dynamic) |
 | `erlang_docs_scraper` | Fetch Erlang/OTP docs from GitHub into knowledge base (dynamic) |
 | `lyse_scraper` | Scrape Learn You Some Erlang chapters into knowledge base (dynamic) |

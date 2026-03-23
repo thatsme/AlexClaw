@@ -8,12 +8,16 @@ defmodule AlexClaw.Config.Seeder do
   # {key, value_or_fn, type, category, description, sensitive}
   @defaults [
     # Telegram
+    {"telegram.enabled", "true", "boolean", "telegram",
+     "Enable Telegram gateway polling", false},
     {"telegram.bot_token", &__MODULE__.env/1, "string", "telegram", "Telegram Bot API token",
      true},
     {"telegram.chat_id", &__MODULE__.env/1, "string", "telegram",
      "Telegram chat ID for notifications", false},
     {"telegram.poll_interval", "1000", "integer", "telegram", "Telegram polling interval in ms",
      false},
+    {"telegram.node", "", "string", "telegram",
+     "Cluster: only this node runs the Telegram bot. Empty = any node", false},
 
     # Discord — static defaults only, no env override (configured from Admin UI)
     {"discord.enabled", "false", "boolean", "discord",
@@ -24,6 +28,8 @@ defmodule AlexClaw.Config.Seeder do
      "Discord channel ID for commands (auto-detected on first message)", false},
     {"discord.guild_id", "", "string", "discord",
      "Discord server (guild) ID", false},
+    {"discord.node", "", "string", "discord",
+     "Cluster: only this node runs the Discord bot. Empty = cluster-wide (any node)", false},
 
     # LLM - API Keys
     {"llm.gemini_api_key", &__MODULE__.env/1, "string", "llm", "Google Gemini API key", true},
@@ -145,7 +151,11 @@ defmodule AlexClaw.Config.Seeder do
     # Prompts - Research
     {"prompts.research.system",
      "Provide a concise, technically precise summary. Include key facts and links if known.",
-     "string", "prompts", "System instruction appended to research queries", false}
+     "string", "prompts", "System instruction appended to research queries", false},
+
+    # Cluster
+    {"cluster.enabled", "false", "boolean", "cluster",
+     "Enable BEAM clustering for multi-node workflow distribution", false}
   ]
 
   @env_mapping %{

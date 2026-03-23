@@ -14,7 +14,7 @@ services:
       timeout: 3s
       retries: 5
 
-  alexclaw:
+  node1:
     build:
       context: .
       args:
@@ -25,60 +25,66 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${ADMIN_PORT:-5001}:5001"
+      - "5001:5001"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      # Database
       DATABASE_USERNAME: ${DATABASE_USERNAME:-alexclaw}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_HOSTNAME: db
-
-      # Application
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-
-      # Telegram
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
-
-      # LLM providers (at least one required)
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-
-      # Local models (optional)
       OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-}
       LMSTUDIO_ENABLED: ${LMSTUDIO_ENABLED:-false}
       LMSTUDIO_HOST: ${LMSTUDIO_HOST:-http://host.docker.internal:1234}
       LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-}
-
-      # Web automator (optional)
-      WEB_AUTOMATOR_ENABLED: ${WEB_AUTOMATOR_ENABLED:-false}
-      WEB_AUTOMATOR_HOST: ${WEB_AUTOMATOR_HOST:-http://web-automator:6900}
-
-      # Clustering
-      NODE_NAME: ${NODE_NAME:-alexclaw@node1.local}
-      CLUSTER_COOKIE: ${CLUSTER_COOKIE:-alexclaw_default}
-
-      # Dynamic skills
+      NODE_NAME: alexclaw@node1.local
+      CLUSTER_COOKIE: alexclaw_swarm
       SKILLS_DIR: /app/skills
     volumes:
       - skills_data:/app/skills
 
-  web-automator:
-    build: ./web-automator
+  node2:
+    build:
+      context: .
+      args:
+        BUILD_NUMBER: ${BUILD_NUMBER:-0}
+    hostname: node2.local
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
-      - "6080:6080"
+      - "5002:5001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      DISPLAY: ":99"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6900/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-alexclaw}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_HOSTNAME: db
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+      LMSTUDIO_ENABLED: ${LMSTUDIO_ENABLED:-false}
+      LMSTUDIO_HOST: ${LMSTUDIO_HOST:-http://host.docker.internal:1234}
+      LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-}
+      NODE_NAME: alexclaw@node2.local
+      CLUSTER_COOKIE: alexclaw_swarm
+      SKILLS_DIR: /app/skills
+    volumes:
+      - skills_data:/app/skills
 
 volumes:
   pgdata:

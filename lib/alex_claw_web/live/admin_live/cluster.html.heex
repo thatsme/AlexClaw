@@ -1,0 +1,75 @@
+<div class="space-y-8">
+  <div class="flex justify-between items-center">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Cluster</h1>
+      <p class="text-sm text-gray-400 mt-1">This node: <span class="text-claw-500 font-mono">{@self_node}</span></p>
+    </div>
+    <div class="flex space-x-2">
+      <button phx-click="refresh" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition">
+        Refresh
+      </button>
+      <button phx-click="toggle_form" class="px-4 py-2 bg-claw-700 hover:bg-claw-600 text-white text-sm rounded transition">
+        {if @show_form, do: "Cancel", else: "Add Node"}
+      </button>
+    </div>
+  </div>
+
+  <div :if={@show_form} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
+    <h2 class="text-lg font-semibold text-white mb-4">Register Node</h2>
+    <form phx-submit="add_node" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Node Name</label>
+        <input type="text" name="name" required placeholder="node_home@192.168.1.10"
+          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Label</label>
+        <input type="text" name="label" placeholder="Home Server"
+          class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
+      </div>
+      <div class="md:col-span-2">
+        <button type="submit" class="px-4 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded transition">Register</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+    <table class="w-full table-fixed">
+      <thead class="bg-gray-800">
+        <tr>
+          <th class="w-2/5 px-4 py-3 text-left text-xs text-gray-400 uppercase">Node</th>
+          <th class="w-1/5 px-4 py-3 text-left text-xs text-gray-400 uppercase">Label</th>
+          <th class="w-20 px-4 py-3 text-left text-xs text-gray-400 uppercase">Status</th>
+          <th class="w-1/5 px-4 py-3 text-left text-xs text-gray-400 uppercase">Last Seen</th>
+          <th class="px-4 py-3 text-right text-xs text-gray-400 uppercase">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr :if={@nodes == []} class="border-t border-gray-800">
+          <td colspan="5" class="px-4 py-8 text-center text-gray-500">No cluster nodes registered</td>
+        </tr>
+        <tr :for={node <- @nodes} class="border-t border-gray-800">
+          <td class="px-4 py-3">
+            <span class="text-sm font-mono text-white">{node.name}</span>
+          </td>
+          <td class="px-4 py-3 text-sm text-gray-400">{node.label || "—"}</td>
+          <td class="px-4 py-3">
+            <span :if={node.status == "connected"} class="text-xs px-2 py-1 rounded bg-green-900 text-green-300">connected</span>
+            <span :if={node.status == "disconnected"} class="text-xs px-2 py-1 rounded bg-red-900 text-red-300">disconnected</span>
+            <span :if={node.status == "unknown"} class="text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">unknown</span>
+          </td>
+          <td class="px-4 py-3 text-sm text-gray-500">
+            {if node.last_seen_at, do: Calendar.strftime(node.last_seen_at, "%Y-%m-%d %H:%M"), else: "never"}
+          </td>
+          <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+            <button phx-click="connect" phx-value-id={node.id}
+              class="text-xs text-claw-500 hover:text-claw-400">Ping</button>
+            <button phx-click="delete" phx-value-id={node.id}
+              data-confirm="Remove this node from the cluster?"
+              class="text-xs text-red-500 hover:text-red-400">Remove</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

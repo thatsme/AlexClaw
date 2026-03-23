@@ -18,14 +18,28 @@ defmodule AlexClaw.Workflows.Executor do
     workflow = Workflows.get_workflow!(workflow_id)
 
     if workflow.enabled do
-      execute(workflow)
+      execute(workflow, %{})
     else
       {:error, :workflow_disabled}
     end
   end
 
-  defp execute(workflow) do
-    {:ok, run} = Workflows.create_run(workflow)
+  @doc "Run a workflow with externally-provided initial input (used by cluster remote triggers)."
+  @spec run_with_input(integer(), any(), map()) ::
+          {:ok, AlexClaw.Workflows.WorkflowRun.t()} | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
+  def run_with_input(workflow_id, initial_input, extra_config \\ %{}) do
+    workflow = Workflows.get_workflow!(workflow_id)
+
+    if workflow.enabled do
+      execute(workflow, %{remote_input: initial_input, remote_extra_config: extra_config})
+    else
+      {:error, :workflow_disabled}
+    end
+  end
+
+  defp execute(workflow, remote_data) do
+    node_name = to_string(node())
+    {:ok, run} = Workflows.create_run(workflow, %{node: node_name})
     Process.put(:auth_workflow_run_id, run.id)
     steps = workflow.steps
     gateways = workflow_gateways(steps)
@@ -42,7 +56,9 @@ defmodule AlexClaw.Workflows.Executor do
       outputs: %{},
       step_results: %{},
       visited: MapSet.new(),
-      max_iterations: length(steps) * 2
+      max_iterations: length(steps) * 2,
+      remote_input: Map.get(remote_data, :remote_input),
+      remote_extra_config: Map.get(remote_data, :remote_extra_config, %{})
     }
 
     case walk(first_position(steps), steps, workflow, run, state) do
@@ -96,6 +112,16 @@ defmodule AlexClaw.Workflows.Executor do
       else
         state = %{state | visited: MapSet.put(state.visited, pos), max_iterations: state.max_iterations - 1}
         input = resolve_step_input(step, steps, state.outputs)
+
+        # Inject remote data for receive_from_workflow gate
+        {input, step} =
+          if step.skill == "receive_from_workflow" and state.remote_input != nil do
+            # Remote config goes first so step config takes precedence
+            merged_config = Map.merge(state.remote_extra_config, step.config || %{})
+            {state.remote_input, %{step | config: merged_config}}
+          else
+            {input, step}
+          end
 
         Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})", workflow: workflow.name)
 

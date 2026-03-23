@@ -13,7 +13,7 @@ defmodule AlexClaw.Dispatcher do
   end
 
   def dispatch(%Message{text: "/ping" <> _} = msg) do
-    Gateway.send_message("pong", chat_id: msg.chat_id, gateway: msg.gateway)
+    Gateway.send_message("pong from `#{node()}`", chat_id: msg.chat_id, gateway: msg.gateway)
   end
 
   def dispatch(%Message{text: "/status" <> _} = msg) do

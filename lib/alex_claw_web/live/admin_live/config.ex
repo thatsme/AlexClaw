@@ -16,7 +16,8 @@ defmodule AlexClawWeb.AdminLive.Config do
        grouped: group_by_category(settings),
        collapsed: group_by_category(settings) |> Enum.map(&elem(&1, 0)) |> MapSet.new(),
        show_form: false,
-       editing: nil
+       editing: nil,
+       cluster_nodes: cluster_node_names()
      )}
   end
 
@@ -50,10 +51,15 @@ defmodule AlexClawWeb.AdminLive.Config do
         sensitive: sensitive_key?(key)
       )
 
+      # When enabling a gateway, auto-assign it to the current node
+      auto_assign_gateway_node(key, value)
+
+      settings = AlexClaw.Config.list()
+
       {:noreply,
        socket
        |> put_flash(:info, "Setting '#{key}' saved")
-       |> assign(settings: AlexClaw.Config.list(), grouped: group_by_category(AlexClaw.Config.list()), show_form: false, editing: nil)}
+       |> assign(settings: settings, grouped: group_by_category(settings), show_form: false, editing: nil)}
     end
   end
 
@@ -118,7 +124,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     end
   end
 
-  @category_order ~w(telegram discord llm embedding github google auth shell web_automator skills prompts identity display general)
+  @category_order ~w(telegram discord llm embedding github google auth shell web_automator skills cluster prompts identity display general)
   @category_labels %{
     "telegram" => "Telegram",
     "discord" => "Discord",
@@ -130,6 +136,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     "shell" => "Shell",
     "web_automator" => "Web Automator",
     "skills" => "Skills",
+    "cluster" => "Cluster",
     "prompts" => "Prompts",
     "identity" => "Identity",
     "display" => "Display",
@@ -155,5 +162,23 @@ defmodule AlexClawWeb.AdminLive.Config do
       {i, ""} -> {:ok, i}
       _ -> :error
     end
+  end
+
+  defp node_setting?(key), do: String.ends_with?(key, ".node")
+
+  defp auto_assign_gateway_node(key, value) when value in ["true", true] do
+    # telegram.enabled → telegram.node, discord.enabled → discord.node
+    if String.ends_with?(key, ".enabled") do
+      node_key = String.replace(key, ".enabled", ".node")
+      category = key |> String.split(".") |> hd()
+      AlexClaw.Config.set(node_key, to_string(node()), category: category)
+    end
+  end
+
+  defp auto_assign_gateway_node(_key, _value), do: :ok
+
+  defp cluster_node_names do
+    [to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)]
+    |> Enum.uniq()
   end
 end

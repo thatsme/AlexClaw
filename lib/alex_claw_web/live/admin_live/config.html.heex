@@ -100,14 +100,20 @@
                 </div>
                 <div>
                   <label class="block text-xs text-gray-500 mb-1">Value</label>
-                  <%= if sensitive_key?(setting.key) do %>
-                    <input type="password" name="value" placeholder={mask_value(setting.value)}
-                      class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono" />
-                    <p class="text-xs text-gray-600 mt-1">Leave empty to keep current value.</p>
-                    <input type="hidden" name="_clear" value="false" />
+                  <%= if node_setting?(setting.key) do %>
+                    <select name="value" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm">
+                      <option :for={n <- @cluster_nodes} value={n} selected={setting.value == n}>{n}</option>
+                    </select>
                   <% else %>
-                    <textarea name="value" rows="2"
-                      class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono">{setting.value}</textarea>
+                    <%= if sensitive_key?(setting.key) do %>
+                      <input type="password" name="value" placeholder={mask_value(setting.value)}
+                        class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono" />
+                      <p class="text-xs text-gray-600 mt-1">Leave empty to keep current value.</p>
+                      <input type="hidden" name="_clear" value="false" />
+                    <% else %>
+                      <textarea name="value" rows="2"
+                        class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono">{setting.value}</textarea>
+                    <% end %>
                   <% end %>
                 </div>
                 <div class="flex items-center gap-2">

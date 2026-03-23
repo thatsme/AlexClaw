@@ -18,6 +18,7 @@ defmodule AlexClaw.Application do
       {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,
+      AlexClaw.Cluster.Manager,
       AlexClaw.Scheduler,
       AlexClaw.Workflows.SchedulerSync,
       AlexClaw.Gateway.Telegram,

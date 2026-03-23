@@ -51,6 +51,10 @@ ANTHROPIC_API_KEY=
 # GOOGLE_OAUTH_CLIENT_SECRET=
 # GOOGLE_OAUTH_REFRESH_TOKEN=
 
+# === Clustering (optional — multi-node) ===
+# NODE_NAME=alexclaw@node1.local
+# CLUSTER_COOKIE=generate_a_random_secret
+
 # === Advanced ===
 # ADMIN_PORT=5001
 ```
@@ -491,6 +495,68 @@ Or if you don't have `make`:
 docker compose exec alexclaw bin/alex_claw rpc \
   'Path.wildcard("lib/alex_claw-*/priv/repo/seeds/example_workflows.exs") |> hd() |> Code.eval_file()'
 ```
+
+---
+
+## Clustering (Optional — Multi-Node)
+
+AlexClaw supports running multiple instances connected via BEAM distribution. Each node runs independently with its own gateway connections and scheduler, sharing a single PostgreSQL database.
+
+There are two Docker Compose files:
+
+| File | Purpose |
+|---|---|
+| `docker-compose.yml` | **Single node** (default). One AlexClaw instance + DB + web-automator |
+| `docker-compose_swarm.yml` | **Multi-node**. Two AlexClaw nodes + shared DB. Each node has its own port and node name |
+
+### Single Node (default)
+
+No extra config needed. Just `docker compose up -d` as described in Setup.
+
+The default node name is `alexclaw@node1.local`. Override via `NODE_NAME` in `.env` if needed. Single-node mode ignores gateway node assignments — Telegram and Discord always start.
+
+### Multi-Node (same machine)
+
+```bash
+docker compose -f docker-compose_swarm.yml up --build -d
+```
+
+This starts two nodes:
+- **node1** — `alexclaw@node1.local` on `localhost:5001`
+- **node2** — `alexclaw@node2.local` on `localhost:5002`
+
+Both share the same database and auto-discover each other on boot. The Cluster admin page (Admin > Cluster) shows connected nodes.
+
+To add more nodes, duplicate a node block in `docker-compose_swarm.yml` with a new hostname and port.
+
+### Cross-Node Workflows
+
+1. Create a workflow with `receive_from_workflow` as step 1 — this is the receiver
+2. Create a workflow with `send_to_workflow` as a step — configure `target_node` and `target_workflow`
+3. Run the sender workflow — data flows from one node to the other over BEAM distribution
+
+### Node Assignment
+
+Both workflows and gateways support node assignment — cluster-wide or pinned to a specific node. The database is always the source of truth.
+
+**Workflows:** each workflow has a "Run on" dropdown (visible when clustering is active):
+- **Cluster-wide** (default) — any node can run the scheduled workflow
+- **Specific node** — only that node's scheduler picks it up
+
+**Gateways (Telegram, Discord):** in Admin > Config, set `telegram.node` or `discord.node` to a node name. Only that node will connect the bot. Leave empty for cluster-wide (single-node default). This prevents multiple nodes from polling the same bot token — which causes API conflicts.
+
+### Environment Variables
+
+| Variable | Description | Example |
+|---|---|---|
+| `NODE_NAME` | BEAM node name. Use `.` for long names (recommended) | `alexclaw@node1.local` |
+| `CLUSTER_COOKIE` | Shared secret for inter-node authentication | `your_random_secret` |
+
+### Security
+
+- `CLUSTER_COOKIE` is the authentication mechanism between nodes — treat it like `SECRET_KEY_BASE`
+- EPMD (port 4369) must be reachable between nodes but should NOT be exposed publicly
+- Use firewall rules or private networks to restrict inter-node traffic
 
 ---
 

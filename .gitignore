@@ -32,8 +32,9 @@ alex_claw-*.tar
 /docs/*
 !/docs/screenshot/
 
-# Personal docker-compose variants
+# Personal docker-compose variants (except swarm which is part of clustering)
 docker-compose_*.yml
+!docker-compose_swarm.yml
 
 # Claude Code
 .claude/

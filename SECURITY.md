@@ -52,6 +52,23 @@ Set `github.webhook_secret` in Admin > Config (GitHub category).
 
 ---
 
+## Inter-Node Authentication (Clustering)
+
+Multi-node clusters authenticate via BEAM's distributed Erlang protocol:
+
+- All nodes must share the same `CLUSTER_COOKIE` (set via environment variable)
+- EPMD (Erlang Port Mapper Daemon) on port 4369 coordinates node discovery
+- Nodes without the correct cookie cannot join the cluster or trigger remote workflows
+- The `receive_from_workflow` gate skill provides an additional per-workflow access control layer via optional `allowed_nodes` config
+
+**Hardening recommendations:**
+- Generate `CLUSTER_COOKIE` with `openssl rand -base64 32` — treat it like `SECRET_KEY_BASE`
+- EPMD port (4369) and BEAM distribution ports (dynamic, high range) should NOT be exposed to the internet
+- Restrict inter-node traffic to private networks, VPCs, or Docker networks
+- When running across machines, use VPN or SSH tunnels between Docker hosts
+
+---
+
 ## Shell Skill (Container Introspection)
 
 The `/shell` command allows the owner to run OS commands inside the container

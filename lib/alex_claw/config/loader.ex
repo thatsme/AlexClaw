@@ -31,10 +31,27 @@ defmodule AlexClaw.Config.Loader do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       AlexClaw.Knowledge.SelfAwareness.load()
     end)
+    # 7. Subscribe to config changes for cross-node ETS sync
+    AlexClaw.Config.subscribe()
     {:ok, %{}}
   catch
     :error, %Postgrex.Error{} = e ->
       Logger.warning("Config seeder skipped (DB not ready): #{Exception.message(e)}")
       {:ok, %{}}
+  end
+
+  @impl true
+  def handle_info({:config_changed, _key, _value}, state) do
+    # Reload ETS from DB to pick up changes from other nodes.
+    # Only reload if in a cluster — local changes are already in ETS.
+    if Node.list() != [] do
+      try do
+        AlexClaw.Config.init()
+      rescue
+        _ -> :ok
+      end
+    end
+
+    {:noreply, state}
   end
 end

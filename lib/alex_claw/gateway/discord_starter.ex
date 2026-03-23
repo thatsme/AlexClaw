@@ -24,7 +24,20 @@ defmodule AlexClaw.Gateway.DiscordStarter do
     token = AlexClaw.Config.get("discord.bot_token")
     enabled = AlexClaw.Config.get("discord.enabled")
 
-    if (enabled == true or enabled == "true") and is_binary(token) and token != "" do
+    # Single node: always start. Cluster: check node assignment.
+    cluster_size = length(AlexClaw.Cluster.list_nodes())
+
+    on_this_node =
+      if cluster_size <= 1 do
+        true
+      else
+        case AlexClaw.Config.get("discord.node") do
+          val when val in [nil, ""] -> false
+          node_name -> to_string(node()) == node_name
+        end
+      end
+
+    if on_this_node and (enabled == true or enabled == "true") and is_binary(token) and token != "" do
       Application.put_env(:nostrum, :token, token)
       Application.put_env(:nostrum, :gateway_intents, [:guilds, :guild_messages, :message_content])
 

@@ -33,7 +33,8 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
       update_status: AlexClaw.UpdateChecker.status(),
       llm_usage: get_llm_usage(),
       google_status: AlexClaw.Google.TokenManager.status(),
-      recent_memories: AlexClaw.Memory.recent(limit: 20)
+      recent_memories: AlexClaw.Memory.recent(limit: 20),
+      cluster_warnings: cluster_warnings()
     )
   end
 
@@ -60,6 +61,33 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
   defp google_label(:expired), do: "Token expired"
   defp google_label(:not_configured), do: "Not configured"
   defp google_label(_), do: "Error"
+
+  defp cluster_warnings do
+    if Node.list() == [] do
+      []
+    else
+      warnings = []
+
+      warnings =
+        if AlexClaw.Config.get("telegram.node") in [nil, ""] and
+             AlexClaw.Config.get("telegram.enabled") in [true, "true"] and
+             AlexClaw.Config.get("telegram.bot_token") not in [nil, ""] do
+          ["Telegram gateway paused — assign a node in Config > Telegram > telegram.node" | warnings]
+        else
+          warnings
+        end
+
+      warnings =
+        if AlexClaw.Config.get("discord.node") in [nil, ""] and
+             AlexClaw.Config.get("discord.enabled") in [true, "true"] do
+          ["Discord gateway paused — assign a node in Config > Discord > discord.node" | warnings]
+        else
+          warnings
+        end
+
+      warnings
+    end
+  end
 
   defp stat_card(assigns) do
     ~H"""

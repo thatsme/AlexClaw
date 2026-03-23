@@ -30,4 +30,6 @@ if config_env() == :prod do
     ollama_enabled: System.get_env("OLLAMA_ENABLED") == "true",
     ollama_host: System.get_env("OLLAMA_HOST", "http://localhost:11434"),
     ollama_model: System.get_env("OLLAMA_MODEL", "llama3.2")
+
+  config :alex_claw, :node_name, System.get_env("NODE_NAME")
 end

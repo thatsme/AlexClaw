@@ -59,6 +59,10 @@ Execute OS commands inside the AlexClaw container via Telegram/Discord. 5-layer 
 
 Local LLM generates dynamic skills from natural language goals via `/coder <goal>`. SkillAPI extended with `:skill_write`, `:skill_manage`, `:workflow_manage` permissions. Retry loop with error feedback, knowledge base RAG context, optional workflow creation. Zero cloud API cost (always uses `tier: :local`). Generated code passes full validation pipeline (namespace, behaviour, permissions). See [SELF_AWARENESS.md](docs/SELF_AWARENESS.md).
 
+### ~~Multi-Node BEAM Clustering~~ ✅ Completed (v0.3.8)
+
+Multiple AlexClaw instances connected via Erlang distribution exchange workflow outputs over BEAM. Each node runs its own sequential executor — no parallel step changes. ClusterManager GenServer handles auto-registration on connect, node monitoring (`:nodeup`/`:nodedown`), and remote workflow triggers via `:rpc.call`. Two new core skills: `send_to_workflow` (sends data to a workflow on another node, 5s default timeout) and `receive_from_workflow` (gate skill — must be step 1 to accept remote triggers, optional `allowed_nodes` ACL). Cluster admin UI page with node status and ping. Workflow "Run on" dropdown for node assignment (cluster-wide or pinned). `docker-compose_swarm.yml` for multi-node testing with long-name distribution (`alexclaw@nodeN.local`). EPMD bundled in runtime image.
+
 ---
 
 ## Someday

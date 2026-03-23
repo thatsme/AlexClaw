@@ -226,8 +226,11 @@ defmodule AlexClaw.Workflows do
   @doc "List workflows that have a schedule defined and are enabled."
   @spec list_scheduled_workflows() :: [Workflow.t()]
   def list_scheduled_workflows do
+    node_name = to_string(node())
+
     Workflow
     |> where([w], w.enabled == true and not is_nil(w.schedule) and w.schedule != "")
+    |> where([w], is_nil(w.node) or w.node == "" or w.node == ^node_name)
     |> Repo.all()
   end
 end

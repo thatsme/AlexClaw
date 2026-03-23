@@ -19,8 +19,9 @@ defmodule AlexClaw.Gateway.Telegram do
 
   @impl AlexClaw.Gateway.Behaviour
   def configured? do
+    enabled = Config.get("telegram.enabled")
     token = Config.get("telegram.bot_token")
-    token != nil and token != ""
+    enabled in [true, "true"] and token != nil and token != ""
   end
 
   # --- Client API ---
@@ -76,12 +77,9 @@ defmodule AlexClaw.Gateway.Telegram do
   def init(_opts) do
     state = %{offset: 0}
 
-    token = get_token()
+    # Always schedule the poll loop — it checks config each cycle
     poll_interval = get_poll_interval()
-
-    if token && token != "" && poll_interval != :infinity do
-      schedule_poll(poll_interval)
-    end
+    if poll_interval != :infinity, do: schedule_poll(poll_interval)
 
     Logger.info("Telegram gateway started", [])
     {:ok, state}
@@ -136,7 +134,24 @@ defmodule AlexClaw.Gateway.Telegram do
   # --- Config readers (live from DB/ETS) ---
 
   defp get_token do
-    Config.get("telegram.bot_token")
+    enabled = Config.get("telegram.enabled")
+
+    cond do
+      enabled != true and enabled != "true" ->
+        nil
+
+      # Single node: always poll, ignore node assignment
+      Node.list() == [] ->
+        Config.get("telegram.bot_token")
+
+      # Cluster: must be assigned to this node
+      true ->
+        case Config.get("telegram.node") do
+          val when val in [nil, ""] -> nil
+          node_name when node_name == to_string(node()) -> Config.get("telegram.bot_token")
+          _other_node -> nil
+        end
+    end
   end
 
   defp get_chat_id do

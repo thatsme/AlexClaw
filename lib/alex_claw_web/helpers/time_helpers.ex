@@ -4,6 +4,7 @@ defmodule AlexClawWeb.TimeHelpers do
   alias AlexClaw.Config
 
   @doc "Format a UTC datetime to the configured timezone with date and time."
+  @spec format_datetime(DateTime.t() | NaiveDateTime.t() | nil) :: String.t()
   def format_datetime(nil), do: ""
 
   def format_datetime(%DateTime{} = dt) do

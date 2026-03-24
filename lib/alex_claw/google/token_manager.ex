@@ -22,6 +22,7 @@ defmodule AlexClaw.Google.TokenManager do
 
   # --- Client API ---
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end

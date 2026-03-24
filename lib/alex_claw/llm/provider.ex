@@ -4,6 +4,8 @@ defmodule AlexClaw.LLM.Provider do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @allowed_tiers ~w(light medium heavy local)
   @allowed_types ~w(openai_compatible ollama gemini anthropic custom)
 
@@ -22,6 +24,7 @@ defmodule AlexClaw.LLM.Provider do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(provider, attrs) do
     provider
     |> cast(attrs, [:name, :type, :tier, :host, :model, :api_key, :daily_limit, :headers, :enabled, :priority])

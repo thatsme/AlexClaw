@@ -4,6 +4,8 @@ defmodule AlexClaw.Workflows.WorkflowResource do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "workflow_resources" do
     belongs_to :workflow, AlexClaw.Workflows.Workflow
     belongs_to :resource, AlexClaw.Resources.Resource
@@ -13,6 +15,7 @@ defmodule AlexClaw.Workflows.WorkflowResource do
     timestamps(type: :utc_datetime, updated_at: false)
   end
 
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(wr, attrs) do
     wr
     |> cast(attrs, [:workflow_id, :resource_id, :role])

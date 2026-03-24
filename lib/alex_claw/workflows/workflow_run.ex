@@ -4,6 +4,8 @@ defmodule AlexClaw.Workflows.WorkflowRun do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "workflow_runs" do
     belongs_to :workflow, AlexClaw.Workflows.Workflow
 
@@ -18,6 +20,7 @@ defmodule AlexClaw.Workflows.WorkflowRun do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(run, attrs) do
     run
     |> cast(attrs, [:workflow_id, :status, :started_at, :completed_at, :result, :error, :step_results, :node])

@@ -3,6 +3,8 @@ defmodule AlexClaw.Skills.DynamicSkill do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "dynamic_skills" do
     field :name, :string
     field :module_name, :string
@@ -15,6 +17,7 @@ defmodule AlexClaw.Skills.DynamicSkill do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(skill, attrs) do
     skill
     |> cast(attrs, [:name, :module_name, :file_path, :permissions, :routes, :checksum, :enabled])

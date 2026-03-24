@@ -11,6 +11,8 @@ defmodule AlexClaw.Auth.Policy do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "auth_policies" do
     field :name, :string
     field :description, :string
@@ -25,6 +27,7 @@ defmodule AlexClaw.Auth.Policy do
   @valid_rule_types ~w(rate_limit time_window chain_restriction permission_override)
 
   @doc false
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(policy, attrs) do
     policy
     |> cast(attrs, [:name, :description, :rule_type, :config, :enabled, :priority])

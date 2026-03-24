@@ -3,6 +3,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
 
   alias AlexClaw.{Gateway, Message}
 
+  @spec dispatch(Message.t()) :: :ok | term()
   def dispatch(%Message{text: "/skill load " <> file_path} = msg) do
     case AlexClaw.Workflows.SkillRegistry.load_skill(String.trim(file_path)) do
       {:ok, %{name: name, permissions: perms}} ->

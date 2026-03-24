@@ -12,11 +12,16 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke skill_write skill_manage workflow_manage)a
 
+  @type permission_result :: :ok | {:error, :permission_denied}
+  @type skill_mod :: module()
+
+  @spec known_permissions() :: [atom()]
   def known_permissions, do: @known_permissions
 
   # --- LLM ---
 
   @doc "Complete a prompt via LLM. Opts: :tier, :provider, :system"
+  @spec llm_complete(skill_mod(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def llm_complete(skill_module, prompt, opts \\ []) do
     with :ok <- check_permission(skill_module, :llm) do
       AlexClaw.LLM.complete(prompt, opts)
@@ -24,6 +29,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Get the system prompt from Identity, with optional context."
+  @spec system_prompt(skill_mod(), map()) :: {:ok, String.t()} | {:error, :permission_denied}
   def system_prompt(skill_module, context \\ %{}) do
     with :ok <- check_permission(skill_module, :llm) do
       {:ok, AlexClaw.Identity.system_prompt(context)}
@@ -33,6 +39,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Gateway (transport-agnostic) ---
 
   @doc "Send a Markdown message via the gateway. Routes based on :gateway opt."
+  @spec send_message(skill_mod(), String.t(), keyword()) :: :ok | {:error, :permission_denied}
   def send_message(skill_module, message, opts \\ []) do
     with :ok <- check_gateway_permission(skill_module) do
       AlexClaw.Gateway.Router.send_message(message, opts)
@@ -41,6 +48,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Send an HTML message via the gateway."
+  @spec send_html(skill_mod(), String.t(), keyword()) :: :ok | {:error, :permission_denied}
   def send_html(skill_module, message, opts \\ []) do
     with :ok <- check_gateway_permission(skill_module) do
       AlexClaw.Gateway.Router.send_html(message, opts)
@@ -51,6 +59,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Telegram (backward compat aliases) ---
 
   @doc "Send a Markdown message to Telegram. Alias for send_message/3."
+  @spec send_telegram(skill_mod(), String.t(), keyword()) :: :ok | {:error, :permission_denied}
   def send_telegram(skill_module, message, opts \\ []) do
     with :ok <- check_gateway_permission(skill_module) do
       AlexClaw.Gateway.send_message(message, opts)
@@ -59,6 +68,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Send an HTML message to Telegram. Alias for send_html/3."
+  @spec send_telegram_html(skill_mod(), String.t(), keyword()) :: :ok | {:error, :permission_denied}
   def send_telegram_html(skill_module, message, opts \\ []) do
     with :ok <- check_gateway_permission(skill_module) do
       AlexClaw.Gateway.send_html(message, opts)
@@ -77,6 +87,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Memory ---
 
   @doc "Search memories by semantic similarity. Opts: :limit, :kind"
+  @spec memory_search(skill_mod(), String.t(), keyword()) :: {:ok, [map()]} | {:error, :permission_denied}
   def memory_search(skill_module, query, opts \\ []) do
     with :ok <- check_permission(skill_module, :memory_read) do
       {:ok, AlexClaw.Memory.search(query, opts)}
@@ -84,6 +95,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "List recent memories. Opts: :limit, :kind"
+  @spec memory_recent(skill_mod(), keyword()) :: {:ok, [map()]} | {:error, :permission_denied}
   def memory_recent(skill_module, opts \\ []) do
     with :ok <- check_permission(skill_module, :memory_read) do
       {:ok, AlexClaw.Memory.recent(opts)}
@@ -91,6 +103,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Check if content or source URL already exists in memory."
+  @spec memory_exists?(skill_mod(), String.t()) :: {:ok, boolean()} | {:error, :permission_denied}
   def memory_exists?(skill_module, content_or_source) do
     with :ok <- check_permission(skill_module, :memory_read) do
       {:ok, AlexClaw.Memory.exists?(content_or_source)}
@@ -98,6 +111,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Store a memory entry. Opts: :source, :metadata, :expires_at"
+  @spec memory_store(skill_mod(), atom() | String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def memory_store(skill_module, kind, content, opts \\ []) do
     with :ok <- check_permission(skill_module, :memory_write) do
       AlexClaw.Memory.store(kind, content, opts)
@@ -107,6 +121,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Knowledge ---
 
   @doc "Search knowledge base by semantic similarity. Opts: :limit, :kind"
+  @spec knowledge_search(skill_mod(), String.t(), keyword()) :: {:ok, [map()]} | {:error, :permission_denied}
   def knowledge_search(skill_module, query, opts \\ []) do
     with :ok <- check_permission(skill_module, :knowledge_read) do
       {:ok, AlexClaw.Knowledge.search(query, opts)}
@@ -114,6 +129,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Check if a source URL already exists in knowledge base."
+  @spec knowledge_exists?(skill_mod(), String.t()) :: {:ok, boolean()} | {:error, :permission_denied}
   def knowledge_exists?(skill_module, source_url) do
     with :ok <- check_permission(skill_module, :knowledge_read) do
       {:ok, AlexClaw.Knowledge.exists?(source_url)}
@@ -121,6 +137,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Store a knowledge entry. Opts: :source, :metadata, :expires_at"
+  @spec knowledge_store(skill_mod(), atom() | String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def knowledge_store(skill_module, kind, content, opts \\ []) do
     with :ok <- check_permission(skill_module, :knowledge_write) do
       AlexClaw.Knowledge.store(kind, content, opts)
@@ -130,6 +147,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- HTTP ---
 
   @doc "HTTP GET. All Req options are passed through (headers, receive_timeout, params, etc)."
+  @spec http_get(skill_mod(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
   def http_get(skill_module, url, opts \\ []) do
     with :ok <- check_permission(skill_module, :web_read) do
       Req.get(url, opts)
@@ -137,6 +155,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "HTTP POST. All Req options are passed through."
+  @spec http_post(skill_mod(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
   def http_post(skill_module, url, opts \\ []) do
     with :ok <- check_permission(skill_module, :web_read) do
       Req.post(url, opts)
@@ -144,6 +163,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "HTTP request with explicit method. All Req options are passed through."
+  @spec http_request(skill_mod(), atom(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
   def http_request(skill_module, method, url, opts \\ []) do
     with :ok <- check_permission(skill_module, :web_read) do
       Req.request([method: method, url: url] ++ opts)
@@ -153,6 +173,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Config ---
 
   @doc "Read a config value by key. Returns {:ok, value} or {:error, :permission_denied}."
+  @spec config_get(skill_mod(), String.t(), term()) :: {:ok, term()} | {:error, :permission_denied}
   def config_get(skill_module, key, default \\ nil) do
     with :ok <- check_permission(skill_module, :config_read) do
       {:ok, AlexClaw.Config.get(key, default)}
@@ -162,6 +183,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Resources ---
 
   @doc "List resources with optional filters. Filters: :type, :enabled, :tags"
+  @spec list_resources(skill_mod(), map()) :: {:ok, [map()]} | {:error, :permission_denied}
   def list_resources(skill_module, filters \\ %{}) do
     with :ok <- check_permission(skill_module, :resources_read) do
       {:ok, AlexClaw.Resources.list_resources(filters)}
@@ -169,6 +191,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Get a single resource by ID."
+  @spec get_resource(skill_mod(), integer()) :: {:ok, map()} | {:error, term()}
   def get_resource(skill_module, id) do
     with :ok <- check_permission(skill_module, :resources_read) do
       AlexClaw.Resources.get_resource(id)
@@ -178,6 +201,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Cross-skill invocation ---
 
   @doc "Invoke another skill by name. Returns the skill's run/1 result."
+  @spec run_skill(skill_mod(), String.t(), map()) :: {:ok, term()} | {:ok, term(), atom()} | {:error, term()}
   def run_skill(skill_module, skill_name, args) do
     with :ok <- check_permission(skill_module, :skill_invoke) do
       case AlexClaw.Workflows.SkillRegistry.resolve(skill_name) do
@@ -217,6 +241,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Skill File I/O ---
 
   @doc "Write a skill file to the skills directory. Validates filename safety."
+  @spec write_skill(skill_mod(), String.t(), String.t()) :: :ok | {:error, term()}
   def write_skill(skill_module, file_name, code_string) do
     with :ok <- check_permission(skill_module, :skill_write),
          :ok <- validate_skill_filename(file_name) do
@@ -227,6 +252,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Read a skill file from the skills directory."
+  @spec read_skill(skill_mod(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def read_skill(skill_module, file_name) do
     with :ok <- check_permission(skill_module, :skill_write),
          :ok <- validate_skill_filename(file_name) do
@@ -248,6 +274,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Skill Lifecycle ---
 
   @doc "Load a dynamic skill from a file in the skills directory."
+  @spec load_skill(skill_mod(), String.t()) :: {:ok, map()} | {:error, term()}
   def load_skill(skill_module, file_name) do
     with :ok <- check_permission(skill_module, :skill_manage) do
       AlexClaw.Workflows.SkillRegistry.load_skill(file_name)
@@ -255,6 +282,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Unload a dynamic skill by name."
+  @spec unload_skill(skill_mod(), String.t()) :: :ok | {:error, term()}
   def unload_skill(skill_module, skill_name) do
     with :ok <- check_permission(skill_module, :skill_manage) do
       AlexClaw.Workflows.SkillRegistry.unload_skill(skill_name)
@@ -262,6 +290,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Reload a dynamic skill by name."
+  @spec reload_skill(skill_mod(), String.t()) :: {:ok, map()} | {:error, term()}
   def reload_skill(skill_module, skill_name) do
     with :ok <- check_permission(skill_module, :skill_manage) do
       AlexClaw.Workflows.SkillRegistry.reload_skill(skill_name)
@@ -271,6 +300,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Workflow Management ---
 
   @doc "Create a new workflow."
+  @spec create_workflow(skill_mod(), map()) :: {:ok, map()} | {:error, term()}
   def create_workflow(skill_module, attrs) do
     with :ok <- check_permission(skill_module, :workflow_manage) do
       AlexClaw.Workflows.create_workflow(attrs)
@@ -278,6 +308,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Add a step to a workflow."
+  @spec add_workflow_step(skill_mod(), integer(), map()) :: {:ok, map()} | {:error, term()}
   def add_workflow_step(skill_module, workflow_id, step_attrs) do
     with :ok <- check_permission(skill_module, :workflow_manage) do
       case AlexClaw.Workflows.get_workflow(workflow_id) do
@@ -288,6 +319,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Run a workflow by ID."
+  @spec run_workflow(skill_mod(), integer()) :: {:ok, term()} | {:error, term()}
   def run_workflow(skill_module, workflow_id) do
     with :ok <- check_permission(skill_module, :workflow_manage) do
       AlexClaw.Workflows.Executor.run(workflow_id)
@@ -295,6 +327,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   @doc "Get a workflow run result by run ID."
+  @spec get_workflow_result(skill_mod(), integer()) :: {:ok, map()} | {:error, term()}
   def get_workflow_result(skill_module, run_id) do
     with :ok <- check_permission(skill_module, :workflow_manage) do
       AlexClaw.Workflows.get_run(run_id)

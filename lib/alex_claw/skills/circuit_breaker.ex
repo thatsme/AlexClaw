@@ -82,12 +82,14 @@ defmodule AlexClaw.Skills.CircuitBreaker do
   # --- GenServer callbacks ---
 
   @impl true
+  @spec init(String.t()) :: {:ok, map()}
   def init(skill_name) do
     :ets.insert(@ets_table, {skill_name, :closed, 0, nil, DateTime.utc_now()})
     {:ok, %{skill_name: skill_name, timer_ref: nil}}
   end
 
   @impl true
+  @spec handle_cast(term(), map()) :: {:noreply, map()}
   def handle_cast({:record_failure, reason}, state) do
     {_, current_state, count, _, _} = lookup!(state.skill_name)
     new_count = count + 1
@@ -120,6 +122,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
   end
 
   @impl true
+  @spec handle_call(term(), GenServer.from(), map()) :: {:reply, :ok, map()}
   def handle_call(:reset, _from, state) do
     cancel_timer(state.timer_ref)
     :ets.insert(@ets_table, {state.skill_name, :closed, 0, nil, DateTime.utc_now()})
@@ -128,6 +131,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
   end
 
   @impl true
+  @spec handle_info(term(), map()) :: {:noreply, map()}
   def handle_info(:half_open, state) do
     :ets.insert(@ets_table, {state.skill_name, :half_open, 0, nil, DateTime.utc_now()})
     Logger.info("[CircuitBreaker] #{state.skill_name} → :half_open (testing)")

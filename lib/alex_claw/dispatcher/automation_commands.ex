@@ -3,6 +3,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
 
   alias AlexClaw.{Gateway, Message}
 
+  @spec dispatch(Message.t()) :: :ok | term()
   def dispatch(%Message{text: "/record stop " <> session_id} = msg) do
     sid = String.trim(session_id)
     case AlexClaw.Skills.WebAutomation.stop_recording(sid) do

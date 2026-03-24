@@ -4,6 +4,8 @@ defmodule AlexClaw.Workflows.Workflow do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "workflows" do
     field :name, :string
     field :description, :string
@@ -21,6 +23,7 @@ defmodule AlexClaw.Workflows.Workflow do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(workflow, attrs) do
     workflow
     |> cast(attrs, [:name, :description, :enabled, :schedule, :metadata, :default_provider, :node])

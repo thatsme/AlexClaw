@@ -4,6 +4,8 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
 
   alias AlexClaw.{Gateway, Message}
 
+  @spec dispatch(Message.t()) :: :ok | term()
+
   # --- 2FA Setup ---
 
   def dispatch(%Message{text: "/setup 2fa" <> _} = msg) do
@@ -78,6 +80,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   Wraps a sensitive action with 2FA challenge if enabled.
   If 2FA is not enabled, executes immediately.
   """
+  @spec require_2fa(Message.t(), map(), String.t()) :: :challenged | :proceed
   def require_2fa(msg, action, description) do
     if AlexClaw.Auth.TOTP.enabled?() do
       AlexClaw.Auth.TOTP.create_challenge(msg.chat_id, action)
@@ -91,6 +94,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end
   end
 
+  @spec execute_2fa_action(map(), Message.t()) :: term()
   def execute_2fa_action(%{type: :run_workflow, workflow_id: id}, _msg) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> AlexClaw.Workflows.Executor.run(id) end)
   end

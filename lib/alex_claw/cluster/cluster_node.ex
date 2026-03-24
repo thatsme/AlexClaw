@@ -4,6 +4,8 @@ defmodule AlexClaw.Cluster.ClusterNode do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "cluster_nodes" do
     field :name, :string
     field :label, :string
@@ -14,6 +16,7 @@ defmodule AlexClaw.Cluster.ClusterNode do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(node, attrs) do
     node
     |> cast(attrs, [:name, :label, :status, :last_seen_at, :metadata])

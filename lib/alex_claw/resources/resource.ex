@@ -4,6 +4,8 @@ defmodule AlexClaw.Resources.Resource do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @allowed_types ~w(rss_feed website document api automation)
 
   schema "resources" do
@@ -20,6 +22,7 @@ defmodule AlexClaw.Resources.Resource do
     timestamps(type: :utc_datetime)
   end
 
+  @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(resource, attrs) do
     resource
     |> cast(attrs, [:name, :type, :url, :content, :metadata, :tags, :enabled])

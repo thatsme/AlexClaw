@@ -148,8 +148,8 @@ defmodule AlexClaw.Gateway.Telegram do
       true ->
         case Config.get("telegram.node") do
           val when val in [nil, ""] -> nil
-          node_name when node_name == to_string(node()) -> Config.get("telegram.bot_token")
-          _other_node -> nil
+          node_name ->
+            if node_name == to_string(node()), do: Config.get("telegram.bot_token")
         end
     end
   end

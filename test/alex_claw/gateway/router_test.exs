@@ -24,6 +24,7 @@ defmodule AlexClaw.Gateway.RouterTest do
     end
 
     test "includes Telegram when configured" do
+      AlexClaw.Config.set("telegram.enabled", "true", type: "boolean", category: "telegram")
       AlexClaw.Config.set("telegram.bot_token", "test-token", type: "string", category: "telegram")
       assert AlexClaw.Gateway.Telegram in Router.active_gateways()
     end

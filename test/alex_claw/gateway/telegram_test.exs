@@ -55,7 +55,8 @@ defmodule AlexClaw.Gateway.TelegramTest do
       refute Telegram.configured?()
     end
 
-    test "configured? returns true with token" do
+    test "configured? returns true with token and enabled" do
+      AlexClaw.Config.set("telegram.enabled", "true", type: "boolean", category: "telegram")
       AlexClaw.Config.set("telegram.bot_token", "test-token-123", type: "string", category: "telegram")
       assert Telegram.configured?()
     end

@@ -68,6 +68,7 @@ defmodule AlexClaw.Google.TokenManager do
   # --- GenServer ---
 
   @impl true
+  @spec init(keyword()) :: {:ok, map()}
   def init(_opts) do
     :ets.new(@table, [:named_table, :public, :set])
 
@@ -79,6 +80,7 @@ defmodule AlexClaw.Google.TokenManager do
   end
 
   @impl true
+  @spec handle_info(term(), map()) :: {:noreply, map()}
   def handle_info(:initial_refresh, state) do
     do_refresh()
     {:noreply, state}
@@ -91,6 +93,7 @@ defmodule AlexClaw.Google.TokenManager do
   end
 
   @impl true
+  @spec handle_call(term(), GenServer.from(), map()) :: {:reply, term(), map()}
   def handle_call(:refresh, _from, state) do
     result = do_refresh()
     {:reply, result, state}

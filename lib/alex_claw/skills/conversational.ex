@@ -8,7 +8,7 @@ defmodule AlexClaw.Skills.Conversational do
   def description, do: "Free-text conversation with identity and memory context"
   require Logger
 
-  alias AlexClaw.{Gateway, Identity, LLM, Memory}
+  alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
 
   @impl true
   def run(args) do
@@ -52,7 +52,14 @@ defmodule AlexClaw.Skills.Conversational do
 
     prompt = "#{context}\n\nUser: #{text}"
 
-    case LLM.complete(prompt, tier: :light, system: system) do
+    tier = String.to_atom(Config.get("skill.conversational.tier") || "light")
+    provider = case Config.get("skill.conversational.provider") do
+      p when p in [nil, "", "auto"] -> nil
+      p -> p
+    end
+    llm_opts = [tier: tier, system: system] ++ if(provider, do: [provider: provider], else: [])
+
+    case LLM.complete(prompt, llm_opts) do
       {:ok, response} -> {:ok, response, :on_success}
       {:error, reason} -> {:error, reason}
     end

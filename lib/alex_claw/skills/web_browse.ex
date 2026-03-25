@@ -31,6 +31,13 @@ defmodule AlexClaw.Skills.WebBrowse do
         provider -> [provider: provider]
       end
 
+    llm_opts =
+      case args[:llm_tier] do
+        nil -> llm_opts
+        tier when is_atom(tier) -> [{:tier, tier} | llm_opts]
+        tier when is_binary(tier) -> [{:tier, String.to_existing_atom(tier)} | llm_opts]
+      end
+
     if url == "" do
       {:error, :no_url}
     else
@@ -66,7 +73,8 @@ defmodule AlexClaw.Skills.WebBrowse do
     #{content}
     """
 
-    case LLM.complete(prompt, llm_opts ++ [tier: :light, system: system]) do
+    default_tier = resolve_tier()
+    case LLM.complete(prompt, [{:tier, default_tier}, {:system, system}] ++ llm_opts) do
       {:ok, response} ->
         Memory.store(:web_page, response, source: url, metadata: %{type: "summary"})
         {:ok, response, :on_success}
@@ -90,7 +98,8 @@ defmodule AlexClaw.Skills.WebBrowse do
     #{content}
     """
 
-    case LLM.complete(prompt, llm_opts ++ [tier: :light, system: system]) do
+    default_tier = resolve_tier()
+    case LLM.complete(prompt, [{:tier, default_tier}, {:system, system}] ++ llm_opts) do
       {:ok, response} ->
         Memory.store(:web_page, response, source: url, metadata: %{type: "qa", question: question})
         {:ok, response, :on_success}
@@ -103,15 +112,29 @@ defmodule AlexClaw.Skills.WebBrowse do
   @spec handle(String.t(), String.t() | nil, keyword()) :: :ok
   def handle(url, question \\ nil, opts \\ []) do
     Logger.info("WebBrowse: #{url}#{if question, do: " — #{question}", else: ""}", skill: :web)
+    gateway_opts = Keyword.take(opts, [:gateway, :chat_id])
+
+    tier = Keyword.get(opts, :tier, resolve_tier())
+    provider = Keyword.get(opts, :provider, resolve_provider())
 
     config = %{"url" => url}
     config = if question, do: Map.put(config, "question", question), else: config
 
-    case run(%{config: config}) do
-      {:ok, response, _branch} -> Gateway.send_message(response, opts)
+    llm_provider = if provider && provider != "auto", do: provider, else: nil
+
+    case run(%{config: config, llm_provider: llm_provider, llm_tier: tier}) do
+      {:ok, response, _branch} -> Gateway.send_message(response, gateway_opts)
       {:error, reason} ->
         Logger.warning("WebBrowse failed: #{inspect(reason)}", skill: :web)
-        Gateway.send_message("Failed: #{inspect(reason)}", opts)
+        Gateway.send_message("Failed: #{inspect(reason)}", gateway_opts)
+    end
+  end
+
+  defp resolve_tier, do: String.to_atom(AlexClaw.Config.get("skill.web_browse.tier") || "light")
+  defp resolve_provider do
+    case AlexClaw.Config.get("skill.web_browse.provider") do
+      p when p in [nil, "", "auto"] -> nil
+      p -> p
     end
   end
 

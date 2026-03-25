@@ -26,15 +26,27 @@ defmodule AlexClaw.Skills.Research do
 
   @spec handle(String.t(), keyword()) :: :ok
   def handle(query, opts \\ []) do
-    case do_research(query) do
-      {:ok, response, _branch} -> Gateway.send_message(response, opts)
+    tier = Keyword.get(opts, :tier, resolve_tier())
+    provider = Keyword.get(opts, :provider, resolve_provider())
+    gateway_opts = Keyword.take(opts, [:gateway, :chat_id])
+
+    case do_research(query, tier: tier, provider: provider) do
+      {:ok, response, _branch} -> Gateway.send_message(response, gateway_opts)
       {:error, reason} ->
         Logger.warning("Research failed: #{inspect(reason)}", skill: :research)
-        Gateway.send_message("Research failed: #{inspect(reason)}", opts)
+        Gateway.send_message("Research failed: #{inspect(reason)}", gateway_opts)
     end
   end
 
-  defp do_research(query) do
+  defp resolve_tier, do: String.to_atom(Config.get("skill.research.tier") || "medium")
+  defp resolve_provider do
+    case Config.get("skill.research.provider") do
+      p when p in [nil, "", "auto"] -> nil
+      p -> p
+    end
+  end
+
+  defp do_research(query, llm_opts \\ []) do
     Logger.info("Research: #{query}", skill: :research)
     system = Identity.system_prompt(%{skill: :research})
     research_instruction = Config.get("prompts.research.system")
@@ -58,7 +70,11 @@ defmodule AlexClaw.Skills.Research do
     #{research_instruction}
     """
 
-    case LLM.complete(prompt, tier: :medium, system: system) do
+    tier = Keyword.get(llm_opts, :tier, resolve_tier())
+    provider = Keyword.get(llm_opts, :provider, resolve_provider())
+    complete_opts = [tier: tier, system: system] ++ if(provider, do: [provider: provider], else: [])
+
+    case LLM.complete(prompt, complete_opts) do
       {:ok, response} ->
         Memory.store(:summary, response,
           source: "research:#{query}",

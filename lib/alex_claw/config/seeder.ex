@@ -61,6 +61,28 @@ defmodule AlexClaw.Config.Seeder do
     {"embedding.model", "gemini-embedding-001", "string", "embedding",
      "Embedding model name (Gemini: gemini-embedding-001, Ollama: nomic-embed-text)", false},
 
+    # Skill defaults (per-skill LLM tier/provider for chat invocation)
+    {"skill.research.tier", "medium", "string", "skill.research",
+     "LLM tier for /research command (light, medium, heavy, local)", false},
+    {"skill.research.provider", "auto", "string", "skill.research",
+     "LLM provider for /research (auto = tier-based selection)", false},
+    {"skill.conversational.tier", "light", "string", "skill.conversational",
+     "LLM tier for free-text conversation", false},
+    {"skill.conversational.provider", "auto", "string", "skill.conversational",
+     "LLM provider for conversation", false},
+    {"skill.web_search.tier", "medium", "string", "skill.web_search",
+     "LLM tier for /search command", false},
+    {"skill.web_search.provider", "auto", "string", "skill.web_search",
+     "LLM provider for /search", false},
+    {"skill.web_browse.tier", "light", "string", "skill.web_browse",
+     "LLM tier for /web command", false},
+    {"skill.web_browse.provider", "auto", "string", "skill.web_browse",
+     "LLM provider for /web", false},
+    {"skill.github_review.tier", "medium", "string", "skill.github_review",
+     "LLM tier for GitHub security review", false},
+    {"skill.github_review.provider", "auto", "string", "skill.github_review",
+     "LLM provider for GitHub review", false},
+
     # Skills - RSS
     {"skills.rss.relevance_threshold", "0.7", "float", "skills",
      "Minimum relevance score for RSS items (0.0-1.0)", false},

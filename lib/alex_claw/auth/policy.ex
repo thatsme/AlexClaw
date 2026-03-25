@@ -24,7 +24,7 @@ defmodule AlexClaw.Auth.Policy do
     timestamps(type: :utc_datetime)
   end
 
-  @valid_rule_types ~w(rate_limit time_window chain_restriction permission_override)
+  @valid_rule_types ~w(rate_limit time_window chain_restriction permission_override skill_allowlist)
 
   @doc false
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()

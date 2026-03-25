@@ -16,9 +16,40 @@ defmodule AlexClawWeb.AdminLive.Policies do
        tab: :policies,
        policies: list_policies(),
        audit_entries: AuditLog.recent(limit: 50),
-       form: to_form(%{}, as: :policy),
+       form: default_form(),
        editing: nil
      )}
+  end
+
+  @scaffolds %{
+    "rate_limit" => %{"permission" => "llm", "max_calls" => 10, "window_seconds" => 60},
+    "time_window" => %{"permission" => "llm", "deny_start_hour" => 0, "deny_end_hour" => 6},
+    "chain_restriction" => %{"caller_pattern" => "Dynamic"},
+    "permission_override" => %{"permission" => "shell", "action" => "deny", "expires_at" => nil},
+    "skill_allowlist" => %{"permission" => "llm", "allowed_skills" => ["research", "coder"]}
+  }
+
+  @impl true
+  def handle_event("rule_type_changed", %{"policy" => params}, socket) do
+    rule_type = params["rule_type"]
+    previous_type = socket.assigns.form.params["rule_type"]
+
+    form_data = Map.merge(socket.assigns.form.params, params)
+
+    form_data =
+      if rule_type != previous_type do
+        scaffold_json =
+          case Map.get(@scaffolds, rule_type) do
+            nil -> "{}"
+            scaffold -> Jason.encode!(scaffold, pretty: true)
+          end
+
+        Map.put(form_data, "config_json", scaffold_json)
+      else
+        form_data
+      end
+
+    {:noreply, assign(socket, form: to_form(form_data, as: :policy))}
   end
 
   @impl true
@@ -53,7 +84,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
         {:noreply,
          socket
          |> put_flash(:info, "Policy created")
-         |> assign(policies: list_policies(), form: to_form(%{}, as: :policy))}
+         |> assign(policies: list_policies(), form: default_form())}
 
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Invalid policy")}
@@ -77,7 +108,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("cancel_edit", _, socket) do
-    {:noreply, assign(socket, editing: nil, form: to_form(%{}, as: :policy))}
+    {:noreply, assign(socket, editing: nil, form: default_form())}
   end
 
   def handle_event("update_policy", %{"policy" => params}, socket) do
@@ -100,7 +131,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
         {:noreply,
          socket
          |> put_flash(:info, "Policy updated")
-         |> assign(editing: nil, policies: list_policies(), form: to_form(%{}, as: :policy))}
+         |> assign(editing: nil, policies: list_policies(), form: default_form())}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Invalid policy")}
@@ -138,6 +169,38 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   # --- Helpers ---
+
+  defp tip(assigns) do
+    ~H"""
+    <span class="relative inline-block ml-1 group">
+      <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
+      <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50">
+        {@text}
+      </span>
+    </span>
+    """
+  end
+
+  defp rule_type_help(rule_type) do
+    case rule_type do
+      "rate_limit" -> "Limits how many times a permission can be used within a time window. Applies per-skill."
+      "time_window" -> "Blocks a permission during specific UTC hours. Use for quiet hours or maintenance windows."
+      "chain_restriction" -> "Prevents skills matching a pattern from invoking other skills. Stops recursive chains."
+      "permission_override" -> "Temporarily grants or denies a specific permission. Optional expiry date."
+      "skill_allowlist" -> "Only listed skills can use a permission. All others are denied. Use to lock expensive APIs to trusted skills."
+      _ -> "Select a rule type."
+    end
+  end
+
+  defp default_form do
+    to_form(
+      %{
+        "rule_type" => "rate_limit",
+        "config_json" => Jason.encode!(@scaffolds["rate_limit"], pretty: true)
+      },
+      as: :policy
+    )
+  end
 
   defp list_policies do
     Repo.all(from(p in Policy, order_by: [desc: p.priority, asc: p.name]))

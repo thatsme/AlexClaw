@@ -22,39 +22,40 @@
         <h2 class="text-lg font-semibold text-white">{if @editing, do: "Edit Policy", else: "New Policy"}</h2>
         <button :if={@editing} phx-click="cancel_edit" class="text-sm text-gray-400 hover:text-white">Cancel</button>
       </div>
-      <.form for={@form} phx-submit={if @editing, do: "update_policy", else: "create_policy"} class="space-y-3">
+      <.form for={@form} phx-submit={if @editing, do: "update_policy", else: "create_policy"} phx-change="rule_type_changed" class="space-y-3">
         <input :if={@editing} type="hidden" name="policy[id]" value={@form[:id].value} />
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Name</label>
+            <label class="block text-sm text-gray-400 mb-1">Name <.tip text="Unique name for this policy rule. Used for identification in logs." /></label>
             <input type="text" name="policy[name]" value={@form[:name].value} required
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Rule Type</label>
+            <label class="block text-sm text-gray-400 mb-1">Rule Type <.tip text={rule_type_help(@form[:rule_type].value || "rate_limit")} /></label>
             <select name="policy[rule_type]" required
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
               <option value="rate_limit" selected={@form[:rule_type].value == "rate_limit"}>Rate Limit</option>
               <option value="time_window" selected={@form[:rule_type].value == "time_window"}>Time Window</option>
               <option value="chain_restriction" selected={@form[:rule_type].value == "chain_restriction"}>Chain Restriction</option>
               <option value="permission_override" selected={@form[:rule_type].value == "permission_override"}>Permission Override</option>
+              <option value="skill_allowlist" selected={@form[:rule_type].value == "skill_allowlist"}>Skill Allowlist</option>
             </select>
           </div>
         </div>
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Description</label>
+          <label class="block text-sm text-gray-400 mb-1">Description <.tip text="Optional human-readable explanation of what this policy does and why." /></label>
           <input type="text" name="policy[description]" value={@form[:description].value}
             class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Config (JSON)</label>
-            <textarea name="policy[config_json]" rows="3" placeholder='{"max_calls": 10, "window_seconds": 60}'
+            <label class="block text-sm text-gray-400 mb-1">Config (JSON) <.tip text="Configuration specific to the selected rule type. Changes automatically when you switch rule type." /></label>
+            <textarea name="policy[config_json]" rows="4" placeholder='{"max_calls": 10, "window_seconds": 60}'
               class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono">{@form[:config_json].value}</textarea>
           </div>
           <div class="space-y-3">
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Priority</label>
+              <label class="block text-sm text-gray-400 mb-1">Priority <.tip text="Higher priority rules are evaluated first. Use to ensure critical rules take precedence." /></label>
               <input type="number" name="policy[priority]" value={@form[:priority].value || "0"}
                 class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm" />
             </div>
@@ -62,7 +63,7 @@
               <input type="hidden" name="policy[enabled]" value="false" />
               <input type="checkbox" name="policy[enabled]" value="true" checked={@form[:enabled].value == "true"}
                 class="rounded bg-gray-800 border-gray-600" />
-              <label class="text-sm text-gray-400">Enabled</label>
+              <label class="text-sm text-gray-400">Enabled <.tip text="Disabled policies are stored but not evaluated. Toggle without deleting." /></label>
             </div>
           </div>
         </div>
@@ -89,6 +90,7 @@
               "time_window" -> "bg-purple-900/50 text-purple-400"
               "chain_restriction" -> "bg-orange-900/50 text-orange-400"
               "permission_override" -> "bg-red-900/50 text-red-400"
+              "skill_allowlist" -> "bg-green-900/50 text-green-400"
               _ -> "bg-gray-800 text-gray-400"
             end}>
             {policy.rule_type}

@@ -183,7 +183,13 @@ defmodule AlexClaw.Config.Seeder do
 
     # Cluster
     {"cluster.enabled", "false", "boolean", "cluster",
-     "Enable BEAM clustering for multi-node workflow distribution", false}
+     "Enable BEAM clustering for multi-node workflow distribution", false},
+
+    # Backup
+    {"backup.enabled", "false", "boolean", "backup",
+     "Enable scheduled database backups (requires bind mount in docker-compose.yml)", false},
+    {"backup.max_files", "7", "integer", "backup",
+     "Max backup files to keep (oldest are rotated out)", false}
   ]
 
   @env_mapping %{

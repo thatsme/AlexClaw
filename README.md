@@ -46,6 +46,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 | `github_security_review` | Fetch PR/commit diff, run LLM security analysis |
 | `google_calendar` | Fetch upcoming Google Calendar events |
 | `google_tasks` | Manage Google Tasks lists and items |
+| `db_backup` | PostgreSQL backup with gzip compression and weekly rotation to host-mounted path |
 | `shell` | Execute whitelisted OS commands for container introspection (2FA-gated) |
 | `web_automation` | Browser automation via headless Playwright sidecar (**experimental**) |
 | `coder` | Generate dynamic skills from natural language via local LLM |
@@ -108,6 +109,15 @@ AlexClaw can review pull requests and commits for security issues:
 
 - **Health endpoint** — `GET /health` (unauthenticated) returns `{"status":"ok","version":"...","db":"connected"}` for load balancers and Docker healthchecks. Returns HTTP 503 when the database is unreachable.
 - **Metrics endpoint** — `GET /metrics` (authenticated) returns a JSON payload with system stats (uptime, memory, BEAM processes), LLM provider usage, workflow run counts, skill and circuit breaker states, log severity counts, and knowledge/memory entry counts.
+
+### Database Backups
+
+Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-compressed `pg_dump` files saved to a **host-mounted directory** — not inside the container filesystem, so they survive container recreation and volume deletion.
+
+- **Host bind mount** — backups are written to `/app/backups` inside the container, mapped to a host directory via `docker-compose.yml` (`${BACKUP_DIR:-./backups}:/app/backups`). Set `BACKUP_DIR` in `.env` to customize the host path (e.g. `BACKUP_DIR=D:/Backups/alexclaw` on Windows, `BACKUP_DIR=/mnt/backups/alexclaw` on Linux).
+- **Mount verification** — the skill checks that `/app/backups` is a real bind mount (via `/proc/mounts` and device ID comparison). If the directory is on the container's overlay filesystem, the backup is refused with a clear error — preventing false confidence in backups that would be lost on `docker-compose down`.
+- **Weekly rotation** — keeps the last N backups (configurable via `backup.max_files`, default 7). Oldest files are automatically deleted.
+- **Workflow integration** — create a workflow with `db_backup` as a step, add a `telegram_notify` or `discord_notify` step for confirmation, and schedule it via cron (e.g. daily at 03:00: `0 3 * * *`). Enable backups from Admin > Config (`backup.enabled = true`).
 
 ### Security
 

@@ -25,8 +25,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
     "rate_limit" => %{"permission" => "llm", "max_calls" => 10, "window_seconds" => 60},
     "time_window" => %{"permission" => "llm", "deny_start_hour" => 0, "deny_end_hour" => 6},
     "chain_restriction" => %{"caller_pattern" => "Dynamic"},
-    "permission_override" => %{"permission" => "shell", "action" => "deny", "expires_at" => nil},
-    "skill_allowlist" => %{"permission" => "llm", "allowed_skills" => ["research", "coder"]}
+    "permission_override" => %{"permission" => "shell", "action" => "deny", "expires_at" => nil}
   }
 
   @impl true
@@ -187,7 +186,6 @@ defmodule AlexClawWeb.AdminLive.Policies do
       "time_window" -> "Blocks a permission during specific UTC hours. Use for quiet hours or maintenance windows."
       "chain_restriction" -> "Prevents skills matching a pattern from invoking other skills. Stops recursive chains."
       "permission_override" -> "Temporarily grants or denies a specific permission. Optional expiry date."
-      "skill_allowlist" -> "Only listed skills can use a permission. All others are denied. Use to lock expensive APIs to trusted skills."
       _ -> "Select a rule type."
     end
   end

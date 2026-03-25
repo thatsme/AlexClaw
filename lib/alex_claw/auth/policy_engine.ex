@@ -179,34 +179,6 @@ defmodule AlexClaw.Auth.PolicyEngine do
     end
   end
 
-  defp evaluate_policy(%Policy{rule_type: "skill_allowlist", config: config}, ctx) do
-    permission = config["permission"]
-    allowed = config["allowed_skills"] || []
-
-    if permission == nil or permission == to_string(ctx.permission) do
-      caller_name =
-        ctx.caller
-        |> inspect()
-        |> String.replace("Elixir.", "")
-
-      skill_name =
-        caller_name
-        |> String.split(".")
-        |> List.last()
-        |> Macro.underscore()
-
-      if Enum.any?(allowed, fn name ->
-        name == skill_name or name == caller_name or String.contains?(caller_name, name)
-      end) do
-        :ok
-      else
-        {:deny, "skill_allowlist: #{skill_name} not in allowed list for :#{permission}"}
-      end
-    else
-      :ok
-    end
-  end
-
   defp evaluate_policy(_policy, _ctx), do: :ok
 
   defp apply_override("deny"), do: {:deny, "denied by permission override policy"}

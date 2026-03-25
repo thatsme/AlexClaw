@@ -112,7 +112,7 @@ AlexClaw can review pull requests and commits for security issues:
 ### Security
 
 - **Session-based authentication** — all routes except `/login` and `/health` require an authenticated session
-- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup via Telegram or Discord (`/setup 2fa`, `/confirm 2fa`). Mandatory for all skill management operations. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
+- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup via Telegram or Discord (`/setup 2fa`, `/confirm 2fa`). Mandatory for: skill management (Admin UI), workflows marked `Requires 2FA`, and shell commands. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
 - **Encryption at rest** — API keys and tokens are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime
@@ -230,6 +230,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/ping` | Check if the bot is alive |
 | `/status` | System status (uptime, memory, active skills) |
 | `/skills` | List registered skills (core + dynamic) |
+| `/skill` | Skill management — Admin UI only (2FA enforced via Telegram/Discord) |
 | `/llm` | Show LLM provider status |
 | `/workflows` | List all workflows with status and ID |
 | `/run <id or name>` | Run a workflow on demand |

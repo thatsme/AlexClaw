@@ -48,19 +48,34 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
     case result do
       [filename] when is_binary(filename) ->
-        case SkillRegistry.load_skill(filename) do
-          {:ok, %{name: name, permissions: perms}} ->
-            perm_list = Enum.map_join(perms, ", ", &to_string/1)
-
+        case request_2fa(%{type: :skill_load, file_path: filename}, "Load skill: `#{filename}`") do
+          :challenged ->
             {:noreply,
              socket
-             |> put_flash(:info, "Skill '#{name}' loaded. Permissions: #{perm_list}")
-             |> assign(uploading: false, skills: build_skill_list())}
+             |> put_flash(:info, "File uploaded. 2FA code requested — check Telegram/Discord")
+             |> assign(uploading: false)}
 
-          {:error, reason} ->
+          :proceed ->
+            case SkillRegistry.load_skill(filename) do
+              {:ok, %{name: name, permissions: perms}} ->
+                perm_list = Enum.map_join(perms, ", ", &to_string/1)
+
+                {:noreply,
+                 socket
+                 |> put_flash(:info, "Skill '#{name}' loaded. Permissions: #{perm_list}")
+                 |> assign(uploading: false, skills: build_skill_list())}
+
+              {:error, reason} ->
+                {:noreply,
+                 socket
+                 |> put_flash(:error, "Load failed: #{format_error(reason)}")
+                 |> assign(uploading: false)}
+            end
+
+          :no_2fa ->
             {:noreply,
              socket
-             |> put_flash(:error, "Load failed: #{format_error(reason)}")
+             |> put_flash(:error, "2FA must be enabled for skill operations. Set up 2FA first.")
              |> assign(uploading: false)}
         end
 
@@ -74,34 +89,41 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   @impl true
   def handle_event("unload_skill", %{"name" => name}, socket) do
-    case SkillRegistry.unload_skill(name) do
-      :ok ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Skill '#{name}' unloaded")
-         |> assign(skills: build_skill_list())}
+    case request_2fa(%{type: :skill_unload, name: name}, "Unload skill: *#{name}*") do
+      :challenged ->
+        {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
 
-      {:error, :cannot_unload_core} ->
-        {:noreply, put_flash(socket, :error, "Cannot unload core skills")}
+      :proceed ->
+        case SkillRegistry.unload_skill(name) do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Skill '#{name}' unloaded")
+             |> assign(skills: build_skill_list())}
 
-      {:error, :not_found} ->
-        {:noreply, put_flash(socket, :error, "Skill not found")}
+          {:error, :cannot_unload_core} ->
+            {:noreply, put_flash(socket, :error, "Cannot unload core skills")}
+
+          {:error, :not_found} ->
+            {:noreply, put_flash(socket, :error, "Skill not found")}
+        end
+
+      :no_2fa ->
+        {:noreply, put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
     end
   end
 
   @impl true
   def handle_event("reload_skill", %{"name" => name}, socket) do
-    case SkillRegistry.reload_skill(name) do
-      {:ok, %{name: n, permissions: perms}} ->
-        perm_list = Enum.map_join(perms, ", ", &to_string/1)
+    case request_2fa(%{type: :skill_reload, name: name}, "Reload skill: *#{name}*") do
+      :challenged ->
+        {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Skill '#{n}' reloaded. Permissions: #{perm_list}")
-         |> assign(skills: build_skill_list())}
+      :proceed ->
+        do_reload(name, socket)
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Reload failed: #{format_error(reason)}")}
+      :no_2fa ->
+        {:noreply, put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
     end
   end
 
@@ -112,6 +134,47 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   def handle_info({:skill_unregistered, _name}, socket) do
     {:noreply, assign(socket, skills: build_skill_list())}
+  end
+
+  defp do_reload(name, socket) do
+    case SkillRegistry.reload_skill(name) do
+      {:ok, %{name: n, module: module, permissions: perms}} ->
+        perm_list = Enum.map_join(perms, ", ", &to_string/1)
+        version = if function_exported?(module, :version, 0), do: " v#{module.version()}", else: ""
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Skill '#{n}'#{version} reloaded and recompiled. Permissions: #{perm_list}")
+         |> assign(skills: build_skill_list())}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Reload failed: #{format_error(reason)}")}
+    end
+  end
+
+  defp request_2fa(action, description) do
+    if AlexClaw.Auth.TOTP.enabled?() do
+      chat_ids =
+        [
+          AlexClaw.Config.get("telegram.chat_id"),
+          AlexClaw.Config.get("discord.channel_id")
+        ]
+        |> Enum.filter(&(&1 && &1 != ""))
+
+      if chat_ids != [] do
+        for id <- chat_ids, do: AlexClaw.Auth.TOTP.create_challenge(id, action)
+
+        AlexClaw.Gateway.Router.broadcast(
+          "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:"
+        )
+
+        :challenged
+      else
+        :no_2fa
+      end
+    else
+      :no_2fa
+    end
   end
 
   defp build_skill_list do
@@ -153,6 +216,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
   defp format_error({:compilation_error, msg}), do: "Compilation error: #{String.slice(msg, 0, 300)}"
   defp format_error(:path_traversal), do: "Invalid file path"
   defp format_error(:file_not_found), do: "File not found"
+  defp format_error({:same_version, nil, hint}), do: "No version defined. #{hint}"
+  defp format_error({:same_version, ver, hint}), do: "Version #{ver} already loaded. #{hint}"
   defp format_error(reason), do: inspect(reason)
 
   defp format_size(bytes) when bytes < 1024, do: "#{bytes} B"

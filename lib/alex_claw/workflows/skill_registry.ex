@@ -215,6 +215,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
          {:ok, source} <- File.read(full_path),
          {:ok, module, permissions} <- compile_and_validate(full_path),
          :ok <- check_not_core(skill_name_from_module(module)),
+         :ok <- check_version_bump(module, skill_name_from_module(module)),
          {:ok, _record} <-
            persist_skill(
              skill_name_from_module(module),
@@ -230,6 +231,28 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       broadcast({:skill_registered, skill_name})
       Logger.info("Dynamic skill loaded: #{skill_name} with permissions: #{inspect(permissions)}, routes: #{inspect(routes)}")
       {:ok, %{name: skill_name, module: module, permissions: permissions, routes: routes}}
+    end
+  end
+
+  defp check_version_bump(module, skill_name) do
+    case :ets.lookup(@ets_table, skill_name) do
+      [{^skill_name, old_module, :dynamic, _, _}] ->
+        old_version = if function_exported?(old_module, :version, 0), do: old_module.version(), else: nil
+        new_version = if function_exported?(module, :version, 0), do: module.version(), else: nil
+
+        cond do
+          old_version == nil and new_version == nil ->
+            {:error, {:same_version, nil, "Add a version/0 callback to track skill versions"}}
+
+          old_version == new_version ->
+            {:error, {:same_version, old_version, "Bump the version before reloading. Use /skill reload to force."}}
+
+          true ->
+            :ok
+        end
+
+      _ ->
+        :ok
     end
   end
 

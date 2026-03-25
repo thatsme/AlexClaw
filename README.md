@@ -69,8 +69,9 @@ Load custom skills at runtime — no code changes, no Docker rebuild, no restart
 - **Namespace enforcement** — Module must be `AlexClaw.Skills.Dynamic.*`
 - **Integrity verification** — SHA256 checksum stored on load, verified on boot. Tampered files are skipped with a Telegram alert.
 - **Persistence** — Dynamic skills survive container restarts (DB + Docker volume)
-- **Admin UI** — Upload, reload, and unload skills from the Skills page. Core and dynamic skills are shown separately.
-- **Telegram commands** — `/skill load`, `/skill unload`, `/skill reload`, `/skill create`, `/skill list`
+- **Admin UI** — Upload, reload, and unload skills from the Skills page. Core and dynamic skills are shown separately. All operations require 2FA verification via Telegram/Discord.
+- **2FA enforced** — Every skill load, unload, and reload requires TOTP verification sent to Telegram/Discord. No exceptions, no bypass. Skill management is Admin UI only.
+- **Version bump enforcement** — Loading a skill that's already loaded with the same version is rejected. Bump `version/0` or use reload to force.
 - **Cross-skill invocation** — Dynamic skills can call other skills (core or dynamic) through `SkillAPI.run_skill/3`
 - **Conditional branching** — Dynamic skills can declare `routes/0` (e.g. `[:on_results, :on_empty, :on_error]`) and return triple tuples `{:ok, result, :branch_name}` for workflow routing. Routes are persisted in the database on load and cleaned up on unload — same behavior as core skills.
 
@@ -111,7 +112,7 @@ AlexClaw can review pull requests and commits for security issues:
 ### Security
 
 - **Session-based authentication** — all routes except `/login` and `/health` require an authenticated session
-- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup and confirmation via Telegram (`/setup 2fa`, `/confirm 2fa`)
+- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup via Telegram or Discord (`/setup 2fa`, `/confirm 2fa`). Mandatory for all skill management operations. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
 - **Encryption at rest** — API keys and tokens are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime
@@ -229,10 +230,6 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/ping` | Check if the bot is alive |
 | `/status` | System status (uptime, memory, active skills) |
 | `/skills` | List registered skills (core + dynamic) |
-| `/skill load <file>` | Compile and register a dynamic skill |
-| `/skill unload <name>` | Remove a dynamic skill |
-| `/skill reload <name>` | Recompile a dynamic skill |
-| `/skill create <name>` | Generate a skill template file |
 | `/llm` | Show LLM provider status |
 | `/workflows` | List all workflows with status and ID |
 | `/run <id or name>` | Run a workflow on demand |

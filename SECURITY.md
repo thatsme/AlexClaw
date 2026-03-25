@@ -24,12 +24,26 @@ the login page will show an error and no access is granted.
 
 ## Two-Factor Authentication
 
-TOTP-based 2FA is available for sensitive Telegram commands.
-Setup via `/setup 2fa` — compatible with any TOTP authenticator
+TOTP-based 2FA protects all sensitive operations. Setup via `/setup 2fa`
+from Telegram or Discord — compatible with any TOTP authenticator
 (Google Authenticator, Authy, etc.).
 
-Workflows can be marked `Requires 2FA` in the admin UI,
-requiring code verification before execution.
+**Operations requiring 2FA (mandatory, no bypass):**
+- **Skill load** — uploading and compiling a new dynamic skill (Admin UI only)
+- **Skill unload** — removing a dynamic skill from the registry (Admin UI only)
+- **Skill reload** — recompiling an existing dynamic skill (Admin UI only)
+- **Shell commands** — `/shell` via Telegram/Discord
+- **Workflows marked `Requires 2FA`** — configurable per workflow
+
+**Cross-channel verification:** When a skill operation is triggered from the
+Admin UI, the 2FA challenge is sent to ALL active gateways (Telegram and
+Discord). The user can respond with their 6-digit code from either channel.
+This enables phone-based verification for web UI actions.
+
+**Skill management is Admin UI only.** The `/skill load|unload|reload`
+commands are not available from Telegram/Discord — you cannot upload code
+from a messaging app. The `/skills` command still lists registered skills,
+and skills execute normally within workflows.
 
 ---
 
@@ -124,6 +138,9 @@ or environment variables and restart.
 Dynamic skills are compiled into the BEAM VM at runtime via `Code.compile_file`.
 The following protections are in place:
 
+- **2FA mandatory** — every load, unload, and reload requires TOTP verification via Telegram/Discord. No exceptions, no config toggle
+- **Admin UI only** — skill management is not available from Telegram/Discord commands. Code cannot be uploaded from a messaging app
+- **Version bump enforcement** — loading a skill that's already loaded with the same version is rejected. The developer must bump `version/0` or use reload to force
 - **Path restriction** — only files inside the configured `SKILLS_DIR` volume are accepted
 - **Namespace enforcement** — module must be `AlexClaw.Skills.Dynamic.*`
 - **Behaviour validation** — module must export `run/1`

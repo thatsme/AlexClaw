@@ -65,6 +65,7 @@ Deterministic pattern-matching router. No LLM involved in routing — zero token
 /ping              → pong
 /status            → system stats (uptime, memory, active skills)
 /skills            → list from SkillRegistry
+/skill             → skill management is Admin UI only (2FA enforced)
 /llm               → provider status and usage
 /workflows         → list all workflows with status/schedule
 /run <id|name>     → execute a workflow on demand (supports 2FA gating)

@@ -27,18 +27,26 @@ defmodule AlexClaw.Gateway.Discord do
 
   @impl AlexClaw.Gateway.Behaviour
   @spec send_message(String.t(), keyword()) :: :ok
+  @discord_max_length 2000
+
   def send_message(text, opts \\ []) do
     channel_id = Keyword.get(opts, :chat_id) || get_channel_id()
 
     if channel_id && channel_id != "" do
       channel_id = to_integer(channel_id)
 
-      case Nostrum.Api.Message.create(channel_id, content: text) do
-        {:ok, _msg} -> :ok
-        {:error, reason} ->
-          Logger.warning("Discord send failed: #{inspect(reason)}")
-          :ok
-      end
+      text
+      |> chunk_message(@discord_max_length)
+      |> Enum.each(fn chunk ->
+        case Nostrum.Api.Message.create(channel_id, content: chunk) do
+          {:ok, _msg} -> :ok
+          {:error, reason} ->
+            Logger.warning("Discord send failed: #{inspect(reason)}")
+            :ok
+        end
+      end)
+
+      :ok
     else
       Logger.warning("Cannot send to Discord: channel_id not configured")
       :ok
@@ -89,6 +97,24 @@ defmodule AlexClaw.Gateway.Discord do
   def handle_event(_event), do: :noop
 
   # --- Internal ---
+
+  defp chunk_message(text, max_length) when byte_size(text) <= max_length, do: [text]
+
+  defp chunk_message(text, max_length) do
+    text
+    |> String.split("\n")
+    |> Enum.reduce([""], fn line, [current | rest] ->
+      candidate = if current == "", do: line, else: current <> "\n" <> line
+
+      if byte_size(candidate) <= max_length do
+        [candidate | rest]
+      else
+        [line, current | rest]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.reject(&(&1 == ""))
+  end
 
   defp normalize(msg) do
     %Message{

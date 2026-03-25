@@ -57,6 +57,7 @@ priv/static/assets/
 
 # Database backups and SQL dumps (may contain secrets)
 *.sql
+/backups/
 
 # Python (web-automator)
 __pycache__/

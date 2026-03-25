@@ -331,6 +331,7 @@ Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, 
 | `github_security_review` | `GitHubSecurityReview` | medium | Fetch PR/commit diff, run LLM security analysis |
 | `google_calendar` | `GoogleCalendar` | — | Fetch upcoming events from Google Calendar |
 | `google_tasks` | `GoogleTasks` | — | List and create Google Tasks |
+| `db_backup` | `DbBackup` | — | PostgreSQL backup with gzip compression and rotation to host-mounted path |
 | `shell` | `Shell` | — | Execute whitelisted OS commands for container introspection |
 | `coder` | `Coder` | local | Autonomous skill generation from natural language goals |
 | `web_automation` | `WebAutomation` | — | Browser recording and headless replay via sidecar |
@@ -400,6 +401,33 @@ Reviews pull requests and commits for security issues:
 - Webhook endpoint at `/webhooks/github` with HMAC-SHA256 signature verification via `CachingBodyReader`
 - Telegram trigger: `/github pr owner/repo 42` or `/github commit owner/repo <sha>`
 - Automatic review on push events to watched branches (configurable)
+
+---
+
+## Database Backups — `AlexClaw.Skills.DbBackup`
+
+Core skill that produces gzip-compressed `pg_dump` backups to a host-mounted directory. Designed to run as a scheduled workflow step.
+
+**How it works:**
+1. Verifies `/app/backups` is a real bind mount (not on the container overlay FS) via `/proc/mounts` and device ID comparison
+2. Runs `pg_dump` against the production database with `--clean --if-exists`
+3. Gzip-compresses the output and writes `alexclaw_backup_YYYYMMDD_HHMMSS.sql.gz`
+4. Rotates old backups — keeps the N most recent files (configurable), deletes the rest
+
+**Mount verification strategy:** Docker Desktop (Windows/Mac) routes bind mounts through a Linux VM, so device IDs may match the overlay FS. The skill checks `/proc/mounts` first (which lists bind mounts explicitly on all Docker runtimes), then falls back to device ID comparison. If neither detects a mount, the backup is refused.
+
+**Config keys (Admin UI > Config, category: backup):**
+- `backup.enabled` — boolean, must be `true` for the skill to run
+- `backup.max_files` — integer, max backup files to keep (default 7)
+
+**Docker setup:** The bind mount is defined in `docker-compose.yml`:
+```yaml
+volumes:
+  - ${BACKUP_DIR:-./backups}:/app/backups
+```
+Set `BACKUP_DIR` in `.env` to a host path outside the Docker data directory (e.g. `D:/Backups/alexclaw` on Windows, `/mnt/backups/alexclaw` on Linux).
+
+**Typical workflow:** `db_backup` → `telegram_notify` (or `discord_notify`), scheduled daily via cron (e.g. `0 3 * * *`).
 
 ---
 
@@ -487,6 +515,7 @@ lib/
       circuit_breaker_supervisor.ex  # DynamicSupervisor + PubSub lifecycle
       api_request.ex           # HTTP requests with retries
       conversational.ex        # Free-text LLM conversation
+      db_backup.ex             # PostgreSQL backup with gzip + rotation to host mount
       discord_notify.ex        # Discord channel delivery (workflow step)
       github_security_review.ex # PR/commit security analysis
       google_calendar.ex       # Google Calendar events
@@ -517,6 +546,8 @@ lib/
       telegram.ex              # Telegram bot (long-polling GenServer)
     application.ex             # Supervision tree
     dispatcher.ex              # Command routing (pattern matching, transport-agnostic)
+    dispatcher/
+      command_parser.ex        # --flag value extraction for --tier and --provider
     gateway.ex                 # Facade — defdelegate to Router
     identity.ex                # Persona / system prompt builder
     knowledge.ex               # Knowledge base store (hybrid search, async embed)

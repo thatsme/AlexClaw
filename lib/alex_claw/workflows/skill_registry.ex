@@ -31,7 +31,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     "shell" => AlexClaw.Skills.Shell,
     "coder" => AlexClaw.Skills.Coder,
     "send_to_workflow" => AlexClaw.Skills.SendToWorkflow,
-    "receive_from_workflow" => AlexClaw.Skills.ReceiveFromWorkflow
+    "receive_from_workflow" => AlexClaw.Skills.ReceiveFromWorkflow,
+    "db_backup" => AlexClaw.Skills.DbBackup
   }
 
   # --- Client API (backward-compatible) ---

@@ -111,6 +111,27 @@ The noVNC interface (port 6080) should never be exposed publicly.
 
 ---
 
+## Database Backups
+
+The `db_backup` core skill produces gzip-compressed `pg_dump` files on a
+host-mounted directory. Backups contain the **full database contents**
+including encrypted API keys and tokens (stored as AES-256-GCM ciphertext).
+
+**Security considerations:**
+- Backup files should be stored on an encrypted filesystem or encrypted at
+  the host level — the `pg_dump` output contains encrypted values but also
+  plaintext data (workflows, memories, knowledge entries, settings metadata)
+- Restrict host directory permissions (`chmod 700`) to prevent unauthorized access
+- The skill verifies the backup directory is a real bind mount, not the
+  container overlay FS — this prevents backups from being silently lost on
+  container recreation
+- Backup rotation (configurable `backup.max_files`) limits exposure window —
+  old backups are deleted automatically
+- To restore: `gunzip -c backup.sql.gz | psql -U alexclaw -d alex_claw_prod`
+  from a host with access to the database
+
+---
+
 ## Encryption at Rest
 
 Sensitive configuration values (API keys, tokens, OAuth secrets) are encrypted

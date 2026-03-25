@@ -108,6 +108,31 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end)
   end
 
+  def execute_2fa_action(%{type: :skill_load, file_path: file_path}, _msg) do
+    case AlexClaw.Workflows.SkillRegistry.load_skill(file_path) do
+      {:ok, %{name: name, permissions: perms}} ->
+        perm_list = Enum.map_join(perms, ", ", &to_string/1)
+        Gateway.send_message("Skill *#{name}* loaded. Permissions: [#{perm_list}]")
+
+      {:error, reason} ->
+        Gateway.send_message("Skill load failed: #{inspect(reason)}")
+    end
+  end
+
+  def execute_2fa_action(%{type: :skill_unload, name: name}, _msg) do
+    case AlexClaw.Workflows.SkillRegistry.unload_skill(name) do
+      :ok -> Gateway.send_message("Skill *#{name}* unloaded.")
+      {:error, reason} -> Gateway.send_message("Skill unload failed: #{inspect(reason)}")
+    end
+  end
+
+  def execute_2fa_action(%{type: :skill_reload, name: name}, _msg) do
+    case AlexClaw.Workflows.SkillRegistry.reload_skill(name) do
+      {:ok, %{name: n}} -> Gateway.send_message("Skill *#{n}* reloaded and recompiled.")
+      {:error, reason} -> Gateway.send_message("Skill reload failed: #{inspect(reason)}")
+    end
+  end
+
   def execute_2fa_action(action, msg) do
     Logger.warning("Unknown 2FA action: #{inspect(action)}")
     Gateway.send_message("Action completed.", chat_id: msg.chat_id, gateway: msg.gateway)

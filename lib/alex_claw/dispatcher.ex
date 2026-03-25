@@ -95,8 +95,9 @@ defmodule AlexClaw.Dispatcher do
 
   # --- Delegated Command Groups ---
 
-  def dispatch(%Message{text: "/skill " <> _} = msg), do: SkillCommands.dispatch(msg)
-  def dispatch(%Message{text: "/skill" <> _} = msg), do: SkillCommands.dispatch(msg)
+  def dispatch(%Message{text: "/skill" <> _} = msg) do
+    Gateway.send_message("Skill management is only available from the Admin UI.\n2FA verification will be sent here when actions are performed.", gateway: msg.gateway)
+  end
 
   def dispatch(%Message{text: "/record " <> _} = msg), do: AutomationCommands.dispatch(msg)
   def dispatch(%Message{text: "/replay " <> _} = msg), do: AutomationCommands.dispatch(msg)
@@ -284,7 +285,6 @@ defmodule AlexClaw.Dispatcher do
     /ping — check if alive
     /status — system status
     /skills — list registered skills
-    /skill load|unload|reload|create — manage dynamic skills
     /llm — show LLM providers status
     /workflows — list all workflows
     /run <id or name> — run a workflow

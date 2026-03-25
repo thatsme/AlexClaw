@@ -66,6 +66,12 @@ services:
       SKILLS_DIR: /app/skills
     volumes:
       - skills_data:/app/skills
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   web-automator:
     build: ./web-automator

@@ -60,14 +60,15 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   def review_pr(repo, pr_number, opts \\ []) do
     focus = Config.get("github.security_focus", default_focus())
     token = Config.get("github.token", "")
+    llm_opts = resolve_llm_opts()
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       result =
         if pr_number do
-          analyse_pr(repo, pr_number, focus, [tier: :medium], token)
+          analyse_pr(repo, pr_number, focus, llm_opts, token)
         else
           case latest_open_pr(repo, token) do
-            {:ok, number} -> analyse_pr(repo, number, focus, [tier: :medium], token)
+            {:ok, number} -> analyse_pr(repo, number, focus, llm_opts, token)
             {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}.", :on_clean}
             {:error, reason} -> {:error, reason}
           end
@@ -90,9 +91,10 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   def review_commit(repo, sha, opts \\ []) do
     focus = Config.get("github.security_focus", default_focus())
     token = Config.get("github.token", "")
+    llm_opts = resolve_llm_opts()
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      case analyse_commit(repo, sha, focus, [tier: :medium], token) do
+      case analyse_commit(repo, sha, focus, llm_opts, token) do
         {:ok, report, _branch} ->
           Gateway.send_message(report, opts)
 
@@ -377,10 +379,26 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   end
 
   defp build_llm_opts(args) do
-    case args[:llm_provider] do
-      p when p in [nil, "", "auto"] -> []
-      provider -> [provider: provider]
+    opts =
+      case args[:llm_provider] do
+        p when p in [nil, "", "auto"] -> []
+        provider -> [provider: provider]
+      end
+
+    case args[:llm_tier] do
+      nil -> opts
+      tier when is_atom(tier) -> [{:tier, tier} | opts]
+      tier when is_binary(tier) -> [{:tier, String.to_existing_atom(tier)} | opts]
     end
+  end
+
+  defp resolve_llm_opts do
+    tier = String.to_atom(Config.get("skill.github_review.tier") || "medium")
+    provider = case Config.get("skill.github_review.provider") do
+      p when p in [nil, "", "auto"] -> nil
+      p -> p
+    end
+    [tier: tier] ++ if(provider, do: [provider: provider], else: [])
   end
 
   defp escape_md(nil), do: ""

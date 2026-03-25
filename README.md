@@ -221,6 +221,8 @@ See `.env.example` for the full list of bootstrap variables.
 
 All providers live in the database and can be added, removed, or reconfigured from the admin UI. The defaults above are seeded on first boot. The router selects by priority within each tier (lower priority number = preferred), tracks daily usage, and falls back to the next available provider. A fully local deployment with no API keys is supported — enable a local provider and all tiers will fall back to it.
 
+**Per-skill defaults:** Each skill has a configurable default tier (e.g. `skill.research.tier`), set from the admin UI or directly via chat: `/research --tier local` saves the default for future calls. When a query includes `--tier`, it overrides the saved default for that single call. Use `--tier` without a query to save, or with a query to override.
+
 ---
 
 ## Telegram/Discord Commands
@@ -235,9 +237,12 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/workflows` | List all workflows with status and ID |
 | `/run <id or name>` | Run a workflow on demand |
 | `/research <query>` | Deep research with memory context |
+| `/research --tier <tier>` | Set default tier for research (saved to DB) |
 | `/search <query>` | Web search and synthesis |
+| `/search --tier <tier>` | Set default tier for web search (saved to DB) |
 | `/web <url>` | Fetch and summarize a URL |
 | `/web <url> <question>` | Answer a question about a URL |
+| `/web --tier <tier>` | Set default tier for web browse (saved to DB) |
 | `/github pr <owner/repo> [number]` | Security review a PR |
 | `/github commit <owner/repo> <sha>` | Security review a commit |
 | `/events` | Show today's Google Calendar events |

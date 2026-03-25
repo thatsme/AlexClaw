@@ -36,6 +36,13 @@ defmodule AlexClaw.Skills.WebSearch do
           provider -> [provider: provider]
         end
 
+      llm_opts =
+        case args[:llm_tier] do
+          nil -> llm_opts
+          tier when is_atom(tier) -> [{:tier, tier} | llm_opts]
+          tier when is_binary(tier) -> [{:tier, String.to_existing_atom(tier)} | llm_opts]
+        end
+
       case search_ddg(query) do
         {:ok, results} when results != [] ->
           pages = fetch_pages(results)
@@ -56,14 +63,26 @@ defmodule AlexClaw.Skills.WebSearch do
   @spec handle(String.t(), keyword()) :: :ok
   def handle(query, opts \\ []) do
     Logger.info("WebSearch: #{query}", skill: :web_search)
-    Gateway.send_message("Searching: #{query}...", opts)
+    gateway_opts = Keyword.take(opts, [:gateway, :chat_id])
+    Gateway.send_message("Searching: #{query}...", gateway_opts)
 
-    case run(%{input: query}) do
-      {:ok, response, _branch} -> Gateway.send_message(response, opts)
-      {:error, :no_query} -> Gateway.send_message("No query provided.", opts)
+    tier = Keyword.get(opts, :tier, resolve_tier())
+    provider = Keyword.get(opts, :provider, resolve_provider())
+
+    case run(%{input: query, llm_provider: provider, llm_tier: tier}) do
+      {:ok, response, _branch} -> Gateway.send_message(response, gateway_opts)
+      {:error, :no_query} -> Gateway.send_message("No query provided.", gateway_opts)
       {:error, reason} ->
         Logger.warning("WebSearch failed: #{inspect(reason)}", skill: :web_search)
-        Gateway.send_message("Search failed: #{inspect(reason)}", opts)
+        Gateway.send_message("Search failed: #{inspect(reason)}", gateway_opts)
+    end
+  end
+
+  defp resolve_tier, do: String.to_atom(AlexClaw.Config.get("skill.web_search.tier") || "medium")
+  defp resolve_provider do
+    case AlexClaw.Config.get("skill.web_search.provider") do
+      p when p in [nil, "", "auto"] -> nil
+      p -> p
     end
   end
 
@@ -180,7 +199,8 @@ defmodule AlexClaw.Skills.WebSearch do
     #{sources}
     """
 
-    case LLM.complete(prompt, llm_opts ++ [tier: :medium, system: system]) do
+    default_tier = resolve_tier()
+    case LLM.complete(prompt, [{:tier, default_tier}, {:system, system}] ++ llm_opts) do
       {:ok, response} ->
         Memory.store(:web_search, response,
           source: "search:#{query}",

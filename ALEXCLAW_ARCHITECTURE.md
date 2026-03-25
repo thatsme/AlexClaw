@@ -70,8 +70,11 @@ Deterministic pattern-matching router. No LLM involved in routing — zero token
 /workflows         → list all workflows with status/schedule
 /run <id|name>     → execute a workflow on demand (supports 2FA gating)
 /research <q>      → Research skill
+/research --tier T → Save default tier for research (persisted to DB)
 /search <q>        → WebSearch skill
+/search --tier T   → Save default tier for web search (persisted to DB)
 /web <url> [q]     → WebBrowse skill
+/web --tier T      → Save default tier for web browse (persisted to DB)
 /github pr <r> [n] → GitHubSecurityReview — review PR
 /github commit <r> <sha> → GitHubSecurityReview — review commit
 /coder <goal>      → Coder — generate a dynamic skill from description (local LLM)

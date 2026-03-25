@@ -11,7 +11,7 @@ defmodule AlexClaw.Dispatcher do
   require Logger
 
   alias AlexClaw.{Config, Message, Gateway, SkillSupervisor}
-  alias AlexClaw.Dispatcher.{AuthCommands, AutomationCommands, SkillCommands}
+  alias AlexClaw.Dispatcher.{AuthCommands, AutomationCommands, CommandParser, SkillCommands}
 
   @spec dispatch(Message.t()) :: :ok | :ignored | term()
   def dispatch(%Message{text: "/start" <> _} = msg) do
@@ -55,21 +55,94 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
-  def dispatch(%Message{text: "/research " <> query} = msg) do
-    AlexClaw.Skills.Research.handle(String.trim(query), gateway: msg.gateway)
+  def dispatch(%Message{text: "/research " <> raw} = msg) do
+    {query, flags} = CommandParser.parse(String.trim(raw))
+
+    cond do
+      Keyword.get(flags, :tier) == :query ->
+        tier = Config.get("skill.research.tier") || "medium"
+        provider = Config.get("skill.research.provider") || "auto"
+        Gateway.send_message("Research: tier=#{tier}, provider=#{provider}", gateway: msg.gateway)
+
+      query == "" and Keyword.has_key?(flags, :tier) ->
+        new_tier = Keyword.get(flags, :tier)
+        Config.set("skill.research.tier", new_tier)
+
+        if provider = Keyword.get(flags, :provider) do
+          Config.set("skill.research.provider", provider)
+          Gateway.send_message("Research defaults saved: tier=#{new_tier}, provider=#{provider}", gateway: msg.gateway)
+        else
+          Gateway.send_message("Research default tier saved: #{new_tier}", gateway: msg.gateway)
+        end
+
+      query == "" ->
+        Gateway.send_message("Usage: /research [--tier light|medium|heavy|local] [--provider name] <query>", gateway: msg.gateway)
+
+      true ->
+        tier = CommandParser.resolve_tier(flags, "skill.research.tier", "medium")
+        provider = CommandParser.resolve_provider(flags, "skill.research.provider")
+        Gateway.send_message("Research (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
+        AlexClaw.Skills.Research.handle(query, tier: tier, provider: provider, gateway: msg.gateway)
+    end
   end
 
-  def dispatch(%Message{text: "/search " <> query} = msg) do
-    AlexClaw.Skills.WebSearch.handle(String.trim(query), gateway: msg.gateway)
+  def dispatch(%Message{text: "/search " <> raw} = msg) do
+    {query, flags} = CommandParser.parse(String.trim(raw))
+
+    cond do
+      Keyword.get(flags, :tier) == :query ->
+        tier = Config.get("skill.web_search.tier") || "medium"
+        provider = Config.get("skill.web_search.provider") || "auto"
+        Gateway.send_message("Web Search: tier=#{tier}, provider=#{provider}", gateway: msg.gateway)
+
+      query == "" and Keyword.has_key?(flags, :tier) ->
+        new_tier = Keyword.get(flags, :tier)
+        Config.set("skill.web_search.tier", new_tier)
+
+        if provider = Keyword.get(flags, :provider) do
+          Config.set("skill.web_search.provider", provider)
+          Gateway.send_message("Search defaults saved: tier=#{new_tier}, provider=#{provider}", gateway: msg.gateway)
+        else
+          Gateway.send_message("Search default tier saved: #{new_tier}", gateway: msg.gateway)
+        end
+
+      query == "" ->
+        Gateway.send_message("Usage: /search [--tier light|medium|heavy|local] [--provider name] <query>", gateway: msg.gateway)
+
+      true ->
+        tier = CommandParser.resolve_tier(flags, "skill.web_search.tier", "medium")
+        provider = CommandParser.resolve_provider(flags, "skill.web_search.provider")
+        Gateway.send_message("Search (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
+        AlexClaw.Skills.WebSearch.handle(query, tier: tier, provider: provider, gateway: msg.gateway)
+    end
   end
 
-  def dispatch(%Message{text: "/web " <> rest} = msg) do
-    case String.split(String.trim(rest), " ", parts: 2) do
-      [url, question] ->
-        AlexClaw.Skills.WebBrowse.handle(url, question, gateway: msg.gateway)
+  def dispatch(%Message{text: "/web " <> raw} = msg) do
+    {rest, flags} = CommandParser.parse(String.trim(raw))
 
-      [url] ->
-        AlexClaw.Skills.WebBrowse.handle(url, nil, gateway: msg.gateway)
+    if rest == "" and Keyword.has_key?(flags, :tier) do
+      new_tier = Keyword.get(flags, :tier)
+      Config.set("skill.web_browse.tier", new_tier)
+
+      if provider = Keyword.get(flags, :provider) do
+        Config.set("skill.web_browse.provider", provider)
+        Gateway.send_message("Browse defaults saved: tier=#{new_tier}, provider=#{provider}", gateway: msg.gateway)
+      else
+        Gateway.send_message("Browse default tier saved: #{new_tier}", gateway: msg.gateway)
+      end
+    else
+      tier = CommandParser.resolve_tier(flags, "skill.web_browse.tier", "light")
+      provider = CommandParser.resolve_provider(flags, "skill.web_browse.provider")
+
+      case String.split(rest, " ", parts: 2) do
+        [url, question] ->
+          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
+          AlexClaw.Skills.WebBrowse.handle(url, question, tier: tier, provider: provider, gateway: msg.gateway)
+
+        [url] ->
+          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
+          AlexClaw.Skills.WebBrowse.handle(url, nil, tier: tier, provider: provider, gateway: msg.gateway)
+      end
     end
   end
 

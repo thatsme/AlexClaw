@@ -18,6 +18,7 @@ defmodule AlexClaw.Gateway.Telegram do
   def name, do: :telegram
 
   @impl AlexClaw.Gateway.Behaviour
+  @spec configured?() :: boolean()
   def configured? do
     enabled = Config.get("telegram.enabled")
     token = Config.get("telegram.bot_token")

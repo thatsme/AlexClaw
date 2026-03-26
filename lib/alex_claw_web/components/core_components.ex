@@ -5,6 +5,7 @@ defmodule AlexClawWeb.CoreComponents do
 
   attr :flash, :map, required: true
 
+  @spec flash_group(map()) :: Phoenix.LiveView.Rendered.t()
   def flash_group(assigns) do
     ~H"""
     <div class="fixed top-4 right-4 z-50 space-y-2">
@@ -17,6 +18,7 @@ defmodule AlexClawWeb.CoreComponents do
   attr :kind, :atom, required: true
   attr :message, :string, required: true
 
+  @spec flash(map()) :: Phoenix.LiveView.Rendered.t()
   def flash(assigns) do
     ~H"""
     <div class={[

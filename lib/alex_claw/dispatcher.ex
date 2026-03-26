@@ -24,7 +24,7 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/status" <> _} = msg) do
     uptime = :erlang.statistics(:wall_clock) |> elem(0) |> div(1000)
-    memory = :erlang.memory(:total) |> div(1_048_576)
+    memory = div(:erlang.memory(:total), 1_048_576)
 
     Gateway.send_message("""
     *AlexClaw* status
@@ -148,8 +148,7 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/skills" <> _} = msg) do
     text =
-      AlexClaw.Workflows.SkillRegistry.list_all_with_type()
-      |> Enum.map_join("\n", fn {name, module, type, perms, _routes} ->
+      Enum.map_join(AlexClaw.Workflows.SkillRegistry.list_all_with_type(), "\n", fn {name, module, type, perms, _routes} ->
         desc =
           if function_exported?(module, :description, 0),
             do: module.description(),
@@ -191,8 +190,7 @@ defmodule AlexClaw.Dispatcher do
       Gateway.send_message("No workflows configured.", gateway: msg.gateway)
     else
       text =
-        workflows
-        |> Enum.map_join("\n", fn wf ->
+        Enum.map_join(workflows, "\n", fn wf ->
           status = if wf.enabled, do: "enabled", else: "disabled"
           schedule = if wf.schedule && wf.schedule != "", do: " `#{wf.schedule}`", else: ""
           "• *#{wf.name}* (#{status}#{schedule}) — id: #{wf.id}"
@@ -208,12 +206,10 @@ defmodule AlexClaw.Dispatcher do
     workflow =
       case Integer.parse(input) do
         {id, ""} ->
-          AlexClaw.Repo.get(AlexClaw.Workflows.Workflow, id)
-          |> AlexClaw.Repo.preload([:steps, :resources])
+          AlexClaw.Repo.preload(AlexClaw.Repo.get(AlexClaw.Workflows.Workflow, id), [:steps, :resources])
 
         _ ->
-          AlexClaw.Workflows.list_workflows()
-          |> Enum.find(&(String.downcase(&1.name) == String.downcase(input)))
+          Enum.find(AlexClaw.Workflows.list_workflows(), &(String.downcase(&1.name) == String.downcase(input)))
       end
 
     if workflow do
@@ -248,8 +244,7 @@ defmodule AlexClaw.Dispatcher do
     ]
 
     text =
-      providers
-      |> Enum.map_join("\n", fn {name, tier, key_path} ->
+      Enum.map_join(providers, "\n", fn {name, tier, key_path} ->
         status =
           cond do
             name == "Ollama" ->

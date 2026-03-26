@@ -216,7 +216,7 @@ defmodule AlexClaw.Workflows do
       |> Map.new()
 
     %{
-      total: Map.values(results) |> Enum.sum(),
+      total: Enum.sum(Map.values(results)),
       completed: Map.get(results, "completed", 0),
       failed: Map.get(results, "failed", 0),
       running: Map.get(results, "running", 0)

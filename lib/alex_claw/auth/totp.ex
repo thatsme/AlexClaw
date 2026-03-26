@@ -24,6 +24,7 @@ defmodule AlexClaw.Auth.TOTP do
   # Pending 2FA challenges: chat_id -> %{action: ..., expires_at: ...}
   @challenges_table :totp_challenges
 
+  @spec init_tables() :: :ets.tid() | atom()
   def init_tables do
     if :ets.whereis(@challenges_table) == :undefined do
       :ets.new(@challenges_table, [:named_table, :public, :set])
@@ -135,7 +136,7 @@ defmodule AlexClaw.Auth.TOTP do
   @spec create_challenge(String.t() | integer(), map()) :: String.t()
   def create_challenge(chat_id, action) do
     init_tables()
-    challenge_id = :crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)
+    challenge_id = Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
     expires_at = System.monotonic_time(:second) + 120
 
     :ets.insert(@challenges_table, {

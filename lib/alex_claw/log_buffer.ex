@@ -17,6 +17,7 @@ defmodule AlexClaw.LogBuffer do
 
   # --- Client API ---
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
@@ -85,12 +86,15 @@ defmodule AlexClaw.LogBuffer do
   # --- :logger handler callbacks (Erlang logger API) ---
 
   @doc false
+  @spec adding_handler(:logger.handler_config()) :: {:ok, :logger.handler_config()}
   def adding_handler(config), do: {:ok, config}
 
   @doc false
+  @spec removing_handler(:logger.handler_config()) :: :ok
   def removing_handler(_config), do: :ok
 
   @doc false
+  @spec log(:logger.log_event(), :logger.handler_config()) :: :ok | nil
   def log(%{level: level, msg: msg, meta: meta}, _config) do
     message = format_message(msg)
 

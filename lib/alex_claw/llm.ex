@@ -99,8 +99,7 @@ defmodule AlexClaw.LLM do
   @spec list_provider_choices() :: [map()]
   def list_provider_choices do
     providers =
-      list_providers()
-      |> Enum.map(fn p ->
+      Enum.map(list_providers(), fn p ->
         suffix = if p.enabled, do: "", else: " [disabled]"
         %{value: p.name, label: "#{p.name} (#{p.model})#{suffix}", group: p.tier}
       end)

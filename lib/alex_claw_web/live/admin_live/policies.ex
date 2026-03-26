@@ -9,6 +9,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
   import Ecto.Query
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
@@ -29,6 +30,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
   }
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("rule_type_changed", %{"policy" => params}, socket) do
     rule_type = params["rule_type"]
     previous_type = socket.assigns.form.params["rule_type"]
@@ -145,7 +147,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("delete_policy", %{"id" => id}, socket) do
-    Repo.get!(Policy, id) |> Repo.delete!()
+    Repo.delete!(Repo.get!(Policy, id))
     PolicyEngine.reload_policies()
 
     {:noreply,

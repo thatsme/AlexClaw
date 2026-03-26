@@ -5,6 +5,7 @@ defmodule AlexClaw.Release do
   """
   @app :alex_claw
 
+  @spec migrate() :: [{:ok, [integer()], [Ecto.Migration.t()]}]
   def migrate do
     load_app()
 
@@ -13,6 +14,7 @@ defmodule AlexClaw.Release do
     end
   end
 
+  @spec seed_examples() :: [{:ok, any(), any()}]
   def seed_examples do
     load_app()
 
@@ -33,6 +35,7 @@ defmodule AlexClaw.Release do
     end
   end
 
+  @spec rollback(module(), integer()) :: {:ok, [integer()], [Ecto.Migration.t()]}
   def rollback(repo, version) do
     load_app()
     {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :down, to: version))

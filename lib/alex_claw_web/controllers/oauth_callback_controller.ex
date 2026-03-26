@@ -7,6 +7,7 @@ defmodule AlexClawWeb.OAuthCallbackController do
   alias AlexClaw.Google.OAuth
   alias AlexClaw.Gateway
 
+  @spec google(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def google(conn, %{"code" => code, "state" => state}) do
     case OAuth.handle_callback(code, state) do
       {:ok, chat_id} ->

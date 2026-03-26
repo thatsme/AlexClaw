@@ -3,6 +3,7 @@ defmodule AlexClawWeb.ErrorHTML do
 
   use Phoenix.Component
 
+  @spec render(String.t(), map()) :: String.t()
   def render(template, _assigns) do
     Phoenix.Controller.status_message_from_template(template)
   end

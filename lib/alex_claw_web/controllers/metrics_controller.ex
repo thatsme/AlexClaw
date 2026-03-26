@@ -27,8 +27,7 @@ defmodule AlexClawWeb.MetricsController do
 
   defp llm_metrics do
     providers =
-      AlexClaw.LLM.list_providers()
-      |> Enum.map(fn p ->
+      Enum.map(AlexClaw.LLM.list_providers(), fn p ->
         %{
           name: p.name,
           tier: p.tier,

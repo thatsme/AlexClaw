@@ -46,8 +46,7 @@ defmodule AlexClaw.Knowledge.SelfAwareness do
             chunks = chunk_by_section(content, @max_chunk_chars)
             total = length(chunks)
 
-            Enum.with_index(chunks, 1)
-            |> Enum.each(fn {chunk, idx} ->
+            Enum.each(Enum.with_index(chunks, 1), fn {chunk, idx} ->
               Knowledge.store(:self_awareness, chunk,
                 source: source,
                 metadata: %{

@@ -5,15 +5,18 @@ defmodule AlexClaw.Skills.Research do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Deep research with memory context and LLM synthesis"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_results, :on_error]
   require Logger
 
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
 
   @impl true
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     query = args[:input] || args[:config]["query"] || ""
 
@@ -38,7 +41,7 @@ defmodule AlexClaw.Skills.Research do
     end
   end
 
-  defp resolve_tier, do: String.to_atom(Config.get("skill.research.tier") || "medium")
+  defp resolve_tier, do: String.to_existing_atom(Config.get("skill.research.tier") || "medium")
   defp resolve_provider do
     case Config.get("skill.research.provider") do
       p when p in [nil, "", "auto"] -> nil
@@ -57,8 +60,7 @@ defmodule AlexClaw.Skills.Research do
           "No prior context found."
 
         entries ->
-          entries
-          |> Enum.map_join("\n---\n", & &1.content)
+          Enum.map_join(entries, "\n---\n", & &1.content)
       end
 
     prompt = """

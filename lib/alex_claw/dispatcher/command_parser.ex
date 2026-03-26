@@ -21,7 +21,7 @@ defmodule AlexClaw.Dispatcher.CommandParser do
   @spec resolve_tier(keyword(), String.t(), String.t()) :: atom()
   def resolve_tier(opts, config_key, default) do
     case Keyword.get(opts, :tier) do
-      nil -> (AlexClaw.Config.get(config_key) || default) |> to_tier()
+      nil -> to_tier(AlexClaw.Config.get(config_key) || default)
       val -> to_tier(val)
     end
   end
@@ -49,11 +49,11 @@ defmodule AlexClaw.Dispatcher.CommandParser do
 
   defp extract_flags(["--" <> flag], flags, rest) when flag in @known_flags do
     # Flag with no value — mark as query
-    {Enum.reverse([{String.to_atom(flag), :query} | flags]), Enum.reverse(rest)}
+    {Enum.reverse([{String.to_existing_atom(flag), :query} | flags]), Enum.reverse(rest)}
   end
 
   defp extract_flags(["--" <> flag, value | tail], flags, rest) when flag in @known_flags do
-    extract_flags(tail, [{String.to_atom(flag), value} | flags], rest)
+    extract_flags(tail, [{String.to_existing_atom(flag), value} | flags], rest)
   end
 
   defp extract_flags([head | tail], flags, rest) do

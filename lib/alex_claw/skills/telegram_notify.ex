@@ -8,9 +8,11 @@ defmodule AlexClaw.Skills.TelegramNotify do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Sends workflow output to Telegram chat"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_delivered, :on_error]
   require Logger
 
@@ -88,6 +90,7 @@ defmodule AlexClaw.Skills.TelegramNotify do
   Converts LLM markdown output to Telegram-compatible HTML.
   Handles headers, bold, italic, code blocks, and bullet lists.
   """
+  @spec format_for_telegram(String.t()) :: String.t()
   def format_for_telegram(text) do
     text
     |> String.split("\n")

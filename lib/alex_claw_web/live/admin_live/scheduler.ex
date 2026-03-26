@@ -6,6 +6,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
   alias AlexClaw.Workflows
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       :timer.send_interval(30_000, :refresh)
@@ -24,6 +25,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("run_now", %{"id" => id}, socket) do
     case parse_id(id) do
       {:ok, wf_id} ->
@@ -48,11 +50,9 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
 
   defp list_jobs do
     quantum_jobs =
-      AlexClaw.Scheduler.jobs()
-      |> Map.new(fn {name, job} -> {name, job} end)
+      Map.new(AlexClaw.Scheduler.jobs(), fn {name, job} -> {name, job} end)
 
-    Workflows.list_scheduled_workflows()
-    |> Enum.map(fn workflow ->
+    Enum.map(Workflows.list_scheduled_workflows(), fn workflow ->
       job_name = :"wf_#{workflow.id}"
       quantum_job = Map.get(quantum_jobs, job_name)
 
@@ -75,7 +75,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
     case Crontab.Scheduler.get_next_run_date(job.schedule) do
       {:ok, next} ->
         now = NaiveDateTime.utc_now()
-        diff_minutes = NaiveDateTime.diff(next, now, :second) |> div(60)
+        diff_minutes = div(NaiveDateTime.diff(next, now, :second), 60)
 
         cond do
           diff_minutes < 1 -> "< 1 min"
@@ -93,7 +93,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
 
   defp minutes_until_next(job) do
     case Crontab.Scheduler.get_next_run_date(job.schedule) do
-      {:ok, next} -> NaiveDateTime.diff(next, NaiveDateTime.utc_now(), :second) |> div(60)
+      {:ok, next} -> div(NaiveDateTime.diff(next, NaiveDateTime.utc_now(), :second), 60)
       _ -> nil
     end
   end

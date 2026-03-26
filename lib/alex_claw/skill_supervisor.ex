@@ -5,6 +5,7 @@ defmodule AlexClaw.SkillSupervisor do
   """
   use DynamicSupervisor
 
+  @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(init_arg) do
     DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
   end

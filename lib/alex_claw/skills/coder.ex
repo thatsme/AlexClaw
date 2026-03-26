@@ -9,12 +9,15 @@ defmodule AlexClaw.Skills.Coder do
   alias AlexClaw.Skills.SkillAPI
 
   @impl true
+  @spec description() :: String.t()
   def description, do: "Generate dynamic skills from natural language goals using local LLM"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_created, :on_workflow_created, :on_error]
 
   @impl true
+  @spec permissions() :: :all
   def permissions, do: :all
 
   @default_max_retries 5
@@ -41,6 +44,7 @@ defmodule AlexClaw.Skills.Coder do
   """
 
   @impl true
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     input = args[:input] || args[:config]["goal"] || ""
     config = args[:config] || %{}
@@ -54,6 +58,7 @@ defmodule AlexClaw.Skills.Coder do
     end
   end
 
+  @spec handle(String.t(), keyword()) :: :ok
   def handle(goal, opts \\ []) do
     case run(%{input: goal}) do
       {:ok, result, _branch} ->

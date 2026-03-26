@@ -51,6 +51,7 @@ defmodule AlexClaw.Auth.PolicyEngine do
   end
 
   @doc "Reload cached policies from DB."
+  @spec reload_policies() :: [Policy.t()]
   def reload_policies do
     :persistent_term.erase(@policy_cache_key)
     load_policies()

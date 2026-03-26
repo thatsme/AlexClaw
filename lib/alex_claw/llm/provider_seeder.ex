@@ -32,9 +32,7 @@ defmodule AlexClaw.LLM.ProviderSeeder do
 
   @spec seed() :: :ok
   def seed do
-    existing_names =
-      Repo.all(from p in Provider, select: p.name)
-      |> MapSet.new()
+    existing_names = MapSet.new(Repo.all(from p in Provider, select: p.name))
 
     for default <- @defaults do
       unless MapSet.member?(existing_names, default.name) do

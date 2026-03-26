@@ -21,12 +21,15 @@ defmodule AlexClaw.Skills.Shell do
   @default_max_output_chars 4000
 
   @impl true
+  @spec description() :: String.t()
   def description, do: "Execute whitelisted OS commands for container introspection"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_error, :on_timeout]
 
   @impl true
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     if Config.get("shell.enabled") != true do
       {:error, :shell_disabled}
@@ -78,6 +81,7 @@ defmodule AlexClaw.Skills.Shell do
   end
 
   @doc false
+  @spec prefix_matches?(String.t(), String.t()) :: boolean()
   def prefix_matches?(command, prefix) do
     String.starts_with?(command, prefix) and
       (byte_size(command) == byte_size(prefix) or

@@ -5,9 +5,11 @@ defmodule AlexClaw.Skills.WebBrowse do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Fetches a URL, extracts readable text, optionally answers questions via LLM"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_not_found, :on_timeout, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
@@ -18,6 +20,7 @@ defmodule AlexClaw.Skills.WebBrowse do
 
   @doc "Workflow-compatible entry point. Uses config url/question or args[:input] as URL."
   @impl true
+  @spec run(map()) :: {:ok, String.t() | nil, atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
     url = config["url"] || to_string(args[:input] || "")
@@ -130,7 +133,7 @@ defmodule AlexClaw.Skills.WebBrowse do
     end
   end
 
-  defp resolve_tier, do: String.to_atom(AlexClaw.Config.get("skill.web_browse.tier") || "light")
+  defp resolve_tier, do: String.to_existing_atom(AlexClaw.Config.get("skill.web_browse.tier") || "light")
   defp resolve_provider do
     case AlexClaw.Config.get("skill.web_browse.provider") do
       p when p in [nil, "", "auto"] -> nil

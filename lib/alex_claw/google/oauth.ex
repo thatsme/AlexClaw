@@ -25,6 +25,7 @@ defmodule AlexClaw.Google.OAuth do
 
   @state_table :google_oauth_states
 
+  @spec init_state_table() :: :ets.tid() | atom()
   def init_state_table do
     if :ets.whereis(@state_table) == :undefined do
       :ets.new(@state_table, [:named_table, :public, :set])
@@ -41,7 +42,7 @@ defmodule AlexClaw.Google.OAuth do
     else
       init_state_table()
 
-      state = :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+      state = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
       redirect_uri = get_redirect_uri()
 
       :ets.insert(@state_table, {state, to_string(chat_id), System.monotonic_time(:second)})
@@ -169,8 +170,7 @@ defmodule AlexClaw.Google.OAuth do
   defp cleanup_expired_states do
     now = System.monotonic_time(:second)
 
-    :ets.tab2list(@state_table)
-    |> Enum.each(fn {state, _chat_id, created_at} ->
+    Enum.each(:ets.tab2list(@state_table), fn {state, _chat_id, created_at} ->
       if now - created_at > 600 do
         :ets.delete(@state_table, state)
       end

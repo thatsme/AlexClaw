@@ -5,6 +5,7 @@ defmodule AlexClawWeb.AdminLive.Config do
 
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket), do: AlexClaw.Config.subscribe()
     settings = AlexClaw.Config.list()
@@ -28,6 +29,7 @@ defmodule AlexClawWeb.AdminLive.Config do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil)}
   end
@@ -149,8 +151,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     known = Enum.filter(@category_order, &Map.has_key?(groups, &1))
     extra = Map.keys(groups) |> Enum.reject(&(&1 in @category_order)) |> Enum.sort()
 
-    (known ++ extra)
-    |> Enum.map(fn cat -> {cat, Map.get(@category_labels, cat, String.capitalize(cat)), groups[cat]} end)
+    Enum.map(known ++ extra, fn cat -> {cat, Map.get(@category_labels, cat, String.capitalize(cat)), groups[cat]} end)
   end
 
   defp truncate_desc(nil), do: ""
@@ -178,7 +179,6 @@ defmodule AlexClawWeb.AdminLive.Config do
   defp auto_assign_gateway_node(_key, _value), do: :ok
 
   defp cluster_node_names do
-    [to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)]
-    |> Enum.uniq()
+    Enum.uniq([to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)])
   end
 end

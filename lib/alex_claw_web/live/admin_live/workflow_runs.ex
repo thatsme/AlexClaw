@@ -6,6 +6,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   alias AlexClaw.Workflows
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(%{"id" => id}, _session, socket) do
     case parse_id(id) do
       :error ->
@@ -34,6 +35,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_expand", %{"id" => id}, socket) do
     case parse_id(id) do
       {:ok, run_id} ->

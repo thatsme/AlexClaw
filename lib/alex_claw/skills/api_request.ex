@@ -6,9 +6,11 @@ defmodule AlexClaw.Skills.ApiRequest do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Generic REST client — GET/POST/PUT/PATCH/DELETE with {input} interpolation"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error]
   require Logger
 
@@ -28,7 +30,7 @@ defmodule AlexClaw.Skills.ApiRequest do
     if url == "" do
       {:error, :no_url}
     else
-      if method not in @allowed_methods do
+      unless method in @allowed_methods do
         {:error, {:invalid_method, method}}
       else
         execute_request(method, url, headers, body)

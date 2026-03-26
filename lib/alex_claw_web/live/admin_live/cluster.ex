@@ -5,6 +5,7 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   alias AlexClaw.Cluster
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket), do: :timer.send_interval(30_000, :refresh)
 
@@ -26,6 +27,7 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form)}
   end
@@ -47,8 +49,7 @@ defmodule AlexClawWeb.AdminLive.Cluster do
 
       {:error, changeset} ->
         msg =
-          Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end)
-          |> Enum.map_join(", ", fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
+          Enum.map_join(Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end), ", ", fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
 
         {:noreply, put_flash(socket, :error, "Failed: #{msg}")}
     end
@@ -75,7 +76,6 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   end
 
   defp remote_nodes(self_name) do
-    Cluster.list_nodes()
-    |> Enum.reject(fn n -> n.name == self_name end)
+    Enum.reject(Cluster.list_nodes(), fn n -> n.name == self_name end)
   end
 end

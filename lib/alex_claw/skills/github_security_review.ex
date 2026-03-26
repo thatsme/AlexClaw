@@ -14,9 +14,11 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Fetches PR/commit diffs from GitHub, runs LLM security analysis, notifies via Telegram"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_clean, :on_findings, :on_error]
   require Logger
 
@@ -26,6 +28,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   @github_api "https://api.github.com"
 
   @impl true
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
     repo = config["repo"] || Config.get("github.default_repo", "")
@@ -393,7 +396,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   end
 
   defp resolve_llm_opts do
-    tier = String.to_atom(Config.get("skill.github_review.tier") || "medium")
+    tier = String.to_existing_atom(Config.get("skill.github_review.tier") || "medium")
     provider = case Config.get("skill.github_review.provider") do
       p when p in [nil, "", "auto"] -> nil
       p -> p

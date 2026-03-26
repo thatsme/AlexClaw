@@ -20,9 +20,11 @@ defmodule AlexClaw.Skills.GoogleTasks do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Lists and creates Google Tasks"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_tasks, :on_empty, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]

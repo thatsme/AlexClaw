@@ -43,8 +43,7 @@ defmodule AlexClaw.Workflows.SchedulerSync do
 
   defp do_sync do
     # Remove all workflow-managed jobs (prefixed with :wf_)
-    AlexClaw.Scheduler.jobs()
-    |> Enum.each(fn {name, _job} ->
+    Enum.each(AlexClaw.Scheduler.jobs(), fn {name, _job} ->
       if is_atom(name) and String.starts_with?(Atom.to_string(name), "wf_") do
         AlexClaw.Scheduler.delete_job(name)
       end

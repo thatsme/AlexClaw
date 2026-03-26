@@ -39,6 +39,7 @@ defmodule AlexClaw.Auth.SkillRateLimiter do
 
   # --- GenServer (table owner + cleanup) ---
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
@@ -55,8 +56,7 @@ defmodule AlexClaw.Auth.SkillRateLimiter do
     now = System.system_time(:second)
     max_age = 300
 
-    :ets.tab2list(@table)
-    |> Enum.each(fn {key, timestamps} ->
+    Enum.each(:ets.tab2list(@table), fn {key, timestamps} ->
       recent = Enum.filter(timestamps, &(&1 >= now - max_age))
 
       if recent == [] do

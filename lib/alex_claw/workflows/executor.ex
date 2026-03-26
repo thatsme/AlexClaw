@@ -104,9 +104,7 @@ defmodule AlexClaw.Workflows.Executor do
   defp walk(pos, steps, workflow, run, state) do
     step = find_step(steps, pos)
 
-    unless step do
-      {:ok, last_output(state), state.step_results}
-    else
+    if step do
       if MapSet.member?(state.visited, pos) do
         {:error, step.name, :loop_detected, state.step_results}
       else
@@ -151,6 +149,8 @@ defmodule AlexClaw.Workflows.Executor do
             end
         end
       end
+    else
+      {:ok, last_output(state), state.step_results}
     end
   end
 

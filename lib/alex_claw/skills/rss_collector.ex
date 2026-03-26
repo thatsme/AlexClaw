@@ -5,10 +5,12 @@ defmodule AlexClaw.Skills.RSSCollector do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description,
     do: "Fetches RSS feeds, scores relevance via LLM, stores and notifies via Telegram"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_items, :on_empty, :on_error]
 
   use Task, restart: :temporary
@@ -74,7 +76,7 @@ defmodule AlexClaw.Skills.RSSCollector do
 
     results =
       if force do
-        fetched |> score_and_filter(threshold, max_items, llm_opts, config)
+        score_and_filter(fetched, threshold, max_items, llm_opts, config)
       else
         fetched
         |> Enum.reject(&already_seen?/1)
@@ -89,8 +91,7 @@ defmodule AlexClaw.Skills.RSSCollector do
     Logger.info("RSS Collector done: #{length(results)} items", skill: :rss)
 
     summary =
-      results
-      |> Enum.map_join("\n\n", fn item ->
+      Enum.map_join(results, "\n\n", fn item ->
         "**#{item.feed}**: #{item.title}\n#{String.slice(item.description || "", 0, 300)}\n#{item.link}"
       end)
 
@@ -117,8 +118,7 @@ defmodule AlexClaw.Skills.RSSCollector do
   end
 
   defp get_feeds_from_resources do
-    Resources.list_resources(%{type: "rss_feed", enabled: true})
-    |> Enum.map(fn r -> {r.name, r.url} end)
+    Enum.map(Resources.list_resources(%{type: "rss_feed", enabled: true}), fn r -> {r.name, r.url} end)
   end
 
   defp fetch_feed({name, url}, recv_timeout) do

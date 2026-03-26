@@ -6,6 +6,7 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
 
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       :timer.send_interval(5_000, :refresh)
@@ -25,7 +26,7 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
 
     assign(socket,
       page_title: "Dashboard",
-      version: Application.spec(:alex_claw, :vsn) |> to_string(),
+      version: to_string(Application.spec(:alex_claw, :vsn)),
       uptime: format_uptime(:erlang.statistics(:wall_clock) |> elem(0) |> div(1000)),
       memory_mb: div(memory_bytes, 1_048_576),
       skills_active: skill_children.active,

@@ -18,9 +18,11 @@ defmodule AlexClaw.Skills.SendToWorkflow do
   @default_timeout 5_000
 
   @impl true
+  @spec description() :: String.t()
   def description, do: "Sends workflow output to a workflow on another BEAM node"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_sent, :on_error]
 
   @impl true
@@ -42,35 +44,38 @@ defmodule AlexClaw.Skills.SendToWorkflow do
 
       true ->
         source_node = to_string(node())
-        atom_node = safe_to_atom(target_node)
 
-        case :rpc.call(
-               atom_node,
-               AlexClaw.Cluster.Manager,
-               :receive_workflow_data,
-               [target_workflow, input, source_node],
-               timeout
-             ) do
-          {:ok, _} ->
-            Logger.info("Sent data to '#{target_workflow}' on #{target_node}")
-            {:ok, input, :on_sent}
+        atom_node =
+          try do
+            String.to_existing_atom(target_node)
+          rescue
+            ArgumentError -> nil
+          end
 
-          {:error, reason} ->
-            Logger.warning("Failed to send to #{target_node}: #{inspect(reason)}")
-            {:error, reason}
+        if is_nil(atom_node) do
+          {:error, {:rpc_failed, :unknown_node}}
+        else
+          case :rpc.call(
+                 atom_node,
+                 AlexClaw.Cluster.Manager,
+                 :receive_workflow_data,
+                 [target_workflow, input, source_node],
+                 timeout
+               ) do
+            {:ok, _} ->
+              Logger.info("Sent data to '#{target_workflow}' on #{target_node}")
+              {:ok, input, :on_sent}
 
-          {:badrpc, reason} ->
-            Logger.warning("RPC failed to #{target_node}: #{inspect(reason)}")
-            {:error, {:rpc_failed, reason}}
+            {:error, reason} ->
+              Logger.warning("Failed to send to #{target_node}: #{inspect(reason)}")
+              {:error, reason}
+
+            {:badrpc, reason} ->
+              Logger.warning("RPC failed to #{target_node}: #{inspect(reason)}")
+              {:error, {:rpc_failed, reason}}
+          end
         end
     end
   end
 
-  # Node names from config are a bounded set — use existing_atom when possible,
-  # fall back to to_atom for first-time connections (BEAM will create the atom anyway on connect).
-  defp safe_to_atom(name) do
-    String.to_existing_atom(name)
-  rescue
-    ArgumentError -> String.to_atom(name)
-  end
 end

@@ -5,12 +5,14 @@ defmodule AlexClaw.Skills.Conversational do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Free-text conversation with identity and memory context"
   require Logger
 
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
 
   @impl true
+  @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     text = args[:input] || args[:config]["message"] || ""
     do_converse(to_string(text))
@@ -52,7 +54,7 @@ defmodule AlexClaw.Skills.Conversational do
 
     prompt = "#{context}\n\nUser: #{text}"
 
-    tier = String.to_atom(Config.get("skill.conversational.tier") || "light")
+    tier = String.to_existing_atom(Config.get("skill.conversational.tier") || "light")
     provider = case Config.get("skill.conversational.provider") do
       p when p in [nil, "", "auto"] -> nil
       p -> p

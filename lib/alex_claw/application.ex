@@ -1,5 +1,5 @@
 defmodule AlexClaw.Application do
-  @moduledoc false
+  @moduledoc "OTP application supervisor for AlexClaw."
   use Application
 
   @impl true

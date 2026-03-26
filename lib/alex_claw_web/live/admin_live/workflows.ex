@@ -7,6 +7,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   alias AlexClaw.Workflows.SkillRegistry
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, "skills:registry")
@@ -32,6 +33,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil, editing_step: nil, custom_schedule: false)}
   end
@@ -456,8 +458,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp routes_for_skill(skill_name) do
-    SkillRegistry.get_routes(skill_name)
-    |> Enum.map(&to_string/1)
+    Enum.map(SkillRegistry.get_routes(skill_name), &to_string/1)
   end
 
   defp route_target(step, branch) do
@@ -594,6 +595,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_config_hint(_), do: ""
 
   defp skill_config_scaffold(skill) do
+    Jason.encode!(skill_config_scaffold_data(skill), pretty: true)
+  end
+
+  defp skill_config_scaffold_data(skill) do
     case skill do
       "api_request" -> %{"method" => "GET", "url" => "", "headers" => %{}, "body" => ""}
       "rss_collector" -> %{"threshold" => 0.3, "force" => false, "max_items" => 5, "interests" => ""}
@@ -614,7 +619,6 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "receive_from_workflow" -> %{"allowed_nodes" => []}
       _ -> %{}
     end
-    |> Jason.encode!(pretty: true)
   end
 
   defp skill_scaffolds(skill) do
@@ -734,7 +738,6 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp cluster_node_names do
-    [to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)]
-    |> Enum.uniq()
+    Enum.uniq([to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)])
   end
 end

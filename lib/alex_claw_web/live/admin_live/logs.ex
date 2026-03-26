@@ -6,6 +6,7 @@ defmodule AlexClawWeb.AdminLive.Logs do
   alias AlexClaw.LogBuffer
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       :timer.send_interval(3_000, :refresh)
@@ -33,6 +34,7 @@ defmodule AlexClawWeb.AdminLive.Logs do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("clear", _, socket) do
     LogBuffer.clear()
 

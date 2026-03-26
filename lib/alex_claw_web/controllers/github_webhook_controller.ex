@@ -8,9 +8,10 @@ defmodule AlexClawWeb.GitHubWebhookController do
   alias AlexClaw.Config
   alias AlexClaw.Skills.GitHubSecurityReview
 
+  @spec handle(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def handle(conn, params) do
-    signature = get_req_header(conn, "x-hub-signature-256") |> List.first()
-    event = get_req_header(conn, "x-github-event") |> List.first()
+    signature = List.first(get_req_header(conn, "x-hub-signature-256"))
+    event = List.first(get_req_header(conn, "x-github-event"))
     raw_body = conn.assigns[:raw_body] || ""
 
     case verify_signature(raw_body, signature) do
@@ -39,7 +40,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
     if secret == "" do
       {:error, :no_secret_configured}
     else
-      expected = :crypto.mac(:hmac, :sha256, secret, body) |> Base.encode16(case: :lower)
+      expected = Base.encode16(:crypto.mac(:hmac, :sha256, secret, body), case: :lower)
       if Plug.Crypto.secure_compare(expected, hex_sig), do: :ok, else: {:error, :invalid_signature}
     end
   end

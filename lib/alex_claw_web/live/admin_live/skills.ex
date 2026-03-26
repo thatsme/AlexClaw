@@ -8,6 +8,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
   @max_upload_size 1_000_000
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, "skills:registry")
@@ -30,6 +31,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("validate_upload", _params, socket) do
     {:noreply, socket}
   end
@@ -155,11 +157,13 @@ defmodule AlexClawWeb.AdminLive.Skills do
   defp request_2fa(action, description) do
     if AlexClaw.Auth.TOTP.enabled?() do
       chat_ids =
-        [
-          AlexClaw.Config.get("telegram.chat_id"),
-          AlexClaw.Config.get("discord.channel_id")
-        ]
-        |> Enum.filter(&(&1 && &1 != ""))
+        Enum.filter(
+          [
+            AlexClaw.Config.get("telegram.chat_id"),
+            AlexClaw.Config.get("discord.channel_id")
+          ],
+          &(&1 && &1 != "")
+        )
 
       if chat_ids != [] do
         for id <- chat_ids, do: AlexClaw.Auth.TOTP.create_challenge(id, action)
@@ -178,8 +182,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
   end
 
   defp build_skill_list do
-    SkillRegistry.list_all_with_type()
-    |> Enum.map(fn {name, module, type, permissions, routes} ->
+    Enum.map(SkillRegistry.list_all_with_type(), fn {name, module, type, permissions, routes} ->
       %{
         name: name,
         module: module,

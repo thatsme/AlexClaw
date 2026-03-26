@@ -9,6 +9,7 @@ defmodule AlexClawWeb.AdminLive.LLM do
   @tiers ~w(light medium heavy local)
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     if connected?(socket), do: :timer.send_interval(10_000, :refresh_usage)
 
@@ -21,6 +22,7 @@ defmodule AlexClawWeb.AdminLive.LLM do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil)}
   end
@@ -139,8 +141,7 @@ defmodule AlexClawWeb.AdminLive.LLM do
   end
 
   defp build_providers do
-    LLM.list_providers()
-    |> Enum.map(fn p ->
+    Enum.map(LLM.list_providers(), fn p ->
       Map.put(p, :usage_today, LLM.usage_today(p.id))
     end)
   end

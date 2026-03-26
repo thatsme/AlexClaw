@@ -5,9 +5,11 @@ defmodule AlexClaw.Skills.WebSearch do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Searches DuckDuckGo, fetches top results, synthesizes an answer via LLM"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_results, :on_no_results, :on_timeout, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
@@ -19,11 +21,12 @@ defmodule AlexClaw.Skills.WebSearch do
 
   @doc "Workflow-compatible entry point. Uses config query or args[:input] as the search query."
   @impl true
+  @spec run(map()) :: {:ok, String.t() | nil, atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
     raw_query = config["query"] || to_string(args[:input] || "")
 
-    query = String.slice(raw_query, 0, 200) |> String.trim()
+    query = String.trim(String.slice(raw_query, 0, 200))
 
     if query == "" do
       {:error, :no_query}
@@ -78,7 +81,7 @@ defmodule AlexClaw.Skills.WebSearch do
     end
   end
 
-  defp resolve_tier, do: String.to_atom(AlexClaw.Config.get("skill.web_search.tier") || "medium")
+  defp resolve_tier, do: String.to_existing_atom(AlexClaw.Config.get("skill.web_search.tier") || "medium")
   defp resolve_provider do
     case AlexClaw.Config.get("skill.web_search.provider") do
       p when p in [nil, "", "auto"] -> nil
@@ -101,7 +104,7 @@ defmodule AlexClaw.Skills.WebSearch do
           |> Floki.find(".result__a")
           |> Enum.take(@max_results)
           |> Enum.flat_map(fn element ->
-            href = Floki.attribute(element, "href") |> List.first()
+            href = List.first(Floki.attribute(element, "href"))
             title = Floki.text(element)
 
             case extract_url(href) do

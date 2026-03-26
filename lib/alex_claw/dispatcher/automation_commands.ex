@@ -12,7 +12,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
         summary = result["summary"] || %{}
         base_url = summary["base_url"] || "unknown"
 
-        steps = actions |> Enum.map(fn a ->
+        steps = Enum.map(actions, fn a ->
           %{"action" => a["action_type"], "selector" => a["selector"], "value" => a["value"], "url" => a["url"]}
           |> Enum.reject(fn {_k, v} -> is_nil(v) end)
           |> Map.new()
@@ -36,7 +36,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
           {:error, _changeset} ->
             Gateway.send_message(
               "Recording stopped. #{length(actions)} action(s) captured but failed to save as resource.\n\n" <>
-              "`#{Jason.encode!(config, pretty: true) |> String.slice(0, 3000)}`",
+              "`#{String.slice(Jason.encode!(config, pretty: true), 0, 3000)}`",
               gateway: msg.gateway
             )
         end

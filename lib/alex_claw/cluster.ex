@@ -53,6 +53,8 @@ defmodule AlexClaw.Cluster do
   @doc "Ping a node by name string. Node names are a bounded set from the DB — safe to create atoms."
   @spec node_ping(String.t()) :: :pong | :pang
   def node_ping(name) when is_binary(name) do
-    Node.ping(String.to_atom(name))
+    Node.ping(String.to_existing_atom(name))
+  rescue
+    ArgumentError -> :pang
   end
 end

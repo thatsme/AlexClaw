@@ -7,9 +7,11 @@ defmodule AlexClaw.Skills.DiscordNotify do
   @behaviour AlexClaw.Skill
 
   @impl true
+  @spec description() :: String.t()
   def description, do: "Sends workflow output to a Discord channel"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_delivered, :on_error]
 
   require Logger

@@ -9,12 +9,15 @@ defmodule AlexClaw.Skills.WebAutomation do
   alias AlexClaw.Config
 
   @impl true
+  @spec description() :: String.t()
   def description, do: "Browser automation — record interactions and replay headlessly"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_timeout, :on_error]
 
   @impl true
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     if enabled?() do
       config = args[:config] || %{}
@@ -31,6 +34,7 @@ defmodule AlexClaw.Skills.WebAutomation do
   end
 
   @doc "Start a recording session. Returns noVNC URL for interaction."
+  @spec record(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def record(config) do
     url = config["url"] || ""
 
@@ -53,11 +57,13 @@ defmodule AlexClaw.Skills.WebAutomation do
   end
 
   @doc "Stop an active recording session."
+  @spec stop_recording(String.t()) :: {:ok, any()} | {:error, any()}
   def stop_recording(session_id) do
     post("/record/#{session_id}/stop", %{})
   end
 
   @doc "Play an automation config headlessly."
+  @spec play(map(), list()) :: {:ok, String.t(), atom()} | {:error, any()}
   def play(config, resources) do
     automation_config = find_automation_config(config, resources)
 
@@ -86,7 +92,7 @@ defmodule AlexClaw.Skills.WebAutomation do
                   "#{type}: #{length(headers)} cols, #{length(rows)} rows"
 
                 other ->
-                  inspect(other) |> String.slice(0, 500)
+                  String.slice(inspect(other), 0, 500)
               end
             end)
           msg <> "\n\n" <> preview
@@ -105,9 +111,11 @@ defmodule AlexClaw.Skills.WebAutomation do
   end
 
   @doc "Get sidecar status."
+  @spec status() :: {:ok, any()} | {:error, any()}
   def status, do: get("/status")
 
   @doc "Force stop any running session."
+  @spec force_stop() :: {:ok, any()} | {:error, any()}
   def force_stop, do: post("/stop", %{})
 
   # --- Helpers ---

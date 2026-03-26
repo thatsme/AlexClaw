@@ -8,10 +8,12 @@ defmodule AlexClaw.Workflows.LLMTransform do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Runs a prompt template through the LLM with tier and provider routing"
   require Logger
 
   @impl true
+  @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     template = args[:prompt_template] || args[:prompt] || args[:config]["prompt"] || ""
 

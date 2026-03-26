@@ -384,7 +384,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   defp compile_and_validate(full_path) do
     case Code.compile_file(full_path) do
       [{module, _bytecode} | _] ->
-        module_str = to_string(module) |> String.replace_leading("Elixir.", "")
+        module_str = String.replace_leading(to_string(module), "Elixir.", "")
 
         cond do
           not String.starts_with?(module_str, @dynamic_namespace) ->
@@ -492,7 +492,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   defp compute_checksum(content) do
-    :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+    Base.encode16(:crypto.hash(:sha256, content), case: :lower)
   end
 
   defp broadcast(message) do
@@ -500,7 +500,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   defp notify_checksum_mismatch(skill_name) do
-    Task.start(fn ->
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       AlexClaw.Gateway.Router.broadcast(
         "Warning: Dynamic skill '#{skill_name}' file changed since last load. " <>
           "Use /skill reload #{skill_name} to update, or /skill unload #{skill_name} to remove."

@@ -91,7 +91,6 @@ defmodule AlexClaw.Config.Crypto do
     # Extract
     prk = :crypto.mac(:hmac, :sha256, <<0::256>>, ikm)
     # Expand (single block is enough for 32-byte output)
-    :crypto.mac(:hmac, :sha256, prk, <<info::binary, 1>>)
-    |> binary_part(0, length)
+    binary_part(:crypto.mac(:hmac, :sha256, prk, <<info::binary, 1>>), 0, length)
   end
 end

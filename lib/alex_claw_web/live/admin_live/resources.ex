@@ -8,6 +8,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   @resource_types ~w(rss_feed website document api automation)
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(params, _session, socket) do
     type_filter = params["type"]
 
@@ -23,6 +24,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   end
 
   @impl true
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(params, _uri, socket) do
     type_filter = params["type"]
 
@@ -34,6 +36,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil)}
   end

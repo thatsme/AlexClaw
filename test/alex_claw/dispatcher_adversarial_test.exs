@@ -14,51 +14,51 @@ defmodule AlexClaw.DispatcherAdversarialTest do
     end
 
     test "empty struct (no text) is ignored" do
-      assert :ignored = Dispatcher.dispatch(%Message{})
+      assert :ignored = Dispatcher.dispatch(%Message{chat_id: 1, timestamp: DateTime.utc_now(), raw: %{}, gateway: :test})
     end
 
     test "nil text is ignored" do
-      assert :ignored = Dispatcher.dispatch(%Message{text: nil})
+      assert :ignored = Dispatcher.dispatch(%Message{text: nil, chat_id: 1, timestamp: DateTime.utc_now(), raw: %{}, gateway: :test})
     end
 
     test "command with extra whitespace works" do
-      result = Dispatcher.dispatch(%Message{text: "/ping   extra stuff", chat_id: 1})
+      result = Dispatcher.dispatch(%Message{text: "/ping   extra stuff", chat_id: 1, timestamp: DateTime.utc_now(), raw: %{}, gateway: :test})
       assert result != :ignored
     end
 
     test "command injection — text starting with / but not a valid command goes to conversation" do
-      msg = %Message{text: "/notacommand something", chat_id: 1, from: "test"}
+      msg = %Message{text: "/notacommand something", chat_id: 1, from: "test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
       result = Dispatcher.dispatch(msg)
       refute result == :ignored
     end
 
     test "very long text doesn't crash" do
       long_text = String.duplicate("a", 50_000)
-      msg = %Message{text: long_text, chat_id: 1, from: "test"}
+      msg = %Message{text: long_text, chat_id: 1, from: "test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
       result = Dispatcher.dispatch(msg)
       refute result == :ignored
     end
 
     test "unicode text dispatches to conversational" do
-      msg = %Message{text: "こんにちは 🤖", chat_id: 1, from: "test"}
+      msg = %Message{text: "こんにちは 🤖", chat_id: 1, from: "test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
       result = Dispatcher.dispatch(msg)
       refute result == :ignored
     end
 
     test "/web with no url returns gracefully without crashing" do
-      msg = %Message{text: "/web ", chat_id: 1}
+      msg = %Message{text: "/web ", chat_id: 1, timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
       result = Dispatcher.dispatch(msg)
       refute is_nil(result)
     end
 
     test "/research with empty query" do
-      msg = %Message{text: "/research ", chat_id: 1}
+      msg = %Message{text: "/research ", chat_id: 1, timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
       result = Dispatcher.dispatch(msg)
       assert result != :ignored
     end
 
     test "/search with empty query" do
-      msg = %Message{text: "/search ", chat_id: 1}
+      msg = %Message{text: "/search ", chat_id: 1, timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
       result = Dispatcher.dispatch(msg)
       assert result != :ignored
     end

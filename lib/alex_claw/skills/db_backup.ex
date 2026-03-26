@@ -15,16 +15,17 @@ defmodule AlexClaw.Skills.DbBackup do
   alias AlexClaw.Config
 
   @impl true
+  @spec description() :: String.t()
   def description, do: "Database backup with rotation (host-mounted)"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_error]
 
   @impl true
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(_args) do
-    unless Config.get("backup.enabled") == true do
-      {:error, :backup_disabled}
-    else
+    if Config.get("backup.enabled") == true do
       max_files = Config.get("backup.max_files") || 7
 
       with :ok <- verify_mount(@backup_dir),
@@ -39,6 +40,8 @@ defmodule AlexClaw.Skills.DbBackup do
           Logger.error("Database backup failed: #{inspect(reason)}", skill: :db_backup)
           {:error, reason}
       end
+    else
+      {:error, :backup_disabled}
     end
   end
 

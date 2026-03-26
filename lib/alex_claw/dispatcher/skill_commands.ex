@@ -68,12 +68,15 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
   # Public so AuthCommands.execute_2fa_action can call after verification.
 
   @doc false
+  @spec do_load_after_2fa(String.t(), Message.t()) :: :ok
   def do_load_after_2fa(file_path, msg), do: do_load(file_path, msg)
 
   @doc false
+  @spec do_unload_after_2fa(String.t(), Message.t()) :: :ok
   def do_unload_after_2fa(name, msg), do: do_unload(name, msg)
 
   @doc false
+  @spec do_reload_after_2fa(String.t(), Message.t()) :: :ok
   def do_reload_after_2fa(name, msg), do: do_reload(name, msg)
 
   defp do_load(file_path, msg) do

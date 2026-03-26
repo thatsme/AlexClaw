@@ -118,10 +118,9 @@ defmodule AlexClaw.Auth.CapabilityToken do
 
   defp sign(permissions, caveats) do
     payload =
-      :erlang.term_to_binary({MapSet.to_list(permissions) |> Enum.sort(), caveats})
+      :erlang.term_to_binary({Enum.sort(MapSet.to_list(permissions)), caveats})
 
-    :crypto.mac(:hmac, :sha256, signing_key(), payload)
-    |> Base.encode64()
+    Base.encode64(:crypto.mac(:hmac, :sha256, signing_key(), payload))
   end
 
   defp signing_key do
@@ -148,7 +147,6 @@ defmodule AlexClaw.Auth.CapabilityToken do
   defp hkdf_sha256(ikm, info, length) do
     prk = :crypto.mac(:hmac, :sha256, <<0::256>>, ikm)
 
-    :crypto.mac(:hmac, :sha256, prk, <<info::binary, 1>>)
-    |> binary_part(0, length)
+    binary_part(:crypto.mac(:hmac, :sha256, prk, <<info::binary, 1>>), 0, length)
   end
 end

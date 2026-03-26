@@ -6,6 +6,7 @@ defmodule AlexClaw.Resources.Migrator do
 
   alias AlexClaw.Resources
 
+  @spec migrate_feeds() :: :ok
   def migrate_feeds do
     case AlexClaw.Config.get("rss_feeds") do
       feeds when is_list(feeds) and feeds != [] ->

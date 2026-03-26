@@ -12,8 +12,11 @@ defmodule AlexClaw.Identity do
     custom = Config.get("identity.persona")
 
     base =
-      (Config.get("identity.base_prompt") || "You are {name}, a personal AI agent.")
-      |> String.replace("{name}", name || "Agent")
+      String.replace(
+        Config.get("identity.base_prompt") || "You are {name}, a personal AI agent.",
+        "{name}",
+        name || "Agent"
+      )
 
     fragment = context_fragment(context)
 

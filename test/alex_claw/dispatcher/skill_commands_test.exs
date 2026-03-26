@@ -4,7 +4,7 @@ defmodule AlexClaw.Dispatcher.SkillCommandsTest do
   alias AlexClaw.{Dispatcher, Message}
 
   defp msg(text) do
-    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}}
+    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
   end
 
   describe "skill commands routing" do

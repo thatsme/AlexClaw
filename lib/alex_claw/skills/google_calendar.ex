@@ -16,9 +16,11 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec description() :: String.t()
   def description, do: "Fetches upcoming events from Google Calendar"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_events, :on_empty, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
@@ -45,7 +47,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   defp fetch_events(token, calendar_id, days, max_results) do
     now = DateTime.utc_now()
     time_min = DateTime.to_iso8601(now)
-    time_max = DateTime.add(now, days * 86400) |> DateTime.to_iso8601()
+    time_max = DateTime.to_iso8601(DateTime.add(now, days * 86400))
 
     url = "#{@calendar_api}/calendars/#{URI.encode(calendar_id)}/events"
 

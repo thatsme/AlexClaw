@@ -12,7 +12,8 @@ defmodule AlexClaw.MessageTest do
         chat_id: 12345,
         from: "Alessio",
         timestamp: now,
-        raw: %{"update_id" => 1}
+        raw: %{"update_id" => 1},
+        gateway: :telegram
       }
 
       assert msg.text == "hello"
@@ -22,13 +23,16 @@ defmodule AlexClaw.MessageTest do
       assert msg.raw == %{"update_id" => 1}
     end
 
-    test "defaults to nil fields" do
-      msg = %Message{}
+    test "enforces required keys" do
+      assert_raise ArgumentError, ~r/the following keys must also be given/, fn ->
+        struct!(Message, text: "hello")
+      end
+    end
+
+    test "defaults optional fields to nil" do
+      msg = %Message{chat_id: 1, timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
       assert msg.text == nil
-      assert msg.chat_id == nil
       assert msg.from == nil
-      assert msg.timestamp == nil
-      assert msg.raw == nil
     end
   end
 end

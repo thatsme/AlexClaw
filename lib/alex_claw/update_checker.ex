@@ -10,6 +10,7 @@ defmodule AlexClaw.UpdateChecker do
   @check_interval :timer.hours(6)
   @table :alexclaw_update_check
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
@@ -44,7 +45,7 @@ defmodule AlexClaw.UpdateChecker do
 
     case Req.get("https://api.github.com/repos/#{@repo}/releases/latest", headers: headers) do
       {:ok, %{status: 200, body: %{"tag_name" => tag}}} ->
-        latest = tag |> String.trim_leading("v")
+        latest = String.trim_leading(tag, "v")
 
         info = %{
           latest: latest,

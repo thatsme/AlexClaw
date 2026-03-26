@@ -160,11 +160,9 @@ defmodule AlexClaw.Knowledge do
     keyword_ids = MapSet.new(keyword_results, & &1.id)
 
     new_vector =
-      vector_results
-      |> Enum.reject(fn e -> MapSet.member?(keyword_ids, e.id) end)
+      Enum.reject(vector_results, fn e -> MapSet.member?(keyword_ids, e.id) end)
 
-    (keyword_results ++ new_vector)
-    |> Enum.take(limit)
+    Enum.take(keyword_results ++ new_vector, limit)
   end
 
   defp vector_search(embedding, kind, limit) do
@@ -190,7 +188,7 @@ defmodule AlexClaw.Knowledge do
         []
 
       terms ->
-        Enum.reduce(terms, Entry |> maybe_filter_kind(kind), fn term, q ->
+        Enum.reduce(terms, maybe_filter_kind(Entry, kind), fn term, q ->
           pattern = "%#{term}%"
           where(q, [e], ilike(e.content, ^pattern))
         end)

@@ -6,6 +6,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
   alias AlexClaw.{Identity, Knowledge, LLM, Memory}
 
   @impl true
+  @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
     providers = LLM.list_provider_choices()
 
@@ -23,6 +24,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
   end
 
   @impl true
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("send", %{"message" => message}, socket) do
     message = String.trim(message)
 
@@ -56,6 +58,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
   end
 
   @impl true
+  @spec handle_async(atom(), {:ok, term()} | {:exit, term()}, Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:llm_response, {:ok, {:error, reason}}, socket) do
     error_msg = %{
       role: :system,
@@ -121,8 +124,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
 
             entries ->
               ctx =
-                entries
-                |> Enum.map_join("\n---\n", fn e ->
+                Enum.map_join(entries, "\n---\n", fn e ->
                   kind_label = String.upcase(e.kind)
                   "[#{kind_label}] #{String.slice(e.content, 0, 500)}"
                 end)
@@ -146,8 +148,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
 
             entries ->
               ctx =
-                entries
-                |> Enum.map_join("\n---\n", fn e ->
+                Enum.map_join(entries, "\n---\n", fn e ->
                   pkg = e.metadata["package"] || "unknown"
                   mod = e.metadata["module"] || ""
                   "[DOCS: #{pkg}/#{mod}] #{String.slice(e.content, 0, 1500)}"

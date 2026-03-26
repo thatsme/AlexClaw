@@ -7,6 +7,7 @@ defmodule AlexClawWeb.AuthController do
   plug :put_root_layout, html: {AlexClawWeb.Layouts, :root}
   plug :put_layout, false
 
+  @spec login(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def login(conn, _params) do
     if get_session(conn, :authenticated) do
       redirect(conn, to: "/")
@@ -17,6 +18,7 @@ defmodule AlexClawWeb.AuthController do
     end
   end
 
+  @spec authenticate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def authenticate(conn, %{"password" => password}) do
     admin_password = Application.get_env(:alex_claw, :admin_password)
     ip = AlexClawWeb.Plugs.RateLimit.get_client_ip(conn)
@@ -43,6 +45,7 @@ defmodule AlexClawWeb.AuthController do
     end
   end
 
+  @spec logout(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def logout(conn, _params) do
     conn
     |> clear_session()

@@ -19,6 +19,7 @@ defmodule AlexClaw.Gateway.Discord do
   def name, do: :discord
 
   @impl AlexClaw.Gateway.Behaviour
+  @spec configured?() :: boolean()
   def configured? do
     enabled = Config.get("discord.enabled")
     token = Config.get("discord.bot_token")
@@ -94,6 +95,7 @@ defmodule AlexClaw.Gateway.Discord do
     end
   end
 
+  @spec handle_event(term()) :: :noop
   def handle_event(_event), do: :noop
 
   # --- Internal ---

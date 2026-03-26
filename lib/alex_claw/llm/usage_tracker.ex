@@ -15,6 +15,7 @@ defmodule AlexClaw.LLM.UsageTracker do
   alias AlexClaw.LLM.UsageEntry
   alias AlexClaw.Repo
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
@@ -62,9 +63,7 @@ defmodule AlexClaw.LLM.UsageTracker do
   defp load_today_from_db do
     today = Date.utc_today()
 
-    entries =
-      from(u in UsageEntry, where: u.date == ^today)
-      |> Repo.all()
+    entries = Repo.all(from(u in UsageEntry, where: u.date == ^today))
 
     for %{model: model_str, count: count} <- entries do
       case parse_model_string(model_str) do

@@ -210,9 +210,7 @@ defmodule AlexClaw.LLM.Client do
         [%{role: "user", content: prompt}]
       end
 
-    headers =
-      (extra_headers || %{})
-      |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+    headers = Enum.map(extra_headers || %{}, fn {k, v} -> {to_string(k), to_string(v)} end)
 
     headers =
       if api_key && api_key != "" do
@@ -282,9 +280,7 @@ defmodule AlexClaw.LLM.Client do
   defp call_embedding_openai(host, api_key, extra_headers, text, model) do
     url = "#{host}/v1/embeddings"
 
-    headers =
-      (extra_headers || %{})
-      |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+    headers = Enum.map(extra_headers || %{}, fn {k, v} -> {to_string(k), to_string(v)} end)
 
     headers =
       if api_key && api_key != "" do

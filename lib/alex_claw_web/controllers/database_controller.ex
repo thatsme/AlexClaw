@@ -4,6 +4,7 @@ defmodule AlexClawWeb.DatabaseController do
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
 
+  @spec download(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def download(conn, _params) do
     db_config = db_connection_env()
     timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d_%H%M%S")

@@ -4,7 +4,7 @@ defmodule AlexClaw.DispatcherCommandsTest do
   alias AlexClaw.{Dispatcher, Message}
 
   defp msg(text) do
-    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}}
+    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
   end
 
   describe "web automation commands" do
@@ -158,7 +158,7 @@ defmodule AlexClaw.DispatcherCommandsTest do
     end
 
     test "nil text returns :ignored" do
-      assert :ignored = Dispatcher.dispatch(%Message{text: nil, chat_id: nil, from: nil, timestamp: nil, raw: %{}})
+      assert :ignored = Dispatcher.dispatch(%Message{text: nil, chat_id: nil, from: nil, timestamp: nil, raw: %{}, gateway: :test})
     end
   end
 end

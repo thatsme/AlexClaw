@@ -3,6 +3,7 @@ defmodule AlexClaw.Message do
   Internal message struct normalized from gateway updates.
   The :gateway field identifies the originating transport (:telegram, :discord, etc.).
   """
+  @enforce_keys [:chat_id, :timestamp, :raw, :gateway]
   defstruct [:text, :chat_id, :from, :timestamp, :raw, :gateway]
 
   @type t :: %__MODULE__{

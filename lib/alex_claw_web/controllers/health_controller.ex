@@ -11,7 +11,7 @@ defmodule AlexClawWeb.HealthController do
     |> put_status(status)
     |> json(%{
       status: if(db_ok, do: "ok", else: "degraded"),
-      version: Application.spec(:alex_claw, :vsn) |> to_string(),
+      version: to_string(Application.spec(:alex_claw, :vsn)),
       db: if(db_ok, do: "connected", else: "unreachable")
     })
   end

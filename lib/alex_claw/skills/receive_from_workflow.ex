@@ -13,9 +13,11 @@ defmodule AlexClaw.Skills.ReceiveFromWorkflow do
   @behaviour AlexClaw.Skill
 
   @impl true
+  @spec description() :: String.t()
   def description, do: "Gate: allows this workflow to be triggered remotely by another node"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_error]
 
   @impl true

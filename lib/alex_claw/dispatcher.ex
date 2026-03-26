@@ -230,6 +230,38 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
+  def dispatch(%Message{text: "/runs" <> _} = msg) do
+    active = AlexClaw.Workflows.list_active_runs()
+
+    if active == [] do
+      Gateway.send_message("No workflows currently running.", gateway: msg.gateway)
+    else
+      text =
+        Enum.map_join(active, "\n", fn run ->
+          elapsed = DateTime.diff(DateTime.utc_now(), run.started_at)
+          "• *#{run.workflow_name}* (run #{run.run_id}) — #{elapsed}s"
+        end)
+
+      Gateway.send_message("*Active Runs*\n\n#{text}\n\nCancel with: `/cancel <run_id>`", gateway: msg.gateway)
+    end
+  end
+
+  def dispatch(%Message{text: "/cancel " <> rest} = msg) do
+    case Integer.parse(String.trim(rest)) do
+      {run_id, ""} ->
+        case AlexClaw.Workflows.cancel_run(run_id) do
+          :ok ->
+            Gateway.send_message("Run #{run_id} cancelled.", gateway: msg.gateway)
+
+          {:error, :not_found} ->
+            Gateway.send_message("Run #{run_id} not found or already finished.", gateway: msg.gateway)
+        end
+
+      _ ->
+        Gateway.send_message("Usage: `/cancel <run_id>`", gateway: msg.gateway)
+    end
+  end
+
   # --- LLM Status ---
 
   def dispatch(%Message{text: "/llm" <> _} = msg) do
@@ -356,6 +388,8 @@ defmodule AlexClaw.Dispatcher do
     /llm — show LLM providers status
     /workflows — list all workflows
     /run <id or name> — run a workflow
+    /runs — show active workflow runs
+    /cancel <run\_id> — cancel a running workflow
     /research <query> — deep research
     /search <query> — search the web
     /web <url> — summarize a web page

@@ -11,12 +11,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, "skills:registry")
+      Phoenix.PubSub.subscribe(AlexClaw.PubSub, AlexClaw.Workflows.Registry.topic())
     end
 
     {:ok,
      assign(socket,
        page_title: "Workflows",
        workflows: Workflows.list_workflows(),
+       active_runs: initial_active_runs(),
        show_form: false,
        editing: nil,
        editing_step: nil,
@@ -404,6 +406,69 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   @impl true
+  def handle_event("cancel_run", %{"run-id" => run_id_str}, socket) do
+    case parse_id(run_id_str) do
+      {:ok, run_id} ->
+        case Workflows.cancel_run(run_id) do
+          :ok -> {:noreply, put_flash(socket, :info, "Run cancelled")}
+          {:error, :not_found} -> {:noreply, put_flash(socket, :error, "Run not found")}
+        end
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:workflow_run_started, payload}, socket) do
+    run = %{
+      run_id: payload.run_id,
+      workflow_id: payload.workflow_id,
+      workflow_name: payload.workflow_name,
+      started_at: payload.started_at,
+      current_step: "starting...",
+      status: :running
+    }
+
+    active = Map.put(socket.assigns.active_runs, payload.run_id, run)
+    {:noreply, assign(socket, active_runs: active)}
+  end
+
+  def handle_info({event, payload}, socket)
+      when event in [:workflow_step_started, :workflow_step_completed] do
+    active =
+      case Map.get(socket.assigns.active_runs, payload.run_id) do
+        nil -> socket.assigns.active_runs
+        run -> Map.put(socket.assigns.active_runs, payload.run_id, %{run | current_step: payload.step_name})
+      end
+
+    {:noreply, assign(socket, active_runs: active)}
+  end
+
+  def handle_info({event, payload}, socket)
+      when event in [:workflow_run_completed, :workflow_run_failed, :workflow_run_cancelled] do
+    finished_status = case event do
+      :workflow_run_completed -> :completed
+      :workflow_run_failed -> :failed
+      :workflow_run_cancelled -> :cancelled
+    end
+
+    active =
+      case Map.get(socket.assigns.active_runs, payload.run_id) do
+        nil -> socket.assigns.active_runs
+        run -> Map.put(socket.assigns.active_runs, payload.run_id, Map.put(run, :status, finished_status))
+      end
+
+    Process.send_after(self(), {:clear_finished_run, payload.run_id}, 10_000)
+    {:noreply, assign(socket, active_runs: active)}
+  end
+
+  def handle_info({:clear_finished_run, run_id}, socket) do
+    active = Map.delete(socket.assigns.active_runs, run_id)
+    {:noreply, assign(socket, active_runs: active)}
+  end
+
+  @impl true
   def handle_info({:skill_registered, _name}, socket) do
     {:noreply,
      assign(socket,
@@ -418,6 +483,11 @@ defmodule AlexClawWeb.AdminLive.Workflows do
        available_skills: SkillRegistry.list_skills(),
        dynamic_skills: dynamic_skill_names()
      )}
+  end
+
+  defp initial_active_runs do
+    Workflows.list_active_runs()
+    |> Map.new(fn run -> {run.run_id, Map.put(run, :status, :running)} end)
   end
 
   defp dynamic_skill_names do

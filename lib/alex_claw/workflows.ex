@@ -223,6 +223,12 @@ defmodule AlexClaw.Workflows do
     }
   end
 
+  @spec list_active_runs() :: [map()]
+  def list_active_runs, do: AlexClaw.Workflows.Registry.list_active()
+
+  @spec cancel_run(integer()) :: :ok | {:error, :not_found}
+  def cancel_run(run_id), do: AlexClaw.Workflows.Registry.cancel(run_id)
+
   @doc "List workflows that have a schedule defined and are enabled."
   @spec list_scheduled_workflows() :: [Workflow.t()]
   def list_scheduled_workflows do

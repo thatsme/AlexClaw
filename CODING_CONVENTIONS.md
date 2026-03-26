@@ -234,18 +234,6 @@ result =
   |> String.slice(0, 50)
 ```
 
-### Do not start a pipe with a raw value and a function call
-
-```elixir
-# Wrong — the leading value is not transformed
-"hello"
-|> String.upcase()
-|> IO.puts()
-
-# Right — assign first if the chain is complex, or write it directly
-IO.puts(String.upcase("hello"))
-```
-
 ---
 
 ## Control Flow
@@ -418,6 +406,23 @@ end
 user = %User{name: "Alex", email: "alex@example.com", role: :admin}
 ```
 
+### Use `@enforce_keys` for required fields
+
+Fields that must always be present should be enforced at compile time, not validated at runtime.
+
+```elixir
+# Wrong — missing required fields only fail at runtime, maybe
+defmodule Connection do
+  defstruct [:host, :port, timeout: 5_000]
+end
+
+# Right — missing :host or :port raises at compile time
+defmodule Connection do
+  @enforce_keys [:host, :port]
+  defstruct [:host, :port, timeout: 5_000]
+end
+```
+
 ### Always match on the struct type when pattern matching structs
 
 ```elixir
@@ -461,6 +466,50 @@ children = [
   {Task.Supervisor, name: MyApp.TaskSupervisor},
   # ...
 ]
+```
+
+### Use `handle_continue/2` for post-init work — never `send(self(), :init)`
+
+```elixir
+# Wrong — works, but sends a message through the mailbox unnecessarily;
+# another message could arrive and be processed before :do_init
+def init(args) do
+  send(self(), :do_init)
+  {:ok, initial_state(args)}
+end
+
+def handle_info(:do_init, state) do
+  {:noreply, do_heavy_init(state)}
+end
+
+# Right — handle_continue runs before any other message is processed
+def init(args) do
+  {:ok, initial_state(args), {:continue, :init}}
+end
+
+def handle_continue(:init, state) do
+  {:noreply, do_heavy_init(state)}
+end
+```
+
+### Do not call GenServer functions from within the same GenServer
+
+This causes a deadlock. Extract the logic into a private function and call it directly.
+
+```elixir
+# Wrong — deadlock
+def handle_call(:do_thing, _from, state) do
+  result = GenServer.call(__MODULE__, :helper)
+  {:reply, result, state}
+end
+
+# Right
+def handle_call(:do_thing, _from, state) do
+  result = compute_helper(state)
+  {:reply, result, state}
+end
+
+defp compute_helper(state), do: ...
 ```
 
 ### Keep GenServer state minimal and callbacks thin
@@ -528,6 +577,23 @@ defp schedule_tick do
 end
 ```
 
+### Never use the process dictionary for application state
+
+`Process.put/2` and `Process.get/2` are global mutable state scoped to a process. They are
+invisible to callers, invisible to supervisors, and make code untestable. The only acceptable
+uses are Logger metadata and library internals.
+
+```elixir
+# Wrong — hidden state, impossible to test or inspect
+Process.put(:current_user, user)
+user = Process.get(:current_user)
+
+# Right — pass state explicitly
+def handle_request(conn, user) do
+  do_work(conn, user)
+end
+```
+
 ### Supervision strategies
 
 | Strategy | Use when |
@@ -539,6 +605,25 @@ end
 ---
 
 ## Module Design
+
+### `alias`, `use`, `import` — pick the right tool
+
+```elixir
+# alias — resolves a module name locally, no code is imported
+alias MyApp.Accounts.User
+# Now %User{} works instead of %MyApp.Accounts.User{}
+
+# import — brings functions into scope; avoid unless the benefit is clear
+import Ecto.Query, only: [from: 2, where: 3]
+
+# use — injects code via __using__/1 macro, significant side effect
+# Only use when a behaviour or macro injection is explicitly required
+use GenServer
+use Phoenix.LiveView
+```
+
+Prefer `alias` over `import`. Use `use` only when the library requires it (GenServer, LiveView,
+Ecto.Schema, etc.). Never `use` a module just to avoid typing the full name.
 
 ### One module, one responsibility
 
@@ -630,18 +715,54 @@ Repo.insert!(%User{name: name, email: email})
 |> Repo.insert()
 ```
 
-### Use `Repo.transaction/1` for multi-step database operations
+### Use `Ecto.Multi` for multi-step database operations
+
+`Repo.transaction/1` with `with` works for simple cases. `Ecto.Multi` is the right tool when
+you have multiple named steps, need to inspect which step failed, or want composable transaction
+building.
 
 ```elixir
+# Acceptable for simple two-step cases
 Repo.transaction(fn ->
   with {:ok, user} <- create_user(params),
-       {:ok, _} <- send_welcome_email(user) do
+       {:ok, _log} <- create_audit_log(user) do
     user
   else
     {:error, reason} -> Repo.rollback(reason)
   end
 end)
+
+# Right for complex multi-step operations — named steps, clear failure attribution
+Ecto.Multi.new()
+|> Ecto.Multi.insert(:user, User.changeset(%User{}, params))
+|> Ecto.Multi.insert(:profile, fn %{user: user} ->
+  Profile.changeset(%Profile{}, %{user_id: user.id})
+end)
+|> Ecto.Multi.run(:notify, fn _repo, %{user: user} ->
+  Notifications.send_welcome(user)
+end)
+|> Repo.transaction()
+|> case do
+  {:ok, %{user: user}} -> {:ok, user}
+  {:error, :user, changeset, _} -> {:error, changeset}
+  {:error, :notify, reason, _} -> {:error, reason}
+end
 ```
+
+### Never trigger N+1 queries — preload associations explicitly
+
+```elixir
+# Wrong — each access hits the database inside the loop
+orders = Repo.all(Order)
+Enum.each(orders, fn order -> IO.inspect(order.items) end)
+
+# Right — single query with preload
+orders = Repo.all(Order) |> Repo.preload(:items)
+Enum.each(orders, fn order -> IO.inspect(order.items) end)
+```
+
+If you access an association that has not been preloaded, Ecto raises `Ecto.Association.NotLoaded`.
+Never rescue that — fix the preload.
 
 ### Use `from` queries instead of raw SQL for standard operations
 
@@ -717,6 +838,19 @@ test "fetch_user returns {:ok, user} when user exists" do
   user = insert(:user)
   assert {:ok, ^user} = Accounts.fetch_user(user.id)
 end
+```
+
+### Default to `async: true`
+
+Tests should run concurrently unless they touch shared mutable state: database without the Ecto
+sandbox, named processes, ETS tables, or global config.
+
+```elixir
+# Default for unit tests and context tests using the Ecto sandbox
+use MyApp.DataCase, async: true
+
+# Only false when sharing state that cannot be isolated
+use MyApp.DataCase, async: false
 ```
 
 ### Use ExUnit tags to organize test suites

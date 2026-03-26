@@ -8,7 +8,7 @@ defmodule AlexClaw.Workflows.Executor do
   require Logger
 
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.SkillRegistry
+  alias AlexClaw.Workflows.{Registry, SkillRegistry}
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
 
@@ -40,6 +40,7 @@ defmodule AlexClaw.Workflows.Executor do
   defp execute(workflow, remote_data) do
     node_name = to_string(node())
     {:ok, run} = Workflows.create_run(workflow, %{node: node_name})
+    Registry.register(run.id, self(), workflow.id, workflow.name)
     Process.put(:auth_workflow_run_id, run.id)
     steps = workflow.steps
     gateways = workflow_gateways(steps)
@@ -51,6 +52,10 @@ defmodule AlexClaw.Workflows.Executor do
     )
 
     if gateways != [], do: notify_start(workflow, gateways)
+
+    Registry.broadcast(
+      {:workflow_run_started, %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name, started_at: run.started_at}}
+    )
 
     state = %{
       outputs: %{},
@@ -71,6 +76,8 @@ defmodule AlexClaw.Workflows.Executor do
             step_results: step_results
           })
 
+        Registry.deregister(run.id)
+        Registry.broadcast({:workflow_run_completed, %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name}})
         Logger.info("Workflow '#{workflow.name}' completed (run #{run.id})", workflow: workflow.name)
         {:ok, run}
 
@@ -83,6 +90,8 @@ defmodule AlexClaw.Workflows.Executor do
             step_results: step_results
           })
 
+        Registry.deregister(run.id)
+        Registry.broadcast({:workflow_run_failed, %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name, error: inspect(reason)}})
         Logger.error("Workflow '#{workflow.name}' failed at step '#{step_name}': #{inspect(reason)}", workflow: workflow.name)
         if gateways != [], do: notify_failure(workflow, step_name, reason, gateways)
         {:error, run}
@@ -121,10 +130,18 @@ defmodule AlexClaw.Workflows.Executor do
             {input, step}
           end
 
+        Registry.update_step(run.id, step.name)
+        Registry.broadcast(
+          {:workflow_step_started, %{run_id: run.id, workflow_name: workflow.name, step_name: step.name, step_position: step.position}}
+        )
         Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})", workflow: workflow.name)
 
         case execute_step(step, input, workflow, run) do
           {:ok, result, branch} ->
+            Registry.broadcast(
+              {:workflow_step_completed, %{run_id: run.id, workflow_name: workflow.name, step_name: step.name, step_position: step.position, branch: branch}}
+            )
+
             state = record_step_result(state, step, result, branch)
             next = resolve_next(step, branch, steps)
             walk(next, steps, workflow, run, state)

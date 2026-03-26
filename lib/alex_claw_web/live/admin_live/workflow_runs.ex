@@ -15,6 +15,10 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
       {:ok, wf_id} ->
         case Workflows.get_workflow(wf_id) do
           {:ok, workflow} ->
+            if connected?(socket) do
+              Phoenix.PubSub.subscribe(AlexClaw.PubSub, AlexClaw.Workflows.Registry.topic())
+            end
+
             runs = Workflows.list_runs(workflow.id)
 
             {:ok,
@@ -70,6 +74,17 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
      |> put_flash(:info, "Run history cleared")
      |> assign(runs: [], expanded: MapSet.new())}
   end
+
+  @impl true
+  def handle_info({event, %{workflow_id: wf_id}}, socket)
+      when event in [:workflow_run_started, :workflow_run_completed, :workflow_run_failed, :workflow_run_cancelled]
+      and wf_id == socket.assigns.workflow.id do
+    runs = Workflows.list_runs(socket.assigns.workflow.id)
+    {:noreply, assign(socket, runs: runs)}
+  end
+
+  def handle_info({:workflow_step_completed, _}, socket), do: {:noreply, socket}
+  def handle_info(_, socket), do: {:noreply, socket}
 
   defp format_datetime(nil), do: "-"
   defp format_datetime(dt), do: AlexClawWeb.TimeHelpers.format_datetime(dt)

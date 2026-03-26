@@ -11,6 +11,7 @@ defmodule AlexClaw.Application do
       AlexClaw.LLM.UsageTracker,
       AlexClaw.Config.Loader,
       AlexClaw.Workflows.SkillRegistry,
+      AlexClaw.Workflows.Registry,
       AlexClaw.LogBuffer,
       AlexClaw.Google.TokenManager,
       AlexClaw.RateLimiter.Server,

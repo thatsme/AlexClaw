@@ -275,6 +275,18 @@ LLM provider selection can be configured at three levels (most specific wins):
 
 All workflow executions run under `AlexClaw.TaskSupervisor`. Run history with step-level results (output, duration, success/failure) is stored in the database and visible in the admin UI.
 
+### Live Run Control — `AlexClaw.Workflows.Registry`
+
+A GenServer + ETS registry that tracks every running workflow process. Enables:
+
+- **Active run visibility** — `list_active/0` returns all running workflows with PID, workflow name, current step, and start time
+- **Cancellation** — `cancel/1` updates DB status to "cancelled", sends `Process.exit(pid, :cancelled)`, broadcasts PubSub event
+- **Crash cleanup** — monitors registered PIDs; on unexpected death, marks the DB run as "failed" automatically
+- **Real-time UI** — PubSub events on topic `"workflows:runs"` drive the Active Runs panel in the admin UI (step-by-step progress, cancel button, 10s linger on completion)
+- **Chat commands** — `/runs` lists active workflows, `/cancel <run_id>` stops a running workflow
+
+Events broadcast: `workflow_run_started`, `workflow_step_started`, `workflow_step_completed`, `workflow_run_completed`, `workflow_run_failed`, `workflow_run_cancelled`.
+
 ### Resilience
 
 Each workflow step has per-step resilience controls configured via the workflow editor UI:
@@ -535,6 +547,7 @@ lib/
       llm_transform.ex         # Prompt template skill for workflows
       scheduler_sync.ex        # Syncs DB schedules → Quantum jobs
       skill_registry.ex        # Maps skill names → modules (15 skills)
+      registry.ex              # Live run tracking (GenServer + ETS)
       workflow.ex              # Workflow Ecto schema
       workflow_resource.ex     # Join schema (workflow ↔ resource)
       workflow_run.ex          # Run history Ecto schema

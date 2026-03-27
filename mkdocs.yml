@@ -64,6 +64,13 @@ nav:
     - Dynamic Hot-Loading: skills/hot-loading.md
     - Skill API Reference: skills/skill-api.md
     - Coder — Autonomous Generation: skills/coder.md
+  - MCP Server:
+    - Overview: mcp/overview.md
+    - Authentication: mcp/authentication.md
+    - Tools: mcp/tools.md
+    - Resources: mcp/resources.md
+    - Policy Enforcement: mcp/policies.md
+    - Client Setup: mcp/client-setup.md
   - Security:
     - Overview: security/overview.md
     - Authentication & 2FA: security/auth.md

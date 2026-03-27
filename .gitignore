@@ -31,6 +31,7 @@ alex_claw-*.tar
 # Local docs (specs, scripts, notes) — keep docs/screenshot/ for README images
 /docs/*
 !/docs/screenshot/
+!/docs/requirements.txt
 
 # Personal docker-compose variants (except swarm which is part of clustering)
 docker-compose_*.yml

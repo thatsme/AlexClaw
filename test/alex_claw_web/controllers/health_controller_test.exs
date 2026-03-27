@@ -21,5 +21,13 @@ defmodule AlexClawWeb.HealthControllerTest do
       assert {"content-type", content_type} = List.keyfind(conn.resp_headers, "content-type", 0)
       assert content_type =~ "application/json"
     end
+
+    test "includes mcp status field", %{conn: conn} do
+      conn = get(conn, "/health")
+      body = json_response(conn, 200)
+
+      assert Map.has_key?(body, "mcp")
+      assert body["mcp"] in ["running", "disabled"]
+    end
   end
 end

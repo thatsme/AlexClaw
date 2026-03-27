@@ -67,4 +67,29 @@ defmodule AlexClaw.Auth.PolicyEngineTest do
       assert {:deny, _reason} = PolicyEngine.evaluate(ctx, nil)
     end
   end
+
+  describe "MCP caller type" do
+    test "MCP calls are allowed when no mcp_restriction policies exist" do
+      ctx = build_mcp_context("skill:system_info")
+      assert :allow == PolicyEngine.evaluate(ctx, [])
+    end
+
+    test "MCP calls bypass chain depth and token checks" do
+      ctx = build_mcp_context("skill:research")
+      # MCP path doesn't check chain_depth or token, only policies
+      assert :allow == PolicyEngine.evaluate(ctx, [])
+    end
+  end
+
+  defp build_mcp_context(tool_name) do
+    %AuthContext{
+      caller: "mcp:#{tool_name}",
+      caller_type: :mcp,
+      permission: :execute,
+      tool_name: tool_name,
+      chain_depth: 0,
+      timestamp: DateTime.utc_now(),
+      token: nil
+    }
+  end
 end

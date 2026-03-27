@@ -33,4 +33,22 @@ defmodule AlexClaw.Auth.AuthContextTest do
       end
     end
   end
+
+  describe "build_mcp/2" do
+    test "builds context for MCP tool invocation" do
+      ctx = AuthContext.build_mcp("skill:web_search", :execute)
+      assert ctx.caller == "mcp:skill:web_search"
+      assert ctx.caller_type == :mcp
+      assert ctx.permission == :execute
+      assert ctx.tool_name == "skill:web_search"
+      assert ctx.chain_depth == 0
+      assert ctx.token == nil
+      assert %DateTime{} = ctx.timestamp
+    end
+
+    test "sets tool_name field" do
+      ctx = AuthContext.build_mcp("workflow:Tech News Digest", :execute)
+      assert ctx.tool_name == "workflow:Tech News Digest"
+    end
+  end
 end

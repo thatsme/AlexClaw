@@ -15,9 +15,18 @@ defmodule AlexClawWeb.MetricsControllerTest do
       assert Map.has_key?(body, "llm")
       assert Map.has_key?(body, "workflows")
       assert Map.has_key?(body, "skills")
+      assert Map.has_key?(body, "mcp")
       assert Map.has_key?(body, "logs")
       assert Map.has_key?(body, "knowledge")
       assert Map.has_key?(body, "memory")
+    end
+
+    test "mcp section has expected keys", %{conn: conn} do
+      conn = conn |> authenticate() |> get("/metrics")
+      mcp = json_response(conn, 200)["mcp"]
+
+      assert mcp["status"] in ["running", "disabled"]
+      assert is_integer(mcp["tools_registered"]) and mcp["tools_registered"] >= 0
     end
 
     test "system section has expected keys", %{conn: conn} do

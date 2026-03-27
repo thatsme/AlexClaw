@@ -238,6 +238,24 @@ defmodule AlexClaw.Skills.SkillAPI do
     end
   end
 
+  # --- Skill Outcomes ---
+
+  @doc "Query past execution outcomes for a skill. Opts: :limit, :quality"
+  @spec skill_outcomes(skill_mod(), String.t(), keyword()) :: {:ok, [map()]} | {:error, :permission_denied}
+  def skill_outcomes(skill_module, skill_name, opts \\ []) do
+    with :ok <- check_permission(skill_module, :memory_read) do
+      {:ok, AlexClaw.Workflows.list_outcomes(skill_name, opts)}
+    end
+  end
+
+  @doc "Get aggregate outcome stats for a skill."
+  @spec skill_outcome_stats(skill_mod(), String.t()) :: {:ok, map()} | {:error, :permission_denied}
+  def skill_outcome_stats(skill_module, skill_name) do
+    with :ok <- check_permission(skill_module, :memory_read) do
+      {:ok, AlexClaw.Workflows.outcome_stats(skill_name)}
+    end
+  end
+
   # --- Skill File I/O ---
 
   @doc "Write a skill file to the skills directory. Validates filename safety."

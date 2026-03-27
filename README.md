@@ -27,6 +27,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 - **Knowledge Base RAG** — Separate `knowledge_entries` table for documentation and reference material, isolated from news/conversation memory. Scraper skills fetch, chunk, and embed documentation from hexdocs.pm, Erlang/OTP source (GitHub), Elixir stdlib source, Learn You Some Erlang, and existing skill code. Chat integrates both Knowledge and Memory search with a context source selector. ~7200 embeddings across 6 knowledge kinds.
 - **Cron Scheduler** — Quantum-based. Jobs defined in config or DB.
 - **Multi-Node BEAM Clustering** — Multiple AlexClaw instances connected via Erlang distribution. Each node runs its own executor independently; nodes exchange workflow outputs via `send_to_workflow` and `receive_from_workflow` skills. Auto-discovery, node status monitoring, and per-workflow node assignment from the admin UI. `docker-compose_swarm.yml` included for local multi-node testing.
+- **MCP Server** — Model Context Protocol server exposes all skills and workflows as MCP tools, and internal data (knowledge, memory, workflows, runs, config) as MCP resources. External AI clients (Claude Code, Cursor, Claude Desktop) can discover and invoke AlexClaw capabilities via the `/mcp` endpoint. Bearer token auth, policy-based tool restrictions, dynamic tool list refresh via PubSub. Built on `anubis_mcp` with Streamable HTTP transport.
 
 ### Skills
 
@@ -107,8 +108,8 @@ AlexClaw can review pull requests and commits for security issues:
 
 ### Observability
 
-- **Health endpoint** — `GET /health` (unauthenticated) returns `{"status":"ok","version":"...","db":"connected"}` for load balancers and Docker healthchecks. Returns HTTP 503 when the database is unreachable.
-- **Metrics endpoint** — `GET /metrics` (authenticated) returns a JSON payload with system stats (uptime, memory, BEAM processes), LLM provider usage, workflow run counts, skill and circuit breaker states, log severity counts, and knowledge/memory entry counts.
+- **Health endpoint** — `GET /health` (unauthenticated) returns `{"status":"ok","version":"...","db":"connected","mcp":"running"}` for load balancers and Docker healthchecks. Returns HTTP 503 when the database is unreachable.
+- **Metrics endpoint** — `GET /metrics` (authenticated) returns a JSON payload with system stats (uptime, memory, BEAM processes), LLM provider usage, workflow run counts, skill and circuit breaker states, MCP status and tool count, log severity counts, and knowledge/memory entry counts.
 
 ### Database Backups
 
@@ -127,7 +128,8 @@ Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-co
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
 - **Encryption at rest** — API keys and tokens are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime
 - **Sensitive key masking** — API keys and tokens show partial values in the admin UI
-- **Agent authorization layer** — Context-aware PolicyEngine with HMAC capability tokens, chain-depth enforcement, process isolation for dynamic skills, configurable policy rules (rate_limit, time_window, chain_restriction, permission_override), and persistent audit logging
+- **Agent authorization layer** — Context-aware PolicyEngine with HMAC capability tokens, chain-depth enforcement, process isolation for dynamic skills, configurable policy rules (rate_limit, time_window, chain_restriction, permission_override, mcp_restriction), and persistent audit logging
+- **MCP Bearer token auth** — MCP endpoint requires `Authorization: Bearer <token>` validated against `mcp.api_key` via constant-time comparison. Policy-based tool restrictions allow blocking specific tools for MCP clients. Sensitive config values are redacted in MCP resource responses
 - **Shell command security** — 5-layer defense: disabled by default, 2FA gate, whitelist with word-boundary check, blocklist for shell metacharacters, no shell interpretation (`System.cmd/3` with args as list), configurable timeout + output truncation
 
 ---
@@ -137,6 +139,7 @@ Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-co
 ```
 Telegram <──> TelegramGateway ──┐
 Discord  <──> DiscordGateway  ──┼──> Router ──> Dispatcher ──> Skills
+MCP Client <──> MCP.Server ────┘
                                 │
 Admin UI (Chat) ──────> SkillSupervisor ──> Dynamic Skills
                        (DynamicSupervisor)

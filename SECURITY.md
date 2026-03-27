@@ -66,6 +66,33 @@ Set `github.webhook_secret` in Admin > Config (GitHub category).
 
 ---
 
+## MCP Server Authentication
+
+The MCP endpoint (`/mcp`) exposes AlexClaw skills, workflows, and data to external AI clients (Claude Code, Cursor, Claude Desktop) via the Model Context Protocol.
+
+**Bearer token auth:** Every MCP request must include `Authorization: Bearer <token>`. The token is validated against `mcp.api_key` stored in Admin > Config using `Plug.Crypto.secure_compare/2` (constant-time comparison, no timing attacks). Requests without a valid token receive 401.
+
+**Token management:**
+- Store the API key encrypted in PostgreSQL (`sensitive: true` on the config setting)
+- No automatic expiration — treat MCP tokens like long-lived API keys
+- Rotate by updating `mcp.api_key` in Admin > Config — all previous tokens are immediately invalidated
+- If compromised: rotate immediately in Admin > Config
+
+**Policy enforcement:** MCP tool calls pass through `PolicyEngine.evaluate/2` with `:mcp` caller type. The `mcp_restriction` policy rule type blocks tools by name pattern — insert a policy with `rule_type: "mcp_restriction"` and `config: {"tool_pattern": "shell", "action": "deny"}` to block any tool matching that pattern.
+
+**Resource filtering:** Sensitive config values (API keys, OAuth tokens) are redacted in MCP resource responses — only `[REDACTED]` is returned for settings marked `sensitive: true`.
+
+**Audit logging:** All MCP tool invocations are logged to `auth_audit_log` with caller `mcp:<tool_name>`, visible in Admin > Policies > Audit Log.
+
+**Hardening recommendations:**
+- The `/mcp` endpoint must be behind TLS — never transmit Bearer tokens over plain HTTP
+- Store the MCP API key in your client's config securely (environment variable or encrypted config)
+- Monitor the Audit Log for unexpected MCP activity
+- Use `mcp_restriction` policies to limit which tools are available to MCP clients
+- If MCP is not needed, do not set `mcp.api_key` — the auth plug rejects all requests when the key is unconfigured
+
+---
+
 ## Inter-Node Authentication (Clustering)
 
 Multi-node clusters authenticate via BEAM's distributed Erlang protocol:

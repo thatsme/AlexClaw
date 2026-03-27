@@ -623,6 +623,10 @@ lib/
     scheduler.ex               # Quantum cron scheduler
     skill.ex                   # Skill behaviour definition
     skill_supervisor.ex        # DynamicSupervisor for skill workers
+    mcp/
+      server.ex                # MCP server — Anubis callbacks, tool calls, resource reads
+      tool_schema.ex           # Maps skills/workflows to MCP tool definitions (Peri format)
+      resource_provider.ex     # Routes resource URIs to context modules
   alex_claw_web/
     controllers/
       auth_controller.ex       # Login/logout with rate limiting
@@ -634,6 +638,8 @@ lib/
     live/admin_live/           # LiveView pages (12 pages, .ex logic + .html.heex templates)
     plugs/
       caching_body_reader.ex   # Caches raw body for webhook HMAC verification
+      mcp_auth.ex              # Bearer token auth for /mcp endpoint
+      mcp_forward.ex           # Runtime forwarder to Anubis StreamableHTTP Plug
       rate_limit.ex            # Plug for POST /login rate limiting
       require_auth.ex          # Session-based auth guard
     router.ex
@@ -671,6 +677,8 @@ config/
 {:quantum, "~> 3.5"}          # Cron scheduler
 {:nimble_totp, "~> 1.0"}      # TOTP 2FA
 {:eqrcode, "~> 0.2"}          # QR code generation for 2FA setup
+{:anubis_mcp, "~> 1.0"}       # MCP server (Streamable HTTP transport)
+{:nostrum, "~> 0.10"}          # Discord gateway
 {:jason, "~> 1.4"}            # JSON
 {:telemetry_metrics, "~> 1.0"}
 {:telemetry_poller, "~> 1.0"}

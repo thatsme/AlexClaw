@@ -1,7 +1,7 @@
 defmodule AlexClaw.MixProject do
   use Mix.Project
 
-  @version "0.3.12"
+  @version "0.3.13"
 
   def project do
     [
@@ -50,6 +50,7 @@ defmodule AlexClaw.MixProject do
       {:certifi, "~> 2.12"},
       {:gun, "~> 2.0", override: true},
       {:tz, "~> 0.28"},
+      {:anubis_mcp, "~> 1.0"},
       {:mox, "~> 1.2", only: :test},
       {:bypass, "~> 2.1", only: :test}
     ]

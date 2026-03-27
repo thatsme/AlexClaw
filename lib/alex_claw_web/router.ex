@@ -60,6 +60,17 @@ defmodule AlexClawWeb.Router do
     get("/metrics", MetricsController, :index)
   end
 
+  # MCP endpoint (Bearer token auth, Streamable HTTP transport)
+  pipeline :mcp do
+    plug(:accepts, ["json", "text/event-stream"])
+    plug(AlexClawWeb.Plugs.McpAuth)
+  end
+
+  scope "/mcp" do
+    pipe_through(:mcp)
+    forward("/", AlexClawWeb.Plugs.McpForward)
+  end
+
   # Webhook routes (authenticate via HMAC, not session)
   pipeline :webhook do
     plug(:accepts, ["json"])

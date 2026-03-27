@@ -23,11 +23,27 @@ defmodule AlexClaw.Auth.PolicyEngine do
   Evaluate an authorization context.
 
   Returns `:allow` or `{:deny, reason}`.
+
+  - Core skills with `:all` permissions get a fast-path allow.
+  - Dynamic skills go through chain depth, token, policy, and permission checks.
+  - MCP calls go through all policy checks (no fast path, no token/permission list
+    since MCP auth is Bearer token at the transport layer + policies at this layer).
   """
   @spec evaluate(AuthContext.t(), :all | [atom()]) :: :allow | {:deny, String.t()}
   def evaluate(%AuthContext{caller_type: :core} = ctx, :all) do
     AuditLog.log_allow(ctx)
     :allow
+  end
+
+  def evaluate(%AuthContext{caller_type: :mcp} = ctx, _permissions) do
+    with :ok <- check_policies(ctx) do
+      AuditLog.log_allow(ctx)
+      :allow
+    else
+      {:deny, reason} = denial ->
+        AuditLog.log_deny(ctx, reason)
+        denial
+    end
   end
 
   def evaluate(%AuthContext{} = ctx, permissions) when is_list(permissions) do
@@ -179,6 +195,22 @@ defmodule AlexClaw.Auth.PolicyEngine do
       :ok
     end
   end
+
+  defp evaluate_policy(%Policy{rule_type: "mcp_restriction", config: config}, %AuthContext{caller_type: :mcp} = ctx) do
+    tool_pattern = config["tool_pattern"]
+    action = config["action"] || "deny"
+
+    if tool_pattern && ctx.tool_name && String.contains?(ctx.tool_name, tool_pattern) do
+      case action do
+        "deny" -> {:deny, "MCP restriction: tool '#{ctx.tool_name}' blocked by pattern '#{tool_pattern}'"}
+        _ -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp evaluate_policy(%Policy{rule_type: "mcp_restriction"}, _ctx), do: :ok
 
   defp evaluate_policy(_policy, _ctx), do: :ok
 

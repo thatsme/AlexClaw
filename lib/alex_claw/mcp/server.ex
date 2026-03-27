@@ -1,6 +1,7 @@
 defmodule AlexClaw.MCP.Server do
   @moduledoc """
-  MCP (Model Context Protocol) server exposing AlexClaw skills and workflows as tools.
+  MCP (Model Context Protocol) server exposing AlexClaw skills, workflows, and data as
+  tools and resources.
 
   Uses the Streamable HTTP transport via anubis_mcp. Clients connect to
   the /mcp endpoint, authenticate with a Bearer token, and can discover
@@ -9,17 +10,20 @@ defmodule AlexClaw.MCP.Server do
   Tool discovery is dynamic: when skills are loaded/unloaded/reloaded,
   connected clients receive a `notifications/tools/list_changed` notification
   and can re-fetch the tool list.
+
+  Resources expose AlexClaw data stores (RSS feeds, knowledge base, memory,
+  workflows, runs, config) via URI templates like `alexclaw://knowledge/{id}`.
   """
 
   use Anubis.Server,
     name: "alexclaw",
     version: AlexClaw.MixProject.project()[:version] || "0.0.0",
-    capabilities: [:tools]
+    capabilities: [:tools, :resources]
 
   require Logger
 
   alias AlexClaw.Auth.{AuthContext, PolicyEngine}
-  alias AlexClaw.MCP.ToolSchema
+  alias AlexClaw.MCP.{ResourceProvider, ToolSchema}
   alias Anubis.MCP.Error
   alias Anubis.Server.Response
 
@@ -32,7 +36,10 @@ defmodule AlexClaw.MCP.Server do
     # Subscribe this session to skill registry changes
     Phoenix.PubSub.subscribe(AlexClaw.PubSub, @skills_topic)
 
-    frame = register_all_tools(frame)
+    frame =
+      frame
+      |> register_all_tools()
+      |> ResourceProvider.register_templates()
 
     {:ok, frame}
   end
@@ -89,6 +96,13 @@ defmodule AlexClaw.MCP.Server do
 
   def handle_info(_msg, frame) do
     {:noreply, frame}
+  end
+
+  # --- Resources ---
+
+  @impl true
+  def handle_resource_read(uri, frame) do
+    ResourceProvider.read(uri, frame)
   end
 
   # --- Policy gate ---

@@ -28,10 +28,8 @@ alex_claw-*.tar
 # Giulia cache
 .giulia/
 
-# Local docs (specs, scripts, notes) — keep docs/screenshot/ for README images
-/docs/*
-!/docs/screenshot/
-!/docs/requirements.txt
+# Local docs (specs, scripts, notes — not for GitHub)
+/local-docs/
 
 # Personal docker-compose variants (except swarm which is part of clustering)
 docker-compose_*.yml

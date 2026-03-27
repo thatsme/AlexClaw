@@ -31,6 +31,7 @@ AlexClaw.Application (one_for_one)
   ├── Registry (CircuitBreakerRegistry)  # Process registry for per-skill circuit breakers
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor — per-skill circuit breakers
   ├── AlexClaw.SkillSupervisor        # DynamicSupervisor — spawns skill worker processes
+  ├── AlexClaw.MCP.Server            # MCP server (Streamable HTTP via anubis_mcp)
   ├── AlexClaw.Cluster.Manager       # Node registration, discovery, remote workflow triggers
   ├── AlexClaw.Scheduler              # Quantum cron scheduler
   ├── AlexClaw.Workflows.SchedulerSync # Syncs DB workflow schedules into Quantum jobs
@@ -463,6 +464,45 @@ Shared data objects that workflows can reference. Stored in PostgreSQL.
 | `automation` | Recorded browser automation with step metadata |
 
 Resources can be assigned to workflows. Skills access them via `args[:resources]` in `run/1`. The feeds management page is a convenience wrapper around resources filtered by type `rss_feed`.
+
+---
+
+## MCP Server — `AlexClaw.MCP.Server`
+
+Model Context Protocol server exposing AlexClaw capabilities to external AI clients (Claude Code, Cursor, Claude Desktop). Built on `anubis_mcp` with Streamable HTTP transport.
+
+**Authentication:** Bearer token checked by `AlexClawWeb.Plugs.McpAuth` against `mcp.api_key` in Config. Constant-time comparison via `Plug.Crypto.secure_compare/2`.
+
+**Tools:** All registered skills (core + dynamic) and workflows are exposed as MCP tools. Skills as `skill:<name>`, workflows as `workflow:<name>`. Tool list refreshes dynamically via PubSub when skills are loaded/unloaded.
+
+**Resources:** Six URI templates expose AlexClaw data stores:
+
+| URI Template | Data |
+|---|---|
+| `alexclaw://resources/{id}` | RSS feeds, websites, documents, APIs |
+| `alexclaw://knowledge/{id}` | Knowledge base entries (supports `search:query`) |
+| `alexclaw://memory/{id}` | News items, facts, observations (supports `search:query`) |
+| `alexclaw://workflows/{id}` | Workflow definitions with steps |
+| `alexclaw://runs/{id}` | Workflow execution history |
+| `alexclaw://config/{key}` | Settings (sensitive values redacted) |
+
+All templates accept `list` as ID for browsing.
+
+**Policy enforcement:** MCP tool calls go through `PolicyEngine.evaluate/2` with `:mcp` caller type. The `mcp_restriction` policy rule type allows blocking tools by name pattern. Auth flow:
+
+```
+Bearer token (transport) → McpAuth plug → PolicyEngine (tool-level) → CapabilityToken (skill-level)
+```
+
+**Key modules:**
+
+| Module | Role |
+|---|---|
+| `AlexClaw.MCP.Server` | Anubis server — init, tool calls, resource reads, PubSub |
+| `AlexClaw.MCP.ToolSchema` | Maps skills/workflows to MCP tool definitions (Peri format) |
+| `AlexClaw.MCP.ResourceProvider` | Routes resource URIs to context modules |
+| `AlexClawWeb.Plugs.McpAuth` | Bearer token validation |
+| `AlexClawWeb.Plugs.McpForward` | Runtime forwarder to Anubis StreamableHTTP Plug |
 
 ---
 

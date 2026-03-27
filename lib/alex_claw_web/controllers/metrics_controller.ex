@@ -9,6 +9,7 @@ defmodule AlexClawWeb.MetricsController do
       llm: llm_metrics(),
       workflows: AlexClaw.Workflows.run_stats_today(),
       skills: skill_metrics(),
+      mcp: mcp_metrics(),
       logs: AlexClaw.LogBuffer.counts(),
       knowledge: %{entries: AlexClaw.Knowledge.count()},
       memory: %{entries: AlexClaw.Memory.count()}
@@ -62,6 +63,23 @@ defmodule AlexClawWeb.MetricsController do
       active: children.active,
       total_registered: length(AlexClaw.Workflows.SkillRegistry.list_skills()),
       circuit_breakers: breakers
+    }
+  end
+
+  defp mcp_metrics do
+    supervisor = :"Anubis.Elixir.AlexClaw.MCP.Server.supervisor"
+
+    status =
+      case Process.whereis(supervisor) do
+        nil -> "disabled"
+        _pid -> "running"
+      end
+
+    tool_count = length(AlexClaw.MCP.ToolSchema.all_tools())
+
+    %{
+      status: status,
+      tools_registered: tool_count
     }
   end
 

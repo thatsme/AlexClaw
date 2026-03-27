@@ -12,8 +12,16 @@ defmodule AlexClawWeb.HealthController do
     |> json(%{
       status: if(db_ok, do: "ok", else: "degraded"),
       version: to_string(Application.spec(:alex_claw, :vsn)),
-      db: if(db_ok, do: "connected", else: "unreachable")
+      db: if(db_ok, do: "connected", else: "unreachable"),
+      mcp: mcp_status()
     })
+  end
+
+  defp mcp_status do
+    case Process.whereis(:"Anubis.Elixir.AlexClaw.MCP.Server.supervisor") do
+      nil -> "disabled"
+      pid when is_pid(pid) -> "running"
+    end
   end
 
   defp db_connected? do

@@ -262,6 +262,133 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
+  # --- Outcome Rating ---
+
+  def dispatch(%Message{text: "/rate " <> rest} = msg) do
+    parts = String.split(String.trim(rest), " ", parts: 3)
+
+    case parts do
+      [run_id_str] ->
+        show_run_outcomes(run_id_str, msg)
+
+      [run_id_str, raw_reaction] ->
+        case normalize_reaction(raw_reaction) do
+          {:ok, quality} -> rate_all_outcomes(run_id_str, quality, nil, msg)
+          :error -> Gateway.send_message("Unknown rating: `#{raw_reaction}`. Use `+`/`-`, `up`/`down`, or 👍/👎.", gateway: msg.gateway)
+        end
+
+      [run_id_str, second, third] ->
+        # Could be: run_id reaction feedback  OR  run_id step reaction
+        case normalize_reaction(second) do
+          {:ok, quality} ->
+            rate_all_outcomes(run_id_str, quality, third, msg)
+
+          :error ->
+            case normalize_reaction(third) do
+              {:ok, quality} -> rate_step_outcome(run_id_str, second, quality, nil, msg)
+              :error -> Gateway.send_message("Unknown rating. Use `+`/`-`, `up`/`down`, or 👍/👎.", gateway: msg.gateway)
+            end
+        end
+
+      _ ->
+        Gateway.send_message("""
+        *Rate workflow outcomes*
+        `/rate <run_id>` — show steps for a run
+        `/rate <run_id> +` — thumbs up entire run
+        `/rate <run_id> -` — thumbs down entire run
+        `/rate <run_id> <step> +` — rate a specific step
+        `/rate <run_id> + optional feedback` — with comment
+        Also accepts: `up`/`down`, `yes`/`no`, 👍/👎
+        """, gateway: msg.gateway)
+    end
+  end
+
+  defp show_run_outcomes(run_id_str, msg) do
+    case Integer.parse(run_id_str) do
+      {run_id, ""} ->
+        outcomes = AlexClaw.Workflows.list_run_outcomes(run_id)
+
+        if outcomes == [] do
+          Gateway.send_message("No outcomes found for run #{run_id}.", gateway: msg.gateway)
+        else
+          text =
+            Enum.map_join(outcomes, "\n", fn o ->
+              quality = case o.result_quality do
+                "thumbs_up" -> "👍"
+                "thumbs_down" -> "👎"
+                _ -> "—"
+              end
+
+              "#{o.step_position}. *#{o.skill_name}* #{quality} (#{o.duration_ms || 0}ms)"
+            end)
+
+          Gateway.send_message("*Run #{run_id} outcomes*\n\n#{text}\n\nRate: `/rate #{run_id} 👍` or `/rate #{run_id} <step> 👎`", gateway: msg.gateway)
+        end
+
+      _ ->
+        Gateway.send_message("Invalid run ID: `#{run_id_str}`", gateway: msg.gateway)
+    end
+  end
+
+  defp rate_all_outcomes(run_id_str, quality, feedback, msg) do
+    case Integer.parse(run_id_str) do
+      {run_id, ""} ->
+        outcomes = AlexClaw.Workflows.list_run_outcomes(run_id)
+
+        if outcomes == [] do
+          Gateway.send_message("No outcomes found for run #{run_id}.", gateway: msg.gateway)
+        else
+          Enum.each(outcomes, fn o ->
+            AlexClaw.Workflows.annotate_outcome(o.id, quality, feedback)
+          end)
+
+          emoji = quality_emoji(quality)
+          Gateway.send_message("#{emoji} Rated #{length(outcomes)} steps for run #{run_id}.", gateway: msg.gateway)
+        end
+
+      _ ->
+        Gateway.send_message("Invalid run ID: `#{run_id_str}`", gateway: msg.gateway)
+    end
+  end
+
+  defp rate_step_outcome(run_id_str, step_str, quality, feedback, msg) do
+    with {run_id, ""} <- Integer.parse(run_id_str),
+         {step_pos, ""} <- Integer.parse(step_str) do
+      outcomes = AlexClaw.Workflows.list_run_outcomes(run_id)
+
+      case Enum.find(outcomes, &(&1.step_position == step_pos)) do
+        nil ->
+          Gateway.send_message("Step #{step_pos} not found in run #{run_id}.", gateway: msg.gateway)
+
+        outcome ->
+          AlexClaw.Workflows.annotate_outcome(outcome.id, quality, feedback)
+          emoji = quality_emoji(quality)
+          Gateway.send_message("#{emoji} Rated step #{step_pos} (#{outcome.skill_name}) for run #{run_id}.", gateway: msg.gateway)
+      end
+    else
+      _ -> Gateway.send_message("Usage: `/rate <run_id> <step> +|-`", gateway: msg.gateway)
+    end
+  end
+
+  @thumbs_up_variants ~w(👍 + up yes ok good)
+  @thumbs_down_variants ~w(👎 - down no bad nope)
+
+  defp normalize_reaction(input) do
+    clean = String.trim(input) |> String.downcase()
+
+    cond do
+      clean in @thumbs_up_variants -> {:ok, "thumbs_up"}
+      clean in @thumbs_down_variants -> {:ok, "thumbs_down"}
+      String.contains?(clean, "👍") -> {:ok, "thumbs_up"}
+      String.contains?(clean, "👎") -> {:ok, "thumbs_down"}
+      true -> :error
+    end
+  end
+
+  defp quality_emoji("thumbs_up"), do: "👍"
+  defp quality_emoji("thumbs_down"), do: "👎"
+  defp quality_emoji(_), do: "—"
+
   # --- LLM Status ---
 
   def dispatch(%Message{text: "/llm" <> _} = msg) do
@@ -390,6 +517,7 @@ defmodule AlexClaw.Dispatcher do
     /run <id or name> — run a workflow
     /runs — show active workflow runs
     /cancel <run\_id> — cancel a running workflow
+    /rate <run\_id> — view/rate workflow step outcomes (+/- or up/down)
     /research <query> — deep research
     /search <query> — search the web
     /web <url> — summarize a web page

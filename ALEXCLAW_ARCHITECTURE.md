@@ -79,6 +79,7 @@ Deterministic pattern-matching router. No LLM involved in routing — zero token
 /github commit <r> <sha> → GitHubSecurityReview — review commit
 /coder <goal>      → Coder — generate a dynamic skill from description (local LLM)
 /shell <command>   → Shell — execute whitelisted OS command (2FA-gated)
+/rate <run_id>     → View/rate workflow step outcomes (+/- or up/down)
 /record <url>      → WebAutomation — start browser recording
 /record stop <sid> → WebAutomation — stop recording, save as resource
 /replay <id>       → WebAutomation — replay a saved automation
@@ -274,6 +275,12 @@ LLM provider selection can be configured at three levels (most specific wins):
 - **Admin UI** — run button on workflow and scheduler pages
 
 All workflow executions run under `AlexClaw.TaskSupervisor`. Run history with step-level results (output, duration, success/failure) is stored in the database and visible in the admin UI.
+
+### Execution Outcome Annotation — `AlexClaw.Workflows.SkillOutcome`
+
+Every skill execution within a workflow is recorded in the `skill_outcomes` table with timing (`duration_ms`), a truncated output snapshot (max 2KB), and metadata (branch taken, errors). Outcomes start with `result_quality: "neutral"` and can be annotated by the user via the `/rate` gateway command (`+`/`-`, `up`/`down`, or thumbs emoji). Rating can target an entire run or individual steps.
+
+Skills can query past outcomes via `SkillAPI.skill_outcomes/3` (requires `:memory_read` permission) to inform future execution — this is the foundation for episodic memory and self-improvement loops.
 
 ### Live Run Control — `AlexClaw.Workflows.Registry`
 
@@ -552,6 +559,7 @@ lib/
       workflow_resource.ex     # Join schema (workflow ↔ resource)
       workflow_run.ex          # Run history Ecto schema
       workflow_step.ex         # Step Ecto schema (order, config, input_from, routes)
+      skill_outcome.ex         # Execution outcome tracking (quality, duration, feedback)
     gateway/
       behaviour.ex             # Gateway behaviour contract
       discord.ex               # Discord bot (Nostrum consumer + REST API)

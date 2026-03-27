@@ -4,7 +4,7 @@ defmodule AlexClaw.Workflows do
   """
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Workflows.{Workflow, WorkflowStep, WorkflowResource, WorkflowRun}
+  alias AlexClaw.Workflows.{Workflow, WorkflowStep, WorkflowResource, WorkflowRun, SkillOutcome}
 
   # --- Workflows ---
 
@@ -228,6 +228,82 @@ defmodule AlexClaw.Workflows do
 
   @spec cancel_run(integer()) :: :ok | {:error, :not_found}
   def cancel_run(run_id), do: AlexClaw.Workflows.Registry.cancel(run_id)
+
+  # --- Skill Outcomes ---
+
+  @doc "Record a skill execution outcome. Called by the executor after each step."
+  @spec record_outcome(map()) :: {:ok, SkillOutcome.t()} | {:error, Ecto.Changeset.t()}
+  def record_outcome(attrs) do
+    %SkillOutcome{}
+    |> SkillOutcome.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc "List outcomes for a given skill, most recent first. Opts: :limit, :quality"
+  @spec list_outcomes(String.t(), keyword()) :: [SkillOutcome.t()]
+  def list_outcomes(skill_name, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 20)
+    quality = Keyword.get(opts, :quality)
+
+    query =
+      SkillOutcome
+      |> where([o], o.skill_name == ^skill_name)
+      |> order_by([o], desc: o.inserted_at)
+      |> limit(^limit)
+
+    query =
+      if quality do
+        where(query, [o], o.result_quality == ^quality)
+      else
+        query
+      end
+
+    Repo.all(query)
+  end
+
+  @doc "Aggregate outcome stats for a skill: total, thumbs_up, thumbs_down counts."
+  @spec outcome_stats(String.t()) :: %{total: non_neg_integer(), thumbs_up: non_neg_integer(), thumbs_down: non_neg_integer()}
+  def outcome_stats(skill_name) do
+    results =
+      SkillOutcome
+      |> where([o], o.skill_name == ^skill_name)
+      |> group_by([o], o.result_quality)
+      |> select([o], {o.result_quality, count(o.id)})
+      |> Repo.all()
+      |> Map.new()
+
+    %{
+      total: Enum.sum(Map.values(results)),
+      thumbs_up: Map.get(results, "thumbs_up", 0),
+      thumbs_down: Map.get(results, "thumbs_down", 0)
+    }
+  end
+
+  @doc "Annotate an existing outcome with user quality rating and optional feedback."
+  @spec annotate_outcome(integer(), String.t(), String.t() | nil) :: {:ok, SkillOutcome.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def annotate_outcome(outcome_id, quality, feedback \\ nil) do
+    case Repo.get(SkillOutcome, outcome_id) do
+      nil ->
+        {:error, :not_found}
+
+      outcome ->
+        attrs = %{result_quality: quality}
+        attrs = if feedback, do: Map.put(attrs, :user_feedback, feedback), else: attrs
+
+        outcome
+        |> SkillOutcome.changeset(attrs)
+        |> Repo.update()
+    end
+  end
+
+  @doc "List all outcomes for a given workflow run."
+  @spec list_run_outcomes(integer()) :: [SkillOutcome.t()]
+  def list_run_outcomes(run_id) do
+    SkillOutcome
+    |> where([o], o.workflow_run_id == ^run_id)
+    |> order_by([o], o.step_position)
+    |> Repo.all()
+  end
 
   @doc "List workflows that have a schedule defined and are enabled."
   @spec list_scheduled_workflows() :: [Workflow.t()]

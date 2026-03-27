@@ -136,7 +136,13 @@ defmodule AlexClaw.Workflows.Executor do
         )
         Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})", workflow: workflow.name)
 
-        case execute_step(step, input, workflow, run) do
+        started_at = System.monotonic_time(:millisecond)
+        step_result = execute_step(step, input, workflow, run)
+        duration_ms = System.monotonic_time(:millisecond) - started_at
+
+        record_outcome(run.id, step, step_result, duration_ms)
+
+        case step_result do
           {:ok, result, branch} ->
             Registry.broadcast(
               {:workflow_step_completed, %{run_id: run.id, workflow_name: workflow.name, step_name: step.name, step_position: step.position, branch: branch}}
@@ -290,6 +296,37 @@ defmodule AlexClaw.Workflows.Executor do
         Map.get(outputs, position)
     end
   end
+
+  # --- Outcome Recording ---
+
+  defp record_outcome(run_id, step, step_result, duration_ms) do
+    output_snapshot = truncate_output(step_result)
+
+    metadata =
+      case step_result do
+        {:error, reason} -> %{"error" => inspect(reason)}
+        {:skipped, _} -> %{"skipped" => true}
+        {:ok, _, branch} -> %{"branch" => to_string(branch)}
+      end
+
+    Workflows.record_outcome(%{
+      workflow_run_id: run_id,
+      step_position: step.position,
+      skill_name: step.skill,
+      duration_ms: duration_ms,
+      output_snapshot: output_snapshot,
+      metadata: metadata
+    })
+  end
+
+  defp truncate_output({:ok, result, _branch}), do: do_truncate(result)
+  defp truncate_output({:ok, result}), do: do_truncate(result)
+  defp truncate_output({:skipped, _}), do: %{}
+  defp truncate_output({:error, reason}), do: %{"error" => String.slice(inspect(reason), 0, 2048)}
+
+  defp do_truncate(val) when is_binary(val), do: %{"output" => String.slice(val, 0, 2048)}
+  defp do_truncate(%{} = val), do: %{"output" => String.slice(inspect(val), 0, 2048)}
+  defp do_truncate(val), do: %{"output" => String.slice(inspect(val), 0, 2048)}
 
   # --- State Helpers ---
 

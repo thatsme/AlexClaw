@@ -64,115 +64,95 @@ defmodule AlexClaw.MCP.ToolSchema do
   end
 
   defp skill_input_schema(name, routes) do
+    config_fields = skill_config_schema(name)
+
     base = %{
-      "type" => "object",
-      "properties" => %{
-        "input" => %{
-          "description" => "Input data passed to the skill. Can be any type.",
-          "oneOf" => [
-            %{"type" => "string"},
-            %{"type" => "object"},
-            %{"type" => "array"},
-            %{"type" => "number"},
-            %{"type" => "boolean"},
-            %{"type" => "null"}
-          ]
-        },
-        "config" => %{
-          "type" => "object",
-          "description" => "Skill-specific configuration keys.",
-          "additionalProperties" => true
-        }
-      }
+      "input" => {:string, description: "Input data passed to the skill (string, or JSON-encoded)"},
+      "config" => {:map, :any, description: "Skill-specific configuration keys"}
     }
 
-    config_props = skill_config_schema(name)
-
-    if config_props != %{} do
-      put_in(base, ["properties", "config", "properties"], config_props)
-    else
-      base
-    end
-    |> maybe_add_routes_description(routes)
+    schema = Map.merge(base, config_fields)
+    maybe_add_routes_to_description(schema, routes)
   end
 
-  defp maybe_add_routes_description(schema, routes) when is_list(routes) and routes != [] do
+  defp maybe_add_routes_to_description(schema, routes) when is_list(routes) and routes != [] do
     route_names = Enum.map_join(routes, ", ", &to_string/1)
-    desc = Map.get(schema, "description", "")
-    new_desc = "#{desc} Possible output branches: #{route_names}." |> String.trim_leading()
-    Map.put(schema, "description", new_desc)
+    current = get_in(schema, ["input"]) |> elem(1) |> Keyword.get(:description, "")
+    new_desc = "#{current} Possible output branches: #{route_names}."
+
+    put_in(schema, ["input"], {:string, description: new_desc})
   end
 
-  defp maybe_add_routes_description(schema, _routes), do: schema
+  defp maybe_add_routes_to_description(schema, _routes), do: schema
 
-  # Known config schemas for core skills.
+  # Known config schemas for core skills (Peri format).
   # Dynamic skills use the generic config object.
   defp skill_config_schema("web_search") do
     %{
-      "query" => %{"type" => "string", "description" => "Search query string"},
-      "max_results" => %{"type" => "integer", "description" => "Maximum results to return"}
+      "query" => {:string, description: "Search query string"},
+      "max_results" => {:integer, description: "Maximum results to return"}
     }
   end
 
   defp skill_config_schema("web_browse") do
     %{
-      "url" => %{"type" => "string", "description" => "URL to fetch"},
-      "extract" => %{"type" => "string", "description" => "Content extraction mode"}
+      "url" => {:string, description: "URL to fetch"},
+      "extract" => {:string, description: "Content extraction mode"}
     }
   end
 
   defp skill_config_schema("rss_collector") do
     %{
-      "max_items" => %{"type" => "integer", "description" => "Maximum RSS items to collect"}
+      "max_items" => {:integer, description: "Maximum RSS items to collect"}
     }
   end
 
   defp skill_config_schema("research") do
     %{
-      "topic" => %{"type" => "string", "description" => "Research topic"},
-      "depth" => %{"type" => "string", "description" => "Research depth: light, medium, deep"}
+      "topic" => {:string, description: "Research topic"},
+      "depth" => {:string, description: "Research depth: light, medium, deep"}
     }
   end
 
   defp skill_config_schema("llm_transform") do
     %{
-      "system_prompt" => %{"type" => "string", "description" => "System prompt for the LLM"},
-      "model" => %{"type" => "string", "description" => "Model override"}
+      "system_prompt" => {:string, description: "System prompt for the LLM"},
+      "model" => {:string, description: "Model override"}
     }
   end
 
   defp skill_config_schema("api_request") do
     %{
-      "url" => %{"type" => "string", "description" => "Request URL"},
-      "method" => %{"type" => "string", "description" => "HTTP method (GET, POST, etc.)"},
-      "headers" => %{"type" => "object", "description" => "Request headers"},
-      "body" => %{"description" => "Request body"}
+      "url" => {:string, description: "Request URL"},
+      "method" => {:string, description: "HTTP method (GET, POST, etc.)"},
+      "headers" => {:map, :string, description: "Request headers"},
+      "body" => {:string, description: "Request body"}
     }
   end
 
   defp skill_config_schema("shell") do
     %{
-      "command" => %{"type" => "string", "description" => "Shell command to execute"}
+      "command" => {:string, description: "Shell command to execute"}
     }
   end
 
   defp skill_config_schema("telegram_notify") do
     %{
-      "message" => %{"type" => "string", "description" => "Message text to send"}
+      "message" => {:string, description: "Message text to send"}
     }
   end
 
   defp skill_config_schema("discord_notify") do
     %{
-      "message" => %{"type" => "string", "description" => "Message text to send"}
+      "message" => {:string, description: "Message text to send"}
     }
   end
 
   defp skill_config_schema("send_to_workflow") do
     %{
-      "target_node" => %{"type" => "string", "description" => "Target BEAM node name"},
-      "target_workflow" => %{"type" => "string", "description" => "Target workflow name"},
-      "timeout" => %{"type" => "integer", "description" => "RPC timeout in milliseconds"}
+      "target_node" => {:string, description: "Target BEAM node name"},
+      "target_workflow" => {:string, description: "Target workflow name"},
+      "timeout" => {:integer, description: "RPC timeout in milliseconds"}
     }
   end
 
@@ -187,20 +167,7 @@ defmodule AlexClaw.MCP.ToolSchema do
       name: "workflow:#{workflow.name}",
       description: description,
       input_schema: %{
-        "type" => "object",
-        "properties" => %{
-          "input" => %{
-            "description" => "Optional initial input for the workflow. Passed to the first step.",
-            "oneOf" => [
-              %{"type" => "string"},
-              %{"type" => "object"},
-              %{"type" => "array"},
-              %{"type" => "number"},
-              %{"type" => "boolean"},
-              %{"type" => "null"}
-            ]
-          }
-        }
+        "input" => {:string, description: "Optional initial input for the workflow. Passed to the first step."}
       }
     }
   end

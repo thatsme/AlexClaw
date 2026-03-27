@@ -20,6 +20,8 @@ defmodule AlexClaw.MCP.Server do
 
   alias AlexClaw.Auth.{AuthContext, PolicyEngine}
   alias AlexClaw.MCP.ToolSchema
+  alias Anubis.MCP.Error
+  alias Anubis.Server.Response
 
   @skills_topic "skills:registry"
 
@@ -44,10 +46,10 @@ defmodule AlexClaw.MCP.Server do
       format_tool_result(result, frame)
     else
       {:resolve, {:error, :unknown_skill}} ->
-        {:error, %{"code" => -32602, "message" => "Unknown skill: #{skill_name}"}, frame}
+        {:error, Error.protocol(:invalid_params, %{message: "Unknown skill: #{skill_name}"}), frame}
 
       {:policy, {:deny, reason}} ->
-        {:error, %{"code" => -32603, "message" => reason}, frame}
+        {:error, Error.execution(reason), frame}
     end
   end
 
@@ -58,15 +60,15 @@ defmodule AlexClaw.MCP.Server do
       format_tool_result(result, frame)
     else
       {:find, {:error, :not_found}} ->
-        {:error, %{"code" => -32602, "message" => "Unknown workflow: #{workflow_name}"}, frame}
+        {:error, Error.protocol(:invalid_params, %{message: "Unknown workflow: #{workflow_name}"}), frame}
 
       {:policy, {:deny, reason}} ->
-        {:error, %{"code" => -32603, "message" => reason}, frame}
+        {:error, Error.execution(reason), frame}
     end
   end
 
   def handle_tool_call(name, _arguments, frame) do
-    {:error, %{"code" => -32602, "message" => "Unknown tool: #{name}"}, frame}
+    {:error, Error.protocol(:invalid_params, %{message: "Unknown tool: #{name}"}), frame}
   end
 
   # PubSub events from SkillRegistry — re-register all tools and notify client
@@ -183,15 +185,15 @@ defmodule AlexClaw.MCP.Server do
   end
 
   defp format_tool_result({:ok, result, _branch}, frame) do
-    {:reply, format_content(result), frame}
+    {:reply, build_response(result), frame}
   end
 
   defp format_tool_result({:ok, result}, frame) do
-    {:reply, format_content(result), frame}
+    {:reply, build_response(result), frame}
   end
 
   defp format_tool_result({:error, reason}, frame) do
-    text =
+    message =
       case reason do
         :timeout -> "Tool execution timed out"
         {:crash, r} -> "Tool crashed: #{inspect(r)}"
@@ -199,18 +201,18 @@ defmodule AlexClaw.MCP.Server do
         r -> inspect(r)
       end
 
-    {:reply, [%{"type" => "text", "text" => text, "isError" => true}], frame}
+    {:reply, Response.tool() |> Response.error(message), frame}
   end
 
-  defp format_content(result) when is_binary(result) do
-    [%{"type" => "text", "text" => result}]
+  defp build_response(result) when is_binary(result) do
+    Response.tool() |> Response.text(result)
   end
 
-  defp format_content(result) when is_map(result) or is_list(result) do
-    [%{"type" => "text", "text" => Jason.encode!(result, pretty: true)}]
+  defp build_response(result) when is_map(result) or is_list(result) do
+    Response.tool() |> Response.text(Jason.encode!(result, pretty: true))
   end
 
-  defp format_content(result) do
-    [%{"type" => "text", "text" => inspect(result)}]
+  defp build_response(result) do
+    Response.tool() |> Response.text(inspect(result))
   end
 end

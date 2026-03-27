@@ -1,0 +1,23 @@
+:root {
+  --md-primary-fg-color: #6a1b9a;
+  --md-primary-fg-color--light: #9c4dcc;
+  --md-primary-fg-color--dark: #38006b;
+  --md-accent-fg-color: #00bcd4;
+}
+
+.md-tabs__list {
+  padding: 0 0.4rem;
+}
+
+[data-md-color-scheme="slate"] .highlight code {
+  background: transparent;
+}
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 4px;
+}
+
+.md-typeset table code {
+  font-size: 0.85em;
+}

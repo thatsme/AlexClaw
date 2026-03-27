@@ -11,6 +11,7 @@ defmodule AlexClaw.Workflows.Executor do
   alias AlexClaw.Workflows.{Registry, SkillRegistry}
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
+  alias AlexClaw.ContentSanitizer
 
   @doc "Run a workflow by ID. Creates a run record and walks the step graph."
   @spec run(integer()) :: {:ok, AlexClaw.Workflows.WorkflowRun.t()} | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
@@ -205,9 +206,11 @@ defmodule AlexClaw.Workflows.Executor do
             SafeExecutor.run(module, args, skill_type, token, [])
           end)
 
-        case result do
+        result
+        |> normalize_result()
+        |> maybe_sanitize(step.skill)
+        |> case do
           {:ok, result, branch} -> {:ok, result, branch}
-          {:ok, result} -> {:ok, result, :on_success}
           {:error, :circuit_open} -> handle_circuit_open(step, args)
           {:error, reason} -> {:error, reason}
         end
@@ -216,6 +219,20 @@ defmodule AlexClaw.Workflows.Executor do
         handle_missing_skill(step, args)
     end
   end
+
+  defp normalize_result({:ok, result, branch}), do: {:ok, result, branch}
+  defp normalize_result({:ok, result}), do: {:ok, result, :on_success}
+  defp normalize_result({:error, _} = err), do: err
+
+  defp maybe_sanitize({:ok, result, branch}, skill_name) do
+    if SkillRegistry.external?(skill_name) do
+      {:ok, ContentSanitizer.sanitize(result, skill: skill_name), branch}
+    else
+      {:ok, result, branch}
+    end
+  end
+
+  defp maybe_sanitize(error, _skill_name), do: error
 
   defp handle_circuit_open(step, args) do
     case get_in(step.config, ["on_circuit_open"]) do

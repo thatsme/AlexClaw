@@ -5,6 +5,8 @@ defmodule AlexClaw.Skills.Research do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  def external, do: true
+  @impl true
   @spec description() :: String.t()
   def description, do: "Deep research with memory context and LLM synthesis"
 

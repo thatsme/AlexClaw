@@ -4,6 +4,8 @@ defmodule AlexClaw.Skills.WebAutomation do
   recording and headless replay of website interactions.
   """
   @behaviour AlexClaw.Skill
+  @impl true
+  def external, do: true
   require Logger
 
   alias AlexClaw.Config

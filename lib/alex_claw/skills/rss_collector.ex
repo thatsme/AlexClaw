@@ -5,6 +5,8 @@ defmodule AlexClaw.Skills.RSSCollector do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  def external, do: true
+  @impl true
   @spec description() :: String.t()
   def description,
     do: "Fetches RSS feeds, scores relevance via LLM, stores and notifies via Telegram"

@@ -5,6 +5,8 @@ defmodule AlexClaw.Skills.WebBrowse do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  def external, do: true
+  @impl true
   @spec description() :: String.t()
   def description, do: "Fetches a URL, extracts readable text, optionally answers questions via LLM"
 
@@ -45,7 +47,9 @@ defmodule AlexClaw.Skills.WebBrowse do
       {:error, :no_url}
     else
       case fetch_and_extract(url) do
-        {:ok, content} ->
+        {:ok, raw_content} ->
+          content = AlexClaw.ContentSanitizer.sanitize(raw_content, skill: "web_browse")
+
           if question && question != "" do
             run_qa(url, content, question, llm_opts)
           else

@@ -51,18 +51,18 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
   end
 
   describe "list_all_with_type/0" do
-    test "returns core skills with :all permissions" do
+    test "returns core skills with :all permissions and external flag" do
       entries = SkillRegistry.list_all_with_type()
       assert is_list(entries)
 
-      rss = Enum.find(entries, fn {name, _, _, _, _} -> name == "rss_collector" end)
-      assert {"rss_collector", AlexClaw.Skills.RSSCollector, :core, :all, _branch} = rss
+      rss = Enum.find(entries, fn {name, _, _, _, _, _} -> name == "rss_collector" end)
+      assert {"rss_collector", AlexClaw.Skills.RSSCollector, :core, :all, _routes, true} = rss
     end
 
     test "all core skills have type :core" do
       entries = SkillRegistry.list_all_with_type()
 
-      for {_name, _mod, type, perms, _branch} <- entries do
+      for {_name, _mod, type, perms, _routes, _ext} <- entries do
         if type == :core, do: assert(perms == :all)
       end
     end
@@ -128,8 +128,8 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
 
       # Verify type and permissions
       entries = SkillRegistry.list_all_with_type()
-      entry = Enum.find(entries, fn {name, _, _, _, _} -> name == "test_loader" end)
-      assert {"test_loader", _, :dynamic, [:llm, :web_read], _branch} = entry
+      entry = Enum.find(entries, fn {name, _, _, _, _, _} -> name == "test_loader" end)
+      assert {"test_loader", _, :dynamic, [:llm, :web_read], _routes, false} = entry
 
       # Verify get_permissions
       assert [:llm, :web_read] = SkillRegistry.get_permissions(AlexClaw.Skills.Dynamic.TestLoader)
@@ -350,8 +350,139 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
     test "list_all_with_type includes routes in 5th position" do
       entries = SkillRegistry.list_all_with_type()
 
-      rss = Enum.find(entries, fn {name, _, _, _, _} -> name == "rss_collector" end)
-      assert {_, _, :core, :all, [:on_items, :on_empty, :on_error]} = rss
+      rss = Enum.find(entries, fn {name, _, _, _, _, _} -> name == "rss_collector" end)
+      assert {_, _, :core, :all, [:on_items, :on_empty, :on_error], true} = rss
+    end
+  end
+
+  describe "external?/1" do
+    test "returns true for core skills tagged @external" do
+      assert SkillRegistry.external?("web_search")
+      assert SkillRegistry.external?("web_browse")
+      assert SkillRegistry.external?("api_request")
+      assert SkillRegistry.external?("rss_collector")
+      assert SkillRegistry.external?("github_security_review")
+      assert SkillRegistry.external?("google_calendar")
+      assert SkillRegistry.external?("google_tasks")
+      assert SkillRegistry.external?("web_automation")
+      assert SkillRegistry.external?("research")
+    end
+
+    test "returns false for internal core skills" do
+      refute SkillRegistry.external?("conversational")
+      refute SkillRegistry.external?("telegram_notify")
+      refute SkillRegistry.external?("discord_notify")
+      refute SkillRegistry.external?("shell")
+      refute SkillRegistry.external?("coder")
+      refute SkillRegistry.external?("db_backup")
+    end
+
+    test "returns false for unknown skill" do
+      refute SkillRegistry.external?("nonexistent")
+    end
+  end
+
+  describe "AST-based external detection" do
+    setup do
+      skills_dir = Application.get_env(:alex_claw, :skills_dir)
+      File.mkdir_p!(skills_dir)
+      on_exit(fn -> File.rm_rf!(skills_dir) end)
+      %{skills_dir: skills_dir}
+    end
+
+    test "rejects dynamic skill with undeclared Req.get call", %{skills_dir: dir} do
+      source = """
+      defmodule AlexClaw.Skills.Dynamic.SneakyFetcher do
+        @behaviour AlexClaw.Skill
+        @impl true
+        def permissions, do: [:web_read]
+        @impl true
+        def run(args) do
+          {:ok, resp} = Req.get(args[:input])
+          {:ok, resp.body, :on_success}
+        end
+      end
+      """
+
+      File.write!(Path.join(dir, "sneaky_fetcher.ex"), source)
+      assert {:error, {:undeclared_external, [{Req, :get}]}} = SkillRegistry.load_skill("sneaky_fetcher.ex")
+      # Module should have been purged
+      refute Code.ensure_loaded?(AlexClaw.Skills.Dynamic.SneakyFetcher)
+    end
+
+    test "rejects dynamic skill with undeclared SkillAPI.http_get call", %{skills_dir: dir} do
+      source = """
+      defmodule AlexClaw.Skills.Dynamic.SneakyApi do
+        @behaviour AlexClaw.Skill
+        @impl true
+        def permissions, do: [:web_read]
+        @impl true
+        def run(args) do
+          {:ok, resp} = AlexClaw.Skills.SkillAPI.http_get(__MODULE__, args[:input])
+          {:ok, resp.body, :on_success}
+        end
+      end
+      """
+
+      File.write!(Path.join(dir, "sneaky_api.ex"), source)
+      assert {:error, {:undeclared_external, [{AlexClaw.Skills.SkillAPI, :http_get}]}} = SkillRegistry.load_skill("sneaky_api.ex")
+    end
+
+    test "accepts dynamic skill with @external true and HTTP calls", %{skills_dir: dir} do
+      source = """
+      defmodule AlexClaw.Skills.Dynamic.HonestFetcher do
+        @behaviour AlexClaw.Skill
+        @impl true
+        def external, do: true
+        @impl true
+        def permissions, do: [:web_read]
+        @impl true
+        def run(args) do
+          {:ok, resp} = Req.get(args[:input])
+          {:ok, resp.body, :on_success}
+        end
+      end
+      """
+
+      File.write!(Path.join(dir, "honest_fetcher.ex"), source)
+      assert {:ok, %{name: "honest_fetcher", external: true}} = SkillRegistry.load_skill("honest_fetcher.ex")
+      assert SkillRegistry.external?("honest_fetcher")
+      SkillRegistry.unload_skill("honest_fetcher")
+    end
+
+    test "accepts dynamic skill without HTTP calls and no @external", %{skills_dir: dir} do
+      source = """
+      defmodule AlexClaw.Skills.Dynamic.PureSkill do
+        @behaviour AlexClaw.Skill
+        @impl true
+        def permissions, do: [:llm]
+        @impl true
+        def run(_args), do: {:ok, "pure", :on_success}
+      end
+      """
+
+      File.write!(Path.join(dir, "pure_skill.ex"), source)
+      assert {:ok, %{name: "pure_skill", external: false}} = SkillRegistry.load_skill("pure_skill.ex")
+      refute SkillRegistry.external?("pure_skill")
+      SkillRegistry.unload_skill("pure_skill")
+    end
+
+    test "detects erlang module calls like :gen_tcp.connect", %{skills_dir: dir} do
+      source = """
+      defmodule AlexClaw.Skills.Dynamic.TcpSkill do
+        @behaviour AlexClaw.Skill
+        @impl true
+        def permissions, do: [:web_read]
+        @impl true
+        def run(_args) do
+          {:ok, socket} = :gen_tcp.connect(~c"localhost", 80, [])
+          {:ok, socket, :on_success}
+        end
+      end
+      """
+
+      File.write!(Path.join(dir, "tcp_skill.ex"), source)
+      assert {:error, {:undeclared_external, [{:gen_tcp, :connect}]}} = SkillRegistry.load_skill("tcp_skill.ex")
     end
   end
 end

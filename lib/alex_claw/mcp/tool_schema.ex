@@ -39,7 +39,7 @@ defmodule AlexClaw.MCP.ToolSchema do
 
   # --- Skill conversion ---
 
-  defp skill_to_tool({name, module, type, _permissions, routes}) do
+  defp skill_to_tool({name, module, type, _permissions, routes, _ext}) do
     description = skill_description(module, name, type)
 
     %{

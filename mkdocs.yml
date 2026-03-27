@@ -1,0 +1,123 @@
+site_name: AlexClaw
+site_description: A BEAM-native personal autonomous AI agent built on Elixir/OTP
+site_url: https://alexclaw.readthedocs.io
+repo_url: https://github.com/thatsme/AlexClaw
+repo_name: thatsme/AlexClaw
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/bat
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Configuration: getting-started/configuration.md
+    - First Run: getting-started/first-run.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Supervision Tree: architecture/supervision-tree.md
+    - LLM Router: architecture/llm-router.md
+    - Workflow Engine: architecture/workflow-engine.md
+    - Memory & Knowledge: architecture/memory.md
+    - Gateway Layer: architecture/gateway.md
+    - Multi-Node Clustering: architecture/clustering.md
+  - Skills:
+    - Built-in Skills: skills/builtin.md
+    - Writing Custom Skills: skills/writing-skills.md
+    - Dynamic Hot-Loading: skills/hot-loading.md
+    - Skill API Reference: skills/skill-api.md
+    - Coder — Autonomous Generation: skills/coder.md
+  - Security:
+    - Overview: security/overview.md
+    - Authentication & 2FA: security/auth.md
+    - Agent Authorization Layer: security/authorization.md
+    - Dynamic Skill Sandbox: security/sandbox.md
+    - Encryption at Rest: security/encryption.md
+  - Deployment:
+    - Docker Single Node: deployment/docker.md
+    - Multi-Node Swarm: deployment/clustering.md
+    - Reverse Proxy & TLS: deployment/reverse-proxy.md
+    - VPS Hardening: deployment/vps.md
+  - Reference:
+    - Telegram Commands: reference/commands.md
+    - Environment Variables: reference/env-vars.md
+    - Admin UI: reference/admin-ui.md
+    - Changelog: reference/changelog.md
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - tables
+  - footnotes
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/thatsme/AlexClaw
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css

@@ -182,7 +182,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
   end
 
   defp build_skill_list do
-    Enum.map(SkillRegistry.list_all_with_type(), fn {name, module, type, permissions, routes} ->
+    Enum.map(SkillRegistry.list_all_with_type(), fn {name, module, type, permissions, routes, _ext} ->
       %{
         name: name,
         module: module,

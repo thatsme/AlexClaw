@@ -16,6 +16,8 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  def external, do: true
+  @impl true
   @spec description() :: String.t()
   def description, do: "Fetches upcoming events from Google Calendar"
 

@@ -5,6 +5,8 @@ defmodule AlexClaw.Skills.WebSearch do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  def external, do: true
+  @impl true
   @spec description() :: String.t()
   def description, do: "Searches DuckDuckGo, fetches top results, synthesizes an answer via LLM"
 
@@ -138,7 +140,7 @@ defmodule AlexClaw.Skills.WebSearch do
     |> Task.async_stream(
       fn %{title: title, url: url} ->
         case fetch_text(url) do
-          {:ok, text} -> %{title: title, url: url, content: text}
+          {:ok, text} -> %{title: title, url: url, content: AlexClaw.ContentSanitizer.sanitize(text, skill: "web_search")}
           {:error, _} -> %{title: title, url: url, content: "(failed to fetch)"}
         end
       end,

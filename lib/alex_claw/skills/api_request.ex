@@ -6,6 +6,8 @@ defmodule AlexClaw.Skills.ApiRequest do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  def external, do: true
+  @impl true
   @spec description() :: String.t()
   def description, do: "Generic REST client — GET/POST/PUT/PATCH/DELETE with {input} interpolation"
 

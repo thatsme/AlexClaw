@@ -148,7 +148,7 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/skills" <> _} = msg) do
     text =
-      Enum.map_join(AlexClaw.Workflows.SkillRegistry.list_all_with_type(), "\n", fn {name, module, type, perms, _routes} ->
+      Enum.map_join(AlexClaw.Workflows.SkillRegistry.list_all_with_type(), "\n", fn {name, module, type, perms, _routes, _ext} ->
         desc =
           if function_exported?(module, :description, 0),
             do: module.description(),

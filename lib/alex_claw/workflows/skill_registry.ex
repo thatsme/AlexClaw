@@ -14,6 +14,22 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @dynamic_namespace "AlexClaw.Skills.Dynamic."
   @pubsub_topic "skills:registry"
 
+  # Known external call indicators for AST-based detection of dynamic skills.
+  # NOTE (v1): This scan is single-module only. Indirect calls through helper
+  # modules that wrap these functions won't be caught. Future: integrate Giulia's
+  # coupling graph for transitive call analysis at load time.
+  @external_indicators [
+    {Req, :get}, {Req, :post}, {Req, :put}, {Req, :delete}, {Req, :request},
+    {HTTPoison, :get}, {HTTPoison, :post}, {HTTPoison, :request},
+    {Finch, :request}, {Finch, :build},
+    {Tesla, :get}, {Tesla, :post}, {Tesla, :request},
+    {:gen_tcp, :connect}, {:gen_udp, :open},
+    {:httpc, :request},
+    {AlexClaw.Skills.SkillAPI, :http_get},
+    {AlexClaw.Skills.SkillAPI, :http_post},
+    {AlexClaw.Skills.SkillAPI, :http_request}
+  ]
+
   @core_skills %{
     "rss_collector" => AlexClaw.Skills.RSSCollector,
     "web_search" => AlexClaw.Skills.WebSearch,
@@ -46,7 +62,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @spec resolve(String.t()) :: {:ok, module()} | {:error, :unknown_skill}
   def resolve(name) when is_binary(name) do
     case :ets.lookup(@ets_table, name) do
-      [{^name, module, _type, _perms, _routes}] -> {:ok, module}
+      [{^name, module, _type, _perms, _routes, _ext}] -> {:ok, module}
       [] -> {:error, :unknown_skill}
     end
   end
@@ -65,12 +81,12 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   def list_all do
     @ets_table
     |> :ets.tab2list()
-    |> Enum.map(fn {name, module, _type, _perms, _routes} -> {name, module} end)
+    |> Enum.map(fn {name, module, _type, _perms, _routes, _ext} -> {name, module} end)
     |> Enum.sort_by(&elem(&1, 0))
   end
 
-  @doc "List all skills with type, permissions, and routes."
-  @spec list_all_with_type() :: [{String.t(), module(), :core | :dynamic, :all | [atom()], [atom()]}]
+  @doc "List all skills with type, permissions, routes, and external flag."
+  @spec list_all_with_type() :: [{String.t(), module(), :core | :dynamic, :all | [atom()], [atom()], boolean()}]
   def list_all_with_type do
     @ets_table
     |> :ets.tab2list()
@@ -80,7 +96,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @doc "Get permissions for a module."
   @spec get_permissions(module()) :: :all | [atom()] | nil
   def get_permissions(module) do
-    case :ets.match(@ets_table, {:_, module, :_, :"$1", :_}) do
+    case :ets.match(@ets_table, {:_, module, :_, :"$1", :_, :_}) do
       [[perms]] -> perms
       _ -> nil
     end
@@ -89,7 +105,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @doc "Get the type (:core or :dynamic) for a module."
   @spec get_type(module()) :: :core | :dynamic | nil
   def get_type(module) do
-    case :ets.match(@ets_table, {:_, module, :"$1", :_, :_}) do
+    case :ets.match(@ets_table, {:_, module, :"$1", :_, :_, :_}) do
       [[type]] -> type
       _ -> nil
     end
@@ -99,8 +115,17 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @spec get_routes(String.t()) :: [atom()]
   def get_routes(name) do
     case :ets.lookup(@ets_table, name) do
-      [{_, _, _, _, routes}] -> routes
+      [{_, _, _, _, routes, _ext}] -> routes
       [] -> [:on_success, :on_error]
+    end
+  end
+
+  @doc "Check if a skill is tagged as external (fetches data from outside the system)."
+  @spec external?(String.t()) :: boolean()
+  def external?(name) when is_binary(name) do
+    case :ets.lookup(@ets_table, name) do
+      [{_, _, _, _, _, external}] -> external
+      [] -> false
     end
   end
 
@@ -137,7 +162,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     # Register core skills
     for {name, module} <- @core_skills do
       routes = extract_routes(module)
-      :ets.insert(table, {name, module, :core, :all, routes})
+      external = extract_external(module)
+      :ets.insert(table, {name, module, :core, :all, routes, external})
     end
 
     # Load dynamic skills from DB
@@ -187,7 +213,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
           case compile_and_validate(full_path) do
             {:ok, module, permissions} ->
               routes = extract_routes(module)
-              :ets.insert(@ets_table, {skill.name, module, :dynamic, permissions, routes})
+              external = extract_external(module)
+              :ets.insert(@ets_table, {skill.name, module, :dynamic, permissions, routes, external})
               Logger.info("Dynamic skill loaded: #{skill.name}")
 
             {:error, reason} ->
@@ -228,16 +255,17 @@ defmodule AlexClaw.Workflows.SkillRegistry do
            ) do
       skill_name = skill_name_from_module(module)
       routes = extract_routes(module)
-      :ets.insert(@ets_table, {skill_name, module, :dynamic, permissions, routes})
+      external = extract_external(module)
+      :ets.insert(@ets_table, {skill_name, module, :dynamic, permissions, routes, external})
       broadcast({:skill_registered, skill_name})
-      Logger.info("Dynamic skill loaded: #{skill_name} with permissions: #{inspect(permissions)}, routes: #{inspect(routes)}")
-      {:ok, %{name: skill_name, module: module, permissions: permissions, routes: routes}}
+      Logger.info("Dynamic skill loaded: #{skill_name} with permissions: #{inspect(permissions)}, routes: #{inspect(routes)}, external: #{external}")
+      {:ok, %{name: skill_name, module: module, permissions: permissions, routes: routes, external: external}}
     end
   end
 
   defp check_version_bump(module, skill_name) do
     case :ets.lookup(@ets_table, skill_name) do
-      [{^skill_name, old_module, :dynamic, _, _}] ->
+      [{^skill_name, old_module, :dynamic, _, _, _}] ->
         old_version = if function_exported?(old_module, :version, 0), do: old_module.version(), else: nil
         new_version = if function_exported?(module, :version, 0), do: module.version(), else: nil
 
@@ -259,10 +287,10 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp do_unload_skill(name) do
     case :ets.lookup(@ets_table, name) do
-      [{^name, _module, :core, _, _}] ->
+      [{^name, _module, :core, _, _, _}] ->
         {:error, :cannot_unload_core}
 
-      [{^name, module, :dynamic, _, _}] ->
+      [{^name, module, :dynamic, _, _, _}] ->
         :ets.delete(@ets_table, name)
 
         import Ecto.Query
@@ -292,7 +320,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
         # Purge old module
         case :ets.lookup(@ets_table, name) do
-          [{^name, old_module, :dynamic, _, _}] ->
+          [{^name, old_module, :dynamic, _, _, _}] ->
             :code.purge(old_module)
             :code.delete(old_module)
 
@@ -305,6 +333,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
           checksum = compute_checksum(source)
 
           routes = extract_routes(module)
+          external = extract_external(module)
 
           Repo.update!(
             DynamicSkill.changeset(record, %{
@@ -315,10 +344,10 @@ defmodule AlexClaw.Workflows.SkillRegistry do
             })
           )
 
-          :ets.insert(@ets_table, {name, module, :dynamic, permissions, routes})
+          :ets.insert(@ets_table, {name, module, :dynamic, permissions, routes, external})
           broadcast({:skill_registered, name})
           Logger.info("Dynamic skill reloaded: #{name}")
-          {:ok, %{name: name, module: module, permissions: permissions, routes: routes}}
+          {:ok, %{name: name, module: module, permissions: permissions, routes: routes, external: external}}
         end
     end
   end
@@ -401,8 +430,14 @@ defmodule AlexClaw.Workflows.SkillRegistry do
             permissions = extract_permissions(module)
 
             case validate_permissions(permissions) do
-              :ok -> {:ok, module, permissions}
-              error -> error
+              :ok ->
+                case validate_external_declaration(module, full_path) do
+                  :ok -> {:ok, module, permissions}
+                  error -> error
+                end
+
+              error ->
+                error
             end
         end
 
@@ -412,6 +447,76 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   rescue
     e ->
       {:error, {:compilation_error, Exception.message(e)}}
+  end
+
+  defp extract_external(module) do
+    Code.ensure_loaded(module)
+
+    if function_exported?(module, :external, 0) do
+      module.external()
+    else
+      false
+    end
+  end
+
+  # Validates that dynamic skills with external HTTP/socket calls also declare external/0 → true.
+  # Fail-closed: undeclared external calls = skill doesn't load.
+  defp validate_external_declaration(module, source_path) do
+    if extract_external(module) do
+      # Already declared external/0 → true — no check needed
+      :ok
+    else
+      case detect_external_calls(source_path) do
+        [] ->
+          :ok
+
+        detected ->
+          :code.purge(module)
+          :code.delete(module)
+          {:error, {:undeclared_external, detected}}
+      end
+    end
+  end
+
+  defp detect_external_calls(source_path) do
+    case File.read(source_path) do
+      {:ok, source} ->
+        case Code.string_to_quoted(source) do
+          {:ok, ast} -> find_external_calls(ast)
+          {:error, _} -> []
+        end
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp find_external_calls(ast) do
+    {_ast, found} =
+      Macro.prewalk(ast, [], fn
+        # Module.function(...) calls — e.g. Req.get(...)
+        {{:., _, [{:__aliases__, _, mod_parts}, func]}, _, _args} = node, acc ->
+          module = Module.concat(mod_parts)
+
+          if {module, func} in @external_indicators do
+            {node, [{module, func} | acc]}
+          else
+            {node, acc}
+          end
+
+        # Erlang module calls — e.g. :gen_tcp.connect(...)
+        {{:., _, [mod, func]}, _, _args} = node, acc when is_atom(mod) ->
+          if {mod, func} in @external_indicators do
+            {node, [{mod, func} | acc]}
+          else
+            {node, acc}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    found |> Enum.uniq() |> Enum.reverse()
   end
 
   defp extract_routes(module) do

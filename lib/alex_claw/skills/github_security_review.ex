@@ -14,6 +14,8 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  def external, do: true
+  @impl true
   @spec description() :: String.t()
   def description, do: "Fetches PR/commit diffs from GitHub, runs LLM security analysis, notifies via Telegram"
 

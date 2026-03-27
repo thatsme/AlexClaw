@@ -17,6 +17,7 @@ defmodule AlexClaw.Skill do
   @callback permissions() :: [atom()]
   @callback version() :: String.t()
   @callback routes() :: [atom()]
+  @callback external() :: boolean()
 
-  @optional_callbacks description: 0, permissions: 0, version: 0, routes: 0
+  @optional_callbacks description: 0, permissions: 0, version: 0, routes: 0, external: 0
 end

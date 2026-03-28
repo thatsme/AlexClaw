@@ -76,7 +76,7 @@ Every SkillAPI call checks the calling module's declared permissions:
 
 | Permission | Operations |
 |---|---|
-| `:web_read` | `web_search`, `web_browse`, `api_request` |
+| `:web_read` | `web_search`, `web_browse`, `api_request`, `http_get`, `http_post`, `http_request` |
 | `:llm` | `llm_call` |
 | `:memory_read` | `search_memory`, `skill_outcomes` |
 | `:memory_write` | `store_memory` |
@@ -89,3 +89,6 @@ Every SkillAPI call checks the calling module's declared permissions:
 | `:workflow_manage` | Workflow CRUD operations |
 
 If a permission is not declared in `permissions/0`, the call is denied with an audit log entry.
+
+!!! warning "AST detection"
+    Dynamic skills that call `http_get`, `http_post`, or `http_request` (or directly use `Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`) must declare `def external, do: true`. The registry AST-scans source at load time and rejects skills with undeclared HTTP/socket calls. See [Writing Skills](writing-skills.md#external-skills).

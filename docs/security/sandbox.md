@@ -35,6 +35,22 @@ On load, a SHA256 checksum of the source code is computed and stored. On boot, f
 
 Every skill management operation (load, unload, reload) requires TOTP verification sent to Telegram/Discord. No exceptions.
 
+### 7. External Skill Detection (AST-Based)
+
+Skills that fetch external data must declare `def external, do: true`. At load time, the registry AST-scans the source for calls to HTTP/socket libraries:
+
+- `Req.get/post/put/delete/request`
+- `HTTPoison.get/post/request`
+- `Finch.request/build`
+- `Tesla.get/post/request`
+- `:gen_tcp.connect`, `:gen_udp.open`, `:httpc.request`
+- `SkillAPI.http_get/http_post/http_request`
+
+If any are detected without `external/0`, the skill is **rejected** (fail-closed). This prevents untagged dynamic skills from ingesting external data without the `ContentSanitizer` defense layer.
+
+!!! warning "Single-module limitation"
+    The AST scan only inspects the skill module itself. Indirect calls through helper modules that wrap HTTP clients are not detected in v1. Future: integration with Giulia's coupling graph for transitive call analysis.
+
 ## What Dynamic Skills Cannot Do
 
 | Action | Blocked By |

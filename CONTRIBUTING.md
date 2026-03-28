@@ -105,6 +105,13 @@ The LLM tier (`:light`, `:medium`, `:heavy`, `:local`) is set per workflow step
 in the admin UI, not in the skill module. If your skill calls `AlexClaw.LLM.complete/2`,
 prefer `:light` unless genuinely necessary — the router will thank you.
 
+**External skills:** If your skill fetches data from external sources (HTTP requests,
+APIs, RSS feeds), you must declare `def external, do: true` in the module. This
+enables automatic content sanitization in the workflow engine. For dynamic skills,
+the registry AST-scans the source at load time — if it detects calls to HTTP/socket
+libraries (`Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`, `SkillAPI.http_*`)
+without `external/0`, the skill is **rejected**.
+
 ---
 
 ## Code Style

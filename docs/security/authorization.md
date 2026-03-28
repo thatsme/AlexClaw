@@ -55,6 +55,10 @@ Configurable rules stored in the `policies` table:
 | `permission_override` | Force deny for specific permissions |
 | `mcp_restriction` | Block MCP tools by name pattern |
 
+## Content Sanitization Integration
+
+The authorization layer works alongside `AlexClaw.ContentSanitizer` for external-facing skills. The workflow executor checks `SkillRegistry.external?/1` after each skill execution — output from external skills passes through a 7-layer heuristic sanitizer (hidden HTML/CSS detection, zero-width unicode stripping, pattern matching, imperative tone analysis) before flowing to the next step. Pre-LLM sanitization also occurs inside `web_browse` and `web_search` before content reaches the LLM prompt. See [SECURITY.md](../../SECURITY.md#content-sanitization-prompt-injection-defense) for the full defense model.
+
 ## Audit Logging
 
 All authorization decisions are logged to `auth_audit_log`:

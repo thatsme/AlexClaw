@@ -46,6 +46,7 @@ end
 | `permissions/0` | `[]` | Required permissions (see [Authorization](../security/authorization.md)) |
 | `routes/0` | `[]` | Possible outcome branches for conditional routing |
 | `version/0` | `"1.0.0"` | Skill version string |
+| `external/0` | `false` | Whether the skill fetches data from external sources |
 
 ## The `args` Map
 
@@ -77,6 +78,43 @@ Dynamic skills interact with the system through `AlexClaw.Skills.SkillAPI`:
 
 # Search memory (requires :memory_read permission)
 results = SkillAPI.search_memory(__MODULE__, query, limit: 10)
+```
+
+## External Skills
+
+If your skill fetches data from external sources (HTTP requests, APIs, RSS feeds), declare `external/0`:
+
+```elixir
+@impl true
+def external, do: true
+```
+
+This enables automatic content sanitization when your skill's output flows through the workflow engine. The `ContentSanitizer` strips prompt injection payloads from external content before it reaches the LLM.
+
+**AST enforcement:** At load time, the registry scans your source for calls to HTTP/socket libraries (`Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`, `SkillAPI.http_*`). If detected without `external/0`, your skill is **rejected**. This is fail-closed — no exceptions.
+
+```elixir
+# This will be REJECTED — uses Req.get but doesn't declare external/0
+defmodule AlexClaw.Skills.Dynamic.BadFetcher do
+  @behaviour AlexClaw.Skill
+  def permissions, do: [:web_read]
+  def run(args) do
+    {:ok, resp} = Req.get(args[:input])
+    {:ok, resp.body, :on_success}
+  end
+end
+
+# This will be ACCEPTED — declares external/0
+defmodule AlexClaw.Skills.Dynamic.GoodFetcher do
+  @behaviour AlexClaw.Skill
+  @impl true
+  def external, do: true
+  def permissions, do: [:web_read]
+  def run(args) do
+    {:ok, resp} = Req.get(args[:input])
+    {:ok, resp.body, :on_success}
+  end
+end
 ```
 
 ## Namespace Requirement
@@ -111,6 +149,9 @@ defmodule AlexClaw.Skills.Dynamic.UrlHealthCheck do
   @moduledoc "Check if a list of URLs are responding."
 
   @behaviour AlexClaw.Skill
+
+  @impl true
+  def external, do: true
 
   @impl true
   def run(args) do

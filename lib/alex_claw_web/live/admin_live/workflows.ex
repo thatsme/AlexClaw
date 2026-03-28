@@ -648,6 +648,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp skill_uses_resources?("rss_collector"), do: true
+  defp skill_uses_resources?("rss_fetch"), do: true
   defp skill_uses_resources?("web_automation"), do: true
   defp skill_uses_resources?(_), do: false
 
@@ -663,10 +664,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_uses_llm?("coder"), do: false
   defp skill_uses_llm?("send_to_workflow"), do: false
   defp skill_uses_llm?("receive_from_workflow"), do: false
+  defp skill_uses_llm?("web_fetch"), do: false
+  defp skill_uses_llm?("web_search_fetch"), do: false
+  defp skill_uses_llm?("rss_fetch"), do: false
+  defp skill_uses_llm?("db_backup"), do: false
   defp skill_uses_llm?(_), do: true
 
   defp skill_config_hint("api_request"), do: ~s|{"method": "GET", "url": "https://...", "headers": {}, "body": ""}|
-  defp skill_config_hint("rss_collector"), do: ~s|{"threshold": 0.3, "force": false, "max_items": 5, "interests": "topics to score for"}|
+  defp skill_config_hint("rss_collector"), do: ~s|{"force": false, "max_items": 5, "fetch_timeout": 15}|
   defp skill_config_hint("web_search"), do: ~s|{"query": "search terms"}|
   defp skill_config_hint("web_browse"), do: ~s|{"url": "https://...", "question": "optional"}|
   defp skill_config_hint("llm_transform"), do: ~s|{"context": "extra context for {context} placeholder"}|
@@ -682,6 +687,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_config_hint("conversational"), do: ~s|{"message": "text to send"}|
   defp skill_config_hint("send_to_workflow"), do: ~s|{"target_node": "node_name@host", "target_workflow": "workflow name", "timeout": 5000}|
   defp skill_config_hint("receive_from_workflow"), do: ~s|{"allowed_nodes": []} — leave empty to accept from any registered node|
+  defp skill_config_hint("web_fetch"), do: ~s|{"url": "https://..."} — pure fetch, no LLM|
+  defp skill_config_hint("web_search_fetch"), do: ~s|{"query": "search terms", "max_results": 3} — pure search, no LLM|
+  defp skill_config_hint("rss_fetch"), do: ~s|{"max_items": 20, "recent_hours": 48} — pure fetch, no scoring|
+  defp skill_config_hint("llm_score"), do: ~s|{"interests": "AI, cybersecurity", "threshold": 0.3, "max_items": 10}|
   defp skill_config_hint(_), do: ""
 
   defp skill_config_scaffold(skill) do
@@ -691,7 +700,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_config_scaffold_data(skill) do
     case skill do
       "api_request" -> %{"method" => "GET", "url" => "", "headers" => %{}, "body" => ""}
-      "rss_collector" -> %{"threshold" => 0.3, "force" => false, "max_items" => 5, "interests" => ""}
+      "rss_collector" -> %{"force" => false, "max_items" => 5, "fetch_timeout" => 15}
       "web_search" -> %{"query" => ""}
       "web_browse" -> %{"url" => "", "question" => ""}
       "llm_transform" -> %{"context" => "", "prompt" => ""}
@@ -707,6 +716,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "conversational" -> %{"message" => ""}
       "send_to_workflow" -> %{"target_node" => "", "target_workflow" => "", "timeout" => 5000}
       "receive_from_workflow" -> %{"allowed_nodes" => []}
+      "web_fetch" -> %{"url" => ""}
+      "web_search_fetch" -> %{"query" => "", "max_results" => 3}
+      "rss_fetch" -> %{"max_items" => 20, "recent_hours" => 48}
+      "llm_score" -> %{"interests" => "", "threshold" => 0.3, "max_items" => 10}
       _ -> %{}
     end
   end
@@ -736,6 +749,15 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         "Translate" => Jason.encode!(%{"context" => "You are a translator."}, pretty: true),
         "Classify" => Jason.encode!(%{"context" => "You are a content classifier."}, pretty: true),
         "Extract" => Jason.encode!(%{"context" => "You extract structured data from text."}, pretty: true)
+      }
+      "llm_score" -> %{
+        "News" => Jason.encode!(%{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.3, "max_items" => 10}, pretty: true),
+        "Strict" => Jason.encode!(%{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.7, "max_items" => 5}, pretty: true)
+      }
+      "rss_fetch" -> %{
+        "Recent 24h" => Jason.encode!(%{"max_items" => 20, "recent_hours" => 24}, pretty: true),
+        "Recent 48h" => Jason.encode!(%{"max_items" => 30, "recent_hours" => 48}, pretty: true),
+        "Force all" => Jason.encode!(%{"max_items" => 50, "recent_hours" => 168, "force" => true}, pretty: true)
       }
       "coder" -> %{
         "BEAM stats" => Jason.encode!(%{"goal" => "a skill that returns the current BEAM process count and memory usage"}, pretty: true),
@@ -793,7 +815,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
     config = case skill do
       "api_request" -> "HTTP request parameters: method, url, headers, body. The response becomes the next step's input."
-      "rss_collector" -> "threshold: minimum relevance score (0-1). force: re-fetch even if cached. max_items: limit results. interests: topics for scoring."
+      "rss_collector" -> "force: re-fetch even if cached. max_items: limit results. fetch_timeout: seconds per feed (default 15). For scoring, use rss_fetch → llm_score instead."
       "web_search" -> "query: the search terms. Leave empty to use {input} from the previous step."
       "web_browse" -> "url: page to fetch. question: optional question to answer about the page content."
       "llm_transform" -> "context: extra text available as {context} in the prompt template. Usually empty — most config goes in the prompt."
@@ -809,6 +831,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "conversational" -> "message: text to send to the LLM. Leave empty to use {input} from the previous step."
       "send_to_workflow" -> "target_node: BEAM node name (e.g. node_work@192.168.1.20). target_workflow: name of the workflow on the remote node. timeout: RPC timeout in ms (default 5000)."
       "receive_from_workflow" -> "Gate skill — must be step 1. allowed_nodes: optional list of node names that can trigger this workflow. Leave empty to accept from any registered cluster node."
+      "web_fetch" -> "url: page to fetch. Returns raw text content — no LLM, no summarization. Chain with llm_transform for processing."
+      "web_search_fetch" -> "query: search terms. max_results: number of pages to fetch (default 3). Returns raw page content — no LLM synthesis. Chain with llm_transform."
+      "rss_fetch" -> "max_items: limit total items. recent_hours: only items newer than this (default 48). force: include already-seen items. Returns raw items — no scoring. Chain with llm_score."
+      "llm_score" -> "interests: topics for relevance scoring. threshold: minimum score 0-1 (default 0.3). max_items: max items to return. Scores items via single batch LLM call."
       _ -> "Skill-specific parameters as JSON. Click Scaffold to see available options."
     end
 

@@ -48,7 +48,11 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     "coder" => AlexClaw.Skills.Coder,
     "send_to_workflow" => AlexClaw.Skills.SendToWorkflow,
     "receive_from_workflow" => AlexClaw.Skills.ReceiveFromWorkflow,
-    "db_backup" => AlexClaw.Skills.DbBackup
+    "db_backup" => AlexClaw.Skills.DbBackup,
+    "web_fetch" => AlexClaw.Skills.WebFetch,
+    "web_search_fetch" => AlexClaw.Skills.WebSearchFetch,
+    "rss_fetch" => AlexClaw.Skills.RssFetch,
+    "llm_score" => AlexClaw.Skills.LlmScore
   }
 
   # --- Client API (backward-compatible) ---

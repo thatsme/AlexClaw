@@ -238,9 +238,18 @@
                 </div>
               </div>
               <div :if={skill_uses_llm?(@editing_step.skill)}>
-                <label class="block text-xs text-gray-500 mb-1">
-                  Prompt Template <.tip text={skill_help(@editing_step.skill).prompt} />
-                </label>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-xs text-gray-500">
+                    Prompt Template <.tip text={skill_help(@editing_step.skill).prompt} />
+                  </label>
+                  <div :if={skill_has_prompt_scaffolds?(@editing_step.skill)} class="flex gap-1">
+                    <button :for={{label, _text} <- skill_prompt_scaffolds(@editing_step.skill)}
+                      type="button" phx-click="scaffold_prompt" phx-value-scaffold={label}
+                      class="text-xs px-2 py-0.5 bg-gray-700 hover:bg-gray-600 text-claw-400 rounded transition">
+                      {label}
+                    </button>
+                  </div>
+                </div>
                 <textarea name="step_prompt_template" rows="5"
                   placeholder="Use {input} for previous step output, {resources} for assigned resources, {context} for step config context"
                   class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono">{@editing_step.prompt_template || ""}</textarea>
@@ -371,12 +380,21 @@
             </div>
           </div>
           <div :if={skill_uses_llm?(@adding_step)}>
-            <label class="block text-xs text-gray-500 mb-1">
-              Prompt Template <.tip text={skill_help(@adding_step).prompt} />
-            </label>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-xs text-gray-500">
+                Prompt Template <.tip text={skill_help(@adding_step).prompt} />
+              </label>
+              <div :if={skill_has_prompt_scaffolds?(@adding_step)} class="flex gap-1">
+                <button :for={{label, _text} <- skill_prompt_scaffolds(@adding_step)}
+                  type="button" phx-click="set_add_prompt_scaffold" phx-value-scaffold={label}
+                  class="text-xs px-2 py-0.5 bg-gray-700 hover:bg-gray-600 text-claw-400 rounded transition">
+                  {label}
+                </button>
+              </div>
+            </div>
             <textarea name="step_prompt_template" rows="4"
               placeholder="Use {input} for previous step output"
-              class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono"></textarea>
+              class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono">{@adding_step_prompt || ""}</textarea>
           </div>
           <div>
             <div class="flex items-center justify-between mb-1">

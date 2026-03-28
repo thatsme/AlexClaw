@@ -30,6 +30,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
        custom_schedule: false,
        adding_step: nil,
        adding_step_config: nil,
+       adding_step_prompt: nil,
        cluster_nodes: cluster_node_names()
      )}
   end
@@ -266,12 +267,31 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   @impl true
+  def handle_event("scaffold_prompt", %{"scaffold" => key}, socket) do
+    step = socket.assigns.editing_step
+    if step do
+      scaffolds = skill_prompt_scaffolds(step.skill)
+      updated_step = Map.put(step, :prompt_template, scaffolds[key] || "")
+      {:noreply, assign(socket, editing_step: updated_step)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("set_add_prompt_scaffold", %{"scaffold" => key}, socket) do
+    skill = socket.assigns.adding_step
+    scaffolds = skill_prompt_scaffolds(skill)
+    {:noreply, assign(socket, adding_step_prompt: scaffolds[key] || "")}
+  end
+
+  @impl true
   def handle_event("begin_add_step", %{"skill" => ""}, socket) do
     {:noreply, socket}
   end
 
   def handle_event("begin_add_step", %{"skill" => skill}, socket) do
-    {:noreply, assign(socket, adding_step: skill, adding_step_config: skill_config_scaffold(skill))}
+    {:noreply, assign(socket, adding_step: skill, adding_step_config: skill_config_scaffold(skill), adding_step_prompt: nil)}
   end
 
   @impl true
@@ -674,7 +694,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       "rss_collector" -> %{"threshold" => 0.3, "force" => false, "max_items" => 5, "interests" => ""}
       "web_search" -> %{"query" => ""}
       "web_browse" -> %{"url" => "", "question" => ""}
-      "llm_transform" -> %{"context" => ""}
+      "llm_transform" -> %{"context" => "", "prompt" => ""}
       "telegram_notify" -> %{"chat_id" => "", "bot_token" => "", "parse_mode" => "Markdown"}
       "discord_notify" -> %{"channel_id" => ""}
       "google_calendar" -> %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}
@@ -711,6 +731,12 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         "Play" => Jason.encode!(%{"action" => "play"}, pretty: true),
         "Record" => Jason.encode!(%{"action" => "record", "url" => "https://..."}, pretty: true)
       }
+      "llm_transform" -> %{
+        "Summarize" => Jason.encode!(%{"context" => "You are a concise summarizer."}, pretty: true),
+        "Translate" => Jason.encode!(%{"context" => "You are a translator."}, pretty: true),
+        "Classify" => Jason.encode!(%{"context" => "You are a content classifier."}, pretty: true),
+        "Extract" => Jason.encode!(%{"context" => "You extract structured data from text."}, pretty: true)
+      }
       "coder" -> %{
         "BEAM stats" => Jason.encode!(%{"goal" => "a skill that returns the current BEAM process count and memory usage"}, pretty: true),
         "With workflow" => Jason.encode!(%{"goal" => "a skill that checks disk space", "create_workflow" => true}, pretty: true)
@@ -739,6 +765,23 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp skill_has_scaffolds?(skill), do: skill_scaffolds(skill) != %{}
+
+  defp skill_prompt_scaffolds(skill) do
+    case skill do
+      "llm_transform" -> %{
+        "Summarize" => "Summarize the following content concisely. Focus on key facts and main points.\n\n{input}",
+        "Translate" => "Translate the following text to English. Preserve the original meaning and tone.\n\n{input}",
+        "Classify" => "Classify the following content into one of these categories: [positive, negative, neutral].\nReturn only the category label.\n\n{input}",
+        "Extract" => "Extract structured data from the following text. Return as JSON with relevant fields.\n\n{input}",
+        "Q&A" => "Answer the following question based on the context provided.\n\nContext:\n{input}\n\nQuestion: {context}",
+        "Rewrite" => "Rewrite the following content in a {context} tone. Keep the same facts.\n\n{input}",
+        "Filter" => "Review the following content. If it contains relevant information about {context}, output it. Otherwise output SKIP.\n\n{input}"
+      }
+      _ -> %{}
+    end
+  end
+
+  defp skill_has_prompt_scaffolds?(skill), do: skill_prompt_scaffolds(skill) != %{}
 
   defp skill_help(skill) do
     prompt = case skill do

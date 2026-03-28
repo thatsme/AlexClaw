@@ -27,6 +27,45 @@ Skills marked **External** fetch data from outside the system. Their output is a
 | `send_to_workflow` | Send data to a workflow on another BEAM node | `on_sent`, `on_error` | — |
 | `receive_from_workflow` | Gate: accepts remote triggers when placed as step 1 | `on_success`, `on_error` | — |
 
+## Composable Skills (v0.3.15+)
+
+Pure-fetch and pure-LLM skills designed for single-responsibility workflows. Use these instead of the monolithic skills above.
+
+!!! warning "Deprecation"
+    `web_browse`, `web_search`, and `rss_collector` will be removed in v0.4.0. Migrate to the composable pattern below.
+
+### Pure Fetch (No LLM)
+
+| Skill | Description | Branches | External |
+|---|---|---|---|
+| `web_fetch` | Fetch a URL, return extracted text (no LLM) | `on_success`, `on_not_found`, `on_timeout`, `on_error` | Yes |
+| `web_search_fetch` | Search DuckDuckGo + fetch pages, return raw content (no LLM) | `on_results`, `on_no_results`, `on_timeout`, `on_error` | Yes |
+| `rss_fetch` | Fetch RSS feeds, dedup, filter recent, return JSON items (no LLM) | `on_items`, `on_empty`, `on_error` | Yes |
+
+### Pure LLM
+
+| Skill | Description | Branches |
+|---|---|---|
+| `llm_transform` | Run a prompt template through the LLM | `on_success`, `on_error` |
+| `llm_score` | Batch-score items for relevance via single LLM call | `on_items`, `on_empty`, `on_error` |
+
+### Composable Workflow Examples
+
+**Web research:**
+```
+web_search_fetch → llm_transform → telegram_notify
+```
+
+**Page summary:**
+```
+web_fetch → llm_transform → telegram_notify
+```
+
+**News briefing:**
+```
+rss_fetch → llm_score → llm_transform → telegram_notify
+```
+
 ## Dynamic Skills (Shipped)
 
 These are loaded from the skills volume at boot:

@@ -59,6 +59,10 @@ Execute OS commands inside the AlexClaw container via Telegram/Discord. 5-layer 
 
 Local LLM generates dynamic skills from natural language goals via `/coder <goal>`. SkillAPI extended with `:skill_write`, `:skill_manage`, `:workflow_manage` permissions. Retry loop with error feedback, knowledge base RAG context, optional workflow creation. Zero cloud API cost (always uses `tier: :local`). Generated code passes full validation pipeline (namespace, behaviour, permissions). See [SELF_AWARENESS.md](docs/SELF_AWARENESS.md).
 
+### ~~Composable Skill Decomposition~~ ✅ Completed (v0.3.15)
+
+Separated fetch from LLM processing. New pure-fetch skills (`web_fetch`, `web_search_fetch`, `rss_fetch`) do one thing — fetch data, return it. New `llm_score` skill handles batch item scoring. Workflows compose these primitives: `rss_fetch → llm_score → llm_transform → telegram_notify`. Monolithic skills (`web_browse`, `web_search`, `rss_collector`) deprecated, removal in v0.4.0.
+
 ### ~~Content Sanitization & Prompt Injection Defense~~ ✅ Completed (v0.3.14)
 
 7-layer heuristic sanitizer protects external-facing skills from prompt injection attacks. Hidden HTML/CSS detection, zero-width unicode stripping, 101 known injection patterns (sourced from NVIDIA Garak probe library) loaded from runtime JSON, imperative tone heuristic for novel payloads. Core skills tagged with `external/0` callback; dynamic skills AST-scanned at load time — undeclared HTTP/socket calls rejected (fail-closed). Pre-LLM sanitization in `web_browse` and `web_search`, post-LLM auto-sanitization in the workflow executor for all external skills.

@@ -31,18 +31,24 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 
 ### Skills
 
+> **Deprecation Notice (v0.3.15):** `web_browse`, `web_search`, and `rss_collector` are deprecated and will be removed in v0.4.0. Use the new composable pattern instead: `web_fetch → llm_transform`, `web_search_fetch → llm_transform`, `rss_fetch → llm_score → llm_transform`. See the [v0.3.15 release notes](https://github.com/thatsme/AlexClaw/releases/tag/v0.3.15) for migration examples.
+
 ![AlexClaw Skills](docs/screenshot/skills.jpg)
 
 | Skill | Description |
 |---|---|
-| `rss_collector` | Fetch RSS feeds, deduplicate, score relevance via LLM, notify. Configurable fetch timeout (global + per-step) |
-| `web_search` | Search the web and synthesize answers |
-| `web_browse` | Fetch and summarize a URL, or answer questions about it |
+| `web_fetch` | Fetch a URL, return extracted text (no LLM) |
+| `web_search_fetch` | Search DuckDuckGo + fetch pages, return raw content (no LLM) |
+| `rss_fetch` | Fetch RSS feeds, dedup, filter recent, return JSON items (no LLM) |
+| `llm_transform` | Run a prompt template through the LLM (workflow glue step) |
+| `llm_score` | Batch-score items for relevance via single LLM call |
+| `rss_collector` | Fetch + score + notify all-in-one (**deprecated**, use `rss_fetch → llm_score`) |
+| `web_search` | Search + synthesize (**deprecated**, use `web_search_fetch → llm_transform`) |
+| `web_browse` | Fetch + summarize (**deprecated**, use `web_fetch → llm_transform`) |
 | `research` | Deep research with memory context |
 | `conversational` | Free-text LLM conversation |
 | `telegram_notify` | Send a Telegram message as a workflow step |
 | `discord_notify` | Send workflow output to a Discord channel. Configurable `channel_id` per step — deliver to different channels in the same workflow |
-| `llm_transform` | Run a prompt template through the LLM (workflow glue step) |
 | `api_request` | Make an authenticated HTTP request |
 | `github_security_review` | Fetch PR/commit diff, run LLM security analysis |
 | `google_calendar` | Fetch upcoming Google Calendar events |

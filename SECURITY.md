@@ -196,6 +196,7 @@ The following protections are in place:
 - **Integrity checksums** — SHA256 of source file stored on load, verified on boot. Mismatched files are skipped
 - **Core protection** — core skills cannot be unloaded or overwritten by dynamic skills
 - **No NIF compilation** — the Alpine runtime image has no build tools, preventing native code loading
+- **External skill detection (AST-based)** — at load time, dynamic skill source is AST-scanned for calls to HTTP/socket libraries (Req, HTTPoison, Finch, Tesla, `:gen_tcp`, `:httpc`, SkillAPI.http_*). If detected without `def external, do: true`, the skill is **rejected** (fail-closed). This prevents untagged dynamic skills from fetching external data without proper sanitization. Note: this scan is single-module only — indirect calls through helper modules are not caught in v1
 
 **Circuit breaker protection:** Each skill (core and dynamic) is wrapped by an
 OTP circuit breaker. After 3 consecutive failures, the circuit opens and calls
@@ -221,6 +222,63 @@ safety measures:
 of AlexClaw. A malicious skill could bypass SkillAPI by calling internal modules
 directly. The permission system is a guardrail, not a security boundary.
 Only load skills from sources you trust.
+
+---
+
+## Content Sanitization (Prompt Injection Defense)
+
+External-facing skills (`web_search`, `web_browse`, `api_request`, `rss_collector`,
+`github_security_review`, `google_calendar`, `google_tasks`, `web_automation`,
+`research`) fetch data from untrusted sources. This data flows through the
+workflow engine and may reach the LLM, creating a prompt injection surface.
+
+**External skill tagging:** Skills that fetch external data declare
+`def external, do: true` (callback on `AlexClaw.Skill` behaviour). The
+`SkillRegistry` tracks this flag in ETS and exposes `external?/1` for
+runtime checks.
+
+**7-layer heuristic sanitizer (`AlexClaw.ContentSanitizer`):**
+
+Content from external skills passes through 7 defense layers before reaching
+the LLM:
+
+1. **Hidden HTML detection** — detects and logs content in `<noscript>`,
+   `<template>`, `aria-hidden="true"` elements before stripping
+2. **Hidden CSS detection** — detects and logs content with `display:none`,
+   `visibility:hidden`, `font-size:0`, `color:transparent`, `opacity:0`,
+   off-screen positioning (`left:-9999px`), `text-indent:-9999px`, `clip:rect(0...)`
+3. **Zero-width unicode stripping** — removes 19 types of invisible characters
+   used for steganographic injection (`U+200B` through `U+180E`, `U+FEFF`, etc.)
+4. **HTML stripping** — Floki-based extraction of semantic text only (script,
+   style, noscript, template, meta, head, svg removed)
+5. **Size guard** — configurable max content size (default 10KB), truncates oversized payloads
+6. **Pattern matching** — 101 known injection phrases loaded from
+   `config/injection_patterns.json` at runtime (updatable without recompilation).
+   Patterns sourced from NVIDIA Garak probe library covering DAN, developer mode,
+   instruction override, persona hijacking, token penalty, encoding tricks, and more
+7. **Imperative tone heuristic** — detects directive language (second-person
+   pronouns + imperative verbs like "ignore", "forget", "obey", "execute",
+   "reveal") to catch novel payloads not in the pattern list
+
+**Pre-LLM sanitization:** `web_browse` and `web_search` sanitize fetched
+content before building the LLM prompt. Injection payloads are stripped
+before the model ever sees them.
+
+**Post-LLM sanitization:** The workflow executor auto-sanitizes output from
+any skill tagged `external?/1 == true`, catching skill name leaks or
+residual injection artifacts in the LLM response.
+
+**Stripped sentences are logged** with their detection reason (`[pattern]`,
+`[imperative]`, `[skill_mention]`) for forensic analysis.
+
+**Known limitations:**
+- Pattern matching cannot catch novel injection techniques not in the JSON file
+- The imperative tone heuristic may produce false positives on legitimate
+  directive text (e.g., "Experts recommend..." is preserved, but edge cases exist)
+- Encoding-based attacks (Base64, ROT13) bypass pattern matching — the encoded
+  payload reaches the LLM, though most models don't decode and follow them
+- Future: embedded tiny classifier model (Qwen2.5-0.5B / SmolLM2-360M) for
+  binary injection classification as a second pass on ambiguous sentences
 
 ---
 

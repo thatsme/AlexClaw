@@ -4,26 +4,28 @@ AlexClaw ships with a comprehensive set of core skills. All are registered at bo
 
 ## Core Skills
 
-| Skill | Description | Branches |
-|---|---|---|
-| `rss_collector` | Fetch RSS feeds, deduplicate, score relevance via LLM, notify | `on_items`, `on_empty`, `on_error` |
-| `web_search` | Search DuckDuckGo and synthesize answers via LLM | `on_results`, `on_no_results`, `on_timeout`, `on_error` |
-| `web_browse` | Fetch and summarize a URL, or answer questions about it | `on_success`, `on_not_found`, `on_timeout`, `on_error` |
-| `research` | Deep research with memory context and LLM synthesis | `on_results`, `on_error` |
-| `conversational` | Free-text LLM conversation with identity and memory | `on_success`, `on_error` |
-| `telegram_notify` | Send workflow output to Telegram | `on_delivered`, `on_error` |
-| `discord_notify` | Send workflow output to a Discord channel | `on_delivered`, `on_error` |
-| `llm_transform` | Run a prompt template through the LLM (workflow glue step) | `on_success`, `on_error` |
-| `api_request` | Generic REST client (GET/POST/PUT/PATCH/DELETE) | `on_2xx`, `on_4xx`, `on_5xx`, `on_timeout`, `on_error` |
-| `github_security_review` | Fetch PR/commit diff, run LLM security analysis | `on_clean`, `on_findings`, `on_error` |
-| `google_calendar` | Fetch upcoming Google Calendar events | `on_events`, `on_empty`, `on_error` |
-| `google_tasks` | List and create Google Tasks | `on_tasks`, `on_empty`, `on_error` |
-| `db_backup` | PostgreSQL backup with gzip compression and rotation | `on_success`, `on_error` |
-| `shell` | Execute whitelisted OS commands (2FA-gated) | `on_success`, `on_error`, `on_timeout` |
-| `web_automation` | Browser automation via headless Playwright sidecar | `on_success`, `on_timeout`, `on_error` |
-| `coder` | Generate dynamic skills from natural language via local LLM | `on_created`, `on_workflow_created`, `on_error` |
-| `send_to_workflow` | Send data to a workflow on another BEAM node | `on_sent`, `on_error` |
-| `receive_from_workflow` | Gate: accepts remote triggers when placed as step 1 | `on_success`, `on_error` |
+Skills marked **External** fetch data from outside the system. Their output is automatically sanitized by `ContentSanitizer` before flowing through the workflow engine.
+
+| Skill | Description | Branches | External |
+|---|---|---|---|
+| `rss_collector` | Fetch RSS feeds, deduplicate, score relevance via LLM, notify | `on_items`, `on_empty`, `on_error` | Yes |
+| `web_search` | Search DuckDuckGo and synthesize answers via LLM | `on_results`, `on_no_results`, `on_timeout`, `on_error` | Yes |
+| `web_browse` | Fetch and summarize a URL, or answer questions about it | `on_success`, `on_not_found`, `on_timeout`, `on_error` | Yes |
+| `research` | Deep research with memory context and LLM synthesis | `on_results`, `on_error` | Yes |
+| `conversational` | Free-text LLM conversation with identity and memory | `on_success`, `on_error` | — |
+| `telegram_notify` | Send workflow output to Telegram | `on_delivered`, `on_error` | — |
+| `discord_notify` | Send workflow output to a Discord channel | `on_delivered`, `on_error` | — |
+| `llm_transform` | Run a prompt template through the LLM (workflow glue step) | `on_success`, `on_error` | — |
+| `api_request` | Generic REST client (GET/POST/PUT/PATCH/DELETE) | `on_2xx`, `on_4xx`, `on_5xx`, `on_timeout`, `on_error` | Yes |
+| `github_security_review` | Fetch PR/commit diff, run LLM security analysis | `on_clean`, `on_findings`, `on_error` | Yes |
+| `google_calendar` | Fetch upcoming Google Calendar events | `on_events`, `on_empty`, `on_error` | Yes |
+| `google_tasks` | List and create Google Tasks | `on_tasks`, `on_empty`, `on_error` | Yes |
+| `db_backup` | PostgreSQL backup with gzip compression and rotation | `on_success`, `on_error` | — |
+| `shell` | Execute whitelisted OS commands (2FA-gated) | `on_success`, `on_error`, `on_timeout` | — |
+| `web_automation` | Browser automation via headless Playwright sidecar | `on_success`, `on_timeout`, `on_error` | Yes |
+| `coder` | Generate dynamic skills from natural language via local LLM | `on_created`, `on_workflow_created`, `on_error` | — |
+| `send_to_workflow` | Send data to a workflow on another BEAM node | `on_sent`, `on_error` | — |
+| `receive_from_workflow` | Gate: accepts remote triggers when placed as step 1 | `on_success`, `on_error` | — |
 
 ## Dynamic Skills (Shipped)
 

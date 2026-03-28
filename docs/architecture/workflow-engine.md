@@ -62,6 +62,16 @@ The circuit breaker wraps skill execution transparently in the Executor. Skills 
 - After 5 minutes → half-open → one test call
 - Test succeeds → circuit closes → Telegram notification
 
+## Content Sanitization
+
+The executor integrates with `AlexClaw.ContentSanitizer` for prompt injection defense. Two sanitization points:
+
+**Pre-LLM (inside skills):** External skills like `web_browse` and `web_search` sanitize fetched content before building the LLM prompt. Injection payloads are stripped before the model sees them.
+
+**Post-LLM (executor level):** After each skill returns, the executor checks `SkillRegistry.external?/1`. If the skill is tagged external, the output passes through the 7-layer sanitizer (hidden HTML/CSS detection, zero-width unicode stripping, pattern matching, imperative tone heuristic) before flowing to the next step.
+
+This is transparent to workflow authors — no sanitize step to add, no step to forget. External data is always sanitized structurally.
+
 ## Live Run Tracking
 
 The `WorkflowRegistry` (GenServer + ETS) tracks every running workflow:

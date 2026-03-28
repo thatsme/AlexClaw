@@ -335,7 +335,9 @@ AlexClaw supports multi-node BEAM clustering. Each node runs its own sequential 
 
 ## Skills
 
-Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, optional `description/0`, `routes/0`, `permissions/0`, `version/0`). Skills return `{:ok, result, :branch}` for conditional routing or `{:ok, result}` for backward compatibility. Registered in `AlexClaw.Workflows.SkillRegistry` with routes stored in ETS alongside permissions.
+Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, optional `description/0`, `routes/0`, `permissions/0`, `version/0`, `external/0`). Skills return `{:ok, result, :branch}` for conditional routing or `{:ok, result}` for backward compatibility. Registered in `AlexClaw.Workflows.SkillRegistry` with routes and external flag stored in ETS alongside permissions.
+
+Skills that fetch data from external sources declare `def external, do: true`. The workflow executor auto-sanitizes output from external skills through `AlexClaw.ContentSanitizer` (7-layer heuristic pipeline). Dynamic skills are AST-scanned at load time — undeclared HTTP/socket calls are rejected.
 
 | Skill | Module | Tier | Description |
 |---|---|---|---|
@@ -769,4 +771,7 @@ User sends "/connect google" via Telegram
 - Sensitive config values (API keys, tokens) encrypted at rest with AES-256-GCM
 - Encryption key derived from `SECRET_KEY_BASE` via HKDF — changing the secret invalidates encrypted values
 - Sensitive values masked in admin UI
+- External skill tagging (`external/0`) with AST-based detection for dynamic skills — undeclared HTTP/socket calls rejected at load time
+- 7-layer content sanitizer (`AlexClaw.ContentSanitizer`) — hidden HTML/CSS detection, zero-width unicode stripping, 101 known injection patterns from runtime JSON, imperative tone heuristic for novel payloads
+- Pre-LLM sanitization in external skills, post-LLM auto-sanitization in the workflow executor
 - See [SECURITY.md](SECURITY.md) for full policy and deployment hardening

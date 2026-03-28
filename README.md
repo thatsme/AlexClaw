@@ -66,6 +66,8 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 Load custom skills at runtime — no code changes, no Docker rebuild, no restart. Drop an `.ex` file into the skills volume (or upload via the admin UI), and it compiles into the running VM immediately.
 
 - **Permission sandbox** — Dynamic skills declare permissions and interact through `SkillAPI` only. Undeclared permissions are denied at runtime. Context-aware `PolicyEngine` evaluates chain depth, capability tokens, and configurable policy rules.
+- **External skill detection** — Skills that fetch external data declare `external/0`. Dynamic skills are AST-scanned at load time — undeclared HTTP/socket calls are **rejected** (fail-closed).
+- **Content sanitization** — 7-layer heuristic sanitizer strips prompt injection payloads from external content before LLM ingestion. Detects hidden HTML/CSS, zero-width unicode steganography, known injection patterns (101 from Garak), and imperative tone anomalies. Patterns loaded from JSON at runtime — updatable without recompilation.
 - **Capability tokens** — Macaroon-style HMAC-signed tokens attenuate permissions through the call chain. Workflow steps get scoped tokens; cross-skill invocation further restricts.
 - **Process isolation** — Dynamic skills execute in spawned processes via `SafeExecutor`, isolating auth state from the caller.
 - **Namespace enforcement** — Module must be `AlexClaw.Skills.Dynamic.*`

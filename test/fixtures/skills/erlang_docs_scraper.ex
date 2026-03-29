@@ -67,7 +67,7 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
   ]
 
   @impl true
-  def version, do: "2.0.0"
+  def version, do: "3.0.0"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]

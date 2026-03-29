@@ -27,7 +27,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   )
 
   @impl true
-  def version, do: "1.0.0"
+  def version, do: "2.0.0"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]

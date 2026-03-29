@@ -577,8 +577,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp initial_active_runs do
-    Workflows.list_active_runs()
-    |> Map.new(fn run -> {run.run_id, Map.put(run, :status, :running)} end)
+    Map.new(Workflows.list_active_runs(), fn run -> {run.run_id, Map.put(run, :status, :running)} end)
   end
 
   defp dynamic_skill_names do
@@ -739,8 +738,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp skill_scaffolds(skill) do
-    skill_meta(skill).config_presets
-    |> Enum.into(%{}, fn {name, data} -> {name, Jason.encode!(data, pretty: true)} end)
+    Enum.into(skill_meta(skill).config_presets, %{}, fn {name, data} -> {name, Jason.encode!(data, pretty: true)} end)
   end
 
   defp skill_has_scaffolds?(skill), do: skill_meta(skill).config_presets != %{}

@@ -8,11 +8,13 @@ defmodule AlexClaw.Skills.WebSearchFetch do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   def description, do: "Searches DuckDuckGo and returns raw page content (no LLM)"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_results, :on_no_results, :on_timeout, :on_error]
 
   require Logger
@@ -22,20 +24,25 @@ defmodule AlexClaw.Skills.WebSearchFetch do
   @max_page_length 3_000
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"query": "search terms", "max_results": 3} — pure search, no LLM|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"query" => "", "max_results" => 3}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help,
     do:
       "query: search terms. max_results: number of pages to fetch (default 3). Returns raw page content — no LLM synthesis. Chain with llm_transform."
 
   @impl true
+  @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
     raw_query = config["query"] || to_string(args[:input] || "")

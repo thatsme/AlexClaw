@@ -30,6 +30,7 @@ defmodule AlexClaw.MCP.Server do
   @skills_topic "skills:registry"
 
   @impl true
+  @spec init(map(), map()) :: {:ok, map()}
   def init(client_info, frame) do
     Logger.info("[MCP] Client connected: #{inspect(client_info["name"])}")
 
@@ -45,6 +46,7 @@ defmodule AlexClaw.MCP.Server do
   end
 
   @impl true
+  @spec handle_tool_call(String.t(), map(), map()) :: {:ok, map(), map()} | {:error, map(), map()}
   def handle_tool_call("skill:" <> skill_name, arguments, frame) do
     with {:resolve, {:ok, module}} <- {:resolve, AlexClaw.Workflows.SkillRegistry.resolve(skill_name)},
          {:policy, :allow} <- {:policy, check_mcp_policy("skill:#{skill_name}", :execute)} do
@@ -101,6 +103,7 @@ defmodule AlexClaw.MCP.Server do
   # --- Resources ---
 
   @impl true
+  @spec handle_resource_read(String.t(), map()) :: {:ok, map(), map()} | {:error, map(), map()}
   def handle_resource_read(uri, frame) do
     ResourceProvider.read(uri, frame)
   end
@@ -119,8 +122,7 @@ defmodule AlexClaw.MCP.Server do
     # Clear existing tools and re-register from current state
     frame = %{frame | tools: %{}}
 
-    ToolSchema.all_tools()
-    |> Enum.reduce(frame, fn tool_def, acc ->
+    Enum.reduce(ToolSchema.all_tools(), frame, fn tool_def, acc ->
       Anubis.Server.Frame.register_tool(acc, tool_def.name,
         description: tool_def.description,
         input_schema: tool_def.input_schema
@@ -172,12 +174,14 @@ defmodule AlexClaw.MCP.Server do
   defp execute_workflow(workflow, arguments) do
     input = arguments["input"]
 
-    if input do
-      AlexClaw.Workflows.Executor.run_with_input(workflow.id, input)
-    else
-      AlexClaw.Workflows.Executor.run(workflow.id)
-    end
-    |> case do
+    result =
+      if input do
+        AlexClaw.Workflows.Executor.run_with_input(workflow.id, input)
+      else
+        AlexClaw.Workflows.Executor.run(workflow.id)
+      end
+
+    case result do
       {:ok, run} ->
         {:ok, %{
           run_id: run.id,
@@ -191,8 +195,7 @@ defmodule AlexClaw.MCP.Server do
   end
 
   defp find_workflow_by_name(name) do
-    case AlexClaw.Workflows.list_workflows()
-         |> Enum.find(&(&1.name == name)) do
+    case Enum.find(AlexClaw.Workflows.list_workflows(), &(&1.name == name)) do
       nil -> {:error, :not_found}
       workflow -> {:ok, workflow}
     end
@@ -215,18 +218,18 @@ defmodule AlexClaw.MCP.Server do
         r -> inspect(r)
       end
 
-    {:reply, Response.tool() |> Response.error(message), frame}
+    {:reply, Response.error(Response.tool(), message), frame}
   end
 
   defp build_response(result) when is_binary(result) do
-    Response.tool() |> Response.text(result)
+    Response.text(Response.tool(), result)
   end
 
   defp build_response(result) when is_map(result) or is_list(result) do
-    Response.tool() |> Response.text(Jason.encode!(result, pretty: true))
+    Response.text(Response.tool(), Jason.encode!(result, pretty: true))
   end
 
   defp build_response(result) do
-    Response.tool() |> Response.text(inspect(result))
+    Response.text(Response.tool(), inspect(result))
   end
 end

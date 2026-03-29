@@ -29,15 +29,19 @@ defmodule AlexClaw.Skills.Shell do
   def routes, do: [:on_success, :on_error, :on_timeout]
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"command": "df -h"}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"command" => "df -h"}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "Memory" => %{"command" => "free -m"},
@@ -50,6 +54,7 @@ defmodule AlexClaw.Skills.Shell do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked."
 
   @impl true

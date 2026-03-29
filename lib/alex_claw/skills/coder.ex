@@ -21,15 +21,19 @@ defmodule AlexClaw.Skills.Coder do
   def permissions, do: :all
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"goal": "describe what the skill should do", "create_workflow": false, "max_retries": 3}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"goal" => "", "create_workflow" => false, "max_retries" => 3}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "BEAM stats" => %{"goal" => "a skill that returns the current BEAM process count and memory usage"},
@@ -38,6 +42,7 @@ defmodule AlexClaw.Skills.Coder do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "goal: natural language description of the skill to generate. create_workflow: if true, creates a workflow with the generated skill. max_retries: number of LLM retries on failure (default 3)."
 
   @default_max_retries 5

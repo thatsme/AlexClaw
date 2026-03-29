@@ -234,12 +234,12 @@ defmodule AlexClaw.MCP.ResourceProvider do
     import Ecto.Query, only: [from: 2]
 
     runs =
-      from(r in AlexClaw.Workflows.WorkflowRun,
-        order_by: [desc: r.started_at],
-        limit: 50
+      AlexClaw.Repo.all(
+        from(r in AlexClaw.Workflows.WorkflowRun,
+          order_by: [desc: r.started_at],
+          limit: 50
+        )
       )
-      |> AlexClaw.Repo.all()
-
     json_reply(Enum.map(runs, &serialize_run/1), frame)
   end
 
@@ -294,7 +294,7 @@ defmodule AlexClaw.MCP.ResourceProvider do
   # --- Helpers ---
 
   defp json_reply(data, frame) do
-    {:reply, Response.resource() |> Response.text(Jason.encode!(data, pretty: true)), frame}
+    {:reply, Response.text(Response.resource(), Jason.encode!(data, pretty: true)), frame}
   end
 
   defp not_found(type, id, frame) do

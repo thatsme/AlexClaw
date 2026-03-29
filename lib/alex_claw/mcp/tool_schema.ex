@@ -21,8 +21,7 @@ defmodule AlexClaw.MCP.ToolSchema do
   @doc "Build tool definitions for all registered skills (core + dynamic)."
   @spec skill_tools() :: [tool_def()]
   def skill_tools do
-    SkillRegistry.list_all_with_type()
-    |> Enum.map(&skill_to_tool/1)
+    Enum.map(SkillRegistry.list_all_with_type(), &skill_to_tool/1)
   end
 
   @doc "Build tool definitions for all enabled workflows."

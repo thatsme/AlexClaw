@@ -16,15 +16,19 @@ defmodule AlexClaw.Skills.TelegramNotify do
   def routes, do: [:on_delivered, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"chat_id" => "", "bot_token" => "", "parse_mode" => "Markdown"}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "Optional overrides. Leave empty to use default bot/chat. parse_mode: Markdown or HTML."
 
   require Logger

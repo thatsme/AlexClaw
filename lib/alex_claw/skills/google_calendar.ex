@@ -16,6 +16,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   @spec description() :: String.t()
@@ -26,15 +27,19 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   def routes, do: [:on_events, :on_empty, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"action": "list", "days": 1} or {"action": "create", "title": "Meeting", "date": "2026-03-20", "time": "14:00"}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "List events" => %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20},
@@ -43,6 +48,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "action: list (fetch events) or create (new event with title, date, time). calendar_id: which calendar (default: primary). days: how many days ahead. max_results: event limit."
 
   require Logger

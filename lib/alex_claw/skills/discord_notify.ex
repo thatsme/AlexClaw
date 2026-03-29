@@ -15,15 +15,19 @@ defmodule AlexClaw.Skills.DiscordNotify do
   def routes, do: [:on_delivered, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"channel_id": "Discord channel ID (optional, default: main channel)"}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"channel_id" => ""}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "channel_id: target Discord channel. Leave empty to send to the default channel."
 
   require Logger

@@ -5,6 +5,7 @@ defmodule AlexClaw.Skills.WebAutomation do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   require Logger
 
@@ -19,15 +20,19 @@ defmodule AlexClaw.Skills.WebAutomation do
   def routes, do: [:on_success, :on_timeout, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"action": "play"} — runs the automation config from the assigned Resource|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"action" => "play", "resource" => "automation resource name"}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "Play" => %{"action" => "play"},
@@ -36,6 +41,7 @@ defmodule AlexClaw.Skills.WebAutomation do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help,
     do:
       "action: play (run automation), record (start recording), status (check sidecar). The automation config comes from the assigned Resource (type: automation)."

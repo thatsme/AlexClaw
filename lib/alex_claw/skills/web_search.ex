@@ -5,6 +5,7 @@ defmodule AlexClaw.Skills.WebSearch do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   @spec description() :: String.t()
@@ -22,15 +23,19 @@ defmodule AlexClaw.Skills.WebSearch do
   @max_page_length 3_000
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"query": "search terms"}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"query" => ""}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "query: the search terms. Leave empty to use {input} from the previous step."
 
   @doc "Workflow-compatible entry point. Uses config query or args[:input] as the search query."

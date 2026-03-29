@@ -181,28 +181,30 @@ defmodule AlexClaw.Workflows do
     wf_attrs = data["workflow"]
     name = resolve_import_name(wf_attrs["name"])
 
-    Repo.transaction(fn ->
-      case %Workflow{}
-           |> Workflow.changeset(%{
-             name: name,
-             description: wf_attrs["description"],
-             enabled: wf_attrs["enabled"] || false,
-             schedule: wf_attrs["schedule"],
-             default_provider: wf_attrs["default_provider"],
-             node: wf_attrs["node"],
-             metadata: wf_attrs["metadata"] || %{}
-           })
-           |> Repo.insert() do
-        {:ok, new_wf} ->
-          insert_imported_steps(new_wf, data["steps"])
-          warnings = link_imported_resources(new_wf, data["resources"] || [])
-          {new_wf, warnings}
+    result =
+      Repo.transaction(fn ->
+        case %Workflow{}
+             |> Workflow.changeset(%{
+               name: name,
+               description: wf_attrs["description"],
+               enabled: wf_attrs["enabled"] || false,
+               schedule: wf_attrs["schedule"],
+               default_provider: wf_attrs["default_provider"],
+               node: wf_attrs["node"],
+               metadata: wf_attrs["metadata"] || %{}
+             })
+             |> Repo.insert() do
+          {:ok, new_wf} ->
+            insert_imported_steps(new_wf, data["steps"])
+            warnings = link_imported_resources(new_wf, data["resources"] || [])
+            {new_wf, warnings}
 
-        {:error, changeset} ->
-          Repo.rollback(changeset_to_message(changeset))
-      end
-    end)
-    |> case do
+          {:error, changeset} ->
+            Repo.rollback(changeset_to_message(changeset))
+        end
+      end)
+
+    case result do
       {:ok, {workflow, warnings}} -> {:ok, workflow, warnings}
       {:error, message} when is_binary(message) -> {:error, message}
       {:error, changeset} -> {:error, changeset_to_message(changeset)}
@@ -249,7 +251,8 @@ defmodule AlexClaw.Workflows do
   defp link_imported_resources(workflow, resources) do
     alias AlexClaw.Resources.Resource
 
-    Enum.reduce(resources, [], fn res, warnings ->
+    resources
+    |> Enum.reduce([], fn res, warnings ->
       resource = find_or_create_resource(res)
 
       case resource do
@@ -315,12 +318,14 @@ defmodule AlexClaw.Workflows do
   end
 
   defp changeset_to_message(%Ecto.Changeset{} = changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+    errors =
+      Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+        Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+          to_string(Keyword.get(opts, String.to_existing_atom(key), key))
+        end)
       end)
-    end)
-    |> Enum.map_join("; ", fn {field, errors} -> "#{field}: #{Enum.join(errors, ", ")}" end)
+
+    Enum.map_join(errors, "; ", fn {field, msgs} -> "#{field}: #{Enum.join(msgs, ", ")}" end)
   end
 
   defp changeset_to_message(other), do: inspect(other)

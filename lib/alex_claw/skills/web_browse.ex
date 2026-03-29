@@ -5,6 +5,7 @@ defmodule AlexClaw.Skills.WebBrowse do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   @spec description() :: String.t()
@@ -21,15 +22,19 @@ defmodule AlexClaw.Skills.WebBrowse do
   @max_content_length 8_000
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"url": "https://...", "question": "optional"}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"url" => "", "question" => ""}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "url: page to fetch. question: optional question to answer about the page content."
 
   @doc "Workflow-compatible entry point. Uses config url/question or args[:input] as URL."

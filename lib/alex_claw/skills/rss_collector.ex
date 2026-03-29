@@ -5,6 +5,7 @@ defmodule AlexClaw.Skills.RSSCollector do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   @spec description() :: String.t()
@@ -30,15 +31,19 @@ defmodule AlexClaw.Skills.RSSCollector do
   end
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:llm_tier, :llm_model, :config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"force": false, "max_items": 5, "fetch_timeout": 15}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"force" => false, "max_items" => 5, "fetch_timeout" => 15}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help,
     do:
       "force: re-fetch even if cached. max_items: limit results. fetch_timeout: seconds per feed (default 15). For scoring, use rss_fetch → llm_score instead."

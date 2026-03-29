@@ -26,15 +26,19 @@ defmodule AlexClaw.Skills.SendToWorkflow do
   def routes, do: [:on_sent, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"target_node": "node_name@host", "target_workflow": "workflow name", "timeout": 5000}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"target_node" => "", "target_workflow" => "", "timeout" => 5000}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help,
     do:
       "target_node: BEAM node name (e.g. node_work@192.168.1.20). target_workflow: name of the workflow on the remote node. timeout: RPC timeout in ms (default 5000)."

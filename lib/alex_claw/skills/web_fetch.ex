@@ -8,11 +8,13 @@ defmodule AlexClaw.Skills.WebFetch do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   def description, do: "Fetches a URL and returns extracted text content (no LLM)"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_not_found, :on_timeout, :on_error]
 
   require Logger
@@ -21,20 +23,25 @@ defmodule AlexClaw.Skills.WebFetch do
   @max_content_length 8_000
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"url": "https://..."} — pure fetch, no LLM|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"url" => ""}
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help,
     do:
       "url: page to fetch. Returns raw text content — no LLM, no summarization. Chain with llm_transform for processing."
 
   @impl true
+  @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
     url = config["url"] || to_string(args[:input] || "")

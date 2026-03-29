@@ -30,8 +30,7 @@ defmodule AlexClaw.Workflows.Registry do
 
   @spec list_active() :: [map()]
   def list_active do
-    :ets.tab2list(@ets_table)
-    |> Enum.map(&row_to_map/1)
+    Enum.map(:ets.tab2list(@ets_table), &row_to_map/1)
   end
 
   @spec lookup(integer()) :: {:ok, map()} | {:error, :not_found}
@@ -150,7 +149,7 @@ defmodule AlexClaw.Workflows.Registry do
       {run_id, monitors} ->
         :ets.delete(@ets_table, run_id)
 
-        if reason not in [:normal, :cancelled] do
+        unless reason in [:normal, :cancelled] do
           case Workflows.get_run(run_id) do
             {:ok, %{status: "running"} = run} ->
               Workflows.update_run(run, %{

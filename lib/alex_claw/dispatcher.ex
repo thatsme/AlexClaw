@@ -374,7 +374,7 @@ defmodule AlexClaw.Dispatcher do
   @thumbs_down_variants ~w(👎 - down no bad nope)
 
   defp normalize_reaction(input) do
-    clean = String.trim(input) |> String.downcase()
+    clean = input |> String.trim() |> String.downcase()
 
     cond do
       clean in @thumbs_up_variants -> {:ok, "thumbs_up"}

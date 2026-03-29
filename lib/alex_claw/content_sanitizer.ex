@@ -152,7 +152,7 @@ defmodule AlexClaw.ContentSanitizer do
       elements = Floki.find(doc, tag)
 
       for element <- elements do
-        text = Floki.text(element) |> String.trim()
+        text = String.trim(Floki.text(element))
 
         if text != "" and String.length(text) > 5 do
           Logger.warning(
@@ -169,10 +169,10 @@ defmodule AlexClaw.ContentSanitizer do
     styled = Floki.find(doc, "[style]")
 
     for element <- styled do
-      style = Floki.attribute(element, "style") |> List.first() || ""
+      style = List.first(Floki.attribute(element, "style")) || ""
 
       if Enum.any?(@hidden_css_patterns, &Regex.match?(&1, style)) do
-        text = Floki.text(element) |> String.trim()
+        text = String.trim(Floki.text(element))
 
         if text != "" do
           Logger.warning(
@@ -188,12 +188,11 @@ defmodule AlexClaw.ContentSanitizer do
 
   defp strip_zero_width(text, skill_name) do
     # Check for zero-width characters before stripping
-    found =
-      @zero_width_chars
-      |> Enum.filter(&String.contains?(text, &1))
+    found = Enum.filter(@zero_width_chars, &String.contains?(text, &1))
 
     if found != [] do
-      count = Enum.sum(for char <- found, do: text |> String.graphemes() |> Enum.count(&(&1 == char)))
+      graphemes = String.graphemes(text)
+      count = Enum.sum(for char <- found, do: Enum.count(graphemes, &(&1 == char)))
 
       Logger.warning(
         "[ContentSanitizer:Unicode] #{count} zero-width character(s) stripped from skill '#{skill_name}'. " <>
@@ -249,6 +248,7 @@ defmodule AlexClaw.ContentSanitizer do
   Load injection patterns from JSON file, falling back to built-in patterns.
   File is re-read on every call so updates take effect without restart.
   """
+  @spec load_patterns() :: [Regex.t()]
   def load_patterns do
     path = Application.get_env(:alex_claw, :injection_patterns_file, @patterns_file)
 

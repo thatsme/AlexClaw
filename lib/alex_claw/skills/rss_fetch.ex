@@ -8,11 +8,13 @@ defmodule AlexClaw.Skills.RssFetch do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   def description, do: "Fetches RSS feeds and returns raw items (no LLM scoring)"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_items, :on_empty, :on_error]
 
   require Logger
@@ -25,15 +27,19 @@ defmodule AlexClaw.Skills.RssFetch do
   @default_recent_hours 48
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"max_items": 20, "recent_hours": 48} — pure fetch, no scoring|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"max_items" => 20, "recent_hours" => 48}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "Recent 24h" => %{"max_items" => 20, "recent_hours" => 24},
@@ -43,11 +49,13 @@ defmodule AlexClaw.Skills.RssFetch do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help,
     do:
       "max_items: limit total items. recent_hours: only items newer than this (default 48). force: include already-seen items. Returns raw items — no scoring. Chain with llm_score."
 
   @impl true
+  @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
     feeds = get_feeds(args)

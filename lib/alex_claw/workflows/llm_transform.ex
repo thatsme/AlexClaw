@@ -13,15 +13,19 @@ defmodule AlexClaw.Workflows.LLMTransform do
   require Logger
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"context": "extra context for {context} placeholder"}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"context" => "", "prompt" => ""}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "Summarize" => %{"context" => "You are a concise summarizer."},
@@ -32,6 +36,7 @@ defmodule AlexClaw.Workflows.LLMTransform do
   end
 
   @impl true
+  @spec prompt_presets() :: %{String.t() => String.t()}
   def prompt_presets do
     %{
       "Summarize" => "Summarize the following content concisely. Focus on key facts and main points.\n\n{input}",
@@ -45,9 +50,11 @@ defmodule AlexClaw.Workflows.LLMTransform do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "context: extra text available as {context} in the prompt template. Usually empty — most config goes in the prompt."
 
   @impl true
+  @spec prompt_help() :: String.t()
   def prompt_help, do: "Template sent to the LLM. Use {input} for previous step output, {context} for config context."
 
   @impl true

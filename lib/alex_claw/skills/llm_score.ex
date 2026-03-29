@@ -12,6 +12,7 @@ defmodule AlexClaw.Skills.LlmScore do
   def description, do: "Scores items for relevance via batch LLM call, filters by threshold"
 
   @impl true
+  @spec routes() :: [atom()]
   def routes, do: [:on_items, :on_empty, :on_error]
 
   require Logger
@@ -21,15 +22,19 @@ defmodule AlexClaw.Skills.LlmScore do
   @default_max_items 10
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:llm_tier, :llm_model, :config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"interests": "AI, cybersecurity", "threshold": 0.3, "max_items": 10}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"interests" => "", "threshold" => 0.3, "max_items" => 10}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "News" => %{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.3, "max_items" => 10},
@@ -38,11 +43,13 @@ defmodule AlexClaw.Skills.LlmScore do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help,
     do:
       "interests: topics for relevance scoring. threshold: minimum score 0-1 (default 0.3). max_items: max items to return. Scores items via single batch LLM call."
 
   @impl true
+  @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
     interests = config["interests"] || "general news, technology, finance, world events"
@@ -150,11 +157,10 @@ defmodule AlexClaw.Skills.LlmScore do
           |> Enum.map(fn {item, i} ->
             score = Enum.at(scores, i, 0.0)
 
-            item
-            |> then(fn
+            case item do
               m when is_map(m) -> Map.put(m, "score", score)
               other -> %{"item" => other, "score" => score}
-            end)
+            end
           end)
           |> Enum.sort_by(&(&1["score"] || 0.0), :desc)
 

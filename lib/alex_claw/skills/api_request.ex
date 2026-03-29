@@ -6,6 +6,7 @@ defmodule AlexClaw.Skills.ApiRequest do
   """
   @behaviour AlexClaw.Skill
   @impl true
+  @spec external() :: boolean()
   def external, do: true
   @impl true
   @spec description() :: String.t()
@@ -16,15 +17,19 @@ defmodule AlexClaw.Skills.ApiRequest do
   def routes, do: [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
   @impl true
+  @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"method": "GET", "url": "https://...", "headers": {}, "body": ""}|
 
   @impl true
+  @spec config_scaffold() :: map()
   def config_scaffold, do: %{"method" => "GET", "url" => "", "headers" => %{}, "body" => ""}
 
   @impl true
+  @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "GET" => %{"method" => "GET", "url" => "https://...", "headers" => %{}},
@@ -33,6 +38,7 @@ defmodule AlexClaw.Skills.ApiRequest do
   end
 
   @impl true
+  @spec config_help() :: String.t()
   def config_help, do: "HTTP request parameters: method, url, headers, body. The response becomes the next step's input."
 
   require Logger

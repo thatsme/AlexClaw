@@ -146,11 +146,13 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   # --- HTTP ---
 
+  @default_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
   @doc "HTTP GET. All Req options are passed through (headers, receive_timeout, params, etc)."
   @spec http_get(skill_mod(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
   def http_get(skill_module, url, opts \\ []) do
     with :ok <- check_permission(skill_module, :web_read) do
-      Req.get(url, opts)
+      Req.get(url, with_default_headers(opts))
     end
   end
 
@@ -158,7 +160,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec http_post(skill_mod(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
   def http_post(skill_module, url, opts \\ []) do
     with :ok <- check_permission(skill_module, :web_read) do
-      Req.post(url, opts)
+      Req.post(url, with_default_headers(opts))
     end
   end
 
@@ -166,7 +168,17 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec http_request(skill_mod(), atom(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
   def http_request(skill_module, method, url, opts \\ []) do
     with :ok <- check_permission(skill_module, :web_read) do
-      Req.request([method: method, url: url] ++ opts)
+      Req.request([method: method, url: url] ++ with_default_headers(opts))
+    end
+  end
+
+  defp with_default_headers(opts) do
+    existing_headers = Keyword.get(opts, :headers, %{})
+
+    unless Map.has_key?(existing_headers, "user-agent") or Map.has_key?(existing_headers, "User-Agent") do
+      Keyword.put(opts, :headers, Map.put(existing_headers, "user-agent", @default_user_agent))
+    else
+      opts
     end
   end
 

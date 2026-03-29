@@ -91,13 +91,21 @@
             <div class="text-xs text-gray-600 font-mono">{skill.name}</div>
             <div class="flex gap-2">
               <button phx-click="reload_skill" phx-value-name={skill.name}
-                class="px-2 py-1 text-xs text-gray-400 hover:text-claw-400 bg-gray-800 hover:bg-gray-700 rounded transition">
-                Reload
+                disabled={@pending_2fa == skill.name}
+                class={["px-2 py-1 text-xs rounded transition",
+                  if(@pending_2fa == skill.name,
+                    do: "bg-yellow-900/60 text-yellow-300 animate-pulse cursor-wait",
+                    else: "text-gray-400 hover:text-claw-400 bg-gray-800 hover:bg-gray-700")]}>
+                {if @pending_2fa == skill.name, do: "Waiting 2FA...", else: "Reload"}
               </button>
               <button phx-click="unload_skill" phx-value-name={skill.name}
+                disabled={@pending_2fa == skill.name}
                 data-confirm={"Unload skill '#{skill.name}'?"}
-                class="px-2 py-1 text-xs text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded transition">
-                Unload
+                class={["px-2 py-1 text-xs rounded transition",
+                  if(@pending_2fa == skill.name,
+                    do: "bg-yellow-900/60 text-yellow-300 animate-pulse cursor-wait",
+                    else: "text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700")]}>
+                {if @pending_2fa == skill.name, do: "Waiting 2FA...", else: "Unload"}
               </button>
             </div>
           </div>

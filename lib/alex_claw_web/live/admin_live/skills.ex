@@ -21,7 +21,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
        skills: build_skill_list(),
        running: get_running_skills(),
        uploading: false,
-       upload_result: nil
+       upload_result: nil,
+       pending_2fa: nil
      )
      |> allow_upload(:skill_file,
        accept: :any,
@@ -93,7 +94,10 @@ defmodule AlexClawWeb.AdminLive.Skills do
   def handle_event("unload_skill", %{"name" => name}, socket) do
     case request_2fa(%{type: :skill_unload, name: name}, "Unload skill: *#{name}*") do
       :challenged ->
-        {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
+        {:noreply,
+         socket
+         |> assign(pending_2fa: name)
+         |> put_flash(:info, "2FA code requested — check Telegram/Discord")}
 
       :proceed ->
         case SkillRegistry.unload_skill(name) do
@@ -119,7 +123,10 @@ defmodule AlexClawWeb.AdminLive.Skills do
   def handle_event("reload_skill", %{"name" => name}, socket) do
     case request_2fa(%{type: :skill_reload, name: name}, "Reload skill: *#{name}*") do
       :challenged ->
-        {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
+        {:noreply,
+         socket
+         |> assign(pending_2fa: name)
+         |> put_flash(:info, "2FA code requested — check Telegram/Discord")}
 
       :proceed ->
         do_reload(name, socket)
@@ -131,11 +138,11 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   @impl true
   def handle_info({:skill_registered, _name}, socket) do
-    {:noreply, assign(socket, skills: build_skill_list())}
+    {:noreply, assign(socket, skills: build_skill_list(), pending_2fa: nil)}
   end
 
   def handle_info({:skill_unregistered, _name}, socket) do
-    {:noreply, assign(socket, skills: build_skill_list())}
+    {:noreply, assign(socket, skills: build_skill_list(), pending_2fa: nil)}
   end
 
   defp do_reload(name, socket) do

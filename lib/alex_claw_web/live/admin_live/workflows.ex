@@ -551,7 +551,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       end
 
     Process.send_after(self(), {:clear_finished_run, payload.run_id}, 10_000)
-    {:noreply, assign(socket, active_runs: active)}
+    {:noreply, assign(socket, active_runs: active, workflows: Workflows.list_workflows())}
   end
 
   def handle_info({:clear_finished_run, run_id}, socket) do

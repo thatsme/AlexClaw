@@ -31,7 +31,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
     - SkillAPI.http_get(__MODULE__, url, opts) returns {:ok, %Req.Response{status: N, body: data}} or {:error, reason}
     - Match response as: {:ok, %{status: 200, body: body}} — NOT %{"body" => body}
     - Error reasons are structs, not strings. Always use inspect/1: {:error, "Failed: \#{inspect(reason)}"}
-    - For URLs with special chars (like %c), use URI.encode/1 or pass params: [key: value] option
+    - NEVER put query parameters directly in the URL string. ALWAYS use the params: option:
+      WRONG: SkillAPI.http_get(__MODULE__, "https://example.com/api?format=%c")
+      RIGHT: SkillAPI.http_get(__MODULE__, "https://example.com/api", params: [format: "%c"])
   - Return ONLY the code wrapped in ```elixir ... ```, no explanation
   - Check the provided documentation for correct function signatures and return types
   - Erlang modules in docs (e.g. erlang:foo(), os:bar()) are called in Elixir as :erlang.foo(), :os.bar()

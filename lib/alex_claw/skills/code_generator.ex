@@ -70,6 +70,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
   defp try_load(code, skill_name) do
     file_name = "#{skill_name}.ex"
 
+    # Unload existing skill with the same name to avoid version conflict
+    SkillAPI.unload_skill(AlexClaw.Skills.Coder, skill_name)
+
     case SkillAPI.write_skill(AlexClaw.Skills.Coder, file_name, code) do
       :ok ->
         case SkillAPI.load_skill(AlexClaw.Skills.Coder, file_name) do
@@ -103,11 +106,11 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @spec gather_knowledge(String.t(), String.t()) :: String.t()
   def gather_knowledge(goal, context_source \\ "both") do
     unless context_source == "none" do
-      template_chunks = search_kb("AlexClaw Skill behaviour SkillAPI dynamic template", 3)
-      goal_chunks = search_kb(goal, 3)
-      erlang_chunks = search_kb(goal, 3, kind: "erlang_docs")
-      elixir_chunks = search_kb(goal, 2, kind: "elixir_source")
-      skill_chunks = search_kb(goal, 2, kind: "skill_source")
+      template_chunks = search_kb("AlexClaw Skill behaviour SkillAPI dynamic template", 2)
+      goal_chunks = search_kb(goal, 2)
+      erlang_chunks = search_kb(goal, 1, kind: "erlang_docs")
+      elixir_chunks = search_kb(goal, 1, kind: "elixir_source")
+      skill_chunks = search_kb(goal, 1, kind: "skill_source")
 
       (template_chunks ++ erlang_chunks ++ elixir_chunks ++ goal_chunks ++ skill_chunks)
       |> Enum.uniq_by(& &1.id)

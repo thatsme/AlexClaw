@@ -1,5 +1,6 @@
 services:
-  db:
+  db-prod:
+    container_name: alexclaw-db-prod
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
@@ -14,7 +15,8 @@ services:
       timeout: 3s
       retries: 5
 
-  alexclaw:
+  alexclaw-prod:
+    container_name: alexclaw-prod
     build:
       context: .
       args:
@@ -22,7 +24,7 @@ services:
     hostname: node1.local
     restart: unless-stopped
     depends_on:
-      db:
+      db-prod:
         condition: service_healthy
     ports:
       - "${ADMIN_PORT:-5001}:5001"
@@ -32,7 +34,7 @@ services:
       # Database
       DATABASE_USERNAME: ${DATABASE_USERNAME:-alexclaw}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-      DATABASE_HOSTNAME: db
+      DATABASE_HOSTNAME: db-prod
 
       # Application
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}

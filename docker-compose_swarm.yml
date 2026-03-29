@@ -1,5 +1,6 @@
 services:
-  db:
+  db-prod:
+    container_name: alexclaw-db-prod
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
@@ -22,7 +23,7 @@ services:
     hostname: node1.local
     restart: unless-stopped
     depends_on:
-      db:
+      db-prod:
         condition: service_healthy
     ports:
       - "5001:5001"
@@ -31,7 +32,7 @@ services:
     environment:
       DATABASE_USERNAME: ${DATABASE_USERNAME:-alexclaw}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-      DATABASE_HOSTNAME: db
+      DATABASE_HOSTNAME: db-prod
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
@@ -58,7 +59,7 @@ services:
     hostname: node2.local
     restart: unless-stopped
     depends_on:
-      db:
+      db-prod:
         condition: service_healthy
     ports:
       - "5002:5001"
@@ -67,7 +68,7 @@ services:
     environment:
       DATABASE_USERNAME: ${DATABASE_USERNAME:-alexclaw}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-      DATABASE_HOSTNAME: db
+      DATABASE_HOSTNAME: db-prod
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}

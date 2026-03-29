@@ -15,7 +15,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Workflows",
        workflows: Workflows.list_workflows(),
        active_runs: initial_active_runs(),
@@ -31,7 +32,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
        adding_step: nil,
        adding_step_config: nil,
        adding_step_prompt: nil,
-       cluster_nodes: cluster_node_names()
+       cluster_nodes: cluster_node_names(),
+       show_import_form: false,
+       name_filter: ""
+     )
+     |> allow_upload(:workflow_file,
+       accept: ~w(.json),
+       max_entries: 1,
+       max_file_size: 1_000_000
      )}
   end
 
@@ -176,6 +184,69 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
       :error ->
         {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_import_form", _, socket) do
+    {:noreply, assign(socket, show_import_form: !socket.assigns.show_import_form)}
+  end
+
+  @impl true
+  def handle_event("filter_name", %{"name_filter" => filter}, socket) do
+    {:noreply, assign(socket, name_filter: filter)}
+  end
+
+  @impl true
+  def handle_event("validate_import", _params, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("import_workflow", _params, socket) do
+    result =
+      consume_uploaded_entries(socket, :workflow_file, fn %{path: tmp_path}, _entry ->
+        case File.read(tmp_path) do
+          {:ok, content} ->
+            case Jason.decode(content) do
+              {:ok, data} -> {:ok, data}
+              {:error, _} -> {:ok, {:parse_error, "Invalid JSON file"}}
+            end
+
+          {:error, reason} ->
+            {:ok, {:read_error, "Could not read file: #{inspect(reason)}"}}
+        end
+      end)
+
+    case result do
+      [data] when is_map(data) ->
+        case Workflows.import_workflow(data) do
+          {:ok, workflow, []} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Workflow '#{workflow.name}' imported successfully")
+             |> assign(workflows: Workflows.list_workflows(), show_import_form: false)}
+
+          {:ok, workflow, warnings} ->
+            msg = "Workflow '#{workflow.name}' imported. Warnings: #{Enum.join(warnings, "; ")}"
+
+            {:noreply,
+             socket
+             |> put_flash(:info, msg)
+             |> assign(workflows: Workflows.list_workflows(), show_import_form: false)}
+
+          {:error, message} ->
+            {:noreply, put_flash(socket, :error, "Import failed: #{message}")}
+        end
+
+      [{:parse_error, msg}] ->
+        {:noreply, put_flash(socket, :error, msg)}
+
+      [{:read_error, msg}] ->
+        {:noreply, put_flash(socket, :error, msg)}
+
+      [] ->
+        {:noreply, put_flash(socket, :error, "No file selected")}
     end
   end
 
@@ -879,4 +950,16 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp cluster_node_names do
     Enum.uniq([to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)])
   end
+
+  defp filter_workflows(workflows, ""), do: workflows
+  defp filter_workflows(workflows, nil), do: workflows
+
+  defp filter_workflows(workflows, filter) do
+    filter = String.downcase(filter)
+    Enum.filter(workflows, fn wf -> String.contains?(String.downcase(wf.name), filter) end)
+  end
+
+  defp upload_error_message(:too_large), do: "File too large (max 1 MB)"
+  defp upload_error_message(:not_accepted), do: "Only .json files accepted"
+  defp upload_error_message(err), do: "Error: #{inspect(err)}"
 end

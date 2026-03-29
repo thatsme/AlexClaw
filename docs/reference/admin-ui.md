@@ -7,7 +7,7 @@ Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `
 | Page | Route | Description |
 |---|---|---|
 | Dashboard | `/` | System overview, active runs, recent logs |
-| Workflows | `/workflows` | Workflow list, editor, run history, step results |
+| Workflows | `/workflows` | Workflow list (filterable), editor, export/import, run history, step results |
 | Scheduler | `/scheduler` | Cron schedule management, next run times |
 | Skills | `/skills` | Core and dynamic skill registry, upload/reload/unload |
 | Config | `/config` | Runtime settings by category, sensitive value masking |
@@ -26,6 +26,8 @@ Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `
 - **Real-time updates** — LiveView pushes changes without page refresh
 - **No JavaScript hooks** — fully server-rendered
 - **Workflow editor** — visual step editor with drag-and-drop ordering, branch routing, resilience config
+- **Workflow export/import** — export workflows as self-contained JSON, import with automatic resource creation
+- **Workflow filter** — search/filter workflow list by name
 - **Active runs panel** — real-time step-by-step progress with cancel button
 - **Config categories** — organized by domain (skills, llm, prompts, identity, etc.)
 - **Sensitive masking** — API keys show partial values, full value only during edit

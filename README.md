@@ -17,7 +17,7 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 ### Core
 
 - **Multi-Model LLM Router** — Tier-based routing (`light` / `medium` / `heavy` / `local`) with priority-based selection. All providers (cloud and local) are stored in PostgreSQL and fully manageable from the admin UI. Tracks daily usage per provider in ETS. Ships with default providers (Gemini, Claude, Ollama, LM Studio) seeded on first boot — add, remove, or reconfigure any provider at runtime.
-- **Workflow Engine** — Define multi-step linear pipelines with conditional branching. Each skill declares its possible outcomes (branches), and the executor routes to different steps based on which branch fires. Execution is sequential — one path per run, no fan-out (a step cannot broadcast to multiple parallel successors). Notify skills pass through their input unchanged, enabling chained delivery to multiple channels in the same pipeline. Per-step resilience controls (circuit breaker, missing skill handling, fallback routing). Zero LLM tokens spent on routing — pure deterministic pattern matching. Full run history with branch path visualization.
+- **Workflow Engine** — Define multi-step linear pipelines with conditional branching. Each skill declares its possible outcomes (branches), and the executor routes to different steps based on which branch fires. Execution is sequential — one path per run, no fan-out (a step cannot broadcast to multiple parallel successors). Notify skills pass through their input unchanged, enabling chained delivery to multiple channels in the same pipeline. Per-step resilience controls (circuit breaker, missing skill handling, fallback routing). Zero LLM tokens spent on routing — pure deterministic pattern matching. Full run history with branch path visualization. **Export/Import** — workflows can be exported as self-contained JSON files (definition, steps, resources) and imported on any instance. Resources are matched by name+URL or created automatically. Filterable workflow list.
 - **OTP Circuit Breaker** — Per-skill circuit breaker using GenServer + ETS. After consecutive failures a skill is temporarily disabled (circuit open), then automatically re-tested after a cooldown. Telegram notifications on state transitions. Dead letter routing: workflow steps can skip, halt, or fallback to an alternative skill when a circuit is open or a skill is missing. Zero external dependencies — pure OTP.
 
 ![AlexClaw Circuit Breaker](docs/screenshot/circuit_break.jpg)
@@ -295,7 +295,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | Skills | Core and dynamic skills — upload, reload, unload |
 | Scheduler | Cron jobs and scheduled workflows |
 | LLM | Provider status and usage |
-| Workflows | Create/edit/run multi-step pipelines, view run history |
+| Workflows | Create/edit/run multi-step pipelines, export/import as JSON, filter by name, view run history |
 | Resources | Shared resources for workflows (RSS feeds, websites, APIs, automations) |
 | Memory | Browse and search stored knowledge |
 | Database | Schema browser and backup download |

@@ -70,7 +70,7 @@ Also consider:
 ```bash
 cd AlexClaw
 git pull
-docker compose up --build --no-deps -d alexclaw
+docker compose up --build --no-deps -d alexclaw-prod
 ```
 
 Migrations run automatically on container start.

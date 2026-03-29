@@ -47,22 +47,22 @@ docker compose up -d
 
 The `docker-compose.yml` starts three services:
 
-| Service | Description | Port |
-|---|---|---|
-| `alexclaw` | Main application (Elixir release) | 5001 |
-| `db` | PostgreSQL 16 with pgvector | 5432 |
-| `web-automator` | Playwright sidecar for browser automation (optional) | 8000 |
+| Service | Container Name | Description | Port |
+|---|---|---|---|
+| `alexclaw-prod` | `alexclaw-prod` | Main application (Elixir release) | 5001 |
+| `db-prod` | `alexclaw-db-prod` | PostgreSQL 17 with pgvector | 5432 |
+| `web-automator` | — | Playwright sidecar for browser automation (optional) | 8000 |
 
 ## Building from Source
 
 If you modify the code, rebuild:
 
 ```bash
-docker compose up --build --no-deps -d alexclaw
+docker compose up --build --no-deps -d alexclaw-prod
 ```
 
 !!! warning "Don't recreate the database"
-    Always use `--no-deps` when rebuilding the app to avoid recreating the `db` container and losing data.
+    Always use `--no-deps` when rebuilding the app to avoid recreating the `db-prod` container and losing data.
 
 ## Detailed Setup
 

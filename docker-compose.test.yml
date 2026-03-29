@@ -1,5 +1,6 @@
 services:
-  db:
+  db-test:
+    container_name: alexclaw-db-test
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: alexclaw
@@ -12,17 +13,18 @@ services:
       retries: 5
 
   test-elixir:
+    container_name: alexclaw-test-elixir
     build:
       context: .
       target: test
     depends_on:
-      db:
+      db-test:
         condition: service_healthy
     environment:
       MIX_ENV: test
       DATABASE_USERNAME: alexclaw
       DATABASE_PASSWORD: testpass
-      DATABASE_HOSTNAME: db
+      DATABASE_HOSTNAME: db-test
       DATABASE_NAME: alex_claw_test
       SECRET_KEY_BASE: test_secret_key_base_that_is_at_least_64_bytes_long_for_phoenix_to_accept_it
 

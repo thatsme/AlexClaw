@@ -72,6 +72,26 @@ The executor integrates with `AlexClaw.ContentSanitizer` for prompt injection de
 
 This is transparent to workflow authors — no sanitize step to add, no step to forget. External data is always sanitized structurally.
 
+## Export / Import
+
+Workflows can be exported as self-contained JSON files and imported on any instance.
+
+**Export** (`GET /workflows/:id/export` or "Export" button in Admin UI) produces a JSON file containing:
+
+- Workflow definition (name, description, schedule, provider, node, metadata)
+- All steps with position, skill, config, prompt template, LLM tier/model, routes, input_from
+- Full resource definitions (name, type, URL, content, tags, metadata, enabled)
+
+No database IDs or timestamps — the file is portable across instances.
+
+**Import** (file upload in Admin UI) validates the JSON structure, then:
+
+1. Creates the workflow (disabled by default, `(imported N)` suffix on name conflicts)
+2. Creates steps with their original positions preserved
+3. For each resource: links to an existing match by name + URL, or creates a new resource
+
+The JSON file can be edited manually — add resources, modify steps, change configs — before importing.
+
 ## Live Run Tracking
 
 The `WorkflowRegistry` (GenServer + ETS) tracks every running workflow:

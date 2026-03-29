@@ -4,11 +4,11 @@ AlexClaw runs as a Docker Compose stack with three services.
 
 ## Services
 
-| Service | Image | Port | Description |
-|---|---|---|---|
-| `alexclaw` | Custom (Elixir release) | 5001 | Main application |
-| `db` | PostgreSQL 16 + pgvector | 5432 | Database |
-| `web-automator` | Custom (Python/Playwright) | 8000 | Browser automation sidecar (optional) |
+| Service | Container Name | Image | Port | Description |
+|---|---|---|---|---|
+| `alexclaw-prod` | `alexclaw-prod` | Custom (Elixir release) | 5001 | Main application |
+| `db-prod` | `alexclaw-db-prod` | PostgreSQL 17 + pgvector | 5432 | Database |
+| `web-automator` | — | Custom (Python/Playwright) | 8000 | Browser automation sidecar (optional) |
 
 ## Starting
 
@@ -21,7 +21,7 @@ docker compose up -d
 After code changes, rebuild only the app container:
 
 ```bash
-docker compose up --build --no-deps -d alexclaw
+docker compose up --build --no-deps -d alexclaw-prod
 ```
 
 !!! warning "Always use `--no-deps`"
@@ -47,8 +47,8 @@ docker compose down        # Stop containers (data preserved in volumes)
 ## Logs
 
 ```bash
-docker compose logs -f alexclaw       # Follow app logs
-docker compose logs --tail=50 alexclaw  # Last 50 lines
+docker compose logs -f alexclaw-prod       # Follow app logs
+docker compose logs --tail=50 alexclaw-prod  # Last 50 lines
 ```
 
 ## Health Check

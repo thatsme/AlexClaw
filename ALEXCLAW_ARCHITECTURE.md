@@ -277,6 +277,12 @@ LLM provider selection can be configured at three levels (most specific wins):
 
 All workflow executions run under `AlexClaw.TaskSupervisor`. Run history with step-level results (output, duration, success/failure) is stored in the database and visible in the admin UI.
 
+### Export / Import
+
+Workflows can be exported as self-contained JSON files via `GET /workflows/:id/export` or the "Export" button in the admin UI. The JSON includes the workflow definition (name, description, schedule, provider, metadata), all steps (position, skill, config, prompt template, LLM tier/model, routes, input_from), and full resource definitions (name, type, URL, tags, metadata). No database IDs are included — the file is portable across instances.
+
+Import (`Workflows.import_workflow/1`, triggered via the admin UI file upload) validates the JSON structure, creates the workflow (disabled by default, with `(imported N)` suffix on name conflicts), creates steps with their original positions preserved, and for each resource either links to an existing match (by name + URL) or creates a new resource. Warnings are collected and displayed (e.g. "Resource 'X' created").
+
 ### Execution Outcome Annotation — `AlexClaw.Workflows.SkillOutcome`
 
 Every skill execution within a workflow is recorded in the `skill_outcomes` table with timing (`duration_ms`), a truncated output snapshot (max 2KB), and metadata (branch taken, errors). Outcomes start with `result_quality: "neutral"` and can be annotated by the user via the `/rate` gateway command (`+`/`-`, `up`/`down`, or thumbs emoji). Rating can target an entire run or individual steps.

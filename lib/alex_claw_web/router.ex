@@ -57,6 +57,7 @@ defmodule AlexClawWeb.Router do
     live("/cluster", AdminLive.Cluster)
 
     get("/database/download", DatabaseController, :download)
+    get("/workflows/:id/export", WorkflowExportController, :export)
     get("/metrics", MetricsController, :index)
   end
 

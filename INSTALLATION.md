@@ -99,7 +99,7 @@ On first boot, AlexClaw will:
 This takes 30–60 seconds on first run. You can watch progress with:
 
 ```bash
-docker compose logs -f alexclaw
+docker compose logs -f alexclaw-prod
 ```
 
 When you see `Running AlexClawWeb.Endpoint at 0.0.0.0:5001`, it's ready.
@@ -198,7 +198,7 @@ These are rough guidelines — actual fit depends on quantization, context lengt
    OLLAMA_HOST=http://host.docker.internal:11434
    OLLAMA_MODEL=llama3.2
    ```
-5. Restart: `docker compose restart alexclaw`
+5. Restart: `docker compose restart alexclaw-prod`
 
 ### LM Studio
 
@@ -212,7 +212,7 @@ These are rough guidelines — actual fit depends on quantization, context lengt
    LMSTUDIO_HOST=http://host.docker.internal:1234
    LMSTUDIO_MODEL=your-model-name
    ```
-6. Restart: `docker compose restart alexclaw`
+6. Restart: `docker compose restart alexclaw-prod`
 
 > `host.docker.internal` allows the Docker container to reach services on your host machine. This works automatically on Docker Desktop (macOS/Windows). For Linux, see the [VPS section](#running-on-a-vps--cloud-server) below.
 
@@ -267,7 +267,7 @@ GOOGLE_OAUTH_REFRESH_TOKEN=your-refresh-token
 
 Or set them at runtime in Admin > Config under the `google` category.
 
-Restart: `docker compose restart alexclaw`
+Restart: `docker compose restart alexclaw-prod`
 
 ### 4. Use in workflows
 
@@ -340,7 +340,7 @@ The permissions included (101376) are: View Channels, Send Messages, Attach File
 2. Expand the **discord** section
 3. Set `discord.enabled` to `true`
 4. Paste your bot token into `discord.bot_token`
-5. Restart the container: `docker compose restart alexclaw`
+5. Restart the container: `docker compose restart alexclaw-prod`
 
 The bot should appear online in Discord within a few seconds. `discord.channel_id` is auto-detected when you send the bot its first message — no need to set it manually.
 
@@ -350,7 +350,7 @@ Type `/ping` in any text channel where the bot has access. You should get `pong`
 
 All commands listed under `/help` work identically in Discord and Telegram.
 
-> **Note:** After changing the Discord bot token in Admin > Config, you must restart the container for the change to take effect (`docker compose restart alexclaw`).
+> **Note:** After changing the Discord bot token in Admin > Config, you must restart the container for the change to take effect (`docker compose restart alexclaw-prod`).
 
 ---
 
@@ -482,6 +482,9 @@ You can:
 - Set a schedule (e.g. `0 8 * * *` for daily at 8am UTC)
 - Edit steps, change prompts, add or remove feeds
 - Create your own workflows from the Admin UI
+- **Export** a workflow as a self-contained JSON file (click "Export" in the workflow actions) — includes all steps, configs, prompt templates, and full resource definitions
+- **Import** a workflow from JSON (click "Import Workflow" at the top of the page) — resources are matched by name+URL if they already exist, or created automatically if they don't. Imported workflows are disabled by default with "(imported N)" appended to the name
+- **Filter** the workflow list by typing in the search box under the Name column
 
 To re-seed examples manually (if you deleted them):
 
@@ -492,7 +495,7 @@ make seed
 Or if you don't have `make`:
 
 ```bash
-docker compose exec alexclaw bin/alex_claw rpc \
+docker compose exec alexclaw-prod bin/alex_claw rpc \
   'Path.wildcard("lib/alex_claw-*/priv/repo/seeds/example_workflows.exs") |> hd() |> Code.eval_file()'
 ```
 
@@ -618,7 +621,7 @@ make test-python
 
 `make test` uses `docker-compose.test.yml` which spins up:
 
-- **db** — a PostgreSQL + pgvector instance for the test database
+- **db-test** — a PostgreSQL + pgvector instance for the test database
 - **test-elixir** — builds the Dockerfile `test` stage, runs migrations, then `mix test`
 - **test-python** — installs pytest in the web-automator container and runs the test suite
 
@@ -627,7 +630,7 @@ Each run starts fresh containers — no state leaks between runs.
 ### Running a specific test file
 
 ```bash
-docker compose -f docker-compose.test.yml run --rm --build test-elixir \
+docker compose -f docker-compose.test.yml build --quiet test-elixir && docker compose -f docker-compose.test.yml run --rm test-elixir \
   sh -c "mix ecto.create && mix ecto.migrate && mix test test/alex_claw/skills/web_automation_test.exs"
 ```
 
@@ -637,8 +640,8 @@ docker compose -f docker-compose.test.yml run --rm --build test-elixir \
 
 - **Use Docker Compose directly** (works everywhere):
   ```bash
-  docker compose -f docker-compose.test.yml run --rm --build test-elixir
-  docker compose -f docker-compose.test.yml run --rm --build test-python
+  docker compose -f docker-compose.test.yml build --quiet test-elixir && docker compose -f docker-compose.test.yml run --rm test-elixir
+  docker compose -f docker-compose.test.yml build --quiet test-python && docker compose -f docker-compose.test.yml run --rm test-python
   ```
 - **Install Make** via [Git for Windows](https://gitforwindows.org/) (includes Git Bash with make), [Chocolatey](https://chocolatey.org/) (`choco install make`), or WSL
 
@@ -677,14 +680,14 @@ AlexClaw runs on **Windows**, **macOS**, and **Linux** via Docker. A few things 
 ### Bot not responding
 
 - Check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct in `.env`
-- Check logs: `docker compose logs alexclaw | grep -i telegram`
+- Check logs: `docker compose logs alexclaw-prod | grep -i telegram`
 - Make sure you started a conversation with the bot first (send it any message)
 
 ### Database connection errors
 
 - Ensure `DATABASE_PASSWORD` in `.env` is not empty
-- Check DB health: `docker compose ps` — the `db` service should show `healthy`
-- Check logs: `docker compose logs db`
+- Check DB health: `docker compose ps` — the `db-prod` service should show `healthy`
+- Check logs: `docker compose logs db-prod`
 
 ### LLM errors
 
@@ -703,7 +706,7 @@ ADMIN_PORT=5002
 ### Container won't start
 
 ```bash
-docker compose logs alexclaw
+docker compose logs alexclaw-prod
 ```
 
 Look for Elixir/Erlang crash messages. Common causes:

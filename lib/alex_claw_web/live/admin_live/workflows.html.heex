@@ -28,9 +28,51 @@
 
   <div class="flex justify-between items-center">
     <h1 class="text-2xl font-bold text-white">Workflows</h1>
-    <button phx-click="toggle_form" class="px-4 py-2 bg-claw-700 hover:bg-claw-600 text-white text-sm rounded transition">
-      {if @show_form && !@editing, do: "Cancel", else: "New Workflow"}
-    </button>
+    <div class="flex gap-2">
+      <button phx-click="toggle_import_form" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition">
+        {if @show_import_form, do: "Cancel Import", else: "Import Workflow"}
+      </button>
+      <button phx-click="toggle_form" class="px-4 py-2 bg-claw-700 hover:bg-claw-600 text-white text-sm rounded transition">
+        {if @show_form && !@editing, do: "Cancel", else: "New Workflow"}
+      </button>
+    </div>
+  </div>
+
+  <div :if={@show_import_form} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
+    <h2 class="text-lg font-semibold text-white mb-4">Import Workflow</h2>
+    <form id="import-workflow-form" phx-submit="import_workflow" phx-change="validate_import" class="space-y-4">
+      <div class="flex items-center space-x-4">
+        <label class="flex-1">
+          <.live_file_input upload={@uploads.workflow_file}
+            class="block w-full text-sm text-gray-400
+              file:mr-4 file:py-2 file:px-4 file:rounded
+              file:border-0 file:text-sm file:font-semibold
+              file:bg-gray-800 file:text-gray-300
+              hover:file:bg-gray-700 file:cursor-pointer" />
+        </label>
+      </div>
+      <%= for entry <- @uploads.workflow_file.entries do %>
+        <div class="flex items-center gap-3 text-sm text-gray-300">
+          <span>{entry.client_name}</span>
+          <span class="text-gray-500">({Float.round(entry.client_size / 1024, 1)} KB)</span>
+          <button type="button" phx-click="cancel-upload" phx-value-ref={entry.ref}
+            class="text-red-400 hover:text-red-300 text-xs">Remove</button>
+        </div>
+        <%= for err <- upload_errors(@uploads.workflow_file, entry) do %>
+          <p class="text-red-400 text-sm">{upload_error_message(err)}</p>
+        <% end %>
+      <% end %>
+      <button type="submit"
+        disabled={@uploads.workflow_file.entries == []}
+        class={[
+          "px-4 py-2 text-sm rounded transition",
+          if(@uploads.workflow_file.entries == [],
+            do: "bg-gray-800 text-gray-600 cursor-not-allowed",
+            else: "bg-claw-700 hover:bg-claw-600 text-white")
+        ]}>
+        Import Workflow
+      </button>
+    </form>
   </div>
 
   <div :if={@show_form && !@editing} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
@@ -477,12 +519,22 @@
           <th class="w-14 px-4 py-3 text-left text-xs text-gray-400 uppercase">Runs</th>
           <th class="px-4 py-3 text-right text-xs text-gray-400 uppercase">Actions</th>
         </tr>
+        <tr>
+          <th class="px-4 pb-2">
+            <form phx-change="filter_name">
+              <input type="text" name="name_filter" value={@name_filter} placeholder="Filter by name..."
+                phx-debounce="200"
+                class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white text-xs placeholder-gray-600" />
+            </form>
+          </th>
+          <th colspan="5"></th>
+        </tr>
       </thead>
       <tbody>
         <tr :if={@workflows == []} class="border-t border-gray-800">
           <td colspan="6" class="px-4 py-8 text-center text-gray-500">No workflows yet</td>
         </tr>
-        <tr :for={wf <- @workflows} class="border-t border-gray-800">
+        <tr :for={wf <- filter_workflows(@workflows, @name_filter)} class="border-t border-gray-800">
           <td class="px-4 py-3">
             <div class="text-sm font-semibold text-white truncate">
               {wf.name}
@@ -505,17 +557,22 @@
             <span :if={!wf.enabled} class="text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">disabled</span>
           </td>
           <td class="px-4 py-3 text-sm text-gray-400">{count_runs(wf.id)}</td>
-          <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
-            <button phx-click="run_now" phx-value-id={wf.id}
-              class="text-xs text-green-500 hover:text-green-400">Run</button>
-            <a href={"/workflows/#{wf.id}/runs"} class="text-xs text-claw-500 hover:text-claw-400">Runs</a>
-            <button phx-click="duplicate" phx-value-id={wf.id}
-              class="text-xs text-yellow-500 hover:text-yellow-400">Clone</button>
-            <button phx-click="edit" phx-value-id={wf.id}
-              class="text-xs text-claw-500 hover:text-claw-400">Edit</button>
-            <button phx-click="delete" phx-value-id={wf.id}
-              data-confirm="Delete this workflow and all its steps?"
-              class="text-xs text-red-500 hover:text-red-400">Del</button>
+          <td class="px-4 py-3 text-right whitespace-nowrap">
+            <div class="flex items-center justify-end gap-1">
+              <button phx-click="run_now" phx-value-id={wf.id}
+                class="text-xs px-2 py-1 rounded bg-green-900/60 hover:bg-green-800 text-green-300 transition">Run</button>
+              <a href={"/workflows/#{wf.id}/runs"}
+                class="text-xs px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition">Runs</a>
+              <a href={"/workflows/#{wf.id}/export"}
+                class="text-xs px-2 py-1 rounded bg-blue-900/60 hover:bg-blue-800 text-blue-300 transition">Export</a>
+              <button phx-click="duplicate" phx-value-id={wf.id}
+                class="text-xs px-2 py-1 rounded bg-yellow-900/60 hover:bg-yellow-800 text-yellow-300 transition">Clone</button>
+              <button phx-click="edit" phx-value-id={wf.id}
+                class="text-xs px-2 py-1 rounded bg-claw-900/60 hover:bg-claw-800 text-claw-300 transition">Edit</button>
+              <button phx-click="delete" phx-value-id={wf.id}
+                data-confirm="Delete this workflow and all its steps?"
+                class="text-xs px-2 py-1 rounded bg-red-900/60 hover:bg-red-800 text-red-300 transition">Del</button>
+            </div>
           </td>
         </tr>
       </tbody>

@@ -9,7 +9,8 @@
 - **Bug fix** — `duplicate_workflow` now copies `input_from` and `routes` fields
 - **Docker naming** — services renamed to `alexclaw-prod`, `db-prod`, `db-test` for clarity
 - **Makefile** — quiet test builds, auto-teardown after tests, `test-down` target
-- **Docs** — README, INSTALLATION, architecture, and readthedocs pages updated
+- **Dynamic skill metadata** — skills declare their own UI fields via 7 new optional callbacks (`step_fields`, `config_hint`, `config_scaffold`, `config_presets`, `prompt_presets`, `config_help`, `prompt_help`). Step editor renders dynamically — zero hardcoded skill knowledge in the LiveView
+- **Docs** — README, INSTALLATION, architecture, writing-skills, and readthedocs pages updated
 
 ## v0.3.13 — MCP Server (2026-03-27)
 

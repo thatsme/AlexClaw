@@ -343,6 +343,8 @@ AlexClaw supports multi-node BEAM clustering. Each node runs its own sequential 
 
 Skills are Elixir modules implementing the `AlexClaw.Skill` behaviour (`run/1`, optional `description/0`, `routes/0`, `permissions/0`, `version/0`, `external/0`). Skills return `{:ok, result, :branch}` for conditional routing or `{:ok, result}` for backward compatibility. Registered in `AlexClaw.Workflows.SkillRegistry` with routes and external flag stored in ETS alongside permissions.
 
+Skills also declare **UI metadata** via optional callbacks (`step_fields/0`, `config_hint/0`, `config_scaffold/0`, `config_presets/0`, `prompt_presets/0`, `config_help/0`, `prompt_help/0`). The workflow step editor reads these via `SkillRegistry.get_skill_meta/1` to dynamically render only the fields a skill needs. Skills that don't use LLM (scrapers, notifiers, shell) declare `step_fields: [:config]` — no LLM tier, provider, or prompt template shown. Zero hardcoded skill metadata in the LiveView.
+
 Skills that fetch data from external sources declare `def external, do: true`. The workflow executor auto-sanitizes output from external skills through `AlexClaw.ContentSanitizer` (7-layer heuristic pipeline). Dynamic skills are AST-scanned at load time — undeclared HTTP/socket calls are rejected.
 
 | Skill | Module | Tier | Description |

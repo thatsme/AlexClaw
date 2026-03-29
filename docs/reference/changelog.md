@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.18 — Forge & Knowledge Pipeline (2026-03-29)
+
+- **Forge page** (pre-alpha) — interactive skill generation with two-column UI (chat + code output), auto-iterate with configurable retries, real-time status, structural validation for external skills
+- **Chat simplified** — stripped RAG/knowledge search, now a clean conversational chat with model selection
+- **CodeGenerator** — shared skill generation module extracted from Coder skill, reusable by both Forge UI and Coder workflow skill
+- **Executor timeout from config** — `timeout_ms` in step config JSON overrides the 30s default SafeExecutor timeout
+- **Scraper improvements** — all 5 knowledge scrapers now support `timeout_ms`, delay between items, deadline-based execution, and detailed reporting (stored/skipped/failed/timeout per item)
+- **HexDocs guides scraper** — new skill scraping guide/extra pages (README, getting started, deployment docs) — 649 guide chunks indexed
+- **Skill UI feedback** — Reload/Unload/Upload buttons show "Waiting 2FA..." with pulse animation during 2FA challenge
+- **Workflow runs counter** — now refreshes automatically when a run completes
+- **Browser User-Agent** — all SkillAPI HTTP calls now include a default browser User-Agent header to prevent site blocking
+- **Convention fixes** — 164 violations reduced to 19 (all intentional process_dictionary usage)
+- **Skill template** — updated with `external/0`, `step_fields/0`, `config_hint/0`, `config_scaffold/0` documentation
+
 ## v0.3.16 — Workflow Export/Import (2026-03-29)
 
 - **Workflow export** — self-contained JSON files with definition, steps, and full resource data

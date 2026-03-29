@@ -186,7 +186,7 @@ defmodule AlexClaw.LLM.Client do
     body = %{model: model, prompt: prompt, stream: false}
     body = if system, do: Map.put(body, :system, system), else: body
 
-    case Req.post(url, json: body, receive_timeout: 120_000) do
+    case Req.post(url, json: body, receive_timeout: 300_000) do
       {:ok, %{status: 200, body: %{"response" => text}}} ->
         {:ok, text}
 
@@ -221,7 +221,7 @@ defmodule AlexClaw.LLM.Client do
 
     body = %{model: model, messages: messages, stream: false}
 
-    case Req.post(url, json: body, headers: headers, receive_timeout: 120_000) do
+    case Req.post(url, json: body, headers: headers, receive_timeout: 300_000) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => text}} | _]}}} ->
         {:ok, text}
 
@@ -263,7 +263,7 @@ defmodule AlexClaw.LLM.Client do
     url = "#{host}/api/embed"
     body = %{model: model, input: text}
 
-    case Req.post(url, json: body, receive_timeout: 120_000) do
+    case Req.post(url, json: body, receive_timeout: 300_000) do
       {:ok, %{status: 200, body: %{"embeddings" => [vector | _]}}} when is_list(vector) ->
         {:ok, vector}
 
@@ -291,7 +291,7 @@ defmodule AlexClaw.LLM.Client do
 
     body = %{model: model, input: text}
 
-    case Req.post(url, json: body, headers: headers, receive_timeout: 120_000) do
+    case Req.post(url, json: body, headers: headers, receive_timeout: 300_000) do
       {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vector} | _]}}}
       when is_list(vector) ->
         {:ok, vector}

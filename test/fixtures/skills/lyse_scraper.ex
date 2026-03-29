@@ -47,10 +47,29 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
   def routes, do: [:on_success, :on_empty, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
+  def step_fields, do: [:config]
+
+  @impl true
+  @spec config_hint() :: String.t()
+  def config_hint, do: ~s|{"timeout_ms": 300000, "delay_between_chapters_ms": 2000}|
+
+  @impl true
+  @spec config_scaffold() :: map()
+  def config_scaffold, do: %{"timeout_ms" => 300_000, "delay_between_chapters_ms" => 2000}
+
+  @impl true
+  @spec config_help() :: String.t()
+  def config_help, do: "timeout_ms: total allowed time (default 300000). delay_between_chapters_ms: pause between chapters (default 2000). discover_chapters: true to auto-discover from table of contents."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     chapters = config["chapters"] || @default_chapters
     discover? = config["discover_chapters"] == true
+    delay_ms = to_int(config["delay_between_chapters_ms"], 2000)
+    timeout_ms = to_int(config["timeout_ms"], 300_000)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
 
     chapters =
       if discover? do
@@ -64,20 +83,36 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
 
     results =
       chapters
-      |> Enum.map(fn chapter -> {chapter, scrape_chapter(chapter)} end)
+      |> Enum.reduce_while([], fn chapter, acc ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          {:halt, [{chapter, :timeout} | acc]}
+        else
+          result = scrape_chapter(chapter)
+          if delay_ms > 0, do: Process.sleep(delay_ms)
+          {:cont, [{chapter, result} | acc]}
+        end
+      end)
+      |> Enum.reverse()
 
-    total_stored = Enum.sum(Enum.map(results, fn {_ch, count} -> count end))
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
+    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
+    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
 
     summary =
-      results
-      |> Enum.reject(fn {_ch, count} -> count == 0 end)
-      |> Enum.map(fn {ch, count} -> "#{ch}: #{count} chunks" end)
-      |> Enum.join("\n")
+      Enum.map_join(results, "\n", fn
+        {ch, {:stored, n}} -> "#{ch}: #{n} new chunks"
+        {ch, :skipped} -> "#{ch}: skipped (already indexed)"
+        {ch, {:failed, reason}} -> "#{ch}: failed (#{reason})"
+        {ch, :timeout} -> "#{ch}: skipped (deadline reached)"
+      end)
+
+    report = "Chapters: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
-      {:ok, "Stored #{total_stored} LYSE chunks from #{length(chapters)} chapters.\n\n#{summary}", :on_success}
+      {:ok, report, :on_success}
     else
-      {:ok, "No new LYSE documentation found to store.", :on_empty}
+      {:ok, report, :on_empty}
     end
   rescue
     e -> {:error, "LYSE scraper failed: #{Exception.message(e)}"}
@@ -108,16 +143,16 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
 
     case already_stored?(source_key) do
       true ->
-        0
+        :skipped
 
       false ->
         case fetch_chapter(chapter_slug) do
           {:ok, text} ->
             chunks = chunk_text("LYSE — #{chapter_slug}\n\n#{text}", @max_chunk_chars)
-            store_chunks(chapter_slug, chunks, source_key)
+            {:stored, store_chunks(chapter_slug, chunks, source_key)}
 
-          {:error, _} ->
-            0
+          {:error, reason} ->
+            {:failed, inspect(reason)}
         end
     end
   end
@@ -237,6 +272,16 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
   end
 
   # --- Storage ---
+
+  defp to_int(nil, default), do: default
+  defp to_int(val, _) when is_integer(val), do: val
+  defp to_int(val, default) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+  defp to_int(_, default), do: default
 
   defp store_chunks(_chapter, [], _source_key), do: 0
 

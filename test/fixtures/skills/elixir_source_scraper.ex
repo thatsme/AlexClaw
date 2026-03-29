@@ -53,31 +53,63 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
   def routes, do: [:on_success, :on_empty, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
+  def step_fields, do: [:config]
+
+  @impl true
+  @spec config_hint() :: String.t()
+  def config_hint, do: ~s|{"timeout_ms": 300000, "delay_between_files_ms": 1000, "max_lines_per_file": 2000}|
+
+  @impl true
+  @spec config_scaffold() :: map()
+  def config_scaffold, do: %{"timeout_ms" => 300_000, "delay_between_files_ms" => 1000, "max_lines_per_file" => 2000}
+
+  @impl true
+  @spec config_help() :: String.t()
+  def config_help, do: "timeout_ms: total allowed time (default 300000). delay_between_files_ms: pause between files (default 1000). max_lines_per_file: truncate large files."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     branch = config["branch"] || @default_branch
     modules = config["modules"] || @default_modules
     max_lines = to_int(config["max_lines_per_file"], 2000)
+    delay_ms = to_int(config["delay_between_files_ms"], 1000)
+    timeout_ms = to_int(config["timeout_ms"], 300_000)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
 
     results =
       modules
-      |> Enum.map(fn path -> {path, scrape_source(path, branch, max_lines)} end)
+      |> Enum.reduce_while([], fn path, acc ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          {:halt, [{path, :timeout} | acc]}
+        else
+          result = scrape_source(path, branch, max_lines)
+          if delay_ms > 0, do: Process.sleep(delay_ms)
+          {:cont, [{path, result} | acc]}
+        end
+      end)
+      |> Enum.reverse()
 
-    total_stored = Enum.sum(Enum.map(results, fn {_p, count} -> count end))
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
+    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
+    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
 
     summary =
-      results
-      |> Enum.reject(fn {_p, count} -> count == 0 end)
-      |> Enum.map(fn {p, count} ->
-        name = Path.basename(p, ".ex")
-        "#{name}: #{count} chunks"
+      Enum.map_join(results, "\n", fn
+        {p, {:stored, n}} -> "#{Path.basename(p, ".ex")}: #{n} new chunks"
+        {p, :skipped} -> "#{Path.basename(p, ".ex")}: skipped (already indexed)"
+        {p, {:failed, reason}} -> "#{Path.basename(p, ".ex")}: failed (#{reason})"
+        {p, :timeout} -> "#{Path.basename(p, ".ex")}: skipped (deadline reached)"
       end)
-      |> Enum.join("\n")
+
+    report = "Files: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
-      {:ok, "Stored #{total_stored} Elixir source chunks from #{length(modules)} modules.\n\n#{summary}", :on_success}
+      {:ok, report, :on_success}
     else
-      {:ok, "No new Elixir source to store.", :on_empty}
+      {:ok, report, :on_empty}
     end
   rescue
     e -> {:error, "Elixir source scraper failed: #{Exception.message(e)}"}
@@ -90,7 +122,7 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
 
     case already_stored?(source_key) do
       true ->
-        0
+        :skipped
 
       false ->
         case fetch_source(file_path, branch) do
@@ -98,10 +130,10 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
             content = truncate_lines(content, max_lines)
             module_name = extract_module_name(content) || Path.basename(file_path, ".ex")
             chunks = chunk_source(module_name, content)
-            store_chunks(file_path, module_name, chunks, source_key)
+            {:stored, store_chunks(file_path, module_name, chunks, source_key)}
 
-          {:error, _} ->
-            0
+          {:error, reason} ->
+            {:failed, inspect(reason)}
         end
     end
   end

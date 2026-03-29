@@ -79,26 +79,62 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
   def routes, do: [:on_success, :on_empty, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
+  def step_fields, do: [:config]
+
+  @impl true
+  @spec config_hint() :: String.t()
+  def config_hint, do: ~s|{"timeout_ms": 300000, "delay_between_modules_ms": 1000}|
+
+  @impl true
+  @spec config_scaffold() :: map()
+  def config_scaffold, do: %{"timeout_ms" => 300_000, "delay_between_modules_ms" => 1000}
+
+  @impl true
+  @spec config_help() :: String.t()
+  def config_help, do: "timeout_ms: total allowed time (default 300000 = 5 min). delay_between_modules_ms: pause between modules (default 1000)."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     modules = resolve_modules(config)
+    delay_ms = to_int(config["delay_between_modules_ms"], 1000)
+    timeout_ms = to_int(config["timeout_ms"], 300_000)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
 
     results =
       modules
-      |> Enum.map(fn {mod, app} -> {mod, scrape_module(mod, app)} end)
+      |> Enum.reduce_while([], fn {mod, app}, acc ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          Logger.warning("erlang_docs: deadline reached, stopping")
+          {:halt, [{mod, :timeout} | acc]}
+        else
+          result = scrape_module(mod, app)
+          if delay_ms > 0, do: Process.sleep(delay_ms)
+          {:cont, [{mod, result} | acc]}
+        end
+      end)
+      |> Enum.reverse()
 
-    total_stored = Enum.sum(Enum.map(results, fn {_mod, count} -> count end))
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
+    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
+    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
 
     summary =
-      results
-      |> Enum.reject(fn {_mod, count} -> count == 0 end)
-      |> Enum.map(fn {mod, count} -> "#{mod}: #{count} chunks" end)
-      |> Enum.join("\n")
+      Enum.map_join(results, "\n", fn
+        {mod, {:stored, n}} -> "#{mod}: #{n} chunks stored"
+        {mod, :skipped} -> "#{mod}: skipped (already indexed)"
+        {mod, {:failed, reason}} -> "#{mod}: failed (#{reason})"
+        {mod, :timeout} -> "#{mod}: skipped (deadline reached)"
+      end)
+
+    report = "Modules: #{length(modules)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
-      {:ok, "Stored #{total_stored} Erlang/OTP doc chunks from #{length(modules)} modules.\n\n#{summary}", :on_success}
+      {:ok, report, :on_success}
     else
-      {:ok, "No new Erlang/OTP documentation found to store.", :on_empty}
+      {:ok, report, :on_empty}
     end
   rescue
     e -> {:error, "Erlang docs scraper failed: #{Exception.message(e)}"}
@@ -132,26 +168,24 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     source_key = "erlang_docs:#{mod_name}"
 
     case already_stored?(source_key) do
-      true -> 0
+      true -> :skipped
       false -> do_scrape(mod_name, app, source_key)
     end
   end
 
   defp do_scrape(mod_name, app, source_key) do
-    # Try EEP-48 first
     case try_eep48(mod_name) do
       {:ok, chunks} when chunks != [] ->
-        store_chunks(mod_name, chunks, source_key)
+        {:stored, store_chunks(mod_name, chunks, source_key)}
 
       _ ->
-        # Fall back to GitHub raw markdown
         case fetch_from_github(mod_name, app) do
           {:ok, chunks} ->
-            store_chunks(mod_name, chunks, source_key)
+            {:stored, store_chunks(mod_name, chunks, source_key)}
 
           {:error, reason} ->
             Logger.warning("erlang_docs: #{mod_name} failed: #{inspect(reason)}")
-            0
+            {:failed, inspect(reason)}
         end
     end
   end
@@ -340,6 +374,16 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
   end
 
   # --- Storage ---
+
+  defp to_int(nil, default), do: default
+  defp to_int(val, _) when is_integer(val), do: val
+  defp to_int(val, default) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+  defp to_int(_, default), do: default
 
   defp store_chunks(_mod, [], _source_key), do: 0
 

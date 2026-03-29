@@ -63,29 +63,38 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
 
     results =
       packages
+      |> Enum.uniq()
       |> Enum.reduce_while([], fn pkg, acc ->
         if System.monotonic_time(:millisecond) >= deadline do
-          {:halt, acc}
+          Logger.warning("hexdocs: deadline reached, stopping at #{pkg}")
+          {:halt, [{pkg, :timeout} | acc]}
         else
           result = scrape_package(pkg, max_modules)
           if delay_ms > 0, do: Process.sleep(delay_ms)
-          {:cont, [result | acc]}
+          {:cont, [{pkg, result} | acc]}
         end
       end)
       |> Enum.reverse()
 
-    total_stored = Enum.sum(Enum.map(results, fn {_pkg, count} -> count end))
-    total_skipped = Enum.sum(Enum.map(results, fn {_pkg, _count} -> 0 end))
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
+    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
+    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
 
     summary =
-      results
-      |> Enum.map(fn {pkg, count} -> "#{pkg}: #{count} chunks stored" end)
-      |> Enum.join("\n")
+      Enum.map_join(results, "\n", fn
+        {pkg, {:stored, n}} -> "#{pkg}: #{n} new chunks"
+        {pkg, :skipped} -> "#{pkg}: skipped (all modules already indexed)"
+        {pkg, {:failed, reason}} -> "#{pkg}: failed (#{reason})"
+        {pkg, :timeout} -> "#{pkg}: skipped (deadline reached)"
+      end)
+
+    report = "Packages: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
-      {:ok, "Stored #{total_stored} documentation chunks.\n\n#{summary}", :on_success}
+      {:ok, report, :on_success}
     else
-      {:ok, "No new documentation found to store.", :on_empty}
+      {:ok, report, :on_empty}
     end
   rescue
     e -> {:error, "HexDocs scraper failed: #{Exception.message(e)}"}
@@ -112,10 +121,10 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
           end)
           |> length()
 
-        {package, stored}
+        if stored > 0, do: {:stored, stored}, else: :skipped
 
-      {:error, _reason} ->
-        {package, 0}
+      {:error, reason} ->
+        {:failed, inspect(reason)}
     end
   end
 

@@ -23,6 +23,22 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
   def routes, do: [:on_success, :on_empty, :on_error]
 
   @impl true
+  @spec step_fields() :: [atom()]
+  def step_fields, do: [:config]
+
+  @impl true
+  @spec config_hint() :: String.t()
+  def config_hint, do: ~s|{"exclude": ["skill_template.ex"]}|
+
+  @impl true
+  @spec config_scaffold() :: map()
+  def config_scaffold, do: %{"exclude" => []}
+
+  @impl true
+  @spec config_help() :: String.t()
+  def config_help, do: "exclude: list of filenames to skip. Indexes all .ex files in the skills directory."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     exclude = config["exclude"] || []
@@ -37,21 +53,27 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
           |> Enum.reject(&(&1 in exclude))
 
         results =
-          skill_files
-          |> Enum.map(fn file -> {file, index_skill_file(skills_dir, file)} end)
+          Enum.map(skill_files, fn file -> {file, index_skill_file(skills_dir, file)} end)
 
-        total_stored = Enum.sum(Enum.map(results, fn {_f, count} -> count end))
+        total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+        total_skipped = Enum.count(results, fn {_, r} -> r == :fresh end)
+        total_updated = Enum.count(results, fn {_, r} -> r == :updated end)
+        total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
 
         summary =
-          results
-          |> Enum.reject(fn {_f, count} -> count == 0 end)
-          |> Enum.map(fn {f, count} -> "#{f}: #{count} chunks" end)
-          |> Enum.join("\n")
+          Enum.map_join(results, "\n", fn
+            {f, {:stored, n}} -> "#{f}: #{n} new chunks"
+            {f, {:updated, n}} -> "#{f}: #{n} chunks (re-indexed, content changed)"
+            {f, :fresh} -> "#{f}: skipped (unchanged)"
+            {f, {:failed, reason}} -> "#{f}: failed (#{reason})"
+          end)
 
-        if total_stored > 0 do
-          {:ok, "Indexed #{total_stored} chunks from #{length(skill_files)} skill files.\n\n#{summary}", :on_success}
+        report = "Files: #{length(skill_files)} | New: #{total_stored} | Updated: #{total_updated} | Unchanged: #{total_skipped} | Failed: #{total_failed}\n\n#{summary}"
+
+        if total_stored > 0 or total_updated > 0 do
+          {:ok, report, :on_success}
         else
-          {:ok, "No new skill source to index (#{length(skill_files)} files already stored).", :on_empty}
+          {:ok, report, :on_empty}
         end
 
       {:error, reason} ->
@@ -68,14 +90,20 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
 
     case already_stored?(source_key) do
       true ->
-        # Check if file changed by comparing checksum
         case check_freshness(skills_dir, file_name, source_key) do
-          :fresh -> 0
-          :stale -> reindex_file(skills_dir, file_name, source_key)
+          :fresh -> :fresh
+          :stale ->
+            case reindex_file(skills_dir, file_name, source_key) do
+              n when is_integer(n) and n > 0 -> {:updated, n}
+              _ -> {:failed, "re-index returned 0"}
+            end
         end
 
       false ->
-        reindex_file(skills_dir, file_name, source_key)
+        case reindex_file(skills_dir, file_name, source_key) do
+          n when is_integer(n) and n > 0 -> {:stored, n}
+          _ -> {:failed, "index returned 0"}
+        end
     end
   end
 
@@ -89,8 +117,8 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
         chunks = chunk_code(prefixed, @max_chunk_chars)
         store_chunks(file_name, chunks, source_key, content)
 
-      {:error, _} ->
-        0
+      {:error, reason} ->
+        {:failed, inspect(reason)}
     end
   end
 

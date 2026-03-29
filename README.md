@@ -291,7 +291,8 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | Page | Description |
 |---|---|
 | Dashboard | System status, recent activity |
-| Chat | Interactive conversation with semantic memory search — pick any provider (cloud or local) |
+| Chat | Conversational chat with memory context — pick any provider (cloud or local) |
+| Forge | Interactive skill generation — describe a goal, auto-generate/compile/hot-load (pre-alpha) |
 | Skills | Core and dynamic skills — upload, reload, unload |
 | Scheduler | Cron jobs and scheduled workflows |
 | LLM | Provider status and usage |
@@ -341,6 +342,13 @@ priv/repo/
 - **Single-user only.** There is no multi-user access control. The authentication model assumes one trusted operator.
 - **Sensitive config encrypted at rest.** API keys and tokens are AES-256-GCM encrypted in PostgreSQL using `SECRET_KEY_BASE` as key material. Changing `SECRET_KEY_BASE` requires re-entering all API keys. See [SECURITY.md](SECURITY.md) for details.
 - **Web Automator is experimental.** The browser automation sidecar (`web_automation` skill) is under heavy development. APIs, config format, and recording workflow may change without notice.
+- **Forge is pre-alpha.** See below.
+
+---
+
+## Forge — Pre-Alpha
+
+Here be dragons. Forge is the self-extending capability engine for AlexClaw. It generates dynamic skills from natural language goals using RAG context from the knowledge base, then automatically compiles, validates, and hot-loads them into the running system. It works, it's dangerous, APIs will change without notice. Use at your own risk.
 
 ---
 

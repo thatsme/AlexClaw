@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.16 — Workflow Export/Import (2026-03-29)
+
+- **Workflow export** — self-contained JSON files with definition, steps, and full resource data
+- **Workflow import** — file upload in Admin UI, resources matched by name+URL or created automatically, disabled by default with `(imported N)` suffix
+- **Workflow name filter** — search/filter the workflow list by name
+- **Action buttons** — workflow row actions restyled as colored pill buttons
+- **Bug fix** — `duplicate_workflow` now copies `input_from` and `routes` fields
+- **Docker naming** — services renamed to `alexclaw-prod`, `db-prod`, `db-test` for clarity
+- **Makefile** — quiet test builds, auto-teardown after tests, `test-down` target
+- **Docs** — README, INSTALLATION, architecture, and readthedocs pages updated
+
 ## v0.3.13 — MCP Server (2026-03-27)
 
 **New: Model Context Protocol integration**

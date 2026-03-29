@@ -8,6 +8,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   knowledge_entries table via SkillAPI.
   """
   @behaviour AlexClaw.Skill
+  require Logger
   alias AlexClaw.Skills.SkillAPI
 
   @max_chunk_chars 3000
@@ -27,7 +28,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   )
 
   @impl true
-  def version, do: "3.0.0"
+  def version, do: "3.0.1"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]

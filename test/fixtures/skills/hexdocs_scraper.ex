@@ -27,7 +27,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   )
 
   @impl true
-  def version, do: "2.0.0"
+  def version, do: "3.0.0"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]
@@ -42,11 +42,11 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   def step_fields, do: [:config]
 
   @impl true
-  def config_hint, do: ~s|{"packages": ["phoenix", "ecto", "req"], "max_modules_per_package": 50, "delay_between_packages_ms": 2000, "timeout_ms": 300000}|
+  def config_hint, do: ~s|{"packages": ["phoenix", "ecto", "req"], "force": false, "max_modules_per_package": 50, "delay_between_packages_ms": 2000, "timeout_ms": 300000}|
 
   @impl true
   def config_scaffold do
-    %{"packages" => @default_packages, "max_modules_per_package" => 50, "delay_between_packages_ms" => 2000, "timeout_ms" => 300_000}
+    %{"packages" => @default_packages, "force" => false, "max_modules_per_package" => 50, "delay_between_packages_ms" => 2000, "timeout_ms" => 300_000}
   end
 
   @impl true
@@ -59,7 +59,15 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
     max_modules = to_int(config["max_modules_per_package"], 50)
     delay_ms = to_int(config["delay_between_packages_ms"], 2000)
     timeout_ms = to_int(config["timeout_ms"], 300_000)
+    force = config["force"] == true
     deadline = System.monotonic_time(:millisecond) + timeout_ms
+
+    if force do
+      Enum.each(Enum.uniq(packages), fn pkg ->
+        delete_package_entries(pkg)
+        Logger.info("hexdocs: force mode — deleted existing entries for #{pkg}")
+      end)
+    end
 
     results =
       packages
@@ -357,6 +365,19 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
     end)
     |> Enum.reject(fn s -> String.length(s) < 30 end)
     |> Enum.reverse()
+  end
+
+  # --- Force re-scrape ---
+
+  defp delete_package_entries(package) do
+    import Ecto.Query
+    prefix = "https://hexdocs.pm/#{package}/"
+
+    AlexClaw.Repo.delete_all(
+      from(e in AlexClaw.Knowledge.Entry,
+        where: e.kind == "hexdocs" and like(e.source, ^"#{prefix}%")
+      )
+    )
   end
 
   # --- Helpers ---

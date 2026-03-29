@@ -43,6 +43,7 @@ defmodule AlexClawWeb.Router do
 
     live("/", AdminLive.Dashboard)
     live("/chat", AdminLive.Chat)
+    live("/forge", AdminLive.Forge)
     live("/skills", AdminLive.Skills)
     live("/scheduler", AdminLive.Scheduler)
     live("/llm", AdminLive.LLM)

@@ -41,6 +41,13 @@
 #   defaults to [:on_success, :on_error]. Example:
 #     def routes, do: [:on_results, :on_empty, :on_error]
 #
+# Optional external/0 callback:
+#   MUST be declared if the skill makes HTTP requests (Req.get, Req.post,
+#   SkillAPI.http_get, SkillAPI.http_post, etc.). The system AST-scans for
+#   HTTP calls at load time — undeclared external calls will REJECT the skill.
+#   Example:
+#     def external, do: true
+#
 # ==============================================================================
 
 defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
@@ -62,6 +69,24 @@ defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
   # The workflow editor will show these as routing options per step.
   # @impl true
   # def routes, do: [:on_success, :on_empty, :on_error]
+
+  # Required if the skill makes HTTP requests (Req, SkillAPI.http_*).
+  # Undeclared external calls will cause the skill to be REJECTED at load time.
+  # @impl true
+  # def external, do: true
+
+  # Declares which fields the workflow step editor shows for this skill.
+  # Use [:config] for skills that don't need LLM. Use [] for no config at all.
+  @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
+
+  # JSON hint shown as placeholder in the config textarea.
+  # @impl true
+  # def config_hint, do: ~s|{"param": "value"}|
+
+  # Default config map pre-filled when adding a new step.
+  # @impl true
+  # def config_scaffold, do: %{"param" => "default_value"}
 
   @impl true
   def run(args) do

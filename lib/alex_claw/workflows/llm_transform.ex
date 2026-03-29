@@ -10,6 +10,11 @@ defmodule AlexClaw.Workflows.LLMTransform do
   @impl true
   @spec description() :: String.t()
   def description, do: "Runs a prompt template through the LLM with tier and provider routing"
+
+  @impl true
+  @spec routes() :: [atom()]
+  def routes, do: [:on_success, :on_error]
+
   require Logger
 
   @impl true

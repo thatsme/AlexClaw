@@ -1,30 +1,7 @@
 <div class="flex flex-col h-[calc(100vh-8rem)]">
   <div class="flex items-center justify-between mb-4">
-    <div>
-      <h1 class="text-xl font-bold text-white">Chat</h1>
-      <p class="text-xs text-gray-500 mt-1">
-        Conversation with RAG context
-        <%= if @memory_hits > 0 or @knowledge_hits > 0 do %>
-          —
-          <span :if={@knowledge_hits > 0} class="text-blue-400">{@knowledge_hits} docs</span>
-          <span :if={@knowledge_hits > 0 and @memory_hits > 0} class="text-gray-600">+</span>
-          <span :if={@memory_hits > 0} class="text-claw-500">{@memory_hits} memory</span>
-          <span class="text-gray-500">matched</span>
-        <% end %>
-      </p>
-    </div>
+    <h1 class="text-xl font-bold text-white">Chat</h1>
     <div class="flex items-center gap-3">
-      <form phx-change="set_context">
-        <select
-          name="context_source"
-          class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300"
-        >
-          <option value="both" selected={@context_source == "both"}>Docs + Memory</option>
-          <option value="docs" selected={@context_source == "docs"}>Docs only</option>
-          <option value="memory" selected={@context_source == "memory"}>Memory only</option>
-          <option value="none" selected={@context_source == "none"}>No context</option>
-        </select>
-      </form>
       <form phx-change="set_provider">
         <select
           name="provider"
@@ -56,9 +33,7 @@
     <div :if={@messages == []} class="flex items-center justify-center h-full">
       <div class="text-center text-gray-500">
         <p class="text-lg mb-2">Ask anything.</p>
-        <p class="text-xs">
-          Responses are enriched with documentation from hexdocs.pm and semantic search across stored memories.
-        </p>
+        <p class="text-xs">Conversational chat with memory context.</p>
       </div>
     </div>
 
@@ -87,7 +62,7 @@
     <input
       type="text"
       name="message"
-      placeholder="Ask about Elixir, Phoenix, Ecto, or anything in memory..."
+      placeholder="Type a message..."
       autocomplete="off"
       disabled={@loading}
       phx-debounce="100"

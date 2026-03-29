@@ -7,6 +7,11 @@ defmodule AlexClaw.Skills.Conversational do
   @impl true
   @spec description() :: String.t()
   def description, do: "Free-text conversation with identity and memory context"
+
+  @impl true
+  @spec routes() :: [atom()]
+  def routes, do: [:on_success, :on_error]
+
   require Logger
 
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}

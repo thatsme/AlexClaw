@@ -56,7 +56,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
             {:noreply,
              socket
              |> put_flash(:info, "File uploaded. 2FA code requested — check Telegram/Discord")
-             |> assign(uploading: false)}
+             |> assign(uploading: false, pending_2fa: filename)}
 
           :proceed ->
             case SkillRegistry.load_skill(filename) do

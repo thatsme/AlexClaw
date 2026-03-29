@@ -35,14 +35,21 @@
       <% end %>
 
       <button type="submit"
-        disabled={@uploads.skill_file.entries == [] || @uploading}
+        disabled={@uploads.skill_file.entries == [] || @uploading || @pending_2fa != nil}
         class={[
-          "px-4 py-2 text-white text-sm rounded transition",
-          if(@uploads.skill_file.entries == [] || @uploading,
-            do: "bg-gray-700 cursor-not-allowed",
-            else: "bg-claw-700 hover:bg-claw-600")
+          "px-4 py-2 text-sm rounded transition",
+          cond do
+            @pending_2fa != nil -> "bg-yellow-900/60 text-yellow-300 animate-pulse cursor-wait"
+            @uploading -> "bg-gray-700 text-white cursor-not-allowed"
+            @uploads.skill_file.entries == [] -> "bg-gray-700 text-white cursor-not-allowed"
+            true -> "bg-claw-700 hover:bg-claw-600 text-white"
+          end
         ]}>
-        {if @uploading, do: "Loading...", else: "Upload & Load"}
+        {cond do
+          @pending_2fa != nil -> "Waiting 2FA..."
+          @uploading -> "Loading..."
+          true -> "Upload & Load"
+        end}
       </button>
     </form>
   </div>

@@ -127,8 +127,15 @@ defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
   #   SkillAPI.memory_store(__MODULE__, :my_kind, "content", source: "url", metadata: %{})
   #
   # HTTP
-  #   SkillAPI.http_get(__MODULE__, url, headers: [...], receive_timeout: 10_000)
-  #   SkillAPI.http_post(__MODULE__, url, json: body, headers: [...])
+  #   Returns {:ok, %Req.Response{status: N, body: data}} or {:error, reason}
+  #   Match as: {:ok, %{status: 200, body: body}} — NOT %{"body" => body}
+  #   Error reasons are structs (not strings), always use inspect/1:
+  #     {:error, reason} -> {:error, "Failed: #{inspect(reason)}"}
+  #   For URLs with special chars, use params option:
+  #     SkillAPI.http_get(__MODULE__, "https://example.com/api", params: [q: "search term"])
+  #
+  #   SkillAPI.http_get(__MODULE__, url, receive_timeout: 10_000)
+  #   SkillAPI.http_post(__MODULE__, url, json: body)
   #   SkillAPI.http_request(__MODULE__, :put, url, json: body)
   #
   # Config

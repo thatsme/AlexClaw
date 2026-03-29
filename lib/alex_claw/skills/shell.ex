@@ -29,6 +29,30 @@ defmodule AlexClaw.Skills.Shell do
   def routes, do: [:on_success, :on_error, :on_timeout]
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"command": "df -h"}|
+
+  @impl true
+  def config_scaffold, do: %{"command" => "df -h"}
+
+  @impl true
+  def config_presets do
+    %{
+      "Memory" => %{"command" => "free -m"},
+      "Disk" => %{"command" => "df -h"},
+      "Processes" => %{"command" => "ps aux"},
+      "Uptime" => %{"command" => "uptime"},
+      "BEAM node" => %{"command" => "bin/alex_claw eval \"Node.self()\""},
+      "Git clone" => %{"command" => "git clone https://github.com/user/repo.git /tmp/repo"}
+    }
+  end
+
+  @impl true
+  def config_help, do: "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked."
+
+  @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     if Config.get("shell.enabled") != true do

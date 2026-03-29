@@ -21,6 +21,20 @@ defmodule AlexClaw.Skills.ReceiveFromWorkflow do
   def routes, do: [:on_success, :on_error]
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"allowed_nodes": []} — leave empty to accept from any registered node|
+
+  @impl true
+  def config_scaffold, do: %{"allowed_nodes" => []}
+
+  @impl true
+  def config_help,
+    do:
+      "Gate skill — must be step 1. allowed_nodes: optional list of node names that can trigger this workflow. Leave empty to accept from any registered cluster node."
+
+  @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     input = args[:input]

@@ -723,127 +723,35 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp skill_uses_resources?("web_automation"), do: true
   defp skill_uses_resources?(_), do: false
 
-  defp skill_uses_llm?("telegram_notify"), do: false
-  defp skill_uses_llm?("discord_notify"), do: false
-  defp skill_uses_llm?("api_request"), do: false
-  defp skill_uses_llm?("rss_collector"), do: false
-  defp skill_uses_llm?("web_browse"), do: false
-  defp skill_uses_llm?("google_calendar"), do: false
-  defp skill_uses_llm?("google_tasks"), do: false
-  defp skill_uses_llm?("web_automation"), do: false
-  defp skill_uses_llm?("shell"), do: false
-  defp skill_uses_llm?("coder"), do: false
-  defp skill_uses_llm?("send_to_workflow"), do: false
-  defp skill_uses_llm?("receive_from_workflow"), do: false
-  defp skill_uses_llm?("web_fetch"), do: false
-  defp skill_uses_llm?("web_search_fetch"), do: false
-  defp skill_uses_llm?("rss_fetch"), do: false
-  defp skill_uses_llm?("db_backup"), do: false
-  defp skill_uses_llm?(_), do: true
+  # --- Skill metadata (delegated to SkillRegistry) ---
 
-  defp skill_config_hint("api_request"), do: ~s|{"method": "GET", "url": "https://...", "headers": {}, "body": ""}|
-  defp skill_config_hint("rss_collector"), do: ~s|{"force": false, "max_items": 5, "fetch_timeout": 15}|
-  defp skill_config_hint("web_search"), do: ~s|{"query": "search terms"}|
-  defp skill_config_hint("web_browse"), do: ~s|{"url": "https://...", "question": "optional"}|
-  defp skill_config_hint("llm_transform"), do: ~s|{"context": "extra context for {context} placeholder"}|
-  defp skill_config_hint("telegram_notify"), do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|
-  defp skill_config_hint("discord_notify"), do: ~s|{"channel_id": "Discord channel ID (optional, default: main channel)"}|
-  defp skill_config_hint("google_calendar"), do: ~s|{"action": "list", "days": 1} or {"action": "create", "title": "Meeting", "date": "2026-03-20", "time": "14:00"}|
-  defp skill_config_hint("google_tasks"), do: ~s|{"action": "list"} or {"action": "create", "title": "Task title"}|
-  defp skill_config_hint("github_security_review"), do: ~s|{"repo": "owner/repo", "pr": 42}|
-  defp skill_config_hint("web_automation"), do: ~s|{"action": "play"} — runs the automation config from the assigned Resource|
-  defp skill_config_hint("shell"), do: ~s|{"command": "df -h"} — whitelisted OS command for container introspection|
-  defp skill_config_hint("coder"), do: ~s|{"goal": "describe what the skill should do", "create_workflow": false, "max_retries": 3}|
-  defp skill_config_hint("research"), do: ~s|{"query": "research topic"}|
-  defp skill_config_hint("conversational"), do: ~s|{"message": "text to send"}|
-  defp skill_config_hint("send_to_workflow"), do: ~s|{"target_node": "node_name@host", "target_workflow": "workflow name", "timeout": 5000}|
-  defp skill_config_hint("receive_from_workflow"), do: ~s|{"allowed_nodes": []} — leave empty to accept from any registered node|
-  defp skill_config_hint("web_fetch"), do: ~s|{"url": "https://..."} — pure fetch, no LLM|
-  defp skill_config_hint("web_search_fetch"), do: ~s|{"query": "search terms", "max_results": 3} — pure search, no LLM|
-  defp skill_config_hint("rss_fetch"), do: ~s|{"max_items": 20, "recent_hours": 48} — pure fetch, no scoring|
-  defp skill_config_hint("llm_score"), do: ~s|{"interests": "AI, cybersecurity", "threshold": 0.3, "max_items": 10}|
-  defp skill_config_hint(_), do: ""
+  defp skill_meta(skill_name), do: SkillRegistry.get_skill_meta(skill_name)
+
+  defp skill_has_field?(skill, field), do: field in skill_meta(skill).step_fields
+
+  defp skill_config_hint(skill), do: skill_meta(skill).config_hint
 
   defp skill_config_scaffold(skill) do
-    Jason.encode!(skill_config_scaffold_data(skill), pretty: true)
-  end
-
-  defp skill_config_scaffold_data(skill) do
-    case skill do
-      "api_request" -> %{"method" => "GET", "url" => "", "headers" => %{}, "body" => ""}
-      "rss_collector" -> %{"force" => false, "max_items" => 5, "fetch_timeout" => 15}
-      "web_search" -> %{"query" => ""}
-      "web_browse" -> %{"url" => "", "question" => ""}
-      "llm_transform" -> %{"context" => "", "prompt" => ""}
-      "telegram_notify" -> %{"chat_id" => "", "bot_token" => "", "parse_mode" => "Markdown"}
-      "discord_notify" -> %{"channel_id" => ""}
-      "google_calendar" -> %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}
-      "google_tasks" -> %{"action" => "list", "task_list" => "@default"}
-      "github_security_review" -> %{"repo" => "", "pr" => nil}
-      "web_automation" -> %{"action" => "play", "resource" => "automation resource name"}
-      "shell" -> %{"command" => "df -h"}
-      "coder" -> %{"goal" => "", "create_workflow" => false, "max_retries" => 3}
-      "research" -> %{"query" => ""}
-      "conversational" -> %{"message" => ""}
-      "send_to_workflow" -> %{"target_node" => "", "target_workflow" => "", "timeout" => 5000}
-      "receive_from_workflow" -> %{"allowed_nodes" => []}
-      "web_fetch" -> %{"url" => ""}
-      "web_search_fetch" -> %{"query" => "", "max_results" => 3}
-      "rss_fetch" -> %{"max_items" => 20, "recent_hours" => 48}
-      "llm_score" -> %{"interests" => "", "threshold" => 0.3, "max_items" => 10}
-      _ -> %{}
+    case skill_meta(skill).config_scaffold do
+      scaffold when scaffold == %{} -> "{}"
+      scaffold -> Jason.encode!(scaffold, pretty: true)
     end
   end
 
   defp skill_scaffolds(skill) do
-    case skill do
-      "google_tasks" -> %{
-        "List tasks" => Jason.encode!(%{"action" => "list", "task_list" => "My Tasks", "max_results" => 20, "show_completed" => false}, pretty: true),
-        "Add task" => Jason.encode!(%{"action" => "add", "task_list" => "My Tasks", "title" => "Task title (step input becomes notes)", "due" => "2026-03-20"}, pretty: true),
-        "Add task (input as title)" => Jason.encode!(%{"action" => "add", "task_list" => "My Tasks"}, pretty: true),
-        "List task lists" => Jason.encode!(%{"action" => "lists"}, pretty: true)
-      }
-      "google_calendar" -> %{
-        "List events" => Jason.encode!(%{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}, pretty: true),
-        "Create event" => Jason.encode!(%{"action" => "create", "title" => "Meeting", "date" => "2026-03-20", "time" => "14:00", "duration" => 60}, pretty: true)
-      }
-      "api_request" -> %{
-        "GET" => Jason.encode!(%{"method" => "GET", "url" => "https://...", "headers" => %{}}, pretty: true),
-        "POST" => Jason.encode!(%{"method" => "POST", "url" => "https://...", "headers" => %{"content-type" => "application/json"}, "body" => "{}"}, pretty: true)
-      }
-      "web_automation" -> %{
-        "Play" => Jason.encode!(%{"action" => "play"}, pretty: true),
-        "Record" => Jason.encode!(%{"action" => "record", "url" => "https://..."}, pretty: true)
-      }
-      "llm_transform" -> %{
-        "Summarize" => Jason.encode!(%{"context" => "You are a concise summarizer."}, pretty: true),
-        "Translate" => Jason.encode!(%{"context" => "You are a translator."}, pretty: true),
-        "Classify" => Jason.encode!(%{"context" => "You are a content classifier."}, pretty: true),
-        "Extract" => Jason.encode!(%{"context" => "You extract structured data from text."}, pretty: true)
-      }
-      "llm_score" -> %{
-        "News" => Jason.encode!(%{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.3, "max_items" => 10}, pretty: true),
-        "Strict" => Jason.encode!(%{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.7, "max_items" => 5}, pretty: true)
-      }
-      "rss_fetch" -> %{
-        "Recent 24h" => Jason.encode!(%{"max_items" => 20, "recent_hours" => 24}, pretty: true),
-        "Recent 48h" => Jason.encode!(%{"max_items" => 30, "recent_hours" => 48}, pretty: true),
-        "Force all" => Jason.encode!(%{"max_items" => 50, "recent_hours" => 168, "force" => true}, pretty: true)
-      }
-      "coder" -> %{
-        "BEAM stats" => Jason.encode!(%{"goal" => "a skill that returns the current BEAM process count and memory usage"}, pretty: true),
-        "With workflow" => Jason.encode!(%{"goal" => "a skill that checks disk space", "create_workflow" => true}, pretty: true)
-      }
-      "shell" -> %{
-        "Memory" => Jason.encode!(%{"command" => "free -m"}, pretty: true),
-        "Disk" => Jason.encode!(%{"command" => "df -h"}, pretty: true),
-        "Processes" => Jason.encode!(%{"command" => "ps aux"}, pretty: true),
-        "Uptime" => Jason.encode!(%{"command" => "uptime"}, pretty: true),
-        "BEAM node" => Jason.encode!(%{"command" => "bin/alex_claw eval \"Node.self()\""}, pretty: true),
-        "Git clone" => Jason.encode!(%{"command" => "git clone https://github.com/user/repo.git /tmp/repo"}, pretty: true)
-      }
-      _ -> %{}
-    end
+    skill_meta(skill).config_presets
+    |> Enum.into(%{}, fn {name, data} -> {name, Jason.encode!(data, pretty: true)} end)
+  end
+
+  defp skill_has_scaffolds?(skill), do: skill_meta(skill).config_presets != %{}
+
+  defp skill_prompt_scaffolds(skill), do: skill_meta(skill).prompt_presets
+
+  defp skill_has_prompt_scaffolds?(skill), do: skill_meta(skill).prompt_presets != %{}
+
+  defp skill_help(skill) do
+    meta = skill_meta(skill)
+    %{prompt: meta.prompt_help, config: meta.config_help}
   end
 
   defp tip(assigns) do
@@ -855,61 +763,6 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       </span>
     </span>
     """
-  end
-
-  defp skill_has_scaffolds?(skill), do: skill_scaffolds(skill) != %{}
-
-  defp skill_prompt_scaffolds(skill) do
-    case skill do
-      "llm_transform" -> %{
-        "Summarize" => "Summarize the following content concisely. Focus on key facts and main points.\n\n{input}",
-        "Translate" => "Translate the following text to English. Preserve the original meaning and tone.\n\n{input}",
-        "Classify" => "Classify the following content into one of these categories: [positive, negative, neutral].\nReturn only the category label.\n\n{input}",
-        "Extract" => "Extract structured data from the following text. Return as JSON with relevant fields.\n\n{input}",
-        "Q&A" => "Answer the following question based on the context provided.\n\nContext:\n{input}\n\nQuestion: {context}",
-        "Rewrite" => "Rewrite the following content in a {context} tone. Keep the same facts.\n\n{input}",
-        "Filter" => "Review the following content. If it contains relevant information about {context}, output it. Otherwise output SKIP.\n\n{input}"
-      }
-      _ -> %{}
-    end
-  end
-
-  defp skill_has_prompt_scaffolds?(skill), do: skill_prompt_scaffolds(skill) != %{}
-
-  defp skill_help(skill) do
-    prompt = case skill do
-      "llm_transform" -> "Template sent to the LLM. Use {input} for previous step output, {context} for config context."
-      "research" -> "Research query template. Use {input} to include data from the previous step."
-      "conversational" -> "Message template. Use {input} to include data from the previous step."
-      _ -> "Template sent to the LLM. Use {input} for previous step output."
-    end
-
-    config = case skill do
-      "api_request" -> "HTTP request parameters: method, url, headers, body. The response becomes the next step's input."
-      "rss_collector" -> "force: re-fetch even if cached. max_items: limit results. fetch_timeout: seconds per feed (default 15). For scoring, use rss_fetch → llm_score instead."
-      "web_search" -> "query: the search terms. Leave empty to use {input} from the previous step."
-      "web_browse" -> "url: page to fetch. question: optional question to answer about the page content."
-      "llm_transform" -> "context: extra text available as {context} in the prompt template. Usually empty — most config goes in the prompt."
-      "telegram_notify" -> "Optional overrides. Leave empty to use default bot/chat. parse_mode: Markdown or HTML."
-      "discord_notify" -> "channel_id: target Discord channel. Leave empty to send to the default channel."
-      "google_calendar" -> "action: list (fetch events) or create (new event with title, date, time). calendar_id: which calendar (default: primary). days: how many days ahead. max_results: event limit."
-      "google_tasks" -> "action: list or add. For add: set title in config and the step input becomes notes automatically. Or leave title empty and input becomes the title. due: optional date (YYYY-MM-DD). task_list: list ID (default: @default)."
-      "github_security_review" -> "repo: owner/repo format. pr: PR number. Or commit_sha for commit review."
-      "web_automation" -> "action: play (run automation), record (start recording), status (check sidecar). The automation config comes from the assigned Resource (type: automation)."
-      "coder" -> "goal: natural language description of the skill to generate. create_workflow: if true, creates a workflow with the generated skill. max_retries: number of LLM retries on failure (default 3)."
-      "shell" -> "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked. Timeout and output length are configurable in Admin > Config."
-      "research" -> "query: the research topic. Leave empty to use {input} from the previous step."
-      "conversational" -> "message: text to send to the LLM. Leave empty to use {input} from the previous step."
-      "send_to_workflow" -> "target_node: BEAM node name (e.g. node_work@192.168.1.20). target_workflow: name of the workflow on the remote node. timeout: RPC timeout in ms (default 5000)."
-      "receive_from_workflow" -> "Gate skill — must be step 1. allowed_nodes: optional list of node names that can trigger this workflow. Leave empty to accept from any registered cluster node."
-      "web_fetch" -> "url: page to fetch. Returns raw text content — no LLM, no summarization. Chain with llm_transform for processing."
-      "web_search_fetch" -> "query: search terms. max_results: number of pages to fetch (default 3). Returns raw page content — no LLM synthesis. Chain with llm_transform."
-      "rss_fetch" -> "max_items: limit total items. recent_hours: only items newer than this (default 48). force: include already-seen items. Returns raw items — no scoring. Chain with llm_score."
-      "llm_score" -> "interests: topics for relevance scoring. threshold: minimum score 0-1 (default 0.3). max_items: max items to return. Scores items via single batch LLM call."
-      _ -> "Skill-specific parameters as JSON. Click Scaffold to see available options."
-    end
-
-    %{prompt: prompt, config: config}
   end
 
   defp workflow_cluster_role(workflow_id) do

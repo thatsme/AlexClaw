@@ -19,5 +19,16 @@ defmodule AlexClaw.Skill do
   @callback routes() :: [atom()]
   @callback external() :: boolean()
 
-  @optional_callbacks description: 0, permissions: 0, version: 0, routes: 0, external: 0
+  # UI metadata — declares how the step editor renders for this skill
+  @callback step_fields() :: [atom()]
+  @callback config_hint() :: String.t()
+  @callback config_scaffold() :: map()
+  @callback config_presets() :: %{String.t() => map()}
+  @callback prompt_presets() :: %{String.t() => String.t()}
+  @callback config_help() :: String.t()
+  @callback prompt_help() :: String.t()
+
+  @optional_callbacks description: 0, permissions: 0, version: 0, routes: 0, external: 0,
+                      step_fields: 0, config_hint: 0, config_scaffold: 0, config_presets: 0,
+                      prompt_presets: 0, config_help: 0, prompt_help: 0
 end

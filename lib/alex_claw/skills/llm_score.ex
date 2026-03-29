@@ -21,6 +21,28 @@ defmodule AlexClaw.Skills.LlmScore do
   @default_max_items 10
 
   @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :config]
+
+  @impl true
+  def config_hint, do: ~s|{"interests": "AI, cybersecurity", "threshold": 0.3, "max_items": 10}|
+
+  @impl true
+  def config_scaffold, do: %{"interests" => "", "threshold" => 0.3, "max_items" => 10}
+
+  @impl true
+  def config_presets do
+    %{
+      "News" => %{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.3, "max_items" => 10},
+      "Strict" => %{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.7, "max_items" => 5}
+    }
+  end
+
+  @impl true
+  def config_help,
+    do:
+      "interests: topics for relevance scoring. threshold: minimum score 0-1 (default 0.3). max_items: max items to return. Scores items via single batch LLM call."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     interests = config["interests"] || "general news, technology, finance, world events"

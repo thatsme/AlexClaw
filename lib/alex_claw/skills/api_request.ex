@@ -14,6 +14,27 @@ defmodule AlexClaw.Skills.ApiRequest do
   @impl true
   @spec routes() :: [atom()]
   def routes, do: [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error]
+
+  @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"method": "GET", "url": "https://...", "headers": {}, "body": ""}|
+
+  @impl true
+  def config_scaffold, do: %{"method" => "GET", "url" => "", "headers" => %{}, "body" => ""}
+
+  @impl true
+  def config_presets do
+    %{
+      "GET" => %{"method" => "GET", "url" => "https://...", "headers" => %{}},
+      "POST" => %{"method" => "POST", "url" => "https://...", "headers" => %{"content-type" => "application/json"}, "body" => "{}"}
+    }
+  end
+
+  @impl true
+  def config_help, do: "HTTP request parameters: method, url, headers, body. The response becomes the next step's input."
+
   require Logger
 
   @allowed_methods ~w(GET POST PUT PATCH DELETE)

@@ -19,6 +19,28 @@ defmodule AlexClaw.Skills.WebAutomation do
   def routes, do: [:on_success, :on_timeout, :on_error]
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"action": "play"} — runs the automation config from the assigned Resource|
+
+  @impl true
+  def config_scaffold, do: %{"action" => "play", "resource" => "automation resource name"}
+
+  @impl true
+  def config_presets do
+    %{
+      "Play" => %{"action" => "play"},
+      "Record" => %{"action" => "record", "url" => "https://..."}
+    }
+  end
+
+  @impl true
+  def config_help,
+    do:
+      "action: play (run automation), record (start recording), status (check sidecar). The automation config comes from the assigned Resource (type: automation)."
+
+  @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     if enabled?() do

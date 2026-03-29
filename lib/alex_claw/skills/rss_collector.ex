@@ -30,6 +30,20 @@ defmodule AlexClaw.Skills.RSSCollector do
   end
 
   @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :config]
+
+  @impl true
+  def config_hint, do: ~s|{"force": false, "max_items": 5, "fetch_timeout": 15}|
+
+  @impl true
+  def config_scaffold, do: %{"force" => false, "max_items" => 5, "fetch_timeout" => 15}
+
+  @impl true
+  def config_help,
+    do:
+      "force: re-fetch even if cached. max_items: limit results. fetch_timeout: seconds per feed (default 15). For scoring, use rss_fetch → llm_score instead."
+
+  @impl true
   @spec run(map()) :: {:ok, map()} | {:error, term()}
   def run(args) do
     force = Map.get(args, :force, false)

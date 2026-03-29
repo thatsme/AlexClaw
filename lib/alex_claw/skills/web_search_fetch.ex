@@ -22,6 +22,20 @@ defmodule AlexClaw.Skills.WebSearchFetch do
   @max_page_length 3_000
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"query": "search terms", "max_results": 3} — pure search, no LLM|
+
+  @impl true
+  def config_scaffold, do: %{"query" => "", "max_results" => 3}
+
+  @impl true
+  def config_help,
+    do:
+      "query: search terms. max_results: number of pages to fetch (default 3). Returns raw page content — no LLM synthesis. Chain with llm_transform."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     raw_query = config["query"] || to_string(args[:input] || "")

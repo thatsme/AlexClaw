@@ -34,6 +34,30 @@ defmodule AlexClaw.Skills.GoogleTasks do
   @tasks_api "https://tasks.googleapis.com/tasks/v1"
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"action": "list"} or {"action": "create", "title": "Task title"}|
+
+  @impl true
+  def config_scaffold, do: %{"action" => "list", "task_list" => "@default"}
+
+  @impl true
+  def config_presets do
+    %{
+      "List tasks" => %{"action" => "list", "task_list" => "My Tasks", "max_results" => 20, "show_completed" => false},
+      "Add task" => %{"action" => "add", "task_list" => "My Tasks", "title" => "Task title (step input becomes notes)", "due" => "2026-03-20"},
+      "Add task (input as title)" => %{"action" => "add", "task_list" => "My Tasks"},
+      "List task lists" => %{"action" => "lists"}
+    }
+  end
+
+  @impl true
+  def config_help,
+    do:
+      "action: list or add. For add: set title in config and the step input becomes notes automatically. Or leave title empty and input becomes the title. due: optional date (YYYY-MM-DD). task_list: list ID (default: @default)."
+
+  @impl true
   @spec run(map()) :: {:ok, String.t()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}

@@ -25,6 +25,29 @@ defmodule AlexClaw.Skills.RssFetch do
   @default_recent_hours 48
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"max_items": 20, "recent_hours": 48} — pure fetch, no scoring|
+
+  @impl true
+  def config_scaffold, do: %{"max_items" => 20, "recent_hours" => 48}
+
+  @impl true
+  def config_presets do
+    %{
+      "Recent 24h" => %{"max_items" => 20, "recent_hours" => 24},
+      "Recent 48h" => %{"max_items" => 30, "recent_hours" => 48},
+      "Force all" => %{"max_items" => 50, "recent_hours" => 168, "force" => true}
+    }
+  end
+
+  @impl true
+  def config_help,
+    do:
+      "max_items: limit total items. recent_hours: only items newer than this (default 48). force: include already-seen items. Returns raw items — no scoring. Chain with llm_score."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     feeds = get_feeds(args)

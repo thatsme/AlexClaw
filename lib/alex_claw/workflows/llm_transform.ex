@@ -13,6 +13,44 @@ defmodule AlexClaw.Workflows.LLMTransform do
   require Logger
 
   @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
+
+  @impl true
+  def config_hint, do: ~s|{"context": "extra context for {context} placeholder"}|
+
+  @impl true
+  def config_scaffold, do: %{"context" => "", "prompt" => ""}
+
+  @impl true
+  def config_presets do
+    %{
+      "Summarize" => %{"context" => "You are a concise summarizer."},
+      "Translate" => %{"context" => "You are a translator."},
+      "Classify" => %{"context" => "You are a content classifier."},
+      "Extract" => %{"context" => "You extract structured data from text."}
+    }
+  end
+
+  @impl true
+  def prompt_presets do
+    %{
+      "Summarize" => "Summarize the following content concisely. Focus on key facts and main points.\n\n{input}",
+      "Translate" => "Translate the following text to English. Preserve the original meaning and tone.\n\n{input}",
+      "Classify" => "Classify the following content into one of these categories: [positive, negative, neutral].\nReturn only the category label.\n\n{input}",
+      "Extract" => "Extract structured data from the following text. Return as JSON with relevant fields.\n\n{input}",
+      "Q&A" => "Answer the following question based on the context provided.\n\nContext:\n{input}\n\nQuestion: {context}",
+      "Rewrite" => "Rewrite the following content in a {context} tone. Keep the same facts.\n\n{input}",
+      "Filter" => "Review the following content. If it contains relevant information about {context}, output it. Otherwise output SKIP.\n\n{input}"
+    }
+  end
+
+  @impl true
+  def config_help, do: "context: extra text available as {context} in the prompt template. Usually empty — most config goes in the prompt."
+
+  @impl true
+  def prompt_help, do: "Template sent to the LLM. Use {input} for previous step output, {context} for config context."
+
+  @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     template = args[:prompt_template] || args[:prompt] || args[:config]["prompt"] || ""

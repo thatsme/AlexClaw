@@ -210,7 +210,7 @@
 
           <div :if={@editing_step && @editing_step.id == step.id} class="border-t border-gray-700 p-4 bg-gray-850">
             <form phx-submit="save_step" class="space-y-3">
-              <div class={["grid grid-cols-1 gap-3", if(skill_uses_llm?(@editing_step.skill), do: "md:grid-cols-4", else: "md:grid-cols-2")]}>
+              <div class={["grid grid-cols-1 gap-3", if(skill_has_field?(@editing_step.skill, :llm_tier), do: "md:grid-cols-4", else: "md:grid-cols-2")]}>
                 <div>
                   <label class="block text-xs text-gray-500 mb-1">Step Name <.tip text="Display name for this step in the workflow." /></label>
                   <input type="text" name="step_name" required value={@editing_step.name}
@@ -223,14 +223,14 @@
                     <option :for={s <- @available_skills} value={s} selected={@editing_step.skill == s}>{s}{if s in @dynamic_skills, do: " (dynamic)", else: ""}</option>
                   </select>
                 </div>
-                <div :if={skill_uses_llm?(@editing_step.skill)}>
+                <div :if={skill_has_field?(@editing_step.skill, :llm_tier)}>
                   <label class="block text-xs text-gray-500 mb-1">LLM Tier <.tip text="Reasoning tier: light (fast/cheap), medium (balanced), heavy (deep reasoning), local (on-device model)." /></label>
                   <select name="step_llm_tier" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                     <option value="" selected={!@editing_step.llm_tier}>None</option>
                     <option :for={t <- @llm_tiers} value={t} selected={@editing_step.llm_tier == t}>{t}</option>
                   </select>
                 </div>
-                <div :if={skill_uses_llm?(@editing_step.skill)}>
+                <div :if={skill_has_field?(@editing_step.skill, :llm_model)}>
                   <label class="block text-xs text-gray-500 mb-1">Provider <.tip text="Which LLM provider to use. Auto selects the best available based on tier." /></label>
                   <select name="step_llm_model" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                     <option :for={pc <- @provider_choices} value={pc.value} selected={(@editing_step.llm_model || "auto") == pc.value}>
@@ -279,7 +279,7 @@
                   </select>
                 </div>
               </div>
-              <div :if={skill_uses_llm?(@editing_step.skill)}>
+              <div :if={skill_has_field?(@editing_step.skill, :prompt_template)}>
                 <div class="flex items-center justify-between mb-1">
                   <label class="text-xs text-gray-500">
                     Prompt Template <.tip text={skill_help(@editing_step.skill).prompt} />
@@ -296,7 +296,7 @@
                   placeholder="Use {input} for previous step output, {resources} for assigned resources, {context} for step config context"
                   class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono">{@editing_step.prompt_template || ""}</textarea>
               </div>
-              <div>
+              <div :if={skill_has_field?(@editing_step.skill, :config)}>
                 <div class="flex items-center justify-between mb-1">
                   <label class="text-xs text-gray-500">
                     Config (JSON) <.tip text={skill_help(@editing_step.skill).config} />
@@ -361,7 +361,7 @@
         </div>
         <form phx-submit="add_step" class="space-y-3">
           <input type="hidden" name="step_skill" value={@adding_step} />
-          <div class={["grid grid-cols-1 gap-3", if(skill_uses_llm?(@adding_step), do: "md:grid-cols-4", else: "md:grid-cols-2")]}>
+          <div class={["grid grid-cols-1 gap-3", if(skill_has_field?(@adding_step, :llm_tier), do: "md:grid-cols-4", else: "md:grid-cols-2")]}>
             <div>
               <label class="block text-xs text-gray-500 mb-1">Step Name <.tip text="Display name for this step in the workflow." /></label>
               <input type="text" name="step_name" required
@@ -372,14 +372,14 @@
               <input type="text" disabled value={@adding_step}
                 class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-gray-400 text-sm" />
             </div>
-            <div :if={skill_uses_llm?(@adding_step)}>
+            <div :if={skill_has_field?(@adding_step, :llm_tier)}>
               <label class="block text-xs text-gray-500 mb-1">LLM Tier <.tip text="Reasoning tier: light (fast/cheap), medium (balanced), heavy (deep reasoning), local (on-device model)." /></label>
               <select name="step_llm_tier" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                 <option value="">None</option>
                 <option :for={t <- @llm_tiers} value={t}>{t}</option>
               </select>
             </div>
-            <div :if={skill_uses_llm?(@adding_step)}>
+            <div :if={skill_has_field?(@adding_step, :llm_model)}>
               <label class="block text-xs text-gray-500 mb-1">Provider <.tip text="Which LLM provider to use. Auto selects the best available based on tier." /></label>
               <select name="step_llm_model" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
                 <option :for={pc <- @provider_choices} value={pc.value}>{pc.label}</option>
@@ -421,7 +421,7 @@
               </select>
             </div>
           </div>
-          <div :if={skill_uses_llm?(@adding_step)}>
+          <div :if={skill_has_field?(@adding_step, :prompt_template)}>
             <div class="flex items-center justify-between mb-1">
               <label class="text-xs text-gray-500">
                 Prompt Template <.tip text={skill_help(@adding_step).prompt} />
@@ -438,7 +438,7 @@
               placeholder="Use {input} for previous step output"
               class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono">{@adding_step_prompt || ""}</textarea>
           </div>
-          <div>
+          <div :if={skill_has_field?(@adding_step, :config)}>
             <div class="flex items-center justify-between mb-1">
               <label class="text-xs text-gray-500">
                 Config (JSON) <.tip text={skill_help(@adding_step).config} />

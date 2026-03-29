@@ -18,6 +18,21 @@ defmodule AlexClaw.Skills.Research do
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
 
   @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
+
+  @impl true
+  def config_hint, do: ~s|{"query": "research topic"}|
+
+  @impl true
+  def config_scaffold, do: %{"query" => ""}
+
+  @impl true
+  def config_help, do: "query: the research topic. Leave empty to use {input} from the previous step."
+
+  @impl true
+  def prompt_help, do: "Research query template. Use {input} to include data from the previous step."
+
+  @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     query = args[:input] || args[:config]["query"] || ""

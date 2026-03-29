@@ -21,6 +21,20 @@ defmodule AlexClaw.Skills.WebFetch do
   @max_content_length 8_000
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"url": "https://..."} — pure fetch, no LLM|
+
+  @impl true
+  def config_scaffold, do: %{"url" => ""}
+
+  @impl true
+  def config_help,
+    do:
+      "url: page to fetch. Returns raw text content — no LLM, no summarization. Chain with llm_transform for processing."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     url = config["url"] || to_string(args[:input] || "")

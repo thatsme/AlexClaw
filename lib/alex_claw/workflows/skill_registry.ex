@@ -124,6 +124,49 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  @doc "Get UI metadata for a skill by name. Used by the step editor to determine which fields to show."
+  @spec get_skill_meta(String.t()) :: map()
+  def get_skill_meta(name) do
+    case :ets.lookup(@ets_table, name) do
+      [{_, module, _, _, _, _}] -> build_skill_meta(module)
+      [] -> default_skill_meta()
+    end
+  end
+
+  defp build_skill_meta(module) do
+    Code.ensure_loaded(module)
+
+    %{
+      step_fields: extract_callback(module, :step_fields, [:llm_tier, :llm_model, :prompt_template, :config]),
+      config_hint: extract_callback(module, :config_hint, ""),
+      config_scaffold: extract_callback(module, :config_scaffold, %{}),
+      config_presets: extract_callback(module, :config_presets, %{}),
+      prompt_presets: extract_callback(module, :prompt_presets, %{}),
+      config_help: extract_callback(module, :config_help, "Skill-specific parameters as JSON."),
+      prompt_help: extract_callback(module, :prompt_help, "Template sent to the LLM. Use {input} for previous step output.")
+    }
+  end
+
+  defp default_skill_meta do
+    %{
+      step_fields: [:llm_tier, :llm_model, :prompt_template, :config],
+      config_hint: "",
+      config_scaffold: %{},
+      config_presets: %{},
+      prompt_presets: %{},
+      config_help: "Skill-specific parameters as JSON.",
+      prompt_help: "Template sent to the LLM. Use {input} for previous step output."
+    }
+  end
+
+  defp extract_callback(module, callback, default) do
+    if function_exported?(module, callback, 0) do
+      apply(module, callback, [])
+    else
+      default
+    end
+  end
+
   @doc "Check if a skill is tagged as external (fetches data from outside the system)."
   @spec external?(String.t()) :: boolean()
   def external?(name) when is_binary(name) do

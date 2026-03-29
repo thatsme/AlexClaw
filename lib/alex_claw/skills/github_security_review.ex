@@ -30,6 +30,18 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   @github_api "https://api.github.com"
 
   @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :config]
+
+  @impl true
+  def config_hint, do: ~s|{"repo": "owner/repo", "pr": 42}|
+
+  @impl true
+  def config_scaffold, do: %{"repo" => "", "pr" => nil}
+
+  @impl true
+  def config_help, do: "repo: owner/repo format. pr: PR number. Or commit_sha for commit review."
+
+  @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}

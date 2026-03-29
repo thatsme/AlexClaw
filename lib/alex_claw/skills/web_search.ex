@@ -21,6 +21,18 @@ defmodule AlexClaw.Skills.WebSearch do
   @max_results 3
   @max_page_length 3_000
 
+  @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
+
+  @impl true
+  def config_hint, do: ~s|{"query": "search terms"}|
+
+  @impl true
+  def config_scaffold, do: %{"query" => ""}
+
+  @impl true
+  def config_help, do: "query: the search terms. Leave empty to use {input} from the previous step."
+
   @doc "Workflow-compatible entry point. Uses config query or args[:input] as the search query."
   @impl true
   @spec run(map()) :: {:ok, String.t() | nil, atom()} | {:error, any()}

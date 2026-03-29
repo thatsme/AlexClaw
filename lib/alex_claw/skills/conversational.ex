@@ -12,6 +12,21 @@ defmodule AlexClaw.Skills.Conversational do
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
 
   @impl true
+  def step_fields, do: [:llm_tier, :llm_model, :prompt_template]
+
+  @impl true
+  def config_hint, do: ~s|{"message": "text to send"}|
+
+  @impl true
+  def config_scaffold, do: %{"message" => ""}
+
+  @impl true
+  def config_help, do: "message: text to send to the LLM. Leave empty to use {input} from the previous step."
+
+  @impl true
+  def prompt_help, do: "Message template. Use {input} to include data from the previous step."
+
+  @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     text = args[:input] || args[:config]["message"] || ""

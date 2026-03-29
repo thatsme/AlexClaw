@@ -14,6 +14,19 @@ defmodule AlexClaw.Skills.TelegramNotify do
   @impl true
   @spec routes() :: [atom()]
   def routes, do: [:on_delivered, :on_error]
+
+  @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|
+
+  @impl true
+  def config_scaffold, do: %{"chat_id" => "", "bot_token" => "", "parse_mode" => "Markdown"}
+
+  @impl true
+  def config_help, do: "Optional overrides. Leave empty to use default bot/chat. parse_mode: Markdown or HTML."
+
   require Logger
 
   @telegram_api "https://api.telegram.org/bot"

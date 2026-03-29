@@ -39,14 +39,40 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   def routes, do: [:on_success, :on_empty, :on_error]
 
   @impl true
+  def step_fields, do: [:config]
+
+  @impl true
+  def config_hint, do: ~s|{"packages": ["phoenix", "ecto", "req"], "max_modules_per_package": 50, "delay_between_packages_ms": 2000, "timeout_ms": 300000}|
+
+  @impl true
+  def config_scaffold do
+    %{"packages" => @default_packages, "max_modules_per_package" => 50, "delay_between_packages_ms" => 2000, "timeout_ms" => 300_000}
+  end
+
+  @impl true
+  def config_help, do: "packages: hex package names to scrape. max_modules_per_package: cap per package. delay_between_packages_ms: pause between packages (default 2000). timeout_ms: total allowed time (default 300000 = 5 min)."
+
+  @impl true
   def run(args) do
     config = args[:config] || %{}
     packages = config["packages"] || @default_packages
     max_modules = to_int(config["max_modules_per_package"], 50)
+    delay_ms = to_int(config["delay_between_packages_ms"], 2000)
+    timeout_ms = to_int(config["timeout_ms"], 300_000)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
 
     results =
       packages
-      |> Enum.map(fn pkg -> scrape_package(pkg, max_modules) end)
+      |> Enum.reduce_while([], fn pkg, acc ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          {:halt, acc}
+        else
+          result = scrape_package(pkg, max_modules)
+          if delay_ms > 0, do: Process.sleep(delay_ms)
+          {:cont, [result | acc]}
+        end
+      end)
+      |> Enum.reverse()
 
     total_stored = Enum.sum(Enum.map(results, fn {_pkg, count} -> count end))
     total_skipped = Enum.sum(Enum.map(results, fn {_pkg, _count} -> 0 end))

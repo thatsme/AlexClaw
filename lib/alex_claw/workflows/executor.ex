@@ -201,9 +201,12 @@ defmodule AlexClaw.Workflows.Executor do
         token = mint_step_token(module, skill_type)
         if token, do: Process.put(:auth_token, token)
 
+        step_timeout = get_in(step.config, ["timeout_ms"])
+        safe_opts = if is_integer(step_timeout), do: [timeout: step_timeout], else: []
+
         result =
           CircuitBreaker.call(step.skill, fn ->
-            SafeExecutor.run(module, args, skill_type, token, [])
+            SafeExecutor.run(module, args, skill_type, token, safe_opts)
           end)
 
         result

@@ -438,6 +438,18 @@
               placeholder="Use {input} for previous step output"
               class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm font-mono">{@adding_step_prompt || ""}</textarea>
           </div>
+          <div :if={@adding_step == "api_request" and @api_endpoints != []} class="mb-2">
+            <label class="block text-xs text-gray-500 mb-1">
+              API Endpoint (from discovered resources)
+            </label>
+            <select phx-change="select_api_endpoint" name="endpoint_index"
+              class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+              <option value="">Select endpoint to pre-fill config...</option>
+              <option :for={{ep, idx} <- Enum.with_index(@api_endpoints)} value={idx}>
+                {ep["resource_name"]}: {ep["label"]}
+              </option>
+            </select>
+          </div>
           <div :if={skill_has_field?(@adding_step, :config)}>
             <div class="flex items-center justify-between mb-1">
               <label class="text-xs text-gray-500">

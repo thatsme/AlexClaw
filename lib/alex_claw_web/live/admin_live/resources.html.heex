@@ -51,6 +51,49 @@
         <textarea name="metadata" rows="6"
           class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm font-mono text-xs">{if @editing && @editing.metadata && @editing.metadata != %{}, do: Jason.encode!(@editing.metadata, pretty: true), else: ""}</textarea>
       </div>
+      <%= if @editing && @editing.type == "api" && get_in(@editing.metadata || %{}, ["discovery", "status"]) == "completed" do %>
+        <% discovery = @editing.metadata["discovery"] %>
+        <div class="md:col-span-2 bg-gray-800 rounded p-4 border border-gray-700">
+          <h3 class="text-sm font-semibold text-white mb-2">API Discovery Results</h3>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span class="text-gray-500">Base URL:</span>
+              <span class="text-gray-300 ml-1">{discovery["base_url"]}</span>
+            </div>
+            <div>
+              <span class="text-gray-500">Probed:</span>
+              <span class="text-gray-300 ml-1">{discovery["probed_at"]}</span>
+            </div>
+            <div>
+              <span class="text-gray-500">HTTP Status:</span>
+              <span class="text-gray-300 ml-1">{get_in(discovery, ["probe", "http_status"])}</span>
+            </div>
+            <div>
+              <span class="text-gray-500">Content-Type:</span>
+              <span class="text-gray-300 ml-1">{get_in(discovery, ["probe", "content_type"])}</span>
+            </div>
+            <%= if openapi = discovery["openapi"] do %>
+              <div>
+                <span class="text-gray-500">API:</span>
+                <span class="text-gray-300 ml-1">{openapi["title"]} v{openapi["version"]}</span>
+              </div>
+              <div>
+                <span class="text-gray-500">Endpoints:</span>
+                <span class="text-gray-300 ml-1">{length(openapi["endpoints"] || [])}</span>
+              </div>
+              <div :if={openapi["base_path"] && openapi["base_path"] != ""}>
+                <span class="text-gray-500">Base Path:</span>
+                <span class="text-gray-300 ml-1">{openapi["base_path"]}</span>
+              </div>
+              <div :if={openapi["auth_schemes"] != []}>
+                <span class="text-gray-500">Auth:</span>
+                <span class="text-gray-300 ml-1">{Enum.join(openapi["auth_schemes"] || [], ", ")}</span>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+
       <div class="flex items-center space-x-2">
         <label class="text-sm text-gray-400">Enabled</label>
         <select name="enabled" class="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
@@ -90,6 +133,19 @@
           <td class="px-4 py-3 text-sm text-gray-400 font-mono truncate max-w-xs">
             {resource.url}
             <span :if={resource.metadata && resource.metadata != %{}} class="ml-2 text-xs px-1.5 py-0.5 rounded bg-blue-900 text-blue-300">json</span>
+            <%= if resource.type == "api" do %>
+              <%= case get_in(resource.metadata || %{}, ["discovery", "status"]) do %>
+                <% "running" -> %>
+                  <span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300 animate-pulse">discovering...</span>
+                <% "completed" -> %>
+                  <% endpoint_count = length(get_in(resource.metadata, ["discovery", "openapi", "endpoints"]) || []) %>
+                  <span :if={endpoint_count > 0} class="ml-2 text-xs px-1.5 py-0.5 rounded bg-green-900 text-green-300">{endpoint_count} endpoints</span>
+                  <span :if={endpoint_count == 0} class="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">no spec</span>
+                <% "failed" -> %>
+                  <span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-900 text-red-300" title={get_in(resource.metadata, ["discovery", "error"])}>discovery failed</span>
+                <% _ -> %>
+              <% end %>
+            <% end %>
           </td>
           <td class="px-4 py-3">
             <span :for={tag <- resource.tags} class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 mr-1">{tag}</span>
@@ -101,6 +157,9 @@
             </button>
           </td>
           <td class="px-4 py-3 text-right space-x-2">
+            <button :if={resource.type == "api" and is_binary(resource.url) and resource.url != ""}
+              phx-click="discover" phx-value-id={resource.id}
+              class="text-xs text-blue-500 hover:text-blue-400">Discover</button>
             <button phx-click="edit" phx-value-id={resource.id}
               class="text-xs text-claw-500 hover:text-claw-400">Edit</button>
             <button phx-click="delete" phx-value-id={resource.id}

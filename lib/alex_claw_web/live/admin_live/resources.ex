@@ -4,12 +4,17 @@ defmodule AlexClawWeb.AdminLive.Resources do
   use Phoenix.LiveView
 
   alias AlexClaw.Resources
+  alias AlexClaw.Resources.ApiDiscovery
 
   @resource_types ~w(rss_feed website document api automation)
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(AlexClaw.PubSub, ApiDiscovery.topic())
+    end
+
     type_filter = params["type"]
 
     {:ok,
@@ -145,6 +150,29 @@ defmodule AlexClawWeb.AdminLive.Resources do
   @impl true
   def handle_event("filter_type", %{"type" => type}, socket) do
     {:noreply, push_patch(socket, to: "/resources?type=#{type}")}
+  end
+
+  @impl true
+  def handle_event("discover", %{"id" => id}, socket) do
+    case parse_id(id) do
+      {:ok, rid} ->
+        case Resources.get_resource(rid) do
+          {:ok, resource} ->
+            ApiDiscovery.run_async(resource)
+            {:noreply, put_flash(socket, :info, "API discovery started for #{resource.name}")}
+
+          {:error, :not_found} ->
+            {:noreply, put_flash(socket, :error, "Resource not found")}
+        end
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:discovery_updated, _resource_id, _status}, socket) do
+    {:noreply, assign(socket, resources: list_resources(socket.assigns.type_filter))}
   end
 
   defp list_resources(nil), do: Resources.list_resources()

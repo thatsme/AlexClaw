@@ -32,6 +32,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
        adding_step: nil,
        adding_step_config: nil,
        adding_step_prompt: nil,
+       api_endpoints: [],
        cluster_nodes: cluster_node_names(),
        show_import_form: false,
        name_filter: ""
@@ -56,7 +57,13 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         case Workflows.get_workflow(wf_id) do
           {:ok, workflow} ->
             custom = not schedule_is_preset?(workflow.schedule)
-            {:noreply, assign(socket, editing: workflow, show_form: true, editing_step: nil, custom_schedule: custom)}
+            {:noreply, assign(socket,
+              editing: workflow,
+              show_form: true,
+              editing_step: nil,
+              custom_schedule: custom,
+              api_endpoints: api_endpoints_for_workflow(workflow)
+            )}
 
           {:error, :not_found} ->
             {:noreply, put_flash(socket, :error, "Workflow not found")}
@@ -357,6 +364,31 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   @impl true
+  def handle_event("select_api_endpoint", %{"endpoint_index" => ""}, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("select_api_endpoint", %{"endpoint_index" => idx}, socket) do
+    endpoints = socket.assigns.api_endpoints
+
+    case Integer.parse(idx) do
+      {i, ""} ->
+        case Enum.at(endpoints, i) do
+          nil ->
+            {:noreply, socket}
+
+          ep ->
+            config = Jason.encode!(%{"method" => ep["method"], "url" => ep["url"], "headers" => %{}, "body" => ""}, pretty: true)
+            {:noreply, assign(socket, adding_step_config: config)}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
   def handle_event("begin_add_step", %{"skill" => ""}, socket) do
     {:noreply, socket}
   end
@@ -454,7 +486,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         workflow = socket.assigns.editing
         Workflows.assign_resource(workflow, rid)
         workflow = Workflows.get_workflow!(workflow.id)
-        {:noreply, assign(socket, editing: workflow)}
+        {:noreply, assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
 
       :error ->
         {:noreply, socket}
@@ -468,7 +500,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         workflow = socket.assigns.editing
         Workflows.unassign_resource(workflow, rid)
         workflow = Workflows.get_workflow!(workflow.id)
-        {:noreply, assign(socket, editing: workflow)}
+        {:noreply, assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
 
       :error ->
         {:noreply, socket}
@@ -717,9 +749,32 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     Enum.any?(workflow.steps, fn step -> skill_uses_resources?(step.skill) end)
   end
 
+  defp api_endpoints_for_workflow(nil), do: []
+
+  defp api_endpoints_for_workflow(workflow) do
+    (workflow.resources || [])
+    |> Enum.filter(fn r -> r.type == "api" and r.enabled end)
+    |> Enum.flat_map(fn r ->
+      base_url = get_in(r.metadata || %{}, ["discovery", "base_url"]) || r.url || ""
+      base_path = get_in(r.metadata || %{}, ["discovery", "openapi", "base_path"]) || ""
+      endpoints = get_in(r.metadata || %{}, ["discovery", "openapi", "endpoints"]) || []
+
+      Enum.map(endpoints, fn ep ->
+        %{
+          "label" => "#{ep["method"]} #{ep["path"]} — #{ep["summary"] || ""}",
+          "method" => ep["method"],
+          "url" => base_url <> base_path <> ep["path"],
+          "path" => ep["path"],
+          "resource_name" => r.name
+        }
+      end)
+    end)
+  end
+
   defp skill_uses_resources?("rss_collector"), do: true
   defp skill_uses_resources?("rss_fetch"), do: true
   defp skill_uses_resources?("web_automation"), do: true
+  defp skill_uses_resources?("api_request"), do: true
   defp skill_uses_resources?(_), do: false
 
   # --- Skill metadata (delegated to SkillRegistry) ---

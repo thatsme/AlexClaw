@@ -50,6 +50,10 @@ defmodule AlexClaw.Skills.ApiRequest do
   def run(args) do
     config = args[:config] || %{}
     input = args[:input]
+    resources = args[:resources] || []
+
+    api_resource = find_api_resource(resources)
+    config = enrich_config(config, api_resource)
 
     method = String.upcase(config["method"] || "GET")
     url = interpolate(config["url"] || "", input)
@@ -66,6 +70,48 @@ defmodule AlexClaw.Skills.ApiRequest do
       end
     end
   end
+
+  defp find_api_resource(resources) when is_list(resources) do
+    Enum.find(resources, fn r -> r.type == "api" and r.enabled end)
+  end
+
+  defp find_api_resource(_), do: nil
+
+  defp enrich_config(config, nil), do: config
+
+  defp enrich_config(config, resource) do
+    base_url = get_in(resource.metadata || %{}, ["discovery", "base_url"]) || resource.url || ""
+    base_path = get_in(resource.metadata || %{}, ["discovery", "openapi", "base_path"]) || ""
+
+    config
+    |> resolve_url(base_url, base_path)
+    |> merge_auth_headers(resource.metadata)
+  end
+
+  defp resolve_url(%{"url" => url} = config, base_url, base_path)
+       when is_binary(url) and url != "" do
+    if String.contains?(url, "{base_url}") do
+      Map.put(config, "url", String.replace(url, "{base_url}", base_url <> base_path))
+    else
+      config
+    end
+  end
+
+  defp resolve_url(%{"path" => path} = config, base_url, base_path) when is_binary(path) do
+    config
+    |> Map.put("url", base_url <> base_path <> path)
+    |> Map.delete("path")
+  end
+
+  defp resolve_url(config, _base_url, _base_path), do: config
+
+  defp merge_auth_headers(config, %{"auth" => %{"header" => name, "value" => value}})
+       when is_binary(name) and is_binary(value) do
+    existing = config["headers"] || %{}
+    Map.put(config, "headers", Map.put_new(existing, name, value))
+  end
+
+  defp merge_auth_headers(config, _metadata), do: config
 
   defp execute_request(method, url, headers, body) do
     Logger.info("ApiRequest #{method} #{url}", skill: :api_request)

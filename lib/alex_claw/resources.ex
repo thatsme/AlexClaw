@@ -29,17 +29,34 @@ defmodule AlexClaw.Resources do
 
   @spec create_resource(map()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
   def create_resource(attrs) do
-    %Resource{}
-    |> Resource.changeset(attrs)
-    |> Repo.insert()
+    result =
+      %Resource{}
+      |> Resource.changeset(attrs)
+      |> Repo.insert()
+
+    with {:ok, resource} <- result, do: maybe_trigger_discovery(resource)
+    result
   end
 
-  @spec update_resource(Resource.t(), map()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
-  def update_resource(%Resource{} = resource, attrs) do
-    resource
-    |> Resource.changeset(attrs)
-    |> Repo.update()
+  @spec update_resource(Resource.t(), map(), keyword()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
+  def update_resource(%Resource{} = resource, attrs, opts \\ []) do
+    result =
+      resource
+      |> Resource.changeset(attrs)
+      |> Repo.update()
+
+    unless opts[:skip_discovery] do
+      with {:ok, updated} <- result, do: maybe_trigger_discovery(updated)
+    end
+
+    result
   end
+
+  defp maybe_trigger_discovery(%Resource{type: "api"} = resource) do
+    AlexClaw.Resources.ApiDiscovery.run_async(resource)
+  end
+
+  defp maybe_trigger_discovery(_resource), do: :ok
 
   @spec delete_resource(Resource.t()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
   def delete_resource(%Resource{} = resource) do

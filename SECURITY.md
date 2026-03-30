@@ -227,9 +227,11 @@ Only load skills from sources you trust.
 
 ## Content Sanitization (Prompt Injection Defense)
 
-External-facing skills (`web_search`, `web_browse`, `api_request`, `rss_collector`,
+External-facing skills (`web_fetch`, `web_search_fetch`, `rss_fetch`,
+`web_search`, `web_browse`, `api_request`, `rss_collector`,
 `github_security_review`, `google_calendar`, `google_tasks`, `web_automation`,
-`research`) fetch data from untrusted sources. This data flows through the
+`research`) fetch data from untrusted sources. Dynamic scraper skills
+(`hexdocs_scraper`, `hexdocs_guides_scraper`) also declare `external: true`. This data flows through the
 workflow engine and may reach the LLM, creating a prompt injection surface.
 
 **External skill tagging:** Skills that fetch external data declare
@@ -260,13 +262,17 @@ the LLM:
    pronouns + imperative verbs like "ignore", "forget", "obey", "execute",
    "reveal") to catch novel payloads not in the pattern list
 
-**Pre-LLM sanitization:** `web_browse` and `web_search` sanitize fetched
-content before building the LLM prompt. Injection payloads are stripped
-before the model ever sees them.
+**Pre-LLM sanitization:** Fetch skills (`web_fetch`, `web_search_fetch`,
+`rss_fetch`, `web_browse`, `web_search`) sanitize fetched content before
+building the LLM prompt. Injection payloads are stripped before the model
+ever sees them.
 
 **Post-LLM sanitization:** The workflow executor auto-sanitizes output from
 any skill tagged `external?/1 == true`, catching skill name leaks or
-residual injection artifacts in the LLM response.
+residual injection artifacts in the LLM response. In composable pipelines
+(e.g. `web_fetch → llm_transform`), sanitization runs at the executor level
+between steps — the fetch skill's output is sanitized before `llm_transform`
+receives it.
 
 **Stripped sentences are logged** with their detection reason (`[pattern]`,
 `[imperative]`, `[skill_mention]`) for forensic analysis.

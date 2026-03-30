@@ -365,6 +365,10 @@ Skills that fetch data from external sources declare `def external, do: true`. T
 | `shell` | `Shell` | — | Execute whitelisted OS commands for container introspection |
 | `coder` | `Coder` | local | Autonomous skill generation from natural language goals |
 | `web_automation` | `WebAutomation` | — | Browser recording and headless replay via sidecar |
+| `web_fetch` | `WebFetch` | — | Fetch a URL, return extracted text (no LLM). Routes: `on_success`, `on_not_found`, `on_timeout`, `on_error` |
+| `web_search_fetch` | `WebSearchFetch` | — | Search DuckDuckGo + fetch pages, return raw content (no LLM). Routes: `on_results`, `on_no_results`, `on_timeout`, `on_error` |
+| `rss_fetch` | `RSSFetch` | — | Fetch RSS feeds, dedup, filter recent, return JSON items (no LLM). Routes: `on_items`, `on_empty`, `on_error` |
+| `llm_score` | `LLMScore` | light | Batch-score items for relevance via single LLM call, filter by threshold. Routes: `on_items`, `on_empty`, `on_error` |
 | `send_to_workflow` | `SendToWorkflow` | — | Send data to a workflow on another BEAM node via RPC |
 | `receive_from_workflow` | `ReceiveFromWorkflow` | — | Gate: accepts remote triggers when placed as step 1 |
 
@@ -405,6 +409,34 @@ Core skill that autonomously generates dynamic skills from natural language goal
 Safety: filename validation prevents path traversal, SkillRegistry validates namespace/behaviour/permissions on load, generated workflows are disabled, all code logged for audit.
 
 Shared utilities (`parse_int`, `parse_float`, `sanitize_utf8`, `strip_noise`, `blank?`) live in `AlexClaw.Skills.Helpers`.
+
+### Composable Fetch Pattern (v0.3.15+)
+
+The monolithic skills (`rss_collector`, `web_search`, `web_browse`) are deprecated in favor of composable pipelines built from single-responsibility skills:
+
+| Old (monolithic) | New (composable pipeline) |
+|---|---|
+| `rss_collector` | `rss_fetch → llm_score → llm_transform → telegram_notify` |
+| `web_search` | `web_search_fetch → llm_transform` |
+| `web_browse` | `web_fetch → llm_transform` |
+
+**Design rationale:** Each skill does one thing — fetch, score, or transform — and returns structured output for the next step. This makes workflows reconfigurable without new code: swap `telegram_notify` for `discord_notify`, add an `llm_score` step, or change the prompt template in `llm_transform`, all from the workflow editor UI.
+
+**Fetch skills** (`web_fetch`, `web_search_fetch`, `rss_fetch`) declare `external: true` and use no LLM tokens. Their output is auto-sanitized by the executor's content sanitizer before passing to downstream LLM steps.
+
+**`llm_score`** takes a list of items (typically from `rss_fetch`) and scores them for relevance in a single batched LLM call (tier: light). Items above the configurable threshold pass through; the rest are filtered out. Returns `on_items` or `on_empty` for conditional routing.
+
+The deprecated skills remain functional but will be removed in v0.4.0.
+
+### HexDocs Scraper Skills
+
+Two dynamic skills for indexing Elixir documentation into the knowledge base:
+
+**`hexdocs_scraper`** — Scrapes module API documentation from hexdocs.pm. Discovers modules via `sidebar_items.js`, extracts moduledoc and function detail sections, chunks by paragraph/sentence boundaries (max 3000 chars), and stores as knowledge entries with kind `"hexdocs"`. Ships with 28 default packages (Phoenix, Ecto, Plug, etc.). Supports force re-scrape mode. Max 3 concurrent module fetches.
+
+**`hexdocs_guides_scraper`** — Complements the API scraper by indexing guide and extra pages (README, getting started, deployment, mix tasks). Stores as kind `"hexdocs_guide"`. Filters out api-reference, changelog, and license pages. Ships with 5 default packages.
+
+Both declare permissions `[:web_read, :knowledge_read, :knowledge_write]` and `external: true`. Both check for existing entries by `source_url` to avoid duplicate scraping. Together they provide ~7200 embeddings across the knowledge base for RAG context in skill generation (Coder/Forge) and research queries.
 
 ---
 
@@ -524,6 +556,7 @@ Phoenix LiveView admin UI. Session-based authentication — all routes except `/
 |---|---|---|
 | Dashboard | `/` | System uptime, memory, LLM usage, Google status, recent activity |
 | Chat | `/chat` | Interactive conversation with semantic memory search — pick any LLM provider |
+| Forge | `/forge` | Interactive skill generation — describe a goal, generate/compile/hot-load via local LLM (pre-alpha) |
 | Workflows | `/workflows` | Create/edit/run pipelines, step editor, resource assignment |
 | Workflow Runs | `/workflows/:id/runs` | Run history with step-level results and output |
 | Skills | `/skills` | Dynamic list from SkillRegistry with descriptions |
@@ -591,10 +624,14 @@ lib/
       google_tasks.ex          # Google Tasks list/create
       helpers.ex               # Shared utilities (parse_int, sanitize_utf8, etc.)
       research.ex              # Deep research with memory context
-      rss_collector.ex         # RSS fetch, score, notify
+      rss_collector.ex         # RSS fetch, score, notify (deprecated — use rss_fetch → llm_score)
+      rss_fetch.ex             # Pure RSS fetch, dedup, filter (no LLM)
+      web_fetch.ex             # Pure URL fetch, extract text (no LLM)
+      web_search_fetch.ex      # Pure DuckDuckGo search + fetch (no LLM)
+      llm_score.ex             # Batch-score items for relevance via single LLM call
       telegram_notify.ex       # Telegram delivery (markdown → HTML)
       web_automation.ex        # Browser recording and replay
-      web_browse.ex            # URL fetch and summarize
+      web_browse.ex            # URL fetch and summarize (deprecated — use web_fetch → llm_transform)
       coder.ex                 # Autonomous skill generation via local LLM
       shell.ex                 # Whitelisted OS command execution (5-layer security)
       skill_api.ex             # Permission-gated API for all skill side effects
@@ -603,7 +640,7 @@ lib/
       executor.ex              # Runs workflow steps sequentially
       llm_transform.ex         # Prompt template skill for workflows
       scheduler_sync.ex        # Syncs DB schedules → Quantum jobs
-      skill_registry.ex        # Maps skill names → modules (15 skills)
+      skill_registry.ex        # Maps skill names → modules (19 core skills)
       registry.ex              # Live run tracking (GenServer + ETS)
       workflow.ex              # Workflow Ecto schema
       workflow_resource.ex     # Join schema (workflow ↔ resource)

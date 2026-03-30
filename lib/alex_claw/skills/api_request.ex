@@ -3,6 +3,12 @@ defmodule AlexClaw.Skills.ApiRequest do
   Generic REST API skill. Makes HTTP requests to external endpoints.
   Configurable via step config: method, url, headers, body.
   Supports {input} placeholder interpolation in url and body.
+
+  When an API resource is assigned to the workflow, the skill resolves
+  URL and auth from the resource's discovery metadata. Config `{base_url}`
+  placeholders are replaced with the resource's base URL + base path.
+  A `"path"` key in config constructs the full URL from the resource.
+  Auth headers from `metadata["auth"]` are merged into the request.
   """
   @behaviour AlexClaw.Skill
   @impl true

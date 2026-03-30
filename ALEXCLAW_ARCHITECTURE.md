@@ -357,7 +357,7 @@ Skills that fetch data from external sources declare `def external, do: true`. T
 | `telegram_notify` | `TelegramNotify` | — | Send workflow output to Telegram (markdown → HTML) |
 | `discord_notify` | `DiscordNotify` | — | Send workflow output to a Discord channel (configurable `channel_id` per step) |
 | `llm_transform` | `LLMTransform` | configurable | Run a prompt template through the LLM |
-| `api_request` | `ApiRequest` | — | Make an authenticated HTTP request with retries |
+| `api_request` | `ApiRequest` | — | REST client with API resource discovery — resolves URL/auth from assigned resources, supports `{base_url}` interpolation. Routes: `on_2xx`, `on_4xx`, `on_5xx`, `on_timeout`, `on_error` |
 | `github_security_review` | `GitHubSecurityReview` | medium | Fetch PR/commit diff, run LLM security analysis |
 | `google_calendar` | `GoogleCalendar` | — | Fetch upcoming events from Google Calendar |
 | `google_tasks` | `GoogleTasks` | — | List and create Google Tasks |
@@ -502,10 +502,26 @@ Shared data objects that workflows can reference. Stored in PostgreSQL.
 | `rss_feed` | RSS feed URL with name and enabled flag |
 | `website` | URL for web browsing/scraping |
 | `document` | Inline text content |
-| `api` | API endpoint with auth metadata |
+| `api` | API endpoint with auth metadata. Auto-probed on save — OpenAPI/Swagger spec discovery stores endpoints, auth schemes, and base path in metadata |
 | `automation` | Recorded browser automation with step metadata |
 
 Resources can be assigned to workflows. Skills access them via `args[:resources]` in `run/1`. The feeds management page is a convenience wrapper around resources filtered by type `rss_feed`.
+
+### API Discovery — `AlexClaw.Resources.ApiDiscovery`
+
+When an API resource is created or updated, a background task probes the URL and attempts to discover an OpenAPI/Swagger spec.
+
+**Probe:** HEAD request (fallback to GET) with 10s timeout. Stores HTTP status, content-type, and server header in `metadata["discovery"]["probe"]`.
+
+**OpenAPI discovery:** Scans common spec paths (`/openapi.json`, `/swagger.json`, `/api-docs`, `/v3/api-docs`, `/swagger/v1/swagger.json`) relative to both the full URL and the base host. First JSON response containing an `"openapi"` or `"swagger"` key is parsed.
+
+**Spec parsing:** Extracts title, version, base path (`servers[0].url` for OAS3, `basePath` for Swagger 2), auth scheme names, and up to 100 endpoints (method, path, summary). Results stored in `metadata["discovery"]["openapi"]`.
+
+**Async execution:** Runs under `AlexClaw.TaskSupervisor`. Broadcasts `{:discovery_updated, resource_id, status}` on PubSub topic `"resources:discovery"`. The Resources LiveView subscribes and reloads on receipt.
+
+**Resource consumption:** The `api_request` skill reads assigned API resources at runtime. If the step config contains a `{base_url}` placeholder, it's replaced with the resource's discovered base URL + base path. If config has a `"path"` key instead of `"url"`, the full URL is constructed from the resource. Auth headers from resource metadata are merged into the request.
+
+**Workflow step editor integration:** When adding an `api_request` step to a workflow with assigned API resources, a dropdown lists all discovered endpoints. Selecting an endpoint pre-fills the step config JSON with method, URL, and empty headers/body.
 
 ---
 
@@ -611,11 +627,12 @@ lib/
       entry.ex                 # Memory entry Ecto schema (pgvector)
     resources/
       resource.ex              # Resource Ecto schema
+      api_discovery.ex         # Async API probe + OpenAPI spec discovery
       migrator.ex              # Resource migration utilities
     skills/
       circuit_breaker.ex       # Per-skill OTP circuit breaker (GenServer + ETS)
       circuit_breaker_supervisor.ex  # DynamicSupervisor + PubSub lifecycle
-      api_request.ex           # HTTP requests with retries
+      api_request.ex           # REST client with API resource discovery and URL resolution
       conversational.ex        # Free-text LLM conversation
       db_backup.ex             # PostgreSQL backup with gzip + rotation to host mount
       discord_notify.ex        # Discord channel delivery (workflow step)

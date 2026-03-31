@@ -8,6 +8,7 @@
     <h1 class="text-2xl font-bold text-white">🦇 AlexClaw</h1>
     <div class="flex items-center gap-3">
       <span class="text-sm text-gray-500 font-mono">v{@version}</span>
+      <span class="text-xs text-gray-500 font-mono border border-gray-700 rounded px-2 py-0.5">{@node_name}</span>
       <span :if={@update_status && @update_status.update_available}
         class="text-xs px-2 py-0.5 rounded bg-yellow-900 text-yellow-300">
         v{@update_status.latest} available
@@ -19,12 +20,11 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
     <.stat_card title="Uptime" value={@uptime} />
     <.stat_card title="Memory" value={"#{@memory_mb} MB"} />
     <.stat_card title="Active Skills" value={@skills_active} />
     <.stat_card title="Total Workers" value={@skills_total} />
-    <.stat_card title="Google" value={google_label(@google_status)} />
   </div>
 
   <div class="grid grid-cols-1 md:grid-cols-2 gap-8">

@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.3.20 — Services Page (2026-03-31)
+
+- **Services page** — new `/services` admin page showing external service status with real connectivity checks
+  - **Database** — verifies PostgreSQL connectivity via `SELECT 1`
+  - **Google API** — checks OAuth2 token status (connected/expired/not configured)
+  - **Telegram Bot** — sends a real test message to the configured chat
+  - **Discord Bot** — sends a real test message to the configured channel
+  - **2FA (TOTP)** — triggers a challenge via Telegram, auto-updates via PubSub on code verification
+  - **Ollama** — queries `/api/tags`, reports loaded models
+  - **LM Studio** — queries `/v1/models`, reports loaded models
+  - **GitHub API** — authenticates with stored PAT, reports username
+  - **Web Automator** — checks `/status` on the browser sidecar
+- **Config seeder fix** — env-backed settings no longer overwrite DB values on boot; Config page is now the sole source of truth after first seed
+- **Dashboard cleanup** — removed Google status card from dashboard (moved to Services), node name moved to dashboard header next to version
+- **Nav bar** — added Services menu item, reduced spacing between AlexClaw title and menu links
+
 ## v0.3.18 — Forge & Knowledge Pipeline (2026-03-29)
 
 - **Forge page** (pre-alpha) — interactive skill generation with two-column UI (chat + code output), auto-iterate with configurable retries, real-time status, structural validation for external skills

@@ -237,9 +237,6 @@ defmodule AlexClaw.Config.Seeder do
         is_nil(existing) ->
           Config.set(key, value, opts)
 
-        is_function(value_or_fn, 1) and value != "" and to_string(existing) != value ->
-          Config.set(key, value, opts)
-
         true ->
           # Ensure sensitive flag is set even for existing settings
           if sensitive do

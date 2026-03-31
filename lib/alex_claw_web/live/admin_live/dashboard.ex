@@ -27,13 +27,13 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
     assign(socket,
       page_title: "Dashboard",
       version: to_string(Application.spec(:alex_claw, :vsn)),
+      node_name: node(),
       uptime: format_uptime(:erlang.statistics(:wall_clock) |> elem(0) |> div(1000)),
       memory_mb: div(memory_bytes, 1_048_576),
       skills_active: skill_children.active,
       skills_total: skill_children.workers,
       update_status: AlexClaw.UpdateChecker.status(),
       llm_usage: get_llm_usage(),
-      google_status: AlexClaw.Google.TokenManager.status(),
       recent_memories: AlexClaw.Memory.recent(limit: 20),
       cluster_warnings: cluster_warnings()
     )
@@ -58,10 +58,6 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
     |> Enum.join(" ")
   end
 
-  defp google_label(:connected), do: "Connected"
-  defp google_label(:expired), do: "Token expired"
-  defp google_label(:not_configured), do: "Not configured"
-  defp google_label(_), do: "Error"
 
   defp cluster_warnings do
     if Node.list() == [] do

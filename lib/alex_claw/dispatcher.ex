@@ -551,6 +551,7 @@ defmodule AlexClaw.Dispatcher do
       case AlexClaw.Auth.TOTP.resolve_challenge(msg.chat_id, trimmed) do
         {:ok, action} ->
           Gateway.send_message("Code verified. Executing...", chat_id: msg.chat_id, gateway: msg.gateway)
+          Phoenix.PubSub.broadcast(AlexClaw.PubSub, "services:totp", {:totp_verified, action})
           AuthCommands.execute_2fa_action(action, msg)
 
         {:error, :invalid_code} ->

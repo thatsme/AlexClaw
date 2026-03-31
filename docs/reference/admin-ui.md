@@ -19,6 +19,7 @@ Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `
 | Policies | `/policies` | Policy rules, audit log viewer |
 | Logs | `/logs` | Real-time log viewer with severity filters |
 | Chat | `/chat` | Direct conversation with LLM (web-based) |
+| Services | `/services` | External service status, real connectivity checks (DB, Google, Telegram, Discord, 2FA, Ollama, LM Studio, GitHub, Web Automator) |
 | Nodes | `/nodes` | Cluster node status, connectivity |
 
 ## Key Features

@@ -51,6 +51,7 @@ defmodule AlexClawWeb.Router do
     live("/workflows", AdminLive.Workflows)
     live("/workflows/:id/runs", AdminLive.WorkflowRuns)
     live("/database", AdminLive.Database)
+    live("/services", AdminLive.Services)
     live("/config", AdminLive.Config)
     live("/memory", AdminLive.Memory)
     live("/logs", AdminLive.Logs)

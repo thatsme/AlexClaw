@@ -1,0 +1,36 @@
+<div class="space-y-8">
+  <div class="flex justify-between items-center">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Services</h1>
+      <p class="text-xs text-gray-500 mt-1">{length(@services)} services</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div :for={svc <- @services} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
+      <div class="flex justify-between items-start mb-3">
+        <h3 class="text-lg font-semibold text-white">{svc.icon} {svc.name}</h3>
+        <span class={[
+          "px-2 py-0.5 text-xs font-mono rounded-full",
+          status_classes(svc.status)
+        ]}>
+          {status_label(svc.status)}
+        </span>
+      </div>
+
+      <p :if={svc.detail} class="text-sm text-gray-400 mb-4">{svc.detail}</p>
+      <p :if={!svc.detail} class="text-sm text-gray-500 mb-4">Press Check to test connectivity.</p>
+
+      <div class="flex justify-end gap-2">
+        <a href={svc.config_url}
+          class="px-2 py-1 text-xs rounded transition text-gray-400 hover:text-claw-400 bg-gray-800 hover:bg-gray-700">
+          Config
+        </a>
+        <button phx-click="check" phx-value-service={svc.id}
+          class="px-2 py-1 text-xs rounded transition text-gray-400 hover:text-claw-400 bg-gray-800 hover:bg-gray-700">
+          Check
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

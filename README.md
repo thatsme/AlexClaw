@@ -301,6 +301,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | Resources | Shared resources for workflows (RSS feeds, websites, APIs, automations) |
 | Memory | Browse and search stored knowledge |
 | Database | Schema browser and backup download |
+| Services | External service status — real connectivity checks for DB, Google, Telegram, Discord, 2FA, Ollama, LM Studio, GitHub, Web Automator |
 | Config | Runtime configuration editor |
 | Logs | Real-time log viewer with severity filtering |
 | Policies | Authorization policy rules, audit log viewer |
@@ -328,7 +329,7 @@ lib/
     scheduler.ex     # Quantum cron scheduler
   alex_claw_web/
     controllers/     # Auth, database backup, GitHub webhook
-    live/admin_live/ # LiveView admin pages (12 pages including Chat)
+    live/admin_live/ # LiveView admin pages (13 pages including Chat)
     plugs/           # RequireAuth, RateLimit, RawBodyReader
 priv/repo/
   migrations/        # All DB migrations

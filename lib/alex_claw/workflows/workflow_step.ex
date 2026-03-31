@@ -27,7 +27,15 @@ defmodule AlexClaw.Workflows.WorkflowStep do
     step
     |> cast(attrs, [:workflow_id, :position, :name, :skill, :llm_tier, :llm_model, :prompt_template, :config, :input_from, :routes])
     |> validate_required([:position, :name, :skill])
-    |> validate_inclusion(:llm_tier, @allowed_tiers, message: "must be one of: #{Enum.join(@allowed_tiers, ", ")}")
+    |> validate_tier()
     |> foreign_key_constraint(:workflow_id)
+  end
+
+  defp validate_tier(changeset) do
+    case get_change(changeset, :llm_tier) do
+      nil -> changeset
+      value when value in @allowed_tiers -> changeset
+      _ -> add_error(changeset, :llm_tier, "must be one of: #{Enum.join(@allowed_tiers, ", ")}")
+    end
   end
 end

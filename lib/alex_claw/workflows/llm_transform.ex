@@ -4,7 +4,7 @@ defmodule AlexClaw.Workflows.LLMTransform do
   Handles template interpolation, provider selection, and tier routing.
 
   Accepts `prompt_template` from workflow step args or `prompt` from direct calls.
-  Template placeholders: {input}, {context}, {resources}
+  Template placeholders: {input}, {resources}
   """
   @behaviour AlexClaw.Skill
   @impl true
@@ -19,53 +19,34 @@ defmodule AlexClaw.Workflows.LLMTransform do
 
   @impl true
   @spec step_fields() :: [atom()]
-  def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
-
-  @impl true
-  @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"context": "extra context for {context} placeholder"}|
-
-  @impl true
-  @spec config_scaffold() :: map()
-  def config_scaffold, do: %{"context" => "", "prompt" => ""}
-
-  @impl true
-  @spec config_presets() :: %{String.t() => map()}
-  def config_presets do
-    %{
-      "Summarize" => %{"context" => "You are a concise summarizer."},
-      "Translate" => %{"context" => "You are a translator."},
-      "Classify" => %{"context" => "You are a content classifier."},
-      "Extract" => %{"context" => "You extract structured data from text."}
-    }
-  end
+  def step_fields, do: [:llm_tier, :llm_model, :prompt_template]
 
   @impl true
   @spec prompt_presets() :: %{String.t() => String.t()}
   def prompt_presets do
     %{
       "Summarize" => "Summarize the following content concisely. Focus on key facts and main points.\n\n{input}",
+      "Bullet Points" => "Convert the following content into a clear bullet-point list. Group related items.\n\n{input}",
+      "Security Review" => "You are a security-focused code reviewer. Analyse the following GitHub diff for security issues.\n\nFocus on: injection vulnerabilities, authentication bypass, secrets/credentials in code, insecure dependencies, path traversal, XSS, CSRF, SQL injection, hardcoded credentials, unsafe deserialization, missing input validation, privilege escalation.\n\n{input}\n\nReply in this exact format:\n\nRISK LEVEL: [CRITICAL|HIGH|MEDIUM|LOW|NONE]\n\nFINDINGS:\nList each finding as: [SEVERITY] Description — File:Line (if identifiable)\nIf no issues found, write: No security issues identified.\n\nSUMMARY:\n2-3 sentences on the overall security posture of this change.\n\nRECOMMENDATION:\nAPPROVE / REQUEST CHANGES / NEEDS FURTHER REVIEW — with one-line justification.",
+      "Code Review" => "Review the following code changes. Focus on correctness, readability, and potential bugs. Ignore style.\n\n{input}\n\nFor each issue found:\n- File and line if identifiable\n- What the problem is\n- Suggested fix\n\nIf the code looks good, say so briefly.",
       "Translate" => "Translate the following text to English. Preserve the original meaning and tone.\n\n{input}",
       "Classify" => "Classify the following content into one of these categories: [positive, negative, neutral].\nReturn only the category label.\n\n{input}",
-      "Extract" => "Extract structured data from the following text. Return as JSON with relevant fields.\n\n{input}",
-      "Q&A" => "Answer the following question based on the context provided.\n\nContext:\n{input}\n\nQuestion: {context}",
-      "Rewrite" => "Rewrite the following content in a {context} tone. Keep the same facts.\n\n{input}",
-      "Filter" => "Review the following content. If it contains relevant information about {context}, output it. Otherwise output SKIP.\n\n{input}"
+      "Extract JSON" => "Extract structured data from the following text. Return as JSON with relevant fields.\n\n{input}",
+      "Changelog" => "Generate a changelog entry from the following diff or commit information. Group changes by type (added, changed, fixed, removed). Be concise.\n\n{input}",
+      "Explain" => "Explain the following content in simple terms. Assume the reader has basic technical knowledge but is not an expert in this specific area.\n\n{input}",
+      "Filter" => "Review the following content. If it contains relevant information, output it. Otherwise output SKIP.\n\n{input}",
+      "Action Items" => "Extract actionable items from the following content. For each item, state: what needs to be done, who should do it (if mentioned), and priority (high/medium/low).\n\n{input}"
     }
   end
 
   @impl true
-  @spec config_help() :: String.t()
-  def config_help, do: "context: extra text available as {context} in the prompt template. Usually empty — most config goes in the prompt."
-
-  @impl true
   @spec prompt_help() :: String.t()
-  def prompt_help, do: "Template sent to the LLM. Use {input} for previous step output, {context} for config context."
+  def prompt_help, do: "Template sent to the LLM. Use {input} for previous step output, {resources} for assigned resources."
 
   @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
-    template = args[:prompt_template] || args[:prompt] || args[:config]["prompt"] || ""
+    template = args[:prompt_template] || args[:prompt] || ""
 
     if template == "" do
       {:ok, to_string_safe(args[:input]) || "", :on_success}
@@ -87,11 +68,8 @@ defmodule AlexClaw.Workflows.LLMTransform do
   end
 
   defp interpolate_template(template, args) do
-    config = args[:config] || %{}
-
     template
     |> String.replace("{input}", to_string_safe(args[:input]))
-    |> String.replace("{context}", to_string_safe(config["context"]))
     |> String.replace("{resources}", format_resources(args[:resources]))
   end
 

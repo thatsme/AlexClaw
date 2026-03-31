@@ -1,50 +1,69 @@
 defmodule AlexClaw.Skills.GitHubSecurityReview do
   @moduledoc """
-  GitHub security review skill.
+  GitHub diff fetcher skill.
 
-  Fetches a PR diff or commit diff from GitHub, runs LLM-based security
-  analysis, stores findings in Memory, and delivers a Telegram notification.
+  Fetches PR diffs, commit diffs, or latest push diffs from GitHub and
+  returns formatted output. Does NOT call an LLM — add an llm_transform
+  step after this one in your workflow for analysis.
 
-  Invocation modes:
-  1. Workflow step (run/1) — config keys: repo, token, pr_number, commit_sha, focus
-  2. Webhook-driven (review_pr/2, review_commit/2) — called by webhook controller
-
-  Per-step config overrides global settings, so different workflows can
-  target different repos with different tokens.
+  Modes (set via config "mode"):
+  - "latest_pr"       — fetch diff of the most recent open PR (default)
+  - "all_prs"         — fetch diffs of all open PRs
+  - "latest_push"     — compare the last two commits on the default branch
+  - "specific_pr"     — fetch diff of a specific PR by number
+  - "specific_commit" — fetch diff of a specific commit by SHA
   """
   @behaviour AlexClaw.Skill
+
   @impl true
   @spec external() :: boolean()
   def external, do: true
+
   @impl true
   @spec description() :: String.t()
-  def description, do: "Fetches PR/commit diffs from GitHub, runs LLM security analysis, notifies via Telegram"
+  def description, do: "Fetches PR/commit diffs from GitHub — pair with llm_transform for analysis"
 
   @impl true
   @spec routes() :: [atom()]
-  def routes, do: [:on_clean, :on_findings, :on_error]
+  def routes, do: [:on_diff, :on_empty, :on_error]
+
   require Logger
 
-  alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
+  alias AlexClaw.Config
 
   @max_diff_bytes 24_000
   @github_api "https://api.github.com"
 
   @impl true
   @spec step_fields() :: [atom()]
-  def step_fields, do: [:llm_tier, :llm_model, :config]
+  def step_fields, do: [:config]
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"repo": "owner/repo", "pr": 42}|
+  def config_hint, do: ~s|{"mode": "latest_pr", "repo": "owner/repo"}|
 
   @impl true
   @spec config_scaffold() :: map()
-  def config_scaffold, do: %{"repo" => "", "pr" => nil}
+  def config_scaffold, do: %{"mode" => "latest_pr", "repo" => ""}
+
+  @impl true
+  @spec config_presets() :: %{String.t() => map()}
+  def config_presets do
+    %{
+      "Latest PR" => %{"mode" => "latest_pr", "repo" => ""},
+      "All open PRs" => %{"mode" => "all_prs", "repo" => ""},
+      "Latest push" => %{"mode" => "latest_push", "repo" => ""},
+      "Specific PR" => %{"mode" => "specific_pr", "repo" => "", "pr_number" => ""},
+      "Specific commit" => %{"mode" => "specific_commit", "repo" => "", "commit_sha" => ""}
+    }
+  end
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "repo: owner/repo format. pr: PR number. Or commit_sha for commit review."
+  def config_help do
+    "mode: latest_pr | all_prs | latest_push | specific_pr | specific_commit. " <>
+      "repo: owner/repo format. pr_number: for specific_pr. commit_sha: for specific_commit."
+  end
 
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
@@ -55,23 +74,29 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
     if repo == "" do
       {:error, :no_repo_configured}
     else
-      llm_opts = build_llm_opts(args)
-      token = config["token"] || Config.get("github.token", "")
-      focus = config["focus"] || Config.get("github.security_focus", default_focus())
+      token = Config.get("github.token", "")
+      mode = config["mode"] || "latest_pr"
 
-      cond do
-        config["commit_sha"] && config["commit_sha"] != "" ->
-          analyse_commit(repo, config["commit_sha"], focus, llm_opts, token)
+      case mode do
+        "latest_pr" ->
+          fetch_latest_pr(repo, token)
 
-        config["pr_number"] && config["pr_number"] != "" ->
-          analyse_pr(repo, parse_int(config["pr_number"]), focus, llm_opts, token)
+        "all_prs" ->
+          fetch_all_prs(repo, token)
 
-        true ->
-          case latest_open_pr(repo, token) do
-            {:ok, pr_number} -> analyse_pr(repo, pr_number, focus, llm_opts, token)
-            {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}.", :on_clean}
-            {:error, reason} -> {:error, reason}
-          end
+        "latest_push" ->
+          fetch_latest_push(repo, token)
+
+        "specific_pr" ->
+          pr = parse_int(config["pr_number"])
+          if pr, do: fetch_pr(repo, pr, token), else: {:error, :missing_pr_number}
+
+        "specific_commit" ->
+          sha = config["commit_sha"]
+          if sha && sha != "", do: fetch_commit(repo, sha, token), else: {:error, :missing_commit_sha}
+
+        _ ->
+          {:error, {:unknown_mode, mode}}
       end
     end
   end
@@ -80,29 +105,23 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   @spec review_pr(String.t(), integer() | nil, keyword()) :: :ok
   def review_pr(repo, pr_number, opts \\ []) do
-    focus = Config.get("github.security_focus", default_focus())
     token = Config.get("github.token", "")
-    llm_opts = resolve_llm_opts()
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       result =
         if pr_number do
-          analyse_pr(repo, pr_number, focus, llm_opts, token)
+          fetch_pr(repo, pr_number, token)
         else
-          case latest_open_pr(repo, token) do
-            {:ok, number} -> analyse_pr(repo, number, focus, llm_opts, token)
-            {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}.", :on_clean}
-            {:error, reason} -> {:error, reason}
-          end
+          fetch_latest_pr(repo, token)
         end
 
       case result do
         {:ok, report, _branch} ->
-          Gateway.send_message(report, opts)
+          AlexClaw.Gateway.send_message(report, opts)
 
         {:error, reason} ->
-          Logger.warning("PR review failed: #{inspect(reason)}", skill: :github)
-          Gateway.send_message("⚠️ Security review failed for PR ##{pr_number}: #{inspect(reason)}", opts)
+          Logger.warning("PR fetch failed: #{inspect(reason)}", skill: :github)
+          AlexClaw.Gateway.send_message("⚠️ Failed to fetch PR ##{pr_number}: #{inspect(reason)}", opts)
       end
     end)
 
@@ -111,73 +130,182 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   @spec review_commit(String.t(), String.t(), keyword()) :: :ok
   def review_commit(repo, sha, opts \\ []) do
-    focus = Config.get("github.security_focus", default_focus())
     token = Config.get("github.token", "")
-    llm_opts = resolve_llm_opts()
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      case analyse_commit(repo, sha, focus, llm_opts, token) do
+      case fetch_commit(repo, sha, token) do
         {:ok, report, _branch} ->
-          Gateway.send_message(report, opts)
+          AlexClaw.Gateway.send_message(report, opts)
 
         {:error, reason} ->
-          Logger.warning("Commit review failed: #{inspect(reason)}", skill: :github)
-          Gateway.send_message("⚠️ Security review failed for `#{String.slice(sha, 0, 8)}`: #{inspect(reason)}", opts)
+          Logger.warning("Commit fetch failed: #{inspect(reason)}", skill: :github)
+          AlexClaw.Gateway.send_message("⚠️ Failed to fetch commit `#{String.slice(sha, 0, 8)}`: #{inspect(reason)}", opts)
       end
     end)
 
     :ok
   end
 
-  # --- Core analysis ---
+  # --- Mode implementations ---
 
-  defp analyse_pr(repo, pr_number, focus, llm_opts, token) do
-    Logger.info("Reviewing PR ##{pr_number} on #{repo}", skill: :github)
+  defp fetch_latest_pr(repo, token) do
+    case fetch_open_prs(repo, token, 1) do
+      {:ok, [%{"number" => number} | _]} -> fetch_pr(repo, number, token)
+      {:ok, []} -> {:ok, "No open PRs found for #{repo}.", :on_empty}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_all_prs(repo, token) do
+    case fetch_open_prs(repo, token, 30) do
+      {:ok, []} ->
+        {:ok, "No open PRs found for #{repo}.", :on_empty}
+
+      {:ok, prs} ->
+        results =
+          Enum.map(prs, fn %{"number" => number} ->
+            case fetch_pr(repo, number, token) do
+              {:ok, report, _branch} -> {:ok, number, report}
+              {:error, reason} -> {:error, number, reason}
+            end
+          end)
+
+        reports = Enum.filter(results, &match?({:ok, _, _}, &1))
+        errors = Enum.filter(results, &match?({:error, _, _}, &1))
+
+        combined =
+          Enum.map_join(reports, "\n---\n\n", fn {:ok, _number, report} -> report end)
+
+        error_note =
+          if errors != [] do
+            failed = Enum.map_join(errors, ", ", fn {:error, n, _} -> "##{n}" end)
+            "\n\n⚠️ Failed to fetch: #{failed}"
+          else
+            ""
+          end
+
+        {:ok, combined <> error_note, :on_diff}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp fetch_latest_push(repo, token) do
+    Logger.info("latest_push: fetching last 2 commits for #{repo}", skill: :github)
+
+    case fetch_recent_commits(repo, token, 2) do
+      {:ok, [latest, previous | _]} ->
+        base_sha = previous["sha"]
+        head_sha = latest["sha"]
+        fetch_compare(repo, base_sha, head_sha, token)
+
+      {:ok, [single | _]} ->
+        fetch_commit(repo, single["sha"], token)
+
+      {:ok, []} ->
+        {:ok, "No commits found for #{repo}.", :on_empty}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # --- Fetch and format ---
+
+  defp fetch_pr(repo, pr_number, token) do
+    Logger.info("Fetching PR ##{pr_number} on #{repo}", skill: :github)
 
     with {:ok, meta} <- fetch_pr_meta(repo, pr_number, token),
          {:ok, diff} <- fetch_pr_diff(repo, pr_number, token) do
-      run_analysis(:pr, repo, pr_number, meta, diff, focus, llm_opts)
+      output = format_pr(repo, pr_number, meta, truncate_diff(diff))
+      {:ok, output, :on_diff}
     end
   end
 
-  defp analyse_commit(repo, sha, focus, llm_opts, token) do
-    Logger.info("Reviewing commit #{String.slice(sha, 0, 8)} on #{repo}", skill: :github)
+  defp fetch_commit(repo, sha, token) do
+    Logger.info("Fetching commit #{String.slice(sha, 0, 8)} on #{repo}", skill: :github)
 
     with {:ok, meta} <- fetch_commit_meta(repo, sha, token),
          {:ok, diff} <- fetch_commit_diff(repo, sha, token) do
-      run_analysis(:commit, repo, sha, meta, diff, focus, llm_opts)
+      output = format_commit(repo, sha, meta, truncate_diff(diff))
+      {:ok, output, :on_diff}
     end
   end
 
-  defp run_analysis(type, repo, ref, meta, diff, focus, llm_opts) do
-    truncated_diff = truncate_diff(diff)
-    system = Identity.system_prompt(%{skill: :research})
-    prompt = build_prompt(type, repo, ref, meta, truncated_diff, focus)
+  defp fetch_compare(repo, base_sha, head_sha, token) do
+    short_base = String.slice(base_sha, 0, 8)
+    short_head = String.slice(head_sha, 0, 8)
+    Logger.info("Fetching compare #{short_base}...#{short_head} on #{repo}", skill: :github)
 
-    case LLM.complete(prompt, llm_opts ++ [tier: :medium, system: system]) do
-      {:ok, analysis} ->
-        report = format_report(type, repo, ref, meta, analysis)
+    with {:ok, compare_data} <- github_get("#{@github_api}/repos/#{repo}/compare/#{base_sha}...#{head_sha}", token),
+         {:ok, diff} <- fetch_compare_diff(repo, base_sha, head_sha, token) do
+      files = compare_data["files"] || []
 
-        Memory.store(:security_review, report,
-          source: build_source_url(type, repo, ref),
-          metadata: %{
-            type: Atom.to_string(type),
-            repo: repo,
-            ref: to_string(ref),
-            diff_bytes: byte_size(diff),
-            truncated: byte_size(diff) > @max_diff_bytes
-          }
-        )
+      meta = %{
+        message: "#{short_base}...#{short_head}",
+        author: get_in(compare_data, ["commits", Access.at(0), "commit", "author", "name"]) || "multiple",
+        url: compare_data["html_url"],
+        additions: Enum.reduce(files, 0, &(&1["additions"] + &2)),
+        deletions: Enum.reduce(files, 0, &(&1["deletions"] + &2)),
+        changed_files: length(files)
+      }
 
-        branch = if extract_risk_level(analysis) in ["NONE", "LOW"], do: :on_clean, else: :on_findings
-        {:ok, report, branch}
-
-      {:error, reason} ->
-        {:error, {:llm_failed, reason}}
+      output = format_commit(repo, "#{short_base}...#{short_head}", meta, truncate_diff(diff))
+      {:ok, output, :on_diff}
     end
+  end
+
+  # --- Formatting ---
+
+  defp format_pr(repo, pr_number, meta, diff) do
+    """
+    GitHub PR — #{repo} ##{pr_number}
+    Title: #{meta.title}
+    Author: #{meta.author} | #{meta.head} → #{meta.base}
+    Changes: +#{meta.additions}/-#{meta.deletions} across #{meta.changed_files} file(s)
+    URL: #{meta.url}
+
+    ```diff
+    #{diff}
+    ```
+    """
+  end
+
+  defp format_commit(repo, ref, meta, diff) do
+    short = String.slice(to_string(ref), 0, 20)
+    first_line = (meta.message || "") |> String.split("\n") |> hd() |> String.slice(0, 100)
+
+    """
+    GitHub Commit — #{repo} #{short}
+    Message: #{first_line}
+    Author: #{meta.author}
+    Changes: +#{meta.additions}/-#{meta.deletions} across #{meta.changed_files} file(s)
+    URL: #{meta[:url]}
+
+    ```diff
+    #{diff}
+    ```
+    """
   end
 
   # --- GitHub API ---
+
+  defp fetch_open_prs(repo, token, per_page) do
+    github_get("#{@github_api}/repos/#{repo}/pulls?state=open&sort=created&direction=desc&per_page=#{per_page}", token)
+  end
+
+  defp fetch_recent_commits(repo, token, per_page) do
+    github_get("#{@github_api}/repos/#{repo}/commits?per_page=#{per_page}", token)
+  end
+
+  defp fetch_compare_diff(repo, base, head, token) do
+    github_get_raw(
+      "#{@github_api}/repos/#{repo}/compare/#{base}...#{head}",
+      [{"accept", "application/vnd.github.v3.diff"}],
+      token
+    )
+  end
 
   defp fetch_pr_meta(repo, pr_number, token) do
     case github_get("#{@github_api}/repos/#{repo}/pulls/#{pr_number}", token) do
@@ -231,24 +359,22 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
     )
   end
 
-  defp latest_open_pr(repo, token) do
-    url = "#{@github_api}/repos/#{repo}/pulls?state=open&sort=created&direction=desc&per_page=1"
-
-    case github_get(url, token) do
-      {:ok, [%{"number" => number} | _]} -> {:ok, number}
-      {:ok, []} -> {:error, :no_open_prs}
-      error -> error
-    end
-  end
-
   defp github_get(url, token) do
     case Req.get(url, headers: github_headers(token), receive_timeout: 15_000) do
-      {:ok, %{status: 200, body: body}} -> {:ok, body}
-      {:ok, %{status: 404}} -> {:error, :not_found}
-      {:ok, %{status: 401}} -> {:error, :unauthorized}
-      {:ok, %{status: 403}} -> {:error, :forbidden}
-      {:ok, %{status: status, body: body}} -> {:error, {:github_api, status, body}}
-      {:error, reason} -> {:error, {:http, reason}}
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.warning("GitHub API #{status} for #{url}: #{inspect(body)}", skill: :github)
+        case status do
+          404 -> {:error, :not_found}
+          401 -> {:error, :unauthorized}
+          403 -> {:error, :forbidden}
+          _ -> {:error, {:github_api, status, body}}
+        end
+
+      {:error, reason} ->
+        {:error, {:http, reason}}
     end
   end
 
@@ -270,119 +396,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
     if token != "", do: [{"authorization", "Bearer #{token}"} | base], else: base
   end
 
-  # --- Prompts ---
-
-  defp build_prompt(:pr, repo, pr_number, meta, diff, focus) do
-    """
-    You are a security-focused code reviewer. Analyse this GitHub pull request diff for security issues.
-
-    Repository: #{repo}
-    PR ##{pr_number}: #{meta.title}
-    Author: #{meta.author} | Merging: #{meta.head} → #{meta.base}
-    Changes: +#{meta.additions}/-#{meta.deletions} across #{meta.changed_files} file(s)
-
-    Security focus areas: #{focus}
-
-    Diff:
-    ```diff
-    #{diff}
-    ```
-
-    Reply in this exact format:
-
-    RISK LEVEL: [CRITICAL|HIGH|MEDIUM|LOW|NONE]
-
-    FINDINGS:
-    List each finding as: [SEVERITY] Description — File:Line (if identifiable)
-    If no issues found, write: No security issues identified.
-
-    SUMMARY:
-    2-3 sentences on the overall security posture of this change.
-
-    RECOMMENDATION:
-    APPROVE / REQUEST CHANGES / NEEDS FURTHER REVIEW — with one-line justification.
-    """
-  end
-
-  defp build_prompt(:commit, repo, sha, meta, diff, focus) do
-    """
-    You are a security-focused code reviewer. Analyse this GitHub commit diff for security issues.
-
-    Repository: #{repo}
-    Commit: #{String.slice(to_string(sha), 0, 8)}
-    Author: #{meta.author}
-    Message: #{meta.message}
-    Changes: +#{meta.additions}/-#{meta.deletions} across #{meta.changed_files} file(s)
-
-    Security focus areas: #{focus}
-
-    Diff:
-    ```diff
-    #{diff}
-    ```
-
-    Reply in this exact format:
-
-    RISK LEVEL: [CRITICAL|HIGH|MEDIUM|LOW|NONE]
-
-    FINDINGS:
-    List each finding as: [SEVERITY] Description — File:Line (if identifiable)
-    If no issues found, write: No security issues identified.
-
-    SUMMARY:
-    2-3 sentences on the overall security posture of this change.
-
-    RECOMMENDATION:
-    APPROVE / FLAG FOR REVIEW / REVERT — with one-line justification.
-    """
-  end
-
-  # --- Formatting ---
-
-  defp format_report(:pr, repo, ref, meta, analysis) do
-    emoji = risk_emoji(extract_risk_level(analysis))
-
-    """
-    #{emoji} *GitHub PR Review* — #{escape_md(repo)} \##{ref}
-    *#{escape_md(meta.title)}*
-    Author: #{meta.author} | +#{meta.additions}/-#{meta.deletions} | #{meta.changed_files} files
-    #{meta.url}
-
-    #{analysis}
-    """
-  end
-
-  defp format_report(:commit, repo, ref, meta, analysis) do
-    short = String.slice(to_string(ref), 0, 8)
-    emoji = risk_emoji(extract_risk_level(analysis))
-    first_line = meta.message |> String.split("\n") |> hd() |> String.slice(0, 100)
-
-    """
-    #{emoji} *GitHub Commit Review* — #{escape_md(repo)} `#{short}`
-    #{escape_md(first_line)}
-    Author: #{meta.author} | +#{meta.additions}/-#{meta.deletions}
-    #{meta.url}
-
-    #{analysis}
-    """
-  end
-
-  defp extract_risk_level(text) do
-    case Regex.run(~r/RISK LEVEL:\s*(CRITICAL|HIGH|MEDIUM|LOW|NONE)/i, text) do
-      [_, level] -> String.upcase(level)
-      _ -> "UNKNOWN"
-    end
-  end
-
-  defp risk_emoji("CRITICAL"), do: "🚨"
-  defp risk_emoji("HIGH"), do: "🔴"
-  defp risk_emoji("MEDIUM"), do: "🟡"
-  defp risk_emoji("LOW"), do: "🟢"
-  defp risk_emoji("NONE"), do: "✅"
-  defp risk_emoji(_), do: "🔍"
-
-  defp build_source_url(:pr, repo, ref), do: "https://github.com/#{repo}/pull/#{ref}"
-  defp build_source_url(:commit, repo, ref), do: "https://github.com/#{repo}/commit/#{ref}"
+  # --- Helpers ---
 
   defp truncate_diff(diff) when byte_size(diff) > @max_diff_bytes do
     binary_part(diff, 0, @max_diff_bytes)
@@ -393,38 +407,6 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   end
 
   defp truncate_diff(diff), do: diff
-
-  defp default_focus do
-    "injection vulnerabilities, authentication bypass, secrets/credentials in code, " <>
-      "insecure dependencies, path traversal, XSS, CSRF, SQL injection, " <>
-      "hardcoded credentials, unsafe deserialization, missing input validation, privilege escalation"
-  end
-
-  defp build_llm_opts(args) do
-    opts =
-      case args[:llm_provider] do
-        p when p in [nil, "", "auto"] -> []
-        provider -> [provider: provider]
-      end
-
-    case args[:llm_tier] do
-      nil -> opts
-      tier when is_atom(tier) -> [{:tier, tier} | opts]
-      tier when is_binary(tier) -> [{:tier, String.to_existing_atom(tier)} | opts]
-    end
-  end
-
-  defp resolve_llm_opts do
-    tier = String.to_existing_atom(Config.get("skill.github_review.tier") || "medium")
-    provider = case Config.get("skill.github_review.provider") do
-      p when p in [nil, "", "auto"] -> nil
-      p -> p
-    end
-    [tier: tier] ++ if(provider, do: [provider: provider], else: [])
-  end
-
-  defp escape_md(nil), do: ""
-  defp escape_md(text), do: String.replace(text, ~r/[*_`\[\]]/, "")
 
   defp parse_int(v) when is_integer(v), do: v
 

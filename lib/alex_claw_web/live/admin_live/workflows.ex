@@ -116,16 +116,16 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       end
 
     case result do
-      {:ok, _workflow} ->
+      {:ok, saved} ->
         Workflows.SchedulerSync.sync()
+        workflow = Workflows.get_workflow!(saved.id)
 
         {:noreply,
          socket
          |> put_flash(:info, "Workflow saved")
          |> assign(
            workflows: Workflows.list_workflows(),
-           show_form: false,
-           editing: nil
+           editing: workflow
          )}
 
       {:error, changeset} ->
@@ -279,28 +279,35 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("save_step", params, socket) do
-    step = socket.assigns.editing_step
-
+    step = AlexClaw.Repo.get!(AlexClaw.Workflows.WorkflowStep, socket.assigns.editing_step.id)
     case parse_config_json(params["step_config"]) do
       {:ok, config} ->
         config = merge_resilience_config(config, params)
         routes = parse_routes_from_params(params, params["step_skill"] || step.skill)
 
-        attrs = %{
-          name: params["step_name"],
-          skill: params["step_skill"],
-          llm_tier: blank_to_nil(params["step_llm_tier"]),
-          llm_model: blank_to_nil(params["step_llm_model"]),
-          prompt_template: blank_to_nil(params["step_prompt_template"]),
-          config: config,
-          input_from: parse_input_from(params["step_input_from"]),
-          routes: routes
-        }
+        skill = params["step_skill"] || step.skill
+
+        attrs =
+          %{
+            name: params["step_name"],
+            skill: skill,
+            config: config,
+            input_from: parse_input_from(params["step_input_from"]),
+            routes: routes
+          }
+          |> maybe_put(:llm_tier, blank_to_nil(params["step_llm_tier"]))
+          |> maybe_put(:llm_model, blank_to_nil(params["step_llm_model"]))
+          |> maybe_put(:prompt_template, blank_to_nil(params["step_prompt_template"]))
 
         case Workflows.update_step(step, attrs) do
-          {:ok, _step} ->
+          {:ok, updated_step} ->
             workflow = Workflows.get_workflow!(socket.assigns.editing.id)
-            {:noreply, assign(socket, editing: workflow, editing_step: nil)}
+            fresh_step = Enum.find(workflow.steps, &(&1.id == updated_step.id))
+
+            {:noreply,
+             socket
+             |> put_flash(:info, "Step saved")
+             |> assign(editing: workflow, editing_step: fresh_step)}
 
           {:error, changeset} ->
             {:noreply, put_flash(socket, :error, "Step error: #{inspect(changeset.errors)}")}
@@ -629,6 +636,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(val), do: val
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp parse_input_from(nil), do: nil
   defp parse_input_from(""), do: nil

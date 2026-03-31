@@ -1,5 +1,6 @@
 defmodule AlexClaw.GatewayTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Gateway
 

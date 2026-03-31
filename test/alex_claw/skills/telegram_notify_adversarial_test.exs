@@ -1,5 +1,7 @@
 defmodule AlexClaw.Skills.TelegramNotifyAdversarialTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
+  @moduletag :adversarial
 
   alias AlexClaw.Skills.TelegramNotify
 

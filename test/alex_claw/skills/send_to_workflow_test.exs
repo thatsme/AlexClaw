@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.SendToWorkflowTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.Skills.SendToWorkflow
 

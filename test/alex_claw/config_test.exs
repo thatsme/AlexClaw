@@ -1,5 +1,6 @@
 defmodule AlexClaw.ConfigTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Config
 

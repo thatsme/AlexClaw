@@ -1,5 +1,6 @@
 defmodule AlexClaw.Gateway.BehaviourTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.Gateway.Behaviour
 

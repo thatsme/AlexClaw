@@ -1,5 +1,6 @@
 defmodule AlexClaw.LogBufferTest do
   use ExUnit.Case, async: false
+  @moduletag :integration
 
   alias AlexClaw.LogBuffer
 

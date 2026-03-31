@@ -1,5 +1,6 @@
 defmodule AlexClaw.Config.CryptoTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.Config.Crypto
 

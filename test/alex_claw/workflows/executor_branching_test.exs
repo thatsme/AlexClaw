@@ -1,5 +1,6 @@
 defmodule AlexClaw.Workflows.ExecutorBranchingTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.Executor

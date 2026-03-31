@@ -1,5 +1,6 @@
 defmodule AlexClaw.Config.EncryptExistingTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Config
   alias AlexClaw.Config.{Crypto, EncryptExisting, Setting}

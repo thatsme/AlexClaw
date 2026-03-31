@@ -1,5 +1,6 @@
 defmodule AlexClaw.ClusterTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Cluster
   alias AlexClaw.Cluster.ClusterNode

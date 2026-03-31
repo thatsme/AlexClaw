@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.HelpersTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.Skills.Helpers
 

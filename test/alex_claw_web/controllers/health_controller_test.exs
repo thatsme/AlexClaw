@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.HealthControllerTest do
   use AlexClawWeb.ConnCase, async: false
+  @moduletag :integration
 
   describe "GET /health" do
     test "returns 200 with status ok when DB is up", %{conn: conn} do

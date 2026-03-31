@@ -1,5 +1,6 @@
 defmodule AlexClaw.Workflows.WorkflowResourceTest do
   use AlexClaw.DataCase, async: true
+  @moduletag :integration
 
   alias AlexClaw.Workflows.WorkflowResource
 

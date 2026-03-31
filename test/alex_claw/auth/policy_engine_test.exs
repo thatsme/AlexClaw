@@ -1,5 +1,6 @@
 defmodule AlexClaw.Auth.PolicyEngineTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.Auth.{AuthContext, PolicyEngine}
 

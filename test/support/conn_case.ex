@@ -9,7 +9,9 @@ defmodule AlexClawWeb.ConnCase do
     quote do
       import Plug.Conn
       import Phoenix.ConnTest
+      import Phoenix.LiveViewTest
       import AlexClawWeb.ConnCase
+      import AlexClaw.BypassHelper
 
       @endpoint AlexClawWeb.Endpoint
     end

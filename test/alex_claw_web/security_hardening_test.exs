@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.SecurityHardeningTest do
   use AlexClawWeb.ConnCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Config
 

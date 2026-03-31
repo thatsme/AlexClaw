@@ -1,5 +1,6 @@
 defmodule AlexClaw.Cluster.ManagerTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Cluster.Manager
   alias AlexClaw.Workflows

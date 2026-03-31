@@ -1,5 +1,6 @@
 defmodule AlexClaw.RepoTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   describe "Repo" do
     test "is running and connected" do

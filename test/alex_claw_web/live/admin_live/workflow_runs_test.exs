@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.AdminLive.WorkflowRunsTest do
   use AlexClawWeb.ConnCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Workflows
 

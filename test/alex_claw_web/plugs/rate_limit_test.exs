@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.Plugs.RateLimitTest do
   use AlexClawWeb.ConnCase, async: false
+  @moduletag :integration
 
   describe "call/2" do
     test "passes through GET requests" do

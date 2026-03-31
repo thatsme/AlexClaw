@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.MetricsControllerTest do
   use AlexClawWeb.ConnCase, async: false
+  @moduletag :integration
 
   describe "GET /metrics" do
     test "requires authentication", %{conn: conn} do

@@ -1,5 +1,6 @@
 defmodule AlexClaw.Workflows.RegistryTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Workflows.Registry
 

@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.ApiRequestTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Skills.ApiRequest
 

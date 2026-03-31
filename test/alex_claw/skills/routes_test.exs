@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.RoutesTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   @moduledoc "Verify all core skills declare routes and return correct branch atoms."
 

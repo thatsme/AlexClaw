@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.DynamicSkillTest do
   use AlexClaw.DataCase
+  @moduletag :integration
 
   alias AlexClaw.Skills.DynamicSkill
 

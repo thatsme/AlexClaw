@@ -1,5 +1,6 @@
 defmodule AlexClaw.RateLimiterTest do
   use ExUnit.Case, async: false
+  @moduletag :integration
 
   alias AlexClaw.RateLimiter
 

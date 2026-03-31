@@ -1,4 +1,4 @@
-.PHONY: build up down logs seed seed-financial restart test test-elixir test-python
+.PHONY: build up down logs seed seed-financial restart test test-elixir test-python test-unit test-integration test-adversarial test-stress
 
 build:
 	docker compose build --build-arg BUILD_NUMBER=$$(git rev-list --count HEAD 2>/dev/null || echo 0)
@@ -38,4 +38,28 @@ test-python:
 	@echo "Building test image..."
 	@docker compose -f docker-compose.test.yml build --quiet test-python
 	docker compose -f docker-compose.test.yml run --rm test-python
+	@docker compose -f docker-compose.test.yml down
+
+test-unit:
+	@echo "Running unit tests only..."
+	@docker compose -f docker-compose.test.yml build --quiet test-elixir
+	docker compose -f docker-compose.test.yml run --rm test-elixir sh -c "mix ecto.create && mix ecto.migrate && mix test --only unit"
+	@docker compose -f docker-compose.test.yml down
+
+test-integration:
+	@echo "Running integration tests only..."
+	@docker compose -f docker-compose.test.yml build --quiet test-elixir
+	docker compose -f docker-compose.test.yml run --rm test-elixir sh -c "mix ecto.create && mix ecto.migrate && mix test --only integration"
+	@docker compose -f docker-compose.test.yml down
+
+test-adversarial:
+	@echo "Running adversarial tests only..."
+	@docker compose -f docker-compose.test.yml build --quiet test-elixir
+	docker compose -f docker-compose.test.yml run --rm test-elixir sh -c "mix ecto.create && mix ecto.migrate && mix test --only adversarial"
+	@docker compose -f docker-compose.test.yml down
+
+test-stress:
+	@echo "Running stress tests only..."
+	@docker compose -f docker-compose.test.yml build --quiet test-elixir
+	docker compose -f docker-compose.test.yml run --rm test-elixir sh -c "mix ecto.create && mix ecto.migrate && mix test --only stress"
 	@docker compose -f docker-compose.test.yml down

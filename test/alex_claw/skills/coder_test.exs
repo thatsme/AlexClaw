@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.CoderTest do
   use AlexClaw.DataCase
+  @moduletag :integration
 
   alias AlexClaw.Skills.{Coder, SkillAPI}
   alias AlexClaw.Workflows.SkillRegistry

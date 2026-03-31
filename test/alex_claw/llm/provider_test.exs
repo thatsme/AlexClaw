@@ -1,5 +1,6 @@
 defmodule AlexClaw.LLM.ProviderTest do
   use AlexClaw.DataCase, async: true
+  @moduletag :integration
 
   alias AlexClaw.LLM.Provider
 

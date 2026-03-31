@@ -1,5 +1,6 @@
 defmodule AlexClaw.ResourcesTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Resources
 

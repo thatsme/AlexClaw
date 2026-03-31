@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.WebBrowseTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Skills.WebBrowse
 

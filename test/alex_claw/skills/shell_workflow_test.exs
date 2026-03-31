@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.ShellWorkflowTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.Executor

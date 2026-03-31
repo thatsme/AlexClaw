@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.WebAutomationTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Skills.WebAutomation
 

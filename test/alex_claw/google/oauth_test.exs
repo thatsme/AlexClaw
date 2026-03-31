@@ -1,5 +1,6 @@
 defmodule AlexClaw.Google.OAuthTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Google.OAuth
 

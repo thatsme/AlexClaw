@@ -1,5 +1,7 @@
 defmodule AlexClaw.MemoryAdversarialTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
+  @moduletag :adversarial
 
   alias AlexClaw.Memory
 

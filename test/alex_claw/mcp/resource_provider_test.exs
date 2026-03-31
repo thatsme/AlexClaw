@@ -1,5 +1,6 @@
 defmodule AlexClaw.MCP.ResourceProviderTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.MCP.ResourceProvider
   alias Anubis.Server.{Frame, Response}

@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.ReceiveFromWorkflowTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.Skills.ReceiveFromWorkflow
 

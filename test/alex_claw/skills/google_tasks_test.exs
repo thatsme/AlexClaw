@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.GoogleTasksTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Skills.GoogleTasks
 

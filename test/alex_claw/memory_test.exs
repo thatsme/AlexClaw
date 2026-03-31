@@ -1,5 +1,6 @@
 defmodule AlexClaw.MemoryTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Memory
   alias AlexClaw.Memory.Entry

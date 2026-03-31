@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.CircuitBreakerSupervisorTest do
   use ExUnit.Case, async: false
+  @moduletag :integration
 
   alias AlexClaw.Skills.CircuitBreakerSupervisor
 

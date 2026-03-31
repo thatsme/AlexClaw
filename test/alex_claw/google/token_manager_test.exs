@@ -1,5 +1,6 @@
 defmodule AlexClaw.Google.TokenManagerTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Google.TokenManager
 

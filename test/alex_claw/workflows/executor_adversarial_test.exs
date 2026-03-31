@@ -1,5 +1,7 @@
 defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
+  @moduletag :adversarial
 
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.Executor

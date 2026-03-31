@@ -1,5 +1,6 @@
 defmodule AlexClaw.ContentSanitizerTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.ContentSanitizer
 

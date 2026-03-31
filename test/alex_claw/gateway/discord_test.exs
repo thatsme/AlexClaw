@@ -1,5 +1,6 @@
 defmodule AlexClaw.Gateway.DiscordTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Gateway.Discord
 

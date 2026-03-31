@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.AdminLive.PoliciesTest do
   use AlexClawWeb.ConnCase, async: false
+  @moduletag :integration
 
   describe "mount" do
     test "requires authentication", %{conn: conn} do

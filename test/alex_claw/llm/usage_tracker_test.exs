@@ -1,5 +1,6 @@
 defmodule AlexClaw.LLM.UsageTrackerTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.LLM.UsageTracker
 

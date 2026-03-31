@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.Plugs.McpAuthTest do
   use AlexClawWeb.ConnCase, async: false
+  @moduletag :integration
 
   alias AlexClawWeb.Plugs.McpAuth
 

@@ -1,5 +1,6 @@
 defmodule AlexClaw.Skills.ShellTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Skills.Shell
 

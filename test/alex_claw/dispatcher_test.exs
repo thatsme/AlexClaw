@@ -1,5 +1,6 @@
 defmodule AlexClaw.DispatcherTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.{Dispatcher, Message}
 

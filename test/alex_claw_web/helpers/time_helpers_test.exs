@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.TimeHelpersTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClawWeb.TimeHelpers
 

@@ -1,5 +1,6 @@
 defmodule AlexClaw.IdentityTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Identity
 

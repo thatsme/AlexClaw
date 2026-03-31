@@ -1,5 +1,7 @@
 defmodule AlexClaw.ConfigAdversarialTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
+  @moduletag :adversarial
 
   alias AlexClaw.Config
 

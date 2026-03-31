@@ -1,5 +1,6 @@
 defmodule AlexClaw.KnowledgeTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Knowledge
   alias AlexClaw.Knowledge.Entry

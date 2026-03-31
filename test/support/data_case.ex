@@ -11,6 +11,7 @@ defmodule AlexClaw.DataCase do
       import Ecto
       import Ecto.Query
       import AlexClaw.DataCase
+      import AlexClaw.BypassHelper
     end
   end
 

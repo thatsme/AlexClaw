@@ -1,5 +1,6 @@
 defmodule AlexClaw.Auth.AuditLogTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.Auth.{AuditLog, AuthContext}
 

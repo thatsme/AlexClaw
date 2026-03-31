@@ -1,5 +1,6 @@
 defmodule AlexClaw.LLM.UsageEntryTest do
   use AlexClaw.DataCase, async: true
+  @moduletag :integration
 
   alias AlexClaw.LLM.UsageEntry
 

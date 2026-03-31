@@ -1,5 +1,6 @@
 defmodule AlexClaw.Auth.CapabilityTokenTest do
   use ExUnit.Case, async: true
+  @moduletag :unit
 
   alias AlexClaw.Auth.CapabilityToken
 

@@ -1,5 +1,6 @@
 defmodule AlexClaw.Workflows.WorkflowStepTest do
   use AlexClaw.DataCase, async: true
+  @moduletag :integration
 
   alias AlexClaw.Workflows.WorkflowStep
 

@@ -1,5 +1,6 @@
 defmodule AlexClaw.LLMTest do
   use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
   alias AlexClaw.LLM
 

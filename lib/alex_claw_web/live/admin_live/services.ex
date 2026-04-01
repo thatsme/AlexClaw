@@ -52,7 +52,8 @@ defmodule AlexClawWeb.AdminLive.Services do
       %{id: "ollama", name: "Ollama", icon: "🦙", status: initial_status("ollama"), detail: nil, config_url: "/config"},
       %{id: "lmstudio", name: "LM Studio", icon: "🧠", status: initial_status("lmstudio"), detail: nil, config_url: "/config"},
       %{id: "github", name: "GitHub API", icon: "🐙", status: initial_status("github"), detail: nil, config_url: "/config"},
-      %{id: "web_automator", name: "Web Automator", icon: "🌐", status: initial_status("web_automator"), detail: nil, config_url: "/config"}
+      %{id: "web_automator", name: "Web Automator", icon: "🌐", status: initial_status("web_automator"), detail: nil, config_url: "/config"},
+      %{id: "embeddings", name: "Embeddings", icon: "📐", status: initial_status("embeddings"), detail: nil, config_url: "/config"}
     ]
   end
 
@@ -95,6 +96,11 @@ defmodule AlexClawWeb.AdminLive.Services do
   defp initial_status("web_automator") do
     enabled = Config.get("web_automator.enabled")
     if enabled in [true, "true"], do: :configured, else: :not_configured
+  end
+
+  defp initial_status("embeddings") do
+    model = Config.get("embedding.model")
+    if model && model != "", do: :configured, else: :not_configured
   end
 
   defp initial_status(_), do: :error
@@ -291,6 +297,24 @@ defmodule AlexClawWeb.AdminLive.Services do
 
         {:error, reason} ->
           %{status: :error, detail: inspect(reason)}
+      end
+    end
+  end
+
+  defp live_check("embeddings") do
+    model = Config.get("embedding.model")
+
+    if !model || model == "" do
+      %{status: :not_configured, detail: "No embedding model configured"}
+    else
+      stale_mem = AlexClaw.Memory.stale_embedding_count(model)
+      stale_kb = AlexClaw.Knowledge.stale_embedding_count(model)
+      total_stale = stale_mem + stale_kb
+
+      if total_stale == 0 do
+        %{status: :connected, detail: "All embeddings use #{model}"}
+      else
+        %{status: :expired, detail: "#{total_stale} stale embeddings (#{stale_mem} memory, #{stale_kb} knowledge) — model: #{model}"}
       end
     end
   end

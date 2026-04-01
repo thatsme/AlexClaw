@@ -334,7 +334,7 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       assert [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error] = SkillRegistry.get_routes("api_request")
       assert [:on_delivered, :on_error] = SkillRegistry.get_routes("telegram_notify")
       assert [:on_results, :on_no_results, :on_timeout, :on_error] = SkillRegistry.get_routes("web_search")
-      assert [:on_clean, :on_findings, :on_error] = SkillRegistry.get_routes("github_security_review")
+      assert [:on_diff, :on_empty, :on_error] = SkillRegistry.get_routes("github_security_review")
     end
 
     test "returns default routes for skills without routes/0" do

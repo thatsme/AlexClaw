@@ -29,8 +29,8 @@ defmodule AlexClaw.Skills.GitHubSecurityReviewTest do
 
     test "routes returns expected branches" do
       routes = GitHubSecurityReview.routes()
-      assert :on_clean in routes
-      assert :on_findings in routes
+      assert :on_diff in routes
+      assert :on_empty in routes
       assert :on_error in routes
     end
   end

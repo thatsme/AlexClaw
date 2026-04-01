@@ -17,6 +17,7 @@ defmodule AlexClaw.Skills.Research do
   require Logger
 
   alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
+  alias AlexClaw.RAG.Fallback
 
   @impl true
   @spec step_fields() :: [atom()]
@@ -77,23 +78,25 @@ defmodule AlexClaw.Skills.Research do
     system = Identity.system_prompt(%{skill: :research})
     research_instruction = Config.get("prompts.research.system")
 
-    existing =
-      case Memory.search(query, limit: 5) do
-        [] ->
-          "No prior context found."
+    prompt =
+      case Fallback.search_with_fallback(query) do
+        {:ok, context, _strategy} ->
+          """
+          Research query: #{query}
 
-        entries ->
-          Enum.map_join(entries, "\n---\n", & &1.content)
+          Existing knowledge:
+          #{context}
+
+          #{research_instruction}
+          """
+
+        {:no_context, _strategy} ->
+          """
+          Research query: #{query}
+
+          #{research_instruction}
+          """
       end
-
-    prompt = """
-    Research query: #{query}
-
-    Existing knowledge:
-    #{existing}
-
-    #{research_instruction}
-    """
 
     tier = Keyword.get(llm_opts, :tier, resolve_tier())
     provider = Keyword.get(llm_opts, :provider, resolve_provider())

@@ -515,6 +515,43 @@ defmodule AlexClaw.Reasoning.Loop do
     {:user_override, {skill_name, input, result, duration}}
   end
 
+  defp run_forced_summary(state) do
+    started = System.monotonic_time(:millisecond)
+
+    completed = summarize_completed_steps(state)
+
+    prompt = """
+    You have been working on a goal and gathered information. Now produce the FINAL ANSWER.
+
+    Goal: #{state.goal}
+
+    Work completed:
+    #{completed}
+
+    Your accumulated understanding:
+    #{state.working_memory}
+
+    Write a clear, complete answer to the goal based on everything you have gathered.
+    Do NOT say what you still need to do. Do NOT describe your process.
+    Just answer the goal directly.
+
+    Respond with ONLY valid JSON:
+    {"answer": "your complete final answer here", "working_memory": "final summary"}
+    """
+
+    system = "You are producing a final answer. Respond with valid JSON only."
+
+    case call_local_llm(prompt, system) do
+      {:ok, raw_response} ->
+        duration = System.monotonic_time(:millisecond) - started
+        {:forced_summary, {:ok, raw_response, prompt, duration}}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - started
+        {:forced_summary, {:error, inspect(reason), prompt, duration}}
+    end
+  end
+
   # --- Phase Result Handlers ---
 
   defp handle_phase_result(:planning, {:ok, parsed, prompt, raw, duration}, state) do
@@ -753,6 +790,43 @@ defmodule AlexClaw.Reasoning.Loop do
     end
   end
 
+  defp handle_phase_result(:forced_summary, {:ok, raw, prompt, duration}, state) do
+    state = increment_llm_calls(state)
+
+    Reasoning.record_step(%{
+      session_id: state.session_id,
+      iteration: state.iteration,
+      phase: "decide",
+      decision: "done",
+      llm_prompt: prompt,
+      llm_response: raw,
+      working_memory_snapshot: state.working_memory,
+      duration_ms: duration
+    })
+
+    # Try to parse the answer, fall back to raw response
+    result =
+      case PromptParser.extract_answer(raw) do
+        {:ok, answer} -> answer
+        :fallback -> raw
+      end
+
+    confidence = state.config.done_confidence_threshold
+    deliver_result(state, result, confidence)
+    finish_session(state, :completed, result, confidence)
+    {:stop, :normal, state}
+  end
+
+  defp handle_phase_result(:forced_summary, {:error, reason, prompt, duration}, state) do
+    # Even the summary failed — deliver working memory as last resort
+    record_error_step(state, reason, %{phase: "decide", llm_prompt: prompt, duration_ms: duration})
+    result = state.working_memory
+    confidence = state.config.done_confidence_threshold
+    deliver_result(state, result, confidence)
+    finish_session(state, :completed, result, confidence)
+    {:stop, :normal, state}
+  end
+
   # --- Decision Routing ---
 
   defp handle_decision("done", parsed, confidence, state) do
@@ -788,11 +862,9 @@ defmodule AlexClaw.Reasoning.Loop do
     prev_adjusts = count_recent_adjusts(state)
 
     if prev_adjusts >= 2 and confidence >= threshold do
-      Logger.info("[ReasoningLoop] Adjust oscillation detected (#{prev_adjusts + 1} adjusts, confidence #{confidence}). Treating as done.")
-      result = Map.get(parsed, "working_memory", state.working_memory)
-      deliver_result(state, result, confidence)
-      finish_session(state, :completed, result, confidence)
-      {:stop, :normal, state}
+      Logger.info("[ReasoningLoop] Adjust oscillation detected (#{prev_adjusts + 1} adjusts, confidence #{confidence}). Forcing final summary.")
+      task = spawn_llm_task(fn -> run_forced_summary(state) end)
+      {:noreply, %{state | task_ref: task.ref}}
     else
       new_plan = Map.get(parsed, "new_plan", [])
 

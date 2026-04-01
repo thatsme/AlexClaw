@@ -245,6 +245,23 @@ defmodule AlexClaw.Reasoning.PromptParser do
 
   defp maybe_normalize_new_plan(parsed), do: parsed
 
+  @spec extract_answer(String.t()) :: {:ok, String.t()} | :fallback
+  def extract_answer(raw) do
+    case extract_json(raw, :object) do
+      {:ok, parsed} ->
+        answer = Map.get(parsed, "answer") || Map.get(parsed, "final_answer") || Map.get(parsed, "result")
+
+        if answer && answer != "" do
+          {:ok, answer}
+        else
+          :fallback
+        end
+
+      _ ->
+        :fallback
+    end
+  end
+
   defp parse_score(val) when is_number(val), do: val
   defp parse_score(val) when is_binary(val) do
     case Float.parse(val) do

@@ -9,7 +9,7 @@ defmodule AlexClaw.Skills.WebSearch do
   def external, do: true
   @impl true
   @spec description() :: String.t()
-  def description, do: "Searches DuckDuckGo, fetches top results, synthesizes an answer via LLM"
+  def description, do: "Searches DuckDuckGo and returns short snippets: titles and brief descriptions only. Does NOT return full page content"
 
   @impl true
   @spec routes() :: [atom()]

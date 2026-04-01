@@ -127,11 +127,11 @@ defmodule AlexClaw.Skills.CodeGenerator do
       # Always include skill template and behaviour — these are critical for correct generation
       template_chunks = fetch_by_source(~w(self:skill_template self:skill_behaviour))
       # Real skill examples for pattern reference
-      skill_chunks = search_kb(goal, 2, kind: "skill_source")
+      skill_chunks = search_kb(goal, 2, kind: "skill_source", rewrite: true)
       # Goal-relevant docs (hexdocs, guides)
-      goal_chunks = search_kb(goal, 3)
-      erlang_chunks = search_kb(goal, 1, kind: "erlang_docs")
-      elixir_chunks = search_kb(goal, 1, kind: "elixir_source")
+      goal_chunks = search_kb(goal, 3, rewrite: true)
+      erlang_chunks = search_kb(goal, 1, kind: "erlang_docs", rewrite: true)
+      elixir_chunks = search_kb(goal, 1, kind: "elixir_source", rewrite: true)
 
       (template_chunks ++ skill_chunks ++ goal_chunks ++ erlang_chunks ++ elixir_chunks)
       |> Enum.uniq_by(& &1.id)

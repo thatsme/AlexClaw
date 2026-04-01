@@ -50,10 +50,15 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
       assert {:error, :parse_failed, _reason} = PromptParser.parse_plan("I don't know how to help with that.")
     end
 
-    test "returns error when steps lack required fields" do
+    test "normalizes steps even when original keys are non-standard" do
       raw = ~s({"steps": [{"description": "missing step and skill"}], "working_memory": "wm"})
-      assert {:error, :parse_failed, reason} = PromptParser.parse_plan(raw)
-      assert reason =~ "step"
+      assert {:ok, parsed} = PromptParser.parse_plan(raw)
+      # description gets normalized to input_description, step number auto-assigned
+      [step] = parsed["steps"]
+      assert step["step"] == 1
+      assert step["input_description"] == "missing step and skill"
+      # skill is absent — the loop's nil guard will handle this at runtime
+      refute Map.has_key?(step, "skill")
     end
 
     test "returns error when response is JSON array instead of object" do
@@ -203,6 +208,49 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
       raw = ~s({"action": "done", "confidence": 0.85, "final_answer": "result here", "working_memory": "wm"}\n\nI hope this helps!)
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "done"
+    end
+  end
+
+  # --- Key normalization ---
+
+  describe "normalize_plan_steps/1" do
+    test "normalizes tool to skill" do
+      steps = [%{"tool" => "web_search", "query" => "elixir 1.19"}]
+      [normalized] = PromptParser.normalize_plan_steps(steps)
+      assert normalized["skill"] == "web_search"
+      assert normalized["input_description"] == "elixir 1.19"
+      assert normalized["step"] == 1
+    end
+
+    test "preserves skill when already present" do
+      steps = [%{"skill" => "research", "input_description" => "topic"}]
+      [normalized] = PromptParser.normalize_plan_steps(steps)
+      assert normalized["skill"] == "research"
+    end
+
+    test "normalizes input aliases" do
+      steps = [%{"tool" => "web_fetch", "input" => "https://example.com"}]
+      [normalized] = PromptParser.normalize_plan_steps(steps)
+      assert normalized["input_description"] == "https://example.com"
+    end
+
+    test "handles steps with no recognizable skill key" do
+      steps = [%{"action" => "something"}]
+      [normalized] = PromptParser.normalize_plan_steps(steps)
+      refute Map.has_key?(normalized, "skill")
+      assert normalized["step"] == 1
+    end
+  end
+
+  describe "parse_decision/1 with adjusted plan normalization" do
+    test "normalizes new_plan tool keys to skill" do
+      raw = ~s({"action": "adjust", "reason": "better plan", "new_plan": [{"tool": "web_search", "query": "test"}, {"tool": "llm_transform", "input": "summarize"}], "working_memory": "wm"})
+      assert {:ok, parsed} = PromptParser.parse_decision(raw)
+      assert parsed["action"] == "adjust"
+      [step1, step2] = parsed["new_plan"]
+      assert step1["skill"] == "web_search"
+      assert step1["input_description"] == "test"
+      assert step2["skill"] == "llm_transform"
     end
   end
 

@@ -151,13 +151,22 @@ defmodule AlexClaw.Reasoning.Loop do
 
       step = Enum.at(state.plan, state.current_step_index)
 
-      if step do
-        broadcast(:phase_change, phase_data(state, :executing, %{skill: step["skill"]}))
-        task = spawn_llm_task(fn -> run_execution(state, step) end)
-        {:noreply, %{state | task_ref: task.ref}}
-      else
-        # No more steps — go to decision
-        {:noreply, state, {:continue, :decide}}
+      cond do
+        is_nil(step) ->
+          # No more steps — go to decision
+          {:noreply, state, {:continue, :decide}}
+
+        is_nil(step["skill"]) or step["skill"] == "" ->
+          # Malformed step — skip and log
+          Logger.warning("[ReasoningLoop] Skipping step with nil/empty skill: #{inspect(step)}")
+          record_error_step(state, "Step has no skill name: #{inspect(step)}", %{phase: "execute"})
+          state = %{state | current_step_index: state.current_step_index + 1}
+          {:noreply, state, {:continue, :execute_step}}
+
+        true ->
+          broadcast(:phase_change, phase_data(state, :executing, %{skill: step["skill"]}))
+          task = spawn_llm_task(fn -> run_execution(state, step) end)
+          {:noreply, %{state | task_ref: task.ref}}
       end
     end
   end

@@ -25,10 +25,11 @@ defmodule AlexClaw.Reasoning.PromptParser do
         Map.has_key?(parsed, "steps") and Map.has_key?(parsed, "working_memory") ->
           steps = Map.get(parsed, "steps", [])
 
-          if is_list(steps) and (steps == [] or Enum.all?(steps, &valid_plan_step?/1)) do
-            {:ok, parsed}
+          if is_list(steps) do
+            normalized = normalize_plan_steps(steps)
+            {:ok, Map.put(parsed, "steps", normalized)}
           else
-            {:error, :parse_failed, "plan steps missing required fields (step, skill)"}
+            {:error, :parse_failed, "plan steps is not a list"}
           end
 
         true ->
@@ -67,6 +68,7 @@ defmodule AlexClaw.Reasoning.PromptParser do
       action = Map.get(parsed, "action", "")
 
       if action in ["continue", "adjust", "ask_user", "done", "stuck"] do
+        parsed = maybe_normalize_new_plan(parsed)
         {:ok, parsed}
       else
         Logger.warning("[ReasoningParser] Unknown action #{inspect(action)}, treating as continue")
@@ -172,10 +174,36 @@ defmodule AlexClaw.Reasoning.PromptParser do
   end
 
   defp valid_plan_step?(step) when is_map(step) do
-    Map.has_key?(step, "step") and Map.has_key?(step, "skill")
+    has_skill?(step)
   end
 
   defp valid_plan_step?(_), do: false
+
+  defp has_skill?(step) do
+    Map.has_key?(step, "skill") or Map.has_key?(step, "tool")
+  end
+
+  @doc false
+  def normalize_plan_steps(steps) when is_list(steps) do
+    Enum.with_index(steps, 1)
+    |> Enum.map(fn {step, idx} ->
+      step
+      |> normalize_key("skill", ["tool", "skill_name"])
+      |> normalize_key("input_description", ["query", "input", "description", "reason"])
+      |> Map.put_new("step", idx)
+    end)
+  end
+
+  defp normalize_key(step, target, aliases) do
+    case Map.get(step, target) do
+      nil ->
+        value = Enum.find_value(aliases, fn key -> Map.get(step, key) end)
+        if value, do: Map.put(step, target, value), else: step
+
+      _ ->
+        step
+    end
+  end
 
   defp normalize_quality(parsed) do
     scores =
@@ -194,6 +222,13 @@ defmodule AlexClaw.Reasoning.PromptParser do
         end
     end
   end
+
+  defp maybe_normalize_new_plan(%{"action" => "adjust", "new_plan" => plan} = parsed)
+       when is_list(plan) do
+    Map.put(parsed, "new_plan", normalize_plan_steps(plan))
+  end
+
+  defp maybe_normalize_new_plan(parsed), do: parsed
 
   defp parse_score(val) when is_number(val), do: val
   defp parse_score(val) when is_binary(val) do

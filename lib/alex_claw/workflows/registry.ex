@@ -13,26 +13,31 @@ defmodule AlexClaw.Workflows.Registry do
 
   # --- Client API ---
 
+  @doc "Start the registry GenServer."
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc "Register a running workflow. Monitors the process for crash cleanup."
   @spec register(integer(), pid(), integer(), String.t()) :: :ok
   def register(run_id, pid, workflow_id, workflow_name) do
     GenServer.call(__MODULE__, {:register, run_id, pid, workflow_id, workflow_name})
   end
 
+  @doc "Remove a run from the registry and stop monitoring its process."
   @spec deregister(integer()) :: :ok
   def deregister(run_id) do
     GenServer.call(__MODULE__, {:deregister, run_id})
   end
 
+  @doc "List all currently running workflows with their metadata."
   @spec list_active() :: [map()]
   def list_active do
     Enum.map(:ets.tab2list(@ets_table), &row_to_map/1)
   end
 
+  @doc "Look up a specific run by ID. Returns metadata or :not_found."
   @spec lookup(integer()) :: {:ok, map()} | {:error, :not_found}
   def lookup(run_id) do
     case :ets.lookup(@ets_table, run_id) do
@@ -49,6 +54,7 @@ defmodule AlexClaw.Workflows.Registry do
     %{run_id: run_id, workflow_id: workflow_id, workflow_name: workflow_name, started_at: started_at, current_step: step_name}
   end
 
+  @doc "Update the current step name for an active run (used by the executor for live progress)."
   @spec update_step(integer(), String.t()) :: :ok
   def update_step(run_id, step_name) do
     case :ets.lookup(@ets_table, run_id) do
@@ -61,16 +67,19 @@ defmodule AlexClaw.Workflows.Registry do
     end
   end
 
+  @doc "Cancel a running workflow. Updates DB status, kills the process, broadcasts cancellation."
   @spec cancel(integer()) :: :ok | {:error, :not_found}
   def cancel(run_id) do
     GenServer.call(__MODULE__, {:cancel, run_id})
   end
 
+  @doc "Broadcast a workflow run event via PubSub (e.g. started, completed, cancelled)."
   @spec broadcast(tuple()) :: :ok | {:error, term()}
   def broadcast(message) do
     Phoenix.PubSub.broadcast(AlexClaw.PubSub, @pubsub_topic, message)
   end
 
+  @doc "Returns the PubSub topic for workflow run events."
   @spec topic() :: String.t()
   def topic, do: @pubsub_topic
 

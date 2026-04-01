@@ -40,6 +40,25 @@ defmodule AlexClawWeb.AdminLive.Services do
     {:noreply, assign(socket, services: services)}
   end
 
+  @impl true
+  def handle_event("reembed", _params, socket) do
+    {:ok, mem_count} = AlexClaw.Memory.reembed_all(batch_size: 20, max_concurrency: 2)
+    {:ok, kb_count} = AlexClaw.Knowledge.reembed_all(batch_size: 20, max_concurrency: 2)
+    total = mem_count + kb_count
+
+    services =
+      Enum.map(socket.assigns.services, fn svc ->
+        if svc.id == "embeddings" do
+          detail = if total > 0, do: "Re-embedding #{total} entries in background...", else: "Nothing to re-embed"
+          %{svc | status: :challenged, detail: detail}
+        else
+          svc
+        end
+      end)
+
+    {:noreply, assign(socket, services: services)}
+  end
+
   # --- Initial status (config-level, no side effects) ---
 
   defp build_services do

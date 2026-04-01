@@ -188,10 +188,25 @@ defmodule AlexClaw.Reasoning.PromptParser do
     Enum.with_index(steps, 1)
     |> Enum.map(fn {step, idx} ->
       step
-      |> normalize_key("skill", ["tool", "skill_name"])
+      |> maybe_extract_skill_from_step()
+      |> normalize_key("skill", ["tool", "skill_name", "name"])
       |> normalize_key("input_description", ["query", "input", "description", "reason"])
-      |> Map.put_new("step", idx)
+      |> Map.put("step", idx)
     end)
+  end
+
+  # Local models sometimes put the skill name in the "step" field as a string
+  # e.g. {"step": "web_search", "description": "..."} instead of {"skill": "web_search", "step": 1}
+  defp maybe_extract_skill_from_step(step) do
+    case Map.get(step, "step") do
+      val when is_binary(val) and val != "" ->
+        step
+        |> Map.put_new("skill", val)
+        |> Map.delete("step")
+
+      _ ->
+        step
+    end
   end
 
   defp normalize_key(step, target, aliases) do

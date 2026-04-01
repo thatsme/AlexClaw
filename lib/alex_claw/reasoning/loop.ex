@@ -780,18 +780,32 @@ defmodule AlexClaw.Reasoning.Loop do
     {:noreply, state, {:continue, :execute_step}}
   end
 
-  defp handle_decision("adjust", parsed, _confidence, state) do
-    new_plan = Map.get(parsed, "new_plan", [])
+  defp handle_decision("adjust", parsed, confidence, state) do
+    threshold = state.config.done_confidence_threshold
 
-    if is_list(new_plan) and length(new_plan) > 0 do
-      Reasoning.update_session(state.session, %{plan: %{"steps" => new_plan}})
-      state = %{state | plan: new_plan, current_step_index: 0, iteration: state.iteration + 1}
-      Reasoning.increment_iteration(state.session)
-      broadcast(:plan_adjusted, %{session_id: state.session_id, new_plan: new_plan})
-      {:noreply, state, {:continue, :execute_step}}
+    # Detect adjust oscillation: if confidence >= done threshold and we've adjusted before,
+    # the model is polishing endlessly — treat as done
+    prev_adjusts = count_recent_adjusts(state)
+
+    if prev_adjusts >= 2 and confidence >= threshold do
+      Logger.info("[ReasoningLoop] Adjust oscillation detected (#{prev_adjusts + 1} adjusts, confidence #{confidence}). Treating as done.")
+      result = Map.get(parsed, "working_memory", state.working_memory)
+      deliver_result(state, result, confidence)
+      finish_session(state, :completed, result, confidence)
+      {:stop, :normal, state}
     else
-      # Invalid new plan — retry decision
-      {:noreply, state, {:continue, :decide}}
+      new_plan = Map.get(parsed, "new_plan", [])
+
+      if is_list(new_plan) and length(new_plan) > 0 do
+        Reasoning.update_session(state.session, %{plan: %{"steps" => new_plan}})
+        state = %{state | plan: new_plan, current_step_index: 0, iteration: state.iteration + 1}
+        Reasoning.increment_iteration(state.session)
+        broadcast(:plan_adjusted, %{session_id: state.session_id, new_plan: new_plan})
+        {:noreply, state, {:continue, :execute_step}}
+      else
+        # Invalid new plan — retry decision
+        {:noreply, state, {:continue, :decide}}
+      end
     end
   end
 
@@ -1034,6 +1048,12 @@ defmodule AlexClaw.Reasoning.Loop do
       "" -> "No plan yet."
       text -> text
     end
+  end
+
+  defp count_recent_adjusts(state) do
+    state.session_id
+    |> Reasoning.list_steps()
+    |> Enum.count(fn step -> step.phase == "decide" and step.decision == "adjust" end)
   end
 
   defp action_hash(skill_name, input) do

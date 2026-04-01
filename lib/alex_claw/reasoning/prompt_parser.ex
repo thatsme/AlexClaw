@@ -17,17 +17,23 @@ defmodule AlexClaw.Reasoning.PromptParser do
 
   @spec parse_plan(String.t()) :: {:ok, map()} | {:error, :parse_failed, String.t()}
   def parse_plan(raw) do
-    with {:ok, parsed} <- extract_json(raw, :object),
-         :ok <- validate_keys(parsed, ["steps", "working_memory"], "plan") do
-      steps = Map.get(parsed, "steps", [])
+    with {:ok, parsed} <- extract_json(raw, :object) do
+      cond do
+        Map.has_key?(parsed, "error") ->
+          {:ok, parsed}
 
-      if is_list(steps) and Enum.all?(steps, &valid_plan_step?/1) do
-        {:ok, parsed}
-      else
-        case Map.get(parsed, "error") do
-          nil -> {:error, :parse_failed, "plan steps missing required fields (step, skill, input_description)"}
-          _err -> {:ok, parsed}
-        end
+        Map.has_key?(parsed, "steps") and Map.has_key?(parsed, "working_memory") ->
+          steps = Map.get(parsed, "steps", [])
+
+          if is_list(steps) and (steps == [] or Enum.all?(steps, &valid_plan_step?/1)) do
+            {:ok, parsed}
+          else
+            {:error, :parse_failed, "plan steps missing required fields (step, skill)"}
+          end
+
+        true ->
+          missing = Enum.reject(["steps", "working_memory"], &Map.has_key?(parsed, &1))
+          {:error, :parse_failed, "plan response missing keys: #{Enum.join(missing, ", ")}"}
       end
     end
   end
@@ -84,24 +90,17 @@ defmodule AlexClaw.Reasoning.PromptParser do
   end
 
   defp extract_json_fallback(text, :object) do
-    case Regex.run(~r/\{[\s\S]*\}/U, text) do
+    # Try greedy match first (handles nested objects), then ungreedy as fallback
+    case Regex.run(~r/\{[\s\S]*\}/, text) do
       [match] -> try_decode(match, :object)
-      nil -> deep_extract(text, :object)
+      nil -> {:error, :parse_failed, "no JSON object found in response"}
     end
   end
 
   defp extract_json_fallback(text, :array) do
-    case Regex.run(~r/\[[\s\S]*\]/U, text) do
+    case Regex.run(~r/\[[\s\S]*\]/, text) do
       [match] -> try_decode(match, :array)
       nil -> {:error, :parse_failed, "no JSON array found in response"}
-    end
-  end
-
-  defp deep_extract(text, :object) do
-    # Try greedy match — some responses have nested objects
-    case Regex.run(~r/\{[\s\S]*\}/, text) do
-      [match] -> try_decode(match, :object)
-      nil -> {:error, :parse_failed, "no JSON object found in response"}
     end
   end
 

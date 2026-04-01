@@ -131,7 +131,7 @@ defmodule AlexClaw.Reasoning do
   def latest_step(session_id) do
     Step
     |> where([s], s.session_id == ^session_id)
-    |> order_by(desc: :inserted_at)
+    |> order_by(desc: :id)
     |> limit(1)
     |> Repo.one()
   end

@@ -46,6 +46,8 @@ defmodule AlexClawWeb.AdminLive.Services do
     {:ok, kb_count} = AlexClaw.Knowledge.reembed_all(batch_size: 20, max_concurrency: 2)
     total = mem_count + kb_count
 
+    if total > 0, do: schedule_reembed_check()
+
     services =
       Enum.map(socket.assigns.services, fn svc ->
         if svc.id == "embeddings" do
@@ -58,6 +60,24 @@ defmodule AlexClawWeb.AdminLive.Services do
 
     {:noreply, assign(socket, services: services)}
   end
+
+  @impl true
+  def handle_info(:reembed_check, socket) do
+    result = live_check("embeddings")
+
+    services =
+      Enum.map(socket.assigns.services, fn svc ->
+        if svc.id == "embeddings", do: %{svc | status: result.status, detail: result.detail}, else: svc
+      end)
+
+    if result.status == :expired or result.status == :challenged do
+      schedule_reembed_check()
+    end
+
+    {:noreply, assign(socket, services: services)}
+  end
+
+  defp schedule_reembed_check, do: Process.send_after(self(), :reembed_check, 10_000)
 
   # --- Initial status (config-level, no side effects) ---
 

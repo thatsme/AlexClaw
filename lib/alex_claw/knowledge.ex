@@ -136,10 +136,11 @@ defmodule AlexClaw.Knowledge do
   def reembed_all(opts \\ []) do
     batch_size = Keyword.get(opts, :batch_size, 20)
     max_concurrency = Keyword.get(opts, :max_concurrency, 2)
+    current_model = AlexClaw.Config.get("embedding.model")
 
     entries =
       Entry
-      |> where([e], is_nil(e.embedding))
+      |> where([e], is_nil(e.embedding) or is_nil(e.embedding_model) or e.embedding_model != ^(current_model || ""))
       |> Repo.all()
 
     count = length(entries)

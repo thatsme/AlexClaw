@@ -129,6 +129,11 @@ defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
   # HTTP
   #   Returns {:ok, %Req.Response{status: N, body: data}} or {:error, reason}
   #   Match as: {:ok, %{status: 200, body: body}} — NOT %{"body" => body}
+  #   Body is AUTO-DECODED by Req:
+  #     - JSON APIs → body is already a map or list. Do NOT call Jason.decode on it.
+  #     - HTML pages → body is a string
+  #   For JSON: {:ok, %{status: 200, body: %{"key" => value}}} or body is [item1, item2, ...]
+  #   For HTML: {:ok, %{status: 200, body: html}} when is_binary(html)
   #   Error reasons are structs (not strings), always use inspect/1:
   #     {:error, reason} -> {:error, "Failed: #{inspect(reason)}"}
   #   For URLs with special chars, use params option:

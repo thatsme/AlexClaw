@@ -30,6 +30,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
   - HTTP via SkillAPI:
     - SkillAPI.http_get(__MODULE__, url, opts) returns {:ok, %Req.Response{status: N, body: data}} or {:error, reason}
     - Match response as: {:ok, %{status: 200, body: body}} — NOT %{"body" => body}
+    - Body is AUTO-DECODED: JSON APIs return maps/lists, HTML returns strings. Do NOT call Jason.decode on the body.
     - Error reasons are structs, not strings. Always use inspect/1: {:error, "Failed: \#{inspect(reason)}"}
     - NEVER put query parameters directly in the URL string. ALWAYS use the params: option:
       WRONG: SkillAPI.http_get(__MODULE__, "https://example.com/api?format=%c")

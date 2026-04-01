@@ -199,7 +199,7 @@ defmodule AlexClaw.LLM.Client do
     body = %{model: model, messages: messages, stream: false}
     body = if ollama_opts == %{}, do: body, else: Map.put(body, :options, ollama_opts)
 
-    case Req.post(url, json: body, receive_timeout: 300_000) do
+    case Req.post(url, json: body, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"message" => %{"content" => text}}}} ->
         {:ok, text}
 
@@ -254,7 +254,7 @@ defmodule AlexClaw.LLM.Client do
     body = Map.merge(%{model: model, messages: messages, stream: false}, openai_opts)
     body = if thinking == false, do: Map.put(body, :chat_template_kwargs, %{enable_thinking: false}), else: body
 
-    case Req.post(url, json: body, headers: headers, receive_timeout: 300_000) do
+    case Req.post(url, json: body, headers: headers, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => msg} | _]}}} ->
         text = msg["content"] || ""
         reasoning = msg["reasoning_content"] || ""
@@ -303,7 +303,7 @@ defmodule AlexClaw.LLM.Client do
     url = "#{host}/api/embed"
     body = %{model: model, input: text}
 
-    case Req.post(url, json: body, receive_timeout: 300_000) do
+    case Req.post(url, json: body, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"embeddings" => [vector | _]}}} when is_list(vector) ->
         {:ok, vector}
 
@@ -331,7 +331,7 @@ defmodule AlexClaw.LLM.Client do
 
     body = %{model: model, input: text}
 
-    case Req.post(url, json: body, headers: headers, receive_timeout: 300_000) do
+    case Req.post(url, json: body, headers: headers, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vector} | _]}}}
       when is_list(vector) ->
         {:ok, vector}

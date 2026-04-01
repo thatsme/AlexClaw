@@ -629,6 +629,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
     case skill_result do
       {:ok, _} ->
+        embed_skill_output(state, skill_name, skill_output)
         state = %{state | consecutive_failures: 0}
         {:noreply, state, {:continue, :evaluate}}
 
@@ -1046,6 +1047,21 @@ defmodule AlexClaw.Reasoning.Loop do
 
   defp extract_skill_result({:ok, output}), do: {output, nil}
   defp extract_skill_result({:error, reason}), do: {nil, inspect(reason)}
+
+  defp embed_skill_output(_state, _skill_name, nil), do: :ok
+  defp embed_skill_output(_state, _skill_name, ""), do: :ok
+
+  defp embed_skill_output(state, skill_name, output) do
+    Memory.store(:reasoning, output,
+      source: "reasoning_loop",
+      metadata: %{
+        session_id: state.session_id,
+        goal: state.goal,
+        iteration: state.iteration,
+        skill: skill_name
+      }
+    )
+  end
 
   defp fetch_prior_knowledge(goal) do
     memories =

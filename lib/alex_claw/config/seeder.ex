@@ -189,7 +189,47 @@ defmodule AlexClaw.Config.Seeder do
     {"backup.enabled", "false", "boolean", "backup",
      "Enable scheduled database backups (requires bind mount in docker-compose.yml)", false},
     {"backup.max_files", "7", "integer", "backup",
-     "Max backup files to keep (oldest are rotated out)", false}
+     "Max backup files to keep (oldest are rotated out)", false},
+
+    # Reasoning loop
+    {"reasoning.enabled", "true", "boolean", "reasoning",
+     "Enable reasoning loop feature (autonomous plan-execute-evaluate loop)", false},
+    {"reasoning.max_iterations", "15", "integer", "reasoning",
+     "Maximum loop iterations before forced stop", false},
+    {"reasoning.max_llm_calls", "60", "integer", "reasoning",
+     "Maximum total LLM calls per reasoning session", false},
+    {"reasoning.time_budget_seconds", "900", "integer", "reasoning",
+     "Maximum wall-clock time in seconds (default 15 minutes)", false},
+    {"reasoning.skill_whitelist",
+     ~s(["web_search","web_fetch","web_search_fetch","research","llm_transform","google_calendar","google_tasks","rss_fetch"]),
+     "json", "reasoning",
+     "Skills the reasoning loop may invoke (JSON array of skill names)", false},
+    {"reasoning.stuck_threshold", "3", "integer", "reasoning",
+     "Consecutive failures before declaring stuck", false},
+    {"reasoning.step_timeout_seconds", "120", "integer", "reasoning",
+     "Per-skill execution timeout in seconds", false},
+    {"reasoning.max_plan_steps", "8", "integer", "reasoning",
+     "Maximum steps the LLM can include in a plan", false},
+    {"reasoning.done_confidence_threshold", "0.7", "string", "reasoning",
+     "Minimum confidence (0.0-1.0) to accept a done declaration", false},
+    {"reasoning.default_delivery",
+     ~s(["memory"]),
+     "json", "reasoning",
+     "Delivery channels on completion: memory, telegram, discord (JSON array)", false},
+
+    # Reasoning prompts (editable at runtime)
+    {"prompts.reasoning.planning", "", "string", "prompts",
+     "Planning prompt template for reasoning loop. Leave empty for default. Placeholders: {goal}, {skill_list}, {working_memory}, {prior_knowledge}, {max_steps}",
+     false},
+    {"prompts.reasoning.execution", "", "string", "prompts",
+     "Execution prompt template. Placeholders: {skill_name}, {skill_description}, {step_description}, {previous_results}, {working_memory}, {user_guidance_section}",
+     false},
+    {"prompts.reasoning.evaluation", "", "string", "prompts",
+     "Evaluation prompt template. Placeholders: {goal}, {step_description}, {skill_name}, {skill_output}, {working_memory}",
+     false},
+    {"prompts.reasoning.decision", "", "string", "prompts",
+     "Decision prompt template. Placeholders: {goal}, {plan_summary}, {completed_steps}, {iteration}, {max_iterations}, {consecutive_failures}, {working_memory}, {user_guidance_section}",
+     false}
   ]
 
   @env_mapping %{

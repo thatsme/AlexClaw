@@ -20,6 +20,7 @@ defmodule AlexClaw.Application do
       {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,
+      AlexClaw.Reasoning.Supervisor,
       {AlexClaw.MCP.Server, transport: {:streamable_http, start: true}},
       AlexClaw.Cluster.Manager,
       AlexClaw.Scheduler,

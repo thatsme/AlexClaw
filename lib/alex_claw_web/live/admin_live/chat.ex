@@ -221,49 +221,31 @@ defmodule AlexClawWeb.AdminLive.Chat do
     {:noreply, assign(socket, loop_status: :planning)}
   end
 
-  def handle_info({:phase_change, %{phase: phase, session_id: _id} = data}, socket) do
-    step_entry = %{
-      phase: phase,
-      iteration: data[:iteration],
-      skill: data[:skill],
-      timestamp: DateTime.utc_now(),
-      status: :in_progress
-    }
-
-    steps = socket.assigns.reasoning_steps ++ [step_entry]
-    {:noreply, assign(socket, loop_status: phase, reasoning_steps: steps)}
+  def handle_info({:phase_change, %{phase: phase, session_id: session_id}}, socket) do
+    steps = reload_steps(session_id)
+    session = reload_session(session_id)
+    plan = get_plan_steps(session)
+    {:noreply, assign(socket, loop_status: phase, reasoning_steps: steps, reasoning_plan: plan)}
   end
 
-  def handle_info({:plan_ready, %{steps: steps}}, socket) do
-    {:noreply, assign(socket, reasoning_plan: steps)}
+  def handle_info({:plan_ready, %{session_id: session_id}}, socket) do
+    session = reload_session(session_id)
+    {:noreply, assign(socket, reasoning_plan: get_plan_steps(session))}
   end
 
-  def handle_info({:plan_adjusted, %{new_plan: new_plan}}, socket) do
-    {:noreply, assign(socket, reasoning_plan: new_plan)}
+  def handle_info({:plan_adjusted, %{session_id: session_id}}, socket) do
+    session = reload_session(session_id)
+    {:noreply, assign(socket, reasoning_plan: get_plan_steps(session))}
   end
 
-  def handle_info({:evaluation_done, %{quality: quality, rubric: rubric}}, socket) do
-    step_entry = %{
-      phase: :evaluation_result,
-      quality: quality,
-      rubric: rubric,
-      timestamp: DateTime.utc_now()
-    }
-
-    steps = socket.assigns.reasoning_steps ++ [step_entry]
+  def handle_info({:evaluation_done, %{session_id: session_id}}, socket) do
+    steps = reload_steps(session_id)
     {:noreply, assign(socket, reasoning_steps: steps)}
   end
 
-  def handle_info({:decision_made, %{action: action, confidence: confidence}}, socket) do
-    step_entry = %{
-      phase: :decision_result,
-      action: action,
-      confidence: confidence,
-      timestamp: DateTime.utc_now()
-    }
-
-    steps = socket.assigns.reasoning_steps ++ [step_entry]
-    {:noreply, assign(socket, reasoning_steps: steps)}
+  def handle_info({:decision_made, %{session_id: session_id, action: action, confidence: confidence}}, socket) do
+    steps = reload_steps(session_id)
+    {:noreply, assign(socket, reasoning_steps: steps, loop_status: :deciding)}
   end
 
   def handle_info({:waiting_user, %{question: question}}, socket) do
@@ -362,6 +344,19 @@ defmodule AlexClawWeb.AdminLive.Chat do
       reasoning_error: nil,
       waiting_question: nil
     }
+  end
+
+  defp reload_steps(session_id) do
+    session_id
+    |> Reasoning.list_steps()
+    |> format_steps()
+  end
+
+  defp reload_session(session_id) do
+    case Reasoning.get_session(session_id) do
+      {:ok, session} -> session
+      _ -> nil
+    end
   end
 
   defp find_loop_pid(session) do

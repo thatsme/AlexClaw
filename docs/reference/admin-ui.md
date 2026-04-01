@@ -10,8 +10,8 @@ Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `
 | Workflows | `/workflows` | Workflow list (filterable), editor, export/import, run history, step results |
 | Scheduler | `/scheduler` | Cron schedule management, next run times |
 | Skills | `/skills` | Core and dynamic skill registry, upload/reload/unload |
-| Config | `/config` | Runtime settings by category, sensitive value masking |
-| LLM Providers | `/llm` | Provider list, tier assignment, priorities, usage stats |
+| Config | `/config` | Runtime settings by category, sensitive value masking, yellow tooltip hints, `embedding.provider` dropdown |
+| LLM Providers | `/llm` | Provider list, tier assignment, priorities, usage stats, dynamic options form (adapts per provider type — e.g., `num_ctx` for Ollama, thinking toggle for Qwen3) |
 | Resources | `/resources` | RSS feeds, websites, documents, APIs |
 | Feeds | `/feeds` | RSS feed management (filtered resource view) |
 | Knowledge | `/knowledge` | Knowledge base browser, search, entry counts by kind |

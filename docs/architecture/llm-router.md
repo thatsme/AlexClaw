@@ -31,7 +31,11 @@ AlexClaw.LLM.call(prompt, tier: :medium)
 | `gemini` | Gemini Flash, Gemini Pro | Google AI Studio API |
 | `anthropic` | Claude Haiku, Sonnet, Opus | Anthropic Messages API |
 | `openai_compatible` | LM Studio, any OpenAI-compatible | OpenAI Chat Completions |
-| `ollama` | Local Ollama models | Ollama API |
+| `ollama` | Local Ollama models | Ollama `/api/chat` (messages format) |
+
+## Provider Options
+
+Each provider row has an `options` JSONB column for provider-specific inference parameters (e.g., `num_ctx`, `temperature`, `top_p`). These are sent with every request to that provider and can be edited from **Admin > LLM Providers** via a dynamic options form that adapts to the provider type. For OpenAI-compatible providers, the client falls back to `reasoning_content` when `content` is empty (Qwen3 thinking mode). Qwen3 models also expose a thinking toggle in the Admin UI.
 
 ## Usage Tracking
 
@@ -46,6 +50,7 @@ AlexClaw.LLM.call(prompt, tier: :medium)
 - Provider resolution is separate from the completion tier system
 - Configured via `embedding.provider` config, or auto-detected: Gemini → Ollama → OpenAI-compatible
 - Supports Gemini `text-embedding-004` (free tier), Ollama `/api/embed`, and OpenAI `/v1/embeddings`
+- Concurrent embedding requests are throttled by `EmbedThrottle` (GenServer limiter)
 - Embedding calls are tracked in the same usage counters
 
 ## Workflow Integration

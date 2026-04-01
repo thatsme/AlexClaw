@@ -42,7 +42,7 @@ At least one LLM provider is required:
 | `OLLAMA_ENABLED=true` + `OLLAMA_HOST` | Local Ollama instance |
 | `LMSTUDIO_ENABLED=true` + `LMSTUDIO_HOST` | Local LM Studio instance |
 
-After first boot, providers are managed from **Admin > LLM Providers**. You can add, remove, reorder priorities, and enable/disable providers without restarting.
+After first boot, providers are managed from **Admin > LLM Providers**. You can add, remove, reorder priorities, enable/disable providers, and configure per-provider inference options (e.g., `num_ctx`, `temperature`) — stored in an `options` JSON column on each provider. The LLM page shows a dynamic options form that adapts to the provider type. The `embedding.provider` setting is configured via a dropdown of enabled provider names on the Config page.
 
 ## Discord (Optional)
 

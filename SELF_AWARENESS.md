@@ -67,7 +67,7 @@ Configuration in Admin > Config:
 | `llm.lmstudio_enabled` | `true` |
 | `llm.lmstudio_host` | `http://host.docker.internal:1234` |
 | `llm.lmstudio_model` | _(model name as shown in LM Studio)_ |
-| `embedding.provider` | _(provider name from LM Studio)_ |
+| `embedding.provider` | _(dropdown of enabled provider names in Admin UI)_ |
 | `embedding.model` | `text-embedding-nomic-embed-text-v1.5` |
 
 ### 4. First Test — Without Proper Embeddings (Failed)

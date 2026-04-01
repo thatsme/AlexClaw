@@ -49,7 +49,7 @@ defmodule AlexClaw.LLM.Client do
 
   def call_provider(%Provider{type: "ollama"} = p, prompt, system) do
     host = p.host || ""
-    if host == "", do: {:error, :host_not_set}, else: call_ollama(host, p.model, prompt, system)
+    if host == "", do: {:error, :host_not_set}, else: call_ollama(host, p.model, p.options || %{}, prompt, system)
   end
 
   def call_provider(%Provider{type: type} = p, prompt, system)
@@ -58,7 +58,7 @@ defmodule AlexClaw.LLM.Client do
 
     if host == "",
       do: {:error, :host_not_set},
-      else: call_openai_compatible(host, p.model, p.api_key, p.headers, prompt, system)
+      else: call_openai_compatible(host, p.model, p.api_key, p.headers, p.options || %{}, prompt, system)
   end
 
   # --- Provider Embedding Calls ---
@@ -181,13 +181,26 @@ defmodule AlexClaw.LLM.Client do
 
   # --- Ollama ---
 
-  defp call_ollama(host, model, prompt, system) do
-    url = "#{host}/api/generate"
-    body = %{model: model, prompt: prompt, stream: false}
-    body = if system, do: Map.put(body, :system, system), else: body
+  defp call_ollama(host, model, options, prompt, system) do
+    url = "#{host}/api/chat"
+
+    messages =
+      if system do
+        [%{role: "system", content: system}, %{role: "user", content: prompt}]
+      else
+        [%{role: "user", content: prompt}]
+      end
+
+    ollama_opts =
+      options
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+      |> Map.new(fn {k, v} -> {to_string(k), v} end)
+
+    body = %{model: model, messages: messages, stream: false}
+    body = if ollama_opts == %{}, do: body, else: Map.put(body, :options, ollama_opts)
 
     case Req.post(url, json: body, receive_timeout: 300_000) do
-      {:ok, %{status: 200, body: %{"response" => text}}} ->
+      {:ok, %{status: 200, body: %{"message" => %{"content" => text}}}} ->
         {:ok, text}
 
       {:ok, %{status: status, body: resp_body}} ->
@@ -200,7 +213,7 @@ defmodule AlexClaw.LLM.Client do
 
   # --- OpenAI Compatible (LM Studio, GROQ, custom) ---
 
-  defp call_openai_compatible(host, model, api_key, extra_headers, prompt, system) do
+  defp call_openai_compatible(host, model, api_key, extra_headers, options, prompt, system) do
     url = "#{host}/v1/chat/completions"
 
     messages =
@@ -219,11 +232,38 @@ defmodule AlexClaw.LLM.Client do
         headers
       end
 
-    body = %{model: model, messages: messages, stream: false}
+    # OpenAI-compatible APIs use top-level fields, not nested options
+    openai_keys = %{
+      "temperature" => :temperature,
+      "top_p" => :top_p,
+      "max_tokens" => :max_tokens,
+      "num_predict" => :max_tokens
+    }
+
+    openai_opts =
+      Enum.reduce(options, %{}, fn {k, v}, acc ->
+        case Map.get(openai_keys, to_string(k)) do
+          nil -> acc
+          field -> Map.put_new(acc, field, v)
+        end
+      end)
+
+    # Disable thinking mode for models that support it (e.g. Qwen3)
+    thinking = Map.get(options, "thinking", Map.get(options, :thinking))
+
+    body = Map.merge(%{model: model, messages: messages, stream: false}, openai_opts)
+    body = if thinking == false, do: Map.put(body, :chat_template_kwargs, %{enable_thinking: false}), else: body
 
     case Req.post(url, json: body, headers: headers, receive_timeout: 300_000) do
-      {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => text}} | _]}}} ->
-        {:ok, text}
+      {:ok, %{status: 200, body: %{"choices" => [%{"message" => msg} | _]}}} ->
+        text = msg["content"] || ""
+        reasoning = msg["reasoning_content"] || ""
+
+        cond do
+          text != "" -> {:ok, text}
+          reasoning != "" -> {:ok, reasoning}
+          true -> {:error, {:openai_compat, :empty_response}}
+        end
 
       {:ok, %{status: status, body: resp_body}} ->
         {:error, {:openai_compat, status, resp_body}}

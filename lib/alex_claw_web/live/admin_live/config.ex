@@ -167,6 +167,14 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   defp node_setting?(key), do: String.ends_with?(key, ".node")
 
+  defp provider_setting?(key), do: key == "embedding.provider"
+
+  defp provider_names do
+    AlexClaw.LLM.list_providers()
+    |> Enum.filter(& &1.enabled)
+    |> Enum.map(& &1.name)
+  end
+
   defp auto_assign_gateway_node(key, value) when value in ["true", true] do
     # telegram.enabled → telegram.node, discord.enabled → discord.node
     if String.ends_with?(key, ".enabled") do

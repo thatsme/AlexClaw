@@ -35,12 +35,26 @@ RUN mkdir -p priv/self_awareness && \
 RUN mix compile && mix release
 
 # --- Test stage (used by docker-compose.test.yml) ---
-FROM build AS test
+FROM elixir:1.19-otp-28-alpine AS test
 
+RUN apk add --no-cache build-base git
+
+WORKDIR /app
 ENV MIX_ENV=test
 
+COPY mix.exs mix.lock ./
+RUN mix local.hex --force && \
+    mix local.rebar --force && \
+    mix deps.get && \
+    mix deps.compile
+
+COPY config config/
+COPY lib lib/
+COPY priv priv/
 COPY test test/
-RUN mix deps.get && mix deps.compile && mix compile
+COPY ALEXCLAW_ARCHITECTURE.md SECURITY.md ./
+
+RUN mix compile
 CMD ["sh", "-c", "mix ecto.create && mix ecto.migrate && mix test"]
 
 # --- Runtime ---

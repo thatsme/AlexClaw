@@ -34,6 +34,14 @@ defmodule AlexClaw.Skills.CodeGenerator do
     - NEVER put query parameters directly in the URL string. ALWAYS use the params: option:
       WRONG: SkillAPI.http_get(__MODULE__, "https://example.com/api?format=%c")
       RIGHT: SkillAPI.http_get(__MODULE__, "https://example.com/api", params: [format: "%c"])
+  - Accessing args in run/1 — args is a keyword list, config values are string-keyed maps:
+      config = args[:config] || %{}
+      city = config["city"]
+      input = args[:input]
+  - Jason.decode/1 returns STRING keys, never atoms. Always match with strings:
+      WRONG: %{"data" => %{temp_C: 20, humidity: 80}}
+      RIGHT: %{"data" => %{"temp_C" => "20", "humidity" => "80"}}
+  - JSON values from APIs are usually strings, even numbers. Convert with String.to_integer/1 or String.to_float/1 if needed.
   - Return ONLY the code wrapped in ```elixir ... ```, no explanation
   - Check the provided documentation for correct function signatures and return types
   - Erlang modules in docs (e.g. erlang:foo(), os:bar()) are called in Elixir as :erlang.foo(), :os.bar()
@@ -50,7 +58,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
           {:ok, map()} | {:error, term(), String.t() | nil}
   def generate_step(goal, skill_name, context_source, provider, error_context) do
     kb_context = gather_knowledge(goal, context_source)
+    Logger.info("Forge context: #{String.length(kb_context)} chars for goal '#{String.slice(goal, 0, 60)}'")
     prompt = build_prompt(goal, skill_name, kb_context, error_context)
+    Logger.info("Forge prompt: #{String.length(prompt)} chars total")
 
     llm_opts =
       case provider do
@@ -60,6 +70,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
     case SkillAPI.llm_complete(AlexClaw.Skills.Coder, prompt, Keyword.merge(llm_opts, system: @system_prompt)) do
       {:ok, response} ->
+        Logger.info("Forge raw response (first 500 chars): #{String.slice(response, 0, 500)}")
         case extract_code(response) do
           {:ok, code} ->
             try_load(code, skill_name)
@@ -113,13 +124,16 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @spec gather_knowledge(String.t(), String.t()) :: String.t()
   def gather_knowledge(goal, context_source \\ "both") do
     unless context_source == "none" do
-      template_chunks = search_kb("AlexClaw Skill behaviour SkillAPI dynamic template", 2)
-      goal_chunks = search_kb(goal, 2)
+      # Always include skill template and behaviour — these are critical for correct generation
+      template_chunks = fetch_by_source(~w(self:skill_template self:skill_behaviour))
+      # Real skill examples for pattern reference
+      skill_chunks = search_kb(goal, 2, kind: "skill_source")
+      # Goal-relevant docs (hexdocs, guides)
+      goal_chunks = search_kb(goal, 3)
       erlang_chunks = search_kb(goal, 1, kind: "erlang_docs")
       elixir_chunks = search_kb(goal, 1, kind: "elixir_source")
-      skill_chunks = search_kb(goal, 1, kind: "skill_source")
 
-      (template_chunks ++ erlang_chunks ++ elixir_chunks ++ goal_chunks ++ skill_chunks)
+      (template_chunks ++ skill_chunks ++ goal_chunks ++ erlang_chunks ++ elixir_chunks)
       |> Enum.uniq_by(& &1.id)
       |> Enum.map_join("\n---\n", & &1.content)
     else
@@ -130,12 +144,15 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @doc "Extract Elixir code from a fenced code block in LLM response."
   @spec extract_code(String.t()) :: {:ok, String.t()} | :no_code_block
   def extract_code(response) do
-    case Regex.run(~r/```elixir\s*\n(.*?)```/s, response) do
+    # Strip Qwen3-style <think>...</think> blocks before extracting code
+    cleaned = Regex.replace(~r/<think>.*?<\/think>/s, response, "")
+
+    case Regex.run(~r/```elixir\s*\n(.*?)```/s, cleaned) do
       [_, code] ->
         {:ok, String.trim(code)}
 
       nil ->
-        case Regex.run(~r/```\s*\n(.*?)```/s, response) do
+        case Regex.run(~r/```\s*\n(.*?)```/s, cleaned) do
           [_, code] -> {:ok, String.trim(code)}
           nil -> :no_code_block
         end
@@ -232,6 +249,22 @@ defmodule AlexClaw.Skills.CodeGenerator do
   def error_to_hint({:write_failed, reason}), do: "Failed to write skill file: #{inspect(reason)}"
   def error_to_hint({:llm_failed, reason}), do: "LLM call failed: #{inspect(reason)}"
   def error_to_hint(other), do: "Error: #{inspect(other)}"
+
+  defp fetch_by_source(source_prefixes) do
+    import Ecto.Query
+
+    conditions =
+      Enum.reduce(source_prefixes, dynamic(false), fn prefix, acc ->
+        dynamic([e], ^acc or ilike(e.source, ^"#{prefix}%"))
+      end)
+
+    AlexClaw.Repo.all(
+      from(e in AlexClaw.Knowledge.Entry,
+        where: ^conditions,
+        order_by: [asc: e.source, asc: e.id]
+      )
+    )
+  end
 
   @spec search_kb(String.t(), non_neg_integer(), keyword()) :: [map()]
   defp search_kb(query, limit, opts \\ []) do

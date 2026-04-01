@@ -49,7 +49,7 @@
     No settings configured yet.
   </div>
 
-  <div :for={{cat, label, items} <- @grouped} class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+  <div :for={{cat, label, items} <- @grouped} class="bg-gray-900 rounded-lg border border-gray-800 overflow-visible">
     <button phx-click="toggle_group" phx-value-group={cat}
       class="w-full flex items-center justify-between px-4 py-3 bg-gray-800 hover:bg-gray-750 transition cursor-pointer text-left">
       <div class="flex items-center gap-3">
@@ -79,6 +79,10 @@
                 <div class="flex items-center gap-2 mb-2">
                   <span class="font-mono text-sm text-white">{setting.key}</span>
                   <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{setting.type}</span>
+                  <span :if={setting.description && setting.description != ""} class="relative inline-block group">
+                    <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-700 text-gray-400 text-xs cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
+                    <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50">{setting.description}</span>
+                  </span>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
@@ -105,6 +109,12 @@
                       <option :for={n <- @cluster_nodes} value={n} selected={setting.value == n}>{n}</option>
                     </select>
                   <% else %>
+                  <%= if provider_setting?(setting.key) do %>
+                    <select name="value" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm">
+                      <option value="">-- auto-detect --</option>
+                      <option :for={name <- provider_names()} value={name} selected={setting.value == name}>{name}</option>
+                    </select>
+                  <% else %>
                     <%= if sensitive_key?(setting.key) do %>
                       <input type="password" name="value" placeholder={mask_value(setting.value)}
                         class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono" />
@@ -114,6 +124,7 @@
                       <textarea name="value" rows="2"
                         class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono">{setting.value}</textarea>
                     <% end %>
+                  <% end %>
                   <% end %>
                 </div>
                 <div class="flex items-center gap-2">
@@ -133,7 +144,13 @@
               </form>
             </td>
           <% else %>
-            <td class="px-4 py-2.5 text-sm font-mono text-white truncate" title={setting.key}>{setting.key}</td>
+            <td class="px-4 py-2.5 text-sm font-mono text-white overflow-visible">
+              <span class="truncate inline-block max-w-[85%] align-middle">{setting.key}</span>
+              <span :if={setting.description && setting.description != ""} class="relative inline-block group ml-1 align-middle">
+                <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-gray-700 text-gray-400 text-[10px] cursor-help group-hover:bg-yellow-400 group-hover:text-black transition">?</span>
+                <span class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-yellow-400 text-black text-xs rounded shadow-lg w-64 hidden group-hover:block z-50 pointer-events-none">{setting.description}</span>
+              </span>
+            </td>
             <td class="px-4 py-2.5 text-sm font-mono text-gray-300 truncate" title={if(!sensitive_key?(setting.key), do: setting.value, else: "")}>
               <span :if={sensitive_key?(setting.key)} class="text-gray-500">{display_value(setting)}</span>
               <span :if={!sensitive_key?(setting.key)}>{display_value(setting)}</span>

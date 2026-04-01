@@ -200,6 +200,8 @@ These are rough guidelines — actual fit depends on quantization, context lengt
    ```
 5. Restart: `docker compose restart alexclaw-prod`
 
+Ollama uses the `/api/chat` endpoint (messages format). After boot, per-provider inference options (e.g., `num_ctx`, `temperature`) can be configured from **Admin > LLM Providers** — stored in an `options` JSON column on each provider.
+
 ### LM Studio
 
 1. Install [LM Studio](https://lmstudio.ai/) on your host machine

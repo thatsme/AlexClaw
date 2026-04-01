@@ -13,7 +13,7 @@ defmodule AlexClaw.Skills.RoutesTest do
     AlexClaw.Skills.ApiRequest => [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error],
     AlexClaw.Skills.GoogleCalendar => [:on_events, :on_empty, :on_error],
     AlexClaw.Skills.GoogleTasks => [:on_tasks, :on_empty, :on_error],
-    AlexClaw.Skills.GitHubSecurityReview => [:on_clean, :on_findings, :on_error],
+    AlexClaw.Skills.GitHubSecurityReview => [:on_diff, :on_empty, :on_error],
     AlexClaw.Skills.WebAutomation => [:on_success, :on_timeout, :on_error]
   }
 

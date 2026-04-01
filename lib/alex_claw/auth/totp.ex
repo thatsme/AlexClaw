@@ -18,8 +18,9 @@ defmodule AlexClaw.Auth.TOTP do
 
   alias AlexClaw.Config
 
-  @issuer "AlexClaw"
   @account "admin"
+
+  defp issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
 
   # Pending 2FA challenges: chat_id -> %{action: ..., expires_at: ...}
   @challenges_table :totp_challenges
@@ -39,8 +40,8 @@ defmodule AlexClaw.Auth.TOTP do
     secret = NimbleTOTP.secret()
 
     uri =
-      NimbleTOTP.otpauth_uri("#{@issuer}:#{@account}", secret,
-        issuer: @issuer
+      NimbleTOTP.otpauth_uri("#{issuer()}:#{@account}", secret,
+        issuer: issuer()
       )
 
     qr_png =

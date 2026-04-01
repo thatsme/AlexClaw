@@ -20,6 +20,7 @@ defmodule AlexClaw.LLM.Provider do
     field :headers, :map, default: %{}
     field :enabled, :boolean, default: true
     field :priority, :integer, default: 100
+    field :options, :map, default: %{}
 
     timestamps(type: :utc_datetime)
   end
@@ -27,7 +28,7 @@ defmodule AlexClaw.LLM.Provider do
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(provider, attrs) do
     provider
-    |> cast(attrs, [:name, :type, :tier, :host, :model, :api_key, :daily_limit, :headers, :enabled, :priority])
+    |> cast(attrs, [:name, :type, :tier, :host, :model, :api_key, :daily_limit, :headers, :enabled, :priority, :options])
     |> validate_required([:name, :type, :tier, :model])
     |> validate_inclusion(:tier, @allowed_tiers)
     |> validate_inclusion(:type, @allowed_types)

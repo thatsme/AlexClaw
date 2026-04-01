@@ -18,8 +18,8 @@ skill:coder with input "Monitor CPU temperature from /sys/class/thermal"
 
 ## How It Works
 
-1. **Goal parsing** — the natural language description is sent to the local LLM with a system prompt containing the Skill behaviour spec and SkillAPI reference
-2. **Code generation** — the LLM generates a complete Elixir module in the `AlexClaw.Skills.Dynamic.*` namespace
+1. **Goal parsing** — the natural language description is sent to the local LLM with an improved system prompt containing the Skill behaviour spec, SkillAPI reference, args/JSON key examples, and the skill template fetched directly from the database
+2. **Code generation** — the LLM generates a complete Elixir module in the `AlexClaw.Skills.Dynamic.*` namespace. `<think>` tags (from models like Qwen3 in thinking mode) are stripped from the response before code extraction
 3. **Validation** — the generated code is syntax-checked and compiled in a sandbox
 4. **Loading** — if valid, the skill is loaded into the SkillRegistry and becomes immediately available
 

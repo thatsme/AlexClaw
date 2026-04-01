@@ -130,7 +130,20 @@ defmodule AlexClaw.Knowledge do
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       sandbox_allow(caller)
-      embed_entry(entry)
+
+      # Throttle concurrent embedding requests to avoid overwhelming Ollama/Finch pool
+      case AlexClaw.Knowledge.EmbedThrottle.acquire() do
+        :ok ->
+          try do
+            embed_entry(entry)
+          after
+            AlexClaw.Knowledge.EmbedThrottle.release()
+          end
+
+        :drop ->
+          # Queue is full — schedule a retry via reembed_all later
+          Logger.warning("Embedding throttled for entry #{entry.id}, will retry via reembed_all")
+      end
     end)
   end
 

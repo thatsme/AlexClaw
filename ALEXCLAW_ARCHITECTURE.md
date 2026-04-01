@@ -104,11 +104,11 @@ DynamicSupervisor. Each skill execution runs as an isolated OTP process. Crashes
 
 Every LLM call declares a tier requirement. The router queries the `llm_providers` table for enabled providers matching that tier, ordered by `priority` (lower = preferred). If no provider is available for the requested tier, it falls back to the `local` tier.
 
-All providers — cloud and local — are stored in PostgreSQL with type (`openai_compatible`, `ollama`, `gemini`, `anthropic`, `custom`), tier assignment, priority, and optional daily limits. Default providers (Gemini Flash/Pro, Claude Haiku/Sonnet/Opus, Ollama, LM Studio) are seeded on first boot by `ProviderSeeder`. Additional providers can be added, removed, or reconfigured from the admin UI at runtime.
+All providers — cloud and local — are stored in PostgreSQL with type (`openai_compatible`, `ollama`, `gemini`, `anthropic`, `custom`), tier assignment, priority, optional daily limits, and per-provider inference options (`options` JSONB column — e.g., `num_ctx`, `temperature`). Ollama uses the `/api/chat` endpoint (messages format). Default providers (Gemini Flash/Pro, Claude Haiku/Sonnet/Opus, Ollama, LM Studio) are seeded on first boot by `ProviderSeeder`. Additional providers can be added, removed, or reconfigured from the admin UI at runtime.
 
 Usage counters are keyed by `{provider_id, Date.utc_today()}` in ETS and persisted to the `llm_usage` table so counts survive restarts.
 
-**Embedding support:** `LLM.embed/2` generates 768-dimension vectors for semantic memory search. Provider resolution is separate from the completion tier system — configured via `embedding.provider` (or auto-detected: Gemini → Ollama → OpenAI-compatible). Each provider type has a dedicated response parser (Gemini `embedContent`, Ollama `/api/embed`, OpenAI `/v1/embeddings`). Embedding calls are tracked in the same usage counters as completions.
+**Embedding support:** `LLM.embed/2` generates 768-dimension vectors for semantic memory search. Provider resolution is separate from the completion tier system — configured via `embedding.provider` (dropdown of enabled provider names in the Admin UI, or auto-detected: Gemini → Ollama → OpenAI-compatible). Each provider type has a dedicated response parser (Gemini `embedContent`, Ollama `/api/embed`, OpenAI `/v1/embeddings`). Concurrent embedding requests are throttled by `EmbedThrottle` (a GenServer limiter). Embedding calls are tracked in the same usage counters as completions.
 
 ### Memory — `AlexClaw.Memory`
 

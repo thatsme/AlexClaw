@@ -16,8 +16,8 @@
       </div>
       <div>
         <label class="block text-xs text-gray-500 mb-1">Type</label>
-        <select name="type" class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
-          <option :for={t <- @provider_types} value={t} selected={@editing && @editing.type == t}>{t}</option>
+        <select name="type" phx-change="type_changed" class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+          <option :for={t <- @provider_types} value={t} selected={@form_type == t}>{t}</option>
         </select>
       </div>
       <div>
@@ -64,6 +64,67 @@
           <option value="true" selected={!@editing || @editing.enabled}>Yes</option>
           <option value="false" selected={@editing && !@editing.enabled}>No</option>
         </select>
+      </div>
+      <div class="md:col-span-3 border-t border-gray-800 pt-3 mt-1">
+        <h4 class="text-xs text-gray-500 uppercase mb-2">Inference Options</h4>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div :if={show_option?(@form_type, "num_ctx")}>
+            <label class="block text-xs text-gray-500 mb-1">Context Window (num_ctx)</label>
+            <input type="number" name="opt_num_ctx" placeholder="default"
+              value={get_option(@editing, "num_ctx")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "num_predict")}>
+            <label class="block text-xs text-gray-500 mb-1">Max Tokens (num_predict)</label>
+            <input type="number" name="opt_num_predict" placeholder="default"
+              value={get_option(@editing, "num_predict")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "temperature")}>
+            <label class="block text-xs text-gray-500 mb-1">Temperature</label>
+            <input type="number" name="opt_temperature" step="0.1" min="0" max="2" placeholder="default"
+              value={get_option(@editing, "temperature")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "top_p")}>
+            <label class="block text-xs text-gray-500 mb-1">Top P</label>
+            <input type="number" name="opt_top_p" step="0.05" min="0" max="1" placeholder="default"
+              value={get_option(@editing, "top_p")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "top_k")}>
+            <label class="block text-xs text-gray-500 mb-1">Top K</label>
+            <input type="number" name="opt_top_k" placeholder="default"
+              value={get_option(@editing, "top_k")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "repeat_penalty")}>
+            <label class="block text-xs text-gray-500 mb-1">Repeat Penalty</label>
+            <input type="number" name="opt_repeat_penalty" step="0.05" min="0" placeholder="default"
+              value={get_option(@editing, "repeat_penalty")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "num_thread")}>
+            <label class="block text-xs text-gray-500 mb-1">CPU Threads (num_thread)</label>
+            <input type="number" name="opt_num_thread" placeholder="default"
+              value={get_option(@editing, "num_thread")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "num_gpu")}>
+            <label class="block text-xs text-gray-500 mb-1">GPU Layers (num_gpu)</label>
+            <input type="number" name="opt_num_gpu" placeholder="99 = all"
+              value={get_option(@editing, "num_gpu")}
+              class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+          </div>
+          <div :if={show_option?(@form_type, "thinking")}>
+            <label class="block text-xs text-gray-500 mb-1">Thinking (Qwen3)</label>
+            <select name="opt_thinking" class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+              <option value="" selected={get_option(@editing, "thinking") == ""}>default</option>
+              <option value="true" selected={get_option(@editing, "thinking") == true}>enabled</option>
+              <option value="false" selected={get_option(@editing, "thinking") == false}>disabled</option>
+            </select>
+          </div>
+        </div>
       </div>
       <div class="flex items-end space-x-2">
         <button type="submit" class="px-3 py-1.5 bg-green-700 hover:bg-green-600 text-white text-sm rounded transition">

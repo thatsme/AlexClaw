@@ -64,6 +64,10 @@ All variables are set in the `.env` file. Values are seeded to the database on f
 |---|---|---|
 | `BACKUP_DIR` | `./backups` | Host path for database backups |
 
+## Post-Boot Provider Options
+
+After first boot, per-provider inference options (e.g., `num_ctx`, `temperature`, `top_p`) are managed exclusively via the Admin UI on the LLM Providers page. These are stored in an `options` JSON column on the `llm_providers` table and are not configurable through environment variables.
+
 ## See Also
 
 The full list with defaults is in [`.env.example`](https://github.com/thatsme/AlexClaw/blob/main/.env.example).

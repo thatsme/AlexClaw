@@ -120,14 +120,23 @@ PostgreSQL + pgvector knowledge store. Schema:
 - `embedding` — pgvector column (768 dimensions, HNSW index with cosine distance)
 - `metadata` — JSONB
 - `expires_at` — optional TTL
+- `embedding_model` — which model generated the embedding (staleness detection)
+- `embedding_dim` — vector dimension count
+- `embedded_at` — timestamp of embedding generation
+- `parent_id` — self-referential FK for chunk→parent relationship
+- `chunk_index` — position within parent (0-based)
 
-**Async embedding:** `Memory.store/3` inserts the row immediately with a nil embedding, then fires a background task under `TaskSupervisor` to generate the vector via `LLM.embed/2` and update the row. This keeps skill execution non-blocking.
+**Async embedding:** `Memory.store/3` inserts the row immediately with a nil embedding, then fires a background task under `TaskSupervisor` to generate the vector via `LLM.embed/2` and update the row with embedding metadata. This keeps skill execution non-blocking.
 
-**Hybrid search:** `Memory.search/2` runs both vector similarity and keyword (ILIKE) queries in parallel, merges results with `Enum.uniq_by/2` (vector results first), and returns the top N. Falls back to keyword-only when no embedding provider is available.
+**Semantic chunking:** Content longer than 2000 characters is automatically split via `RAG.Chunker` on semantic boundaries (markdown headers, function definitions, paragraphs). Parent retains full content without embedding; child chunks get individual embeddings. Search deduplicates chunks from the same parent.
+
+**Hybrid search with RAG pipeline:** `Memory.search/2` supports `min_score` (cosine similarity threshold via SQL), `rewrite` (query expansion via light-tier LLM with ETS cache), and chunk deduplication. Falls back to keyword-only when no embedding provider is available.
 
 **Embedding providers:** `LLM.embed/2` resolves a provider via `embedding.provider` config (or auto-detects: Gemini → Ollama → OpenAI-compatible). Supports Gemini `text-embedding-004` (free tier), Ollama `/api/embed`, and any OpenAI-compatible `/v1/embeddings` endpoint.
 
-**Re-embedding:** `Memory.reembed_all/1` batch-processes all entries with nil embeddings in the background using `Task.async_stream` with configurable concurrency. Used when switching embedding models.
+**Re-embedding & staleness:** `Memory.reembed_all/1` batch-processes entries with nil embeddings. `stale_embedding_count/1` detects entries embedded with a different model than the current config. Services page shows stale count.
+
+**Fallback routing:** `RAG.Fallback.search_with_fallback/2` searches both Memory and Knowledge with rewriting + grading, omits context when nothing found. Used by the Research skill.
 
 Deduplication by URL/content via `Memory.exists?/1`.
 

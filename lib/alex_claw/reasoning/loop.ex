@@ -180,13 +180,52 @@ defmodule AlexClaw.Reasoning.Loop do
     {:noreply, %{state | task_ref: task.ref}}
   end
 
-  def handle_continue(:decide, state) do
-    state = %{state | status: :deciding}
-    update_session_status(state, "deciding")
-    broadcast(:phase_change, phase_data(state, :deciding))
+  def handle_continue(:maybe_compress, state) do
+    if rem(state.iteration, 3) == 0 and byte_size(state.working_memory || "") > 500 do
+      Logger.info("[ReasoningLoop] Compressing working memory at iteration #{state.iteration}")
+      task = spawn_llm_task(fn -> run_compression(state) end)
+      {:noreply, %{state | task_ref: task.ref}}
+    else
+      {:noreply, state, {:continue, :decide}}
+    end
+  end
 
-    task = spawn_llm_task(fn -> run_decision(state) end)
-    {:noreply, %{state | task_ref: task.ref}}
+  def handle_continue(:decide, state) do
+    # Deterministic pre-filter: handle obvious decisions without LLM call
+    case deterministic_decision(state) do
+      {:decided, action, reason} ->
+        Logger.info("[ReasoningLoop] Deterministic decision: #{action} — #{reason}")
+
+        Reasoning.record_step(%{
+          session_id: state.session_id,
+          iteration: state.iteration,
+          phase: "decide",
+          decision: to_string(action),
+          working_memory_snapshot: state.working_memory,
+          duration_ms: 0
+        })
+
+        broadcast(:phase_change, phase_data(state, :deciding))
+
+        case action do
+          :force_summary ->
+            # All steps done — produce final answer via LLM
+            task = spawn_llm_task(fn -> run_forced_summary(state) end)
+            {:noreply, %{state | task_ref: task.ref}}
+
+          _ ->
+            handle_decision(to_string(action), %{}, 0.0, state)
+        end
+
+      :ambiguous ->
+        # Genuinely ambiguous — ask the LLM
+        state = %{state | status: :deciding}
+        update_session_status(state, "deciding")
+        broadcast(:phase_change, phase_data(state, :deciding))
+
+        task = spawn_llm_task(fn -> run_decision(state) end)
+        {:noreply, %{state | task_ref: task.ref}}
+    end
   end
 
   def handle_continue(:resume, state) do
@@ -467,6 +506,8 @@ defmodule AlexClaw.Reasoning.Loop do
     completed = summarize_completed_steps(state)
     plan_summary = summarize_plan(state.plan)
 
+    score_trend = calculate_score_trend(state)
+
     prompt =
       Prompts.decision(%{
         goal: state.goal,
@@ -476,7 +517,8 @@ defmodule AlexClaw.Reasoning.Loop do
         max_iterations: state.config.max_iterations,
         consecutive_failures: state.consecutive_failures,
         working_memory: state.working_memory,
-        user_guidance: state.user_guidance
+        user_guidance: state.user_guidance,
+        score_trend: score_trend
       })
 
     system = "You are a decision-making assistant. Always respond with valid JSON only."
@@ -513,6 +555,36 @@ defmodule AlexClaw.Reasoning.Loop do
 
     duration = System.monotonic_time(:millisecond) - started
     {:user_override, {skill_name, input, result, duration}}
+  end
+
+  defp run_compression(state) do
+    started = System.monotonic_time(:millisecond)
+
+    prompt = """
+    You are compressing a working memory string. Keep ONLY essential facts, decisions, and results.
+    Discard process notes, redundant observations, and stale information.
+
+    Goal: #{state.goal}
+    Current iteration: #{state.iteration}
+
+    Working memory to compress:
+    #{state.working_memory}
+
+    Respond with ONLY valid JSON:
+    {"compressed": "the compressed essential facts only"}
+    """
+
+    system = "You are a context compressor. Respond with valid JSON only."
+
+    case call_local_llm(prompt, system) do
+      {:ok, raw} ->
+        duration = System.monotonic_time(:millisecond) - started
+        {:compression, {:ok, raw, duration}}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - started
+        {:compression, {:error, inspect(reason), duration}}
+    end
   end
 
   defp run_forced_summary(state) do
@@ -569,16 +641,36 @@ defmodule AlexClaw.Reasoning.Loop do
       duration_ms: duration
     })
 
-    case Map.get(parsed, "error") do
-      nil ->
-        Reasoning.update_session(state.session, %{plan: %{"steps" => steps}, working_memory: wm})
-        state = %{state | plan: steps, working_memory: wm, current_step_index: 0}
-        broadcast(:plan_ready, %{session_id: state.session_id, steps: steps})
-        {:noreply, state, {:continue, :execute_step}}
-
-      error_msg ->
-        finish_session(state, :stuck, "Cannot achieve goal: #{error_msg}")
+    cond do
+      Map.get(parsed, "error") ->
+        finish_session(state, :stuck, "Cannot achieve goal: #{parsed["error"]}")
         {:stop, :normal, state}
+
+      steps == [] ->
+        finish_session(state, :stuck, "Plan has no steps")
+        {:stop, :normal, state}
+
+      true ->
+        case validate_plan(steps, state.config.skill_whitelist) do
+          {:ok, valid_steps} ->
+            Reasoning.update_session(state.session, %{plan: %{"steps" => valid_steps}, working_memory: wm})
+            state = %{state | plan: valid_steps, working_memory: wm, current_step_index: 0}
+            broadcast(:plan_ready, %{session_id: state.session_id, steps: valid_steps})
+            {:noreply, state, {:continue, :execute_step}}
+
+          {:error, errors} ->
+            Logger.warning("[ReasoningLoop] Plan validation failed: #{errors}")
+            # Inject validation errors into working memory and retry planning
+            wm_with_errors = "#{wm}\n[PLAN VALIDATION FAILED] #{errors}. Fix these issues in the next plan."
+            state = %{state | working_memory: wm_with_errors, consecutive_failures: state.consecutive_failures + 1}
+
+            if state.consecutive_failures >= state.config.stuck_threshold do
+              finish_session(state, :stuck, "Planning repeatedly failed validation: #{errors}")
+              {:stop, :normal, state}
+            else
+              {:noreply, state, {:continue, :start_planning}}
+            end
+        end
     end
   end
 
@@ -694,10 +786,10 @@ defmodule AlexClaw.Reasoning.Loop do
 
     if quality == "failed" do
       state = %{state | consecutive_failures: state.consecutive_failures + 1}
-      {:noreply, state, {:continue, :decide}}
+      {:noreply, state, {:continue, :maybe_compress}}
     else
       state = %{state | consecutive_failures: 0}
-      {:noreply, state, {:continue, :decide}}
+      {:noreply, state, {:continue, :maybe_compress}}
     end
   end
 
@@ -791,6 +883,31 @@ defmodule AlexClaw.Reasoning.Loop do
     end
   end
 
+  defp handle_phase_result(:compression, {:ok, raw, duration}, state) do
+    state = increment_llm_calls(state)
+
+    compressed =
+      case PromptParser.extract_answer(raw) do
+        {:ok, text} -> text
+        :fallback ->
+          # Try extracting "compressed" key
+          case Jason.decode(raw) do
+            {:ok, %{"compressed" => text}} -> text
+            _ -> state.working_memory
+          end
+      end
+
+    Logger.info("[ReasoningLoop] Working memory compressed: #{byte_size(state.working_memory)} → #{byte_size(compressed)} bytes")
+    state = %{state | working_memory: compressed}
+    persist_working_memory(state)
+    {:noreply, state, {:continue, :decide}}
+  end
+
+  defp handle_phase_result(:compression, {:error, _reason, _duration}, state) do
+    # Compression failed — proceed with uncompressed memory
+    {:noreply, state, {:continue, :decide}}
+  end
+
   defp handle_phase_result(:forced_summary, {:ok, raw, prompt, duration}, state) do
     state = increment_llm_calls(state)
 
@@ -869,15 +986,24 @@ defmodule AlexClaw.Reasoning.Loop do
     else
       new_plan = Map.get(parsed, "new_plan", [])
 
-      if is_list(new_plan) and length(new_plan) > 0 do
-        Reasoning.update_session(state.session, %{plan: %{"steps" => new_plan}})
-        state = %{state | plan: new_plan, current_step_index: 0, iteration: state.iteration + 1}
-        Reasoning.increment_iteration(state.session)
-        broadcast(:plan_adjusted, %{session_id: state.session_id, new_plan: new_plan})
-        {:noreply, state, {:continue, :execute_step}}
-      else
-        # Invalid new plan — retry decision
-        {:noreply, state, {:continue, :decide}}
+      cond do
+        !is_list(new_plan) or new_plan == [] ->
+          # Invalid new plan — retry decision
+          {:noreply, state, {:continue, :decide}}
+
+        true ->
+          case validate_plan(new_plan, state.config.skill_whitelist) do
+            {:ok, valid_steps} ->
+              Reasoning.update_session(state.session, %{plan: %{"steps" => valid_steps}})
+              state = %{state | plan: valid_steps, current_step_index: 0, iteration: state.iteration + 1}
+              Reasoning.increment_iteration(state.session)
+              broadcast(:plan_adjusted, %{session_id: state.session_id, new_plan: valid_steps})
+              {:noreply, state, {:continue, :execute_step}}
+
+            {:error, _errors} ->
+              # Bad adjusted plan — retry decision instead of executing garbage
+              {:noreply, state, {:continue, :decide}}
+          end
       end
     end
   end
@@ -1135,6 +1261,104 @@ defmodule AlexClaw.Reasoning.Loop do
     |> case do
       "" -> "No plan yet."
       text -> text
+    end
+  end
+
+  defp deterministic_decision(state) do
+    all_steps_done = state.current_step_index >= length(state.plan)
+    last_eval_good = last_evaluation_quality(state) == "good"
+
+    cond do
+      # All plan steps executed successfully and last eval was good → force summary
+      all_steps_done and last_eval_good and state.consecutive_failures == 0 ->
+        {:decided, :force_summary, "all plan steps completed with good evaluation"}
+
+      # All plan steps done but last eval was bad → need to adjust
+      all_steps_done and not last_eval_good ->
+        :ambiguous
+
+      # Consecutive failures at threshold → stuck
+      state.consecutive_failures >= state.config.stuck_threshold ->
+        {:decided, :stuck, "#{state.consecutive_failures} consecutive failures"}
+
+      # Still have plan steps remaining and no failures → continue
+      not all_steps_done and state.consecutive_failures == 0 ->
+        {:decided, :continue, "plan step #{state.current_step_index + 1} of #{length(state.plan)} remaining"}
+
+      # Everything else is genuinely ambiguous
+      true ->
+        :ambiguous
+    end
+  end
+
+  defp calculate_score_trend(state) do
+    scores =
+      state.session_id
+      |> Reasoning.list_steps()
+      |> Enum.filter(&(&1.phase == "evaluate" and &1.rubric_scores))
+      |> Enum.take(-3)
+      |> Enum.map(fn step ->
+        rubric = step.rubric_scores
+        vals =
+          ["relevance", "completeness", "usability", "goal_progress"]
+          |> Enum.map(fn k ->
+            case Map.get(rubric, k) do
+              v when is_number(v) -> v
+              _ -> nil
+            end
+          end)
+          |> Enum.reject(&is_nil/1)
+
+        if vals == [], do: nil, else: Enum.sum(vals) / length(vals)
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    case scores do
+      [] -> nil
+      [_single] -> %{scores: scores, trend: 0.0}
+      _ ->
+        # Simple trend: average difference between consecutive scores
+        diffs =
+          scores
+          |> Enum.chunk_every(2, 1, :discard)
+          |> Enum.map(fn [a, b] -> b - a end)
+
+        trend = Enum.sum(diffs) / length(diffs)
+        %{scores: scores, trend: trend}
+    end
+  end
+
+  defp last_evaluation_quality(state) do
+    state.session_id
+    |> Reasoning.list_steps()
+    |> Enum.filter(&(&1.phase == "evaluate" and &1.rubric_scores))
+    |> List.last()
+    |> case do
+      nil -> nil
+      step -> Map.get(step.rubric_scores, "quality")
+    end
+  end
+
+  defp validate_plan(steps, whitelist) do
+    {valid, errors} =
+      Enum.reduce(steps, {[], []}, fn step, {valid_acc, err_acc} ->
+        skill = step["skill"]
+
+        cond do
+          is_nil(skill) or skill == "" ->
+            {valid_acc, ["Step #{step["step"]}: missing skill name" | err_acc]}
+
+          skill not in whitelist ->
+            {valid_acc, ["Step #{step["step"]}: skill '#{skill}' not in whitelist" | err_acc]}
+
+          true ->
+            {[step | valid_acc], err_acc}
+        end
+      end)
+
+    case errors do
+      [] -> {:ok, Enum.reverse(valid)}
+      errs -> {:error, Enum.reverse(errs) |> Enum.join("; ")}
     end
   end
 

@@ -95,6 +95,7 @@ defmodule AlexClaw.Reasoning.Prompts do
   Completed steps so far: {completed_steps}
   Current iteration: {iteration} of {max_iterations}
   Consecutive failures: {consecutive_failures}
+  {score_trend_section}
 
   Current understanding:
   {working_memory}
@@ -107,7 +108,7 @@ defmodule AlexClaw.Reasoning.Prompts do
     "confidence": 0.8,
     "reason": "why this action",
     "question": "only if action is ask_user — what do you need from the user?",
-    "new_plan": "only if action is adjust — array of new step objects",
+    "new_plan": "only if action is adjust — array of new step objects with 'skill' and 'input_description' fields",
     "final_answer": "only if action is done — the complete answer to the goal",
     "working_memory": "updated understanding"
   }
@@ -116,7 +117,7 @@ defmodule AlexClaw.Reasoning.Prompts do
   - "done" if the goal has been achieved — include confidence (0.0-1.0) and final_answer
   - "stuck" if you cannot make progress
   - "ask_user" if you need clarification — include the question
-  - "adjust" if the plan needs changing — include new_plan as JSON array
+  - "adjust" if the plan needs changing — include new_plan as JSON array where each step has "skill" and "input_description"
   - "continue" to proceed with the next planned step
   """
 
@@ -182,8 +183,9 @@ defmodule AlexClaw.Reasoning.Prompts do
         consecutive_failures: failures,
         working_memory: wm,
         user_guidance: guidance
-      }) do
+      } = params) do
     template = config_or_default("prompts.reasoning.decision", @default_decision_prompt)
+    score_trend = Map.get(params, :score_trend)
 
     template
     |> replace("{goal}", goal)
@@ -192,8 +194,22 @@ defmodule AlexClaw.Reasoning.Prompts do
     |> replace("{iteration}", to_string(iteration))
     |> replace("{max_iterations}", to_string(max_iter))
     |> replace("{consecutive_failures}", to_string(failures))
+    |> replace("{score_trend_section}", score_trend_section(score_trend))
     |> replace("{working_memory}", wm || "")
     |> replace("{user_guidance_section}", guidance_section(guidance))
+  end
+
+  defp score_trend_section(nil), do: ""
+
+  defp score_trend_section(%{scores: scores, trend: trend}) do
+    scores_str = scores |> Enum.map(&Float.round(&1, 1)) |> Enum.join(" → ")
+    direction = cond do
+      trend > 0.3 -> "improving"
+      trend < -0.3 -> "DEGRADING — consider adjusting approach"
+      true -> "stable"
+    end
+
+    "Evaluation score trend (last #{length(scores)} steps): #{scores_str} (#{direction})"
   end
 
   defp guidance_section(nil), do: ""

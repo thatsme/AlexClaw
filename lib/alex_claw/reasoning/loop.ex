@@ -1265,25 +1265,27 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   defp deterministic_decision(state) do
-    all_steps_done = state.current_step_index >= length(state.plan)
+    # current_step_index points at the step that just executed (0-based)
+    # "last step" means the next index would be past the plan
+    on_last_step = state.current_step_index >= length(state.plan) - 1
     last_eval_good = last_evaluation_quality(state) == "good"
 
     cond do
-      # All plan steps executed successfully and last eval was good → force summary
-      all_steps_done and last_eval_good and state.consecutive_failures == 0 ->
-        {:decided, :force_summary, "all plan steps completed with good evaluation"}
-
-      # All plan steps done but last eval was bad → need to adjust
-      all_steps_done and not last_eval_good ->
-        :ambiguous
-
-      # Consecutive failures at threshold → stuck
+      # Consecutive failures at threshold → stuck (check first, highest priority)
       state.consecutive_failures >= state.config.stuck_threshold ->
         {:decided, :stuck, "#{state.consecutive_failures} consecutive failures"}
 
+      # Last plan step executed and eval was good → produce final answer
+      on_last_step and last_eval_good and state.consecutive_failures == 0 ->
+        {:decided, :force_summary, "all plan steps completed with good evaluation"}
+
+      # Last plan step done but eval was bad → need LLM to decide (adjust or retry)
+      on_last_step and not last_eval_good ->
+        :ambiguous
+
       # Still have plan steps remaining and no failures → continue
-      not all_steps_done and state.consecutive_failures == 0 ->
-        {:decided, :continue, "plan step #{state.current_step_index + 1} of #{length(state.plan)} remaining"}
+      not on_last_step and state.consecutive_failures == 0 ->
+        {:decided, :continue, "plan step #{state.current_step_index + 2} of #{length(state.plan)} remaining"}
 
       # Everything else is genuinely ambiguous
       true ->

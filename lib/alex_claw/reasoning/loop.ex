@@ -118,9 +118,9 @@ defmodule AlexClaw.Reasoning.Loop do
           recent_actions: []
         }
 
-        # Set time budget hard kill timer
+        # Initial timer covers planning phase only (2 min generous)
         time_budget_ref =
-          Process.send_after(self(), :time_budget_exceeded, config.time_budget_ms)
+          Process.send_after(self(), :time_budget_exceeded, 120_000)
 
         state = %{state | time_budget_ref: time_budget_ref}
 
@@ -672,6 +672,7 @@ defmodule AlexClaw.Reasoning.Loop do
           {:ok, valid_steps} ->
             Reasoning.update_session(state.session, %{plan: %{"steps" => valid_steps}, working_memory: wm})
             state = %{state | plan: valid_steps, working_memory: wm, current_step_index: 0}
+            state = reset_time_budget(state, length(valid_steps))
             broadcast(:plan_ready, %{session_id: state.session_id, steps: valid_steps})
             {:noreply, state, {:continue, :execute_step}}
 
@@ -1016,6 +1017,7 @@ defmodule AlexClaw.Reasoning.Loop do
             {:ok, valid_steps} ->
               Reasoning.update_session(state.session, %{plan: %{"steps" => valid_steps}})
               state = %{state | plan: valid_steps, current_step_index: 0, iteration: state.iteration + 1}
+              state = reset_time_budget(state, length(valid_steps))
               Reasoning.increment_iteration(state.session)
               broadcast(:plan_adjusted, %{session_id: state.session_id, new_plan: valid_steps})
               {:noreply, state, {:continue, :execute_step}}
@@ -1459,6 +1461,17 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   defp cancel_timer(_), do: :ok
+
+  # ~150s per step (execute ~90s + evaluate ~50s + overhead) + 60s buffer for final summary
+  @seconds_per_step 150
+
+  defp reset_time_budget(state, step_count) do
+    cancel_timer(state)
+    budget_ms = step_count * @seconds_per_step * 1000 + 60_000
+    Logger.info("[ReasoningLoop] Time budget set to #{div(budget_ms, 1000)}s for #{step_count} steps")
+    ref = Process.send_after(self(), :time_budget_exceeded, budget_ms)
+    %{state | time_budget_ref: ref}
+  end
 
   defp broadcast(event, data) do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {event, data})

@@ -165,13 +165,59 @@ Quality: "good" if avg >= 3.5, "partial" if avg >= 2, "failed" otherwise
 ## Safety Mechanisms
 
 1. Max iterations (configurable, default 15)
-2. Time budget with timer-based hard kill (configurable, default 900s)
+2. Time budget proportional to plan step count (~300s/step + 120s buffer)
 3. LLM call budget (configurable, default 60)
 4. Stuck detection: 3 consecutive failures OR 3 duplicate {skill, input_hash}
-5. Confidence threshold for "done" declarations
+5. Confidence threshold for "done" declarations (default 0.7)
 6. Per-skill timeout via SafeExecutor (configurable, default 120s)
-7. Orphaned session detection on LiveView mount
-8. Forced local tier (hardcoded)
+7. Orphaned session cleanup: terminate callback, boot sweep, LiveView mount check
+8. Deterministic plan validation: reject steps with missing/non-whitelisted skills
+9. Deterministic decision pre-filter: skip LLM for obvious cases (all done, stuck, continue)
+10. Adjust oscillation guard: 3+ adjusts at done-level confidence → forced summary
+11. LLM tier configurable (default: local)
+
+## Known Limitations
+
+### Output quality is model-dependent
+The reasoning loop is an orchestration engine, not an intelligence engine. Output quality
+is bounded by the configured LLM's ability to:
+- Follow structured JSON output schemas consistently
+- Compress and reconstruct context from the working memory string
+- Make sound evaluation and planning judgments
+
+Local models (7B-14B) produce functional but often imprecise results. They hallucinate
+details when source material is thin, vary JSON key names across responses, and struggle
+with multi-step context tracking. Routing to a stronger tier (light/medium/heavy) via
+`reasoning.llm_tier` config significantly improves output quality at the cost of
+privacy and API spend.
+
+### JSON schema drift with local models
+Local models do not reliably follow the exact JSON schema specified in prompts. The parser
+includes extensive normalization (key aliases, extraction from malformed responses, trailing
+comma removal, markdown fence stripping) but novel deviations may still cause parse failures.
+The stuck threshold (default 3) catches repeated failures, but single-iteration data loss
+is possible when a parse fails and the loop skips to the decision phase.
+
+### Evaluation rubric is LLM-judged
+The evaluation phase asks the LLM to score its own output on a 1-5 rubric. With local models
+this self-assessment is unreliable — the model tends to rate its own output favorably. The
+deterministic pre-filter mitigates this by handling obvious cases (all steps done, failures
+at threshold) without consulting the LLM, but ambiguous cases still rely on model judgment.
+
+### No parallel skill execution
+Skills execute sequentially, one per iteration. A plan with 8 steps runs 8 serial cycles.
+Independent steps (e.g., two web searches on different topics) could theoretically run in
+parallel but the architecture does not currently support this.
+
+### Working memory degradation
+The working memory string grows with each phase. While compression runs every 3 iterations,
+long sessions (10+ iterations) accumulate stale context that can confuse the model. The
+compression pass itself depends on the LLM's ability to distinguish essential facts from noise.
+
+### Time budget is an estimate
+The proportional time budget (~300s per step) is based on observed local model performance.
+Actual execution time varies with model size, hardware, network latency for web skills,
+and content volume. Complex web fetches or large LLM transform inputs can exceed the estimate.
 
 ## Implementation Phases
 

@@ -763,7 +763,10 @@ defmodule AlexClaw.Reasoning.Loop do
     quality = Map.get(parsed, "quality", "failed")
     wm = Map.get(parsed, "working_memory", state.working_memory)
 
-    rubric = Map.take(parsed, ["relevance", "completeness", "usability", "goal_progress"])
+    rubric =
+      parsed
+      |> Map.take(["relevance", "completeness", "usability", "goal_progress"])
+      |> Map.put("quality", quality)
 
     Reasoning.record_step(%{
       session_id: state.session_id,
@@ -1337,7 +1340,37 @@ defmodule AlexClaw.Reasoning.Loop do
     |> List.last()
     |> case do
       nil -> nil
-      step -> Map.get(step.rubric_scores, "quality")
+      step ->
+        rubric = step.rubric_scores
+
+        # Check explicit quality first, then compute from scores
+        case Map.get(rubric, "quality") do
+          q when q in ["good", "partial", "failed"] -> q
+          _ -> compute_quality_from_scores(rubric)
+        end
+    end
+  end
+
+  defp compute_quality_from_scores(rubric) do
+    scores =
+      ["relevance", "completeness", "usability", "goal_progress"]
+      |> Enum.map(fn k ->
+        case Map.get(rubric, k) do
+          v when is_number(v) -> v
+          _ -> nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    case scores do
+      [] -> nil
+      vals ->
+        avg = Enum.sum(vals) / length(vals)
+        cond do
+          avg >= 3.5 -> "good"
+          avg >= 2.0 -> "partial"
+          true -> "failed"
+        end
     end
   end
 

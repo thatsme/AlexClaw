@@ -316,20 +316,27 @@ defmodule AlexClawWeb.AdminLive.Chat do
         {:chat, default_reasoning_assigns()}
 
       session ->
-        steps = Reasoning.list_steps(session.id)
         pid = find_loop_pid(session)
 
-        {:reasoning,
-         %{
-           loop_pid: pid,
-           loop_status: String.to_existing_atom(session.status),
-           reasoning_goal: session.goal,
-           reasoning_steps: format_steps(steps),
-           reasoning_plan: get_plan_steps(session),
-           reasoning_result: session.result,
-           reasoning_error: session.error,
-           waiting_question: nil
-         }}
+        if is_nil(pid) do
+          # Session is "active" in DB but process is dead — orphan
+          Reasoning.mark_failed(session, "Orphaned session — process not found")
+          {:chat, default_reasoning_assigns()}
+        else
+          steps = Reasoning.list_steps(session.id)
+
+          {:reasoning,
+           %{
+             loop_pid: pid,
+             loop_status: String.to_existing_atom(session.status),
+             reasoning_goal: session.goal,
+             reasoning_steps: format_steps(steps),
+             reasoning_plan: get_plan_steps(session),
+             reasoning_result: session.result,
+             reasoning_error: session.error,
+             waiting_question: nil
+           }}
+        end
     end
   end
 

@@ -374,6 +374,23 @@ defmodule AlexClaw.Reasoning.Loop do
     {:reply, reply, state}
   end
 
+  @impl true
+  def terminate(reason, state) do
+    cancel_timer(state)
+
+    # Only mark as failed if the session isn't already in a terminal state
+    case state.session && state.session.status do
+      status when status in ["completed", "failed", "aborted", "stuck"] ->
+        :ok
+
+      _ ->
+        Logger.warning("[ReasoningLoop] Process terminating: #{inspect(reason)}")
+        Reasoning.mark_failed(state.session, "Process terminated: #{inspect(reason)}")
+    end
+
+    :ok
+  end
+
   # --- Phase Execution (runs inside Task) ---
 
   defp run_planning(state) do

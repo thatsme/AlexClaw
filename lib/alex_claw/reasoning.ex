@@ -5,6 +5,24 @@ defmodule AlexClaw.Reasoning do
   alias AlexClaw.Repo
   alias AlexClaw.Reasoning.{Session, Step}
 
+  # --- Cleanup ---
+
+  @doc "Mark any sessions stuck in active status as failed. Called on boot."
+  @spec cleanup_orphaned_sessions() :: {non_neg_integer(), nil}
+  def cleanup_orphaned_sessions do
+    active_statuses = ~w(planning executing evaluating deciding waiting_user)
+
+    Session
+    |> where([s], s.status in ^active_statuses)
+    |> Repo.update_all(
+      set: [
+        status: "failed",
+        error: "Orphaned session — process died or application restarted",
+        completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      ]
+    )
+  end
+
   # --- Sessions ---
 
   @spec list_sessions() :: [Session.t()]

@@ -216,6 +216,8 @@ defmodule AlexClaw.Config.Seeder do
      ~s(["memory"]),
      "json", "reasoning",
      "Delivery channels on completion: memory, telegram, discord (JSON array)", false},
+    {"reasoning.llm_tier", "local", "string", "reasoning",
+     "LLM tier for reasoning loop: local, light, medium, heavy (default: local)", false},
 
     # Reasoning prompts (editable at runtime)
     {"prompts.reasoning.planning", "", "string", "prompts",

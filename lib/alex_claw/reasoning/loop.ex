@@ -414,7 +414,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
     system = "You are a task planning assistant. Always respond with valid JSON only."
 
-    case call_local_llm(prompt, system) do
+    case call_llm(prompt, system, state) do
       {:ok, raw_response} ->
         duration = System.monotonic_time(:millisecond) - started
 
@@ -451,7 +451,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
     system = "You are preparing skill input. Always respond with valid JSON only."
 
-    case call_local_llm(prompt, system) do
+    case call_llm(prompt, system, state) do
       {:ok, raw_response} ->
         case PromptParser.parse_execution(raw_response) do
           {:ok, parsed} ->
@@ -499,7 +499,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
     system = "You are evaluating a skill result. Always respond with valid JSON only."
 
-    case call_local_llm(prompt, system) do
+    case call_llm(prompt, system, state) do
       {:ok, raw_response} ->
         duration = System.monotonic_time(:millisecond) - started
 
@@ -540,7 +540,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
     system = "You are a decision-making assistant. Always respond with valid JSON only."
 
-    case call_local_llm(prompt, system) do
+    case call_llm(prompt, system, state) do
       {:ok, raw_response} ->
         duration = System.monotonic_time(:millisecond) - started
 
@@ -593,7 +593,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
     system = "You are a context compressor. Respond with valid JSON only."
 
-    case call_local_llm(prompt, system) do
+    case call_llm(prompt, system, state) do
       {:ok, raw} ->
         duration = System.monotonic_time(:millisecond) - started
         {:compression, {:ok, raw, duration}}
@@ -630,7 +630,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
     system = "You are producing a final answer. Respond with valid JSON only."
 
-    case call_local_llm(prompt, system) do
+    case call_llm(prompt, system, state) do
       {:ok, raw_response} ->
         duration = System.monotonic_time(:millisecond) - started
         {:forced_summary, {:ok, raw_response, prompt, duration}}
@@ -1058,7 +1058,8 @@ defmodule AlexClaw.Reasoning.Loop do
       step_timeout_ms: Keyword.get(opts, :step_timeout_ms, config_int("reasoning.step_timeout_seconds", 120) * 1000),
       max_plan_steps: Keyword.get(opts, :max_plan_steps, config_int("reasoning.max_plan_steps", 8)),
       done_confidence_threshold: Keyword.get(opts, :done_confidence_threshold, config_float("reasoning.done_confidence_threshold", 0.7)),
-      delivery: Keyword.get(opts, :delivery, config_json("reasoning.default_delivery", ["memory"]))
+      delivery: Keyword.get(opts, :delivery, config_json("reasoning.default_delivery", ["memory"])),
+      llm_tier: Keyword.get(opts, :llm_tier, config_atom("reasoning.llm_tier", :local))
     }
   end
 
@@ -1072,8 +1073,9 @@ defmodule AlexClaw.Reasoning.Loop do
     })
   end
 
-  defp call_local_llm(prompt, system) do
-    LLM.complete(prompt, tier: :local, system: system)
+  defp call_llm(prompt, system, state) do
+    tier = state.config.llm_tier
+    LLM.complete(prompt, tier: tier, system: system)
   end
 
   defp spawn_llm_task(fun) do
@@ -1509,6 +1511,16 @@ defmodule AlexClaw.Reasoning.Loop do
         end
       _ -> default
     end
+  end
+
+  defp config_atom(key, default) do
+    case Config.get(key) do
+      val when is_atom(val) -> val
+      val when is_binary(val) and val != "" -> String.to_existing_atom(val)
+      _ -> default
+    end
+  rescue
+    ArgumentError -> default
   end
 
 end

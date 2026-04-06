@@ -346,9 +346,10 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   def handle_info(:time_budget_exceeded, state) do
-    Logger.warning("[ReasoningLoop] Time budget exceeded")
+    elapsed = System.monotonic_time(:millisecond) - state.started_at
+    Logger.warning("[ReasoningLoop] Time budget exceeded after #{div(elapsed, 1000)}s")
     shutdown_task(state)
-    finish_session(state, :failed, "Time budget exceeded (#{state.config.time_budget_ms}ms)")
+    finish_session(state, :failed, "Time budget exceeded after #{div(elapsed, 1000)}s")
     {:stop, :normal, state}
   end
 
@@ -1462,8 +1463,8 @@ defmodule AlexClaw.Reasoning.Loop do
 
   defp cancel_timer(_), do: :ok
 
-  # ~150s per step (execute ~90s + evaluate ~50s + overhead) + 60s buffer for final summary
-  @seconds_per_step 150
+  # ~300s per step (execute ~150s + LLM prep ~60s + evaluate ~60s + overhead) + 120s buffer
+  @seconds_per_step 300
 
   defp reset_time_budget(state, step_count) do
     cancel_timer(state)

@@ -55,6 +55,7 @@ nav:
     - Supervision Tree: architecture/supervision-tree.md
     - LLM Router: architecture/llm-router.md
     - Workflow Engine: architecture/workflow-engine.md
+    - Reasoning Loop: architecture/reasoning-loop.md
     - Memory & Knowledge: architecture/memory.md
     - Gateway Layer: architecture/gateway.md
     - Multi-Node Clustering: architecture/clustering.md

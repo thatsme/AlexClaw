@@ -18,6 +18,8 @@ MCP Client <──> MCP.Server ────┘
                                 │
 Admin UI (Chat) ──────> SkillSupervisor ──> Dynamic Skills
                        (DynamicSupervisor)
+Admin UI (Reasoning) ──> Reasoning.Loop ──> Skills (whitelisted)
+                        (DynamicSupervisor)
                                 │
                  ┌──────────────┼──────────────┐
                  ▼              ▼              ▼
@@ -33,6 +35,7 @@ Admin UI (Chat) ──────> SkillSupervisor ──> Dynamic Skills
 | Dispatcher | `AlexClaw.Dispatcher` | Deterministic pattern-matching command router |
 | [LLM Router](llm-router.md) | `AlexClaw.LLM` | Tier-based multi-provider routing with usage tracking |
 | [Workflow Engine](workflow-engine.md) | `AlexClaw.Workflows.*` | Linear pipelines with conditional branching |
+| [Reasoning Loop](reasoning-loop.md) | `AlexClaw.Reasoning.*` | Autonomous plan-execute-evaluate agent cycle |
 | [Memory & Knowledge](memory.md) | `AlexClaw.Memory`, `AlexClaw.Knowledge` | pgvector semantic search with hybrid retrieval |
 | [Supervision Tree](supervision-tree.md) | `AlexClaw.Application` | OTP supervision hierarchy |
 | [Clustering](clustering.md) | `AlexClaw.Cluster.Manager` | Multi-node BEAM distribution |

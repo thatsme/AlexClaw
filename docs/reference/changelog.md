@@ -1,18 +1,29 @@
 # Changelog
 
-## v0.3.21 — RAG Pipeline (2026-04-01)
+## v0.3.21 — Reasoning Loop (2026-04-06)
 
-- **RAG pipeline overhaul** — 5-phase improvement to retrieval-augmented generation
-  - **Embedding metadata** — tracks `embedding_model`, `embedding_dim`, `embedded_at` per entry; `stale_embedding_count/1` detects model mismatches; Embeddings panel on Services page
-  - **Relevance grading** — `min_score` opt filters vector results via SQL cosine similarity threshold
-  - **Query rewriting** — `RAG.QueryRewriter` generates 2-3 semantic variants via light-tier LLM with ETS cache (5min TTL); opt-in via `rewrite: true`
-  - **Semantic chunking** — `RAG.Chunker` splits on markdown headers, function defs, paragraphs (not sliding window); long content auto-chunks into parent + children with `parent_id`/`chunk_index`; search deduplicates chunks from same parent
-  - **Fallback routing** — `RAG.Fallback` searches both Memory + Knowledge with rewriting + grading; Research skill now cross-store; context section omitted when nothing found
-- **Research skill** — now uses `search_with_fallback/2` for cross-store RAG with rewriting and relevance grading
-- **CodeGenerator** — knowledge searches now use query rewriting for broader retrieval
-- **GitHub Security Review** — refactored as pure diff fetcher (no embedded LLM); 5 modes (latest_pr, all_prs, latest_push, specific_pr, specific_commit); config presets in step editor
-- **Workflow step editor fixes** — save no longer closes the editor; scaffold values now persist correctly; nil llm_tier no longer blocks saves
-- **LLM Transform** — removed config field, added 10 prompt presets (Security Review, Code Review, Changelog, etc.)
+- **[Reasoning loop engine](../architecture/reasoning-loop.md)** — autonomous plan-execute-evaluate cycle
+  - LLM decomposes goals into multi-step plans, executes whitelisted skills, evaluates results, and iterates
+  - Configurable LLM tier (default: local) — route to stronger models via `reasoning.llm_tier`
+  - Deterministic decision pre-filter skips LLM for obvious cases (0ms decisions)
+  - Deterministic plan validation rejects malformed steps before execution
+  - Working memory compression every 3 iterations
+  - Evaluation score trend (improving/stable/degrading) in decision prompt
+  - Proportional time budget (~300s per step, scales with plan size)
+  - User intervention: pause, resume, steer, abort, step override (real-time via PubSub)
+  - Skill outputs embedded to pgvector for future session context
+  - Orphaned session cleanup on process death, app restart, and page load
+  - Full audit trail: every prompt, response, skill call, rubric score, and working memory snapshot persisted
+- **Chat page** — dual-mode interface (Chat / Reasoning toggle) with plan view, step timeline, and intervention controls
+- **Skill descriptions** — clarified web_search (snippets only), web_fetch (full page content), web_search_fetch (search + full content)
+
+## v0.3.20 — Services Page, RAG Pipeline (2026-04-01)
+
+- **RAG pipeline overhaul** — embedding metadata, relevance grading, query rewriting, semantic chunking, fallback routing
+- **Research skill** — cross-store RAG with rewriting and relevance grading
+- **GitHub Security Review** — refactored as pure diff fetcher; 5 modes
+- **Workflow step editor fixes** — save no longer closes editor; nil llm_tier fix
+- **LLM Transform** — 10 prompt presets (Security Review, Code Review, Changelog, etc.)
 
 ## v0.3.20 — Services Page (2026-03-31)
 

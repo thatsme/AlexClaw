@@ -71,6 +71,10 @@ Separated fetch from LLM processing. New pure-fetch skills (`web_fetch`, `web_se
 
 Embed a tiny LLM (Qwen2.5-0.5B or SmolLM2-360M) inside the container for binary injection classification. Two-pass architecture: regex heuristics catch the obvious 80%, model classifies ambiguous sentences. CPU-only, sub-100ms, zero API cost. Ship zero-shot first, measure, then decide on fine-tuning.
 
+### ~~Reasoning Loop Engine~~ ✅ Completed (v0.3.21)
+
+Autonomous plan-execute-evaluate cycle. The LLM decomposes a goal into a multi-step plan, invokes whitelisted skills, evaluates results on a 1-5 rubric, and decides whether to continue, adjust, ask the user, or declare done. Default tier `local` (configurable). Deterministic pre-filter handles obvious decisions without an LLM call. Plan validation rejects malformed steps before execution. Working memory compression every 3 iterations. Proportional time budget. Real-time intervention: pause, resume, steer, abort, step override. Orphaned session cleanup (terminate callback, boot sweep, mount check). Full audit trail with skill outputs embedded to pgvector for future session context. Available from the chat page in Reasoning mode. See [docs/architecture/reasoning-loop.md](docs/architecture/reasoning-loop.md).
+
 ### ~~Multi-Node BEAM Clustering~~ ✅ Completed (v0.3.8)
 
 Multiple AlexClaw instances connected via Erlang distribution exchange workflow outputs over BEAM. Each node runs its own sequential executor — no parallel step changes. ClusterManager GenServer handles auto-registration on connect, node monitoring (`:nodeup`/`:nodedown`), and remote workflow triggers via `:rpc.call`. Two new core skills: `send_to_workflow` (sends data to a workflow on another node, 5s default timeout) and `receive_from_workflow` (gate skill — must be step 1 to accept remote triggers, optional `allowed_nodes` ACL). Cluster admin UI page with node status and ping. Workflow "Run on" dropdown for node assignment (cluster-wide or pinned). `docker-compose_swarm.yml` for multi-node testing with long-name distribution (`alexclaw@nodeN.local`). EPMD bundled in runtime image.

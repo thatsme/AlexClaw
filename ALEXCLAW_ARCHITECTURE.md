@@ -31,6 +31,7 @@ AlexClaw.Application (one_for_one)
   ├── Registry (CircuitBreakerRegistry)  # Process registry for per-skill circuit breakers
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor — per-skill circuit breakers
   ├── AlexClaw.SkillSupervisor        # DynamicSupervisor — spawns skill worker processes
+  ├── AlexClaw.Reasoning.Supervisor   # DynamicSupervisor — reasoning loop sessions
   ├── AlexClaw.MCP.Server            # MCP server (Streamable HTTP via anubis_mcp)
   ├── AlexClaw.Cluster.Manager       # Node registration, discovery, remote workflow triggers
   ├── AlexClaw.Scheduler              # Quantum cron scheduler
@@ -345,6 +346,47 @@ AlexClaw supports multi-node BEAM clustering. Each node runs its own sequential 
 **Gateway behavior in cluster:** Single-node mode ignores `telegram.node` and `discord.node` — gateways always start. In a cluster (connected peers detected), gateways only start on the assigned node. Setting `telegram.enabled = true` from a node's Config UI auto-assigns `telegram.node` to that node. Cross-node config changes propagate via PubSub over BEAM distribution.
 
 **Configuration:** `NODE_NAME` (default: `alexclaw@node1.local`) and `CLUSTER_COOKIE` env vars. Long names (containing `.`) use EPMD for distribution. The naming convention is `alexclaw@nodeN.local` — same format for single-node and swarm.
+
+---
+
+## Reasoning Loop — `AlexClaw.Reasoning.Loop`
+
+An autonomous agent cycle that decomposes goals into plans, executes whitelisted skills, evaluates results, and iterates. Unlike the Workflow Engine which runs pre-defined step graphs, the reasoning loop builds and adapts its plan at runtime.
+
+**Architecture:** GenServer under `AlexClaw.Reasoning.Supervisor` (DynamicSupervisor, transient restart). LLM calls run as Tasks under `AlexClaw.TaskSupervisor` so the GenServer stays responsive to user intervention during slow inference.
+
+**Phases:**
+
+1. **Plan** — LLM receives goal + whitelisted skill list + prior knowledge from Memory/Knowledge semantic search, returns a JSON plan
+2. **Execute** — for each step, LLM prepares concrete skill input, then skill runs through the standard security stack (whitelist check → SkillRegistry resolve → CapabilityToken → SafeExecutor → CircuitBreaker → ContentSanitizer)
+3. **Evaluate** — LLM scores skill output on a 1-5 rubric (relevance, completeness, usability, goal_progress)
+4. **Decide** — `continue`, `adjust`, `ask_user`, `done`, or `stuck`. A deterministic pre-filter handles obvious cases (all steps done → forced summary, failures at threshold → stuck, steps remaining → continue) without an LLM call
+
+**Working memory** is a single string threaded through all four prompts. Each LLM response includes an updated `working_memory` field — this is the loop's train of thought. Every 3 iterations a dedicated LLM call compresses it to essential facts.
+
+**Plan validation:** every plan step is validated deterministically before execution — skill must be present and in the configured whitelist. Malformed plans trigger a retry with the validation error injected.
+
+**User intervention** (real-time via PubSub):
+- **Pause/Resume** — completes current task then halts
+- **Steer** — free text injected into working memory with `[USER GUIDANCE]` prefix
+- **Step override** — forces a specific skill+input, bypasses decision phase
+- **Add context** — appended to working memory, persists across iterations
+- **Abort** — kills running task, terminates session
+
+**Safety mechanisms:**
+- Max iterations (default 15), max LLM calls (default 60), proportional time budget (~300s per step)
+- Stuck detection: 3 consecutive failures or 3 duplicate `{skill, input_hash}` pairs
+- Adjust oscillation guard: 3+ adjusts at done-level confidence triggers forced final summary
+- Confidence threshold (default 0.7) — low-confidence "done" declarations are rejected
+- Orphaned session cleanup: terminate callback, boot sweep, LiveView mount check
+
+**Configurable LLM tier** (default: `local`). Routing to a stronger tier via `reasoning.llm_tier` config improves output quality at the cost of privacy and API spend.
+
+**Audit trail:** every phase recorded in `reasoning_steps` table — LLM prompt, raw response, skill input/output, decision, rubric scores, working memory snapshot, duration. Sessions tracked in `reasoning_sessions` with goal, status, plan, result, iteration count, and LLM call count.
+
+**Result delivery:** result stored to Memory (`kind: :reasoning`) with pgvector embedding. Optional Telegram/Discord notification via `reasoning.default_delivery` config. Skill outputs from each step also embedded for future session context.
+
+**Chat page integration:** the chat page (`/chat`) operates in two modes — standard Chat or Reasoning. Reasoning mode shows goal input, plan view, step timeline, intervention controls, and result panel.
 
 ---
 

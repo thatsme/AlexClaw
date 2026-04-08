@@ -50,6 +50,9 @@ defmodule AlexClaw.MixProject do
       {:certifi, "~> 2.12"},
       {:gun, "~> 2.0", override: true},
       {:tz, "~> 0.28"},
+      {:timex, "~> 3.7"},
+      {:csv, "~> 3.2"},
+      {:yaml_elixir, "~> 2.11"},
       {:anubis_mcp, "~> 1.0"},
       {:mox, "~> 1.2", only: :test},
       {:bypass, "~> 2.1", only: :test}

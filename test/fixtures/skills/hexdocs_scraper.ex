@@ -17,14 +17,17 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
 
   @default_packages ~w(
     phoenix phoenix_live_view phoenix_html phoenix_pubsub
-    ecto ecto_sql
+    ecto ecto_sql postgrex decimal
     plug plug_crypto
     jason req finch mint
     floki sweet_xml
     telemetry telemetry_metrics telemetry_poller
     bandit
-    nimble_options nimble_pool
-    gen_stage
+    nimble_options nimble_pool nimble_totp
+    quantum gen_stage
+    nostrum
+    pgvector
+    timex csv tz yaml_elixir
   )
 
   @impl true

@@ -35,8 +35,9 @@ alex_claw-*.tar
 docker-compose_*.yml
 !docker-compose_swarm.yml
 
-# Claude Code
-.claude/
+# Claude Code config (symlinked to private claude-files repo, never committed here)
+.claude
+CLAUDE.md
 .mcp.json
 TEST_RULES.md
 TO-DO.md

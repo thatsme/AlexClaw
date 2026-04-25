@@ -5,7 +5,6 @@ defmodule AlexClawWeb.AdminLive.Chat do
 
   alias AlexClaw.{Config, Identity, LLM, Memory}
   alias AlexClaw.Reasoning
-  alias AlexClaw.Reasoning.Loop
 
   @reasoning_topic "reasoning:loop"
 
@@ -80,7 +79,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
       enabled = Config.get("reasoning.enabled", true)
 
       if enabled do
-        case Loop.start(goal) do
+        case Reasoning.start_session(goal) do
           {:ok, pid} ->
             {:noreply,
              assign(socket,
@@ -107,17 +106,17 @@ defmodule AlexClawWeb.AdminLive.Chat do
   end
 
   def handle_event("pause_loop", _params, socket) do
-    if socket.assigns.loop_pid, do: Loop.pause(socket.assigns.loop_pid)
+    if socket.assigns.loop_pid, do: Reasoning.pause(socket.assigns.loop_pid)
     {:noreply, socket}
   end
 
   def handle_event("resume_loop", _params, socket) do
-    if socket.assigns.loop_pid, do: Loop.resume(socket.assigns.loop_pid)
+    if socket.assigns.loop_pid, do: Reasoning.resume(socket.assigns.loop_pid)
     {:noreply, socket}
   end
 
   def handle_event("abort_loop", _params, socket) do
-    if socket.assigns.loop_pid, do: Loop.abort(socket.assigns.loop_pid)
+    if socket.assigns.loop_pid, do: Reasoning.abort(socket.assigns.loop_pid)
     {:noreply, assign(socket, loop_status: :aborted, loop_pid: nil)}
   end
 
@@ -125,7 +124,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
     guidance = String.trim(guidance)
 
     if guidance != "" and socket.assigns.loop_pid do
-      Loop.steer(socket.assigns.loop_pid, guidance)
+      Reasoning.steer(socket.assigns.loop_pid, guidance)
     end
 
     {:noreply, socket}
@@ -135,8 +134,8 @@ defmodule AlexClawWeb.AdminLive.Chat do
     response = String.trim(response)
 
     if response != "" and socket.assigns.loop_pid do
-      Loop.add_context(socket.assigns.loop_pid, response)
-      Loop.resume(socket.assigns.loop_pid)
+      Reasoning.add_context(socket.assigns.loop_pid, response)
+      Reasoning.resume(socket.assigns.loop_pid)
       {:noreply, assign(socket, waiting_question: nil)}
     else
       {:noreply, socket}
@@ -148,7 +147,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
     input = String.trim(input)
 
     if skill != "" and input != "" and socket.assigns.loop_pid do
-      Loop.override_step(socket.assigns.loop_pid, skill, input)
+      Reasoning.override_step(socket.assigns.loop_pid, skill, input)
     end
 
     {:noreply, socket}

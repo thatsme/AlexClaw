@@ -3,7 +3,37 @@ defmodule AlexClaw.Reasoning do
 
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Reasoning.{Session, Step}
+  alias AlexClaw.Reasoning.{Loop, Session, Step}
+
+  # --- Loop control (delegates to Reasoning.Loop) ---
+
+  @doc "Start a new reasoning session for the given goal."
+  @spec start_session(String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
+  def start_session(goal, opts \\ []), do: Loop.start(goal, opts)
+
+  @doc "Pause the active reasoning loop."
+  @spec pause(pid()) :: :ok
+  def pause(pid), do: Loop.pause(pid)
+
+  @doc "Resume a paused reasoning loop."
+  @spec resume(pid()) :: :ok
+  def resume(pid), do: Loop.resume(pid)
+
+  @doc "Abort the active reasoning loop."
+  @spec abort(pid()) :: :ok
+  def abort(pid), do: Loop.abort(pid)
+
+  @doc "Send user guidance to the active loop."
+  @spec steer(pid(), String.t()) :: :ok
+  def steer(pid, guidance), do: Loop.steer(pid, guidance)
+
+  @doc "Append additional context to the loop's working memory."
+  @spec add_context(pid(), String.t()) :: :ok
+  def add_context(pid, context), do: Loop.add_context(pid, context)
+
+  @doc "Override the current step with a user-provided skill and input."
+  @spec override_step(pid(), String.t(), String.t()) :: :ok
+  def override_step(pid, skill, input), do: Loop.override_step(pid, skill, input)
 
   # --- Cleanup ---
 

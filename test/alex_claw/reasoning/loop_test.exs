@@ -137,38 +137,111 @@ defmodule AlexClaw.Reasoning.LoopTest do
   end
 
   describe "human-in-the-loop" do
-    # Loop currently has no exit from `:waiting_user`: `handle_cast(:resume, ...)` only
-    # matches `:paused`, and `handle_cast({:steer, _}, ...)` records the guidance but does
-    # not transition state. So a real user-clarification flow can't be driven end-to-end
-    # without code changes. This test pins the *current* contract: ask_user broadcasts
-    # fire, steer is recorded, and the loop must be aborted to terminate. Once Loop adds
-    # a steer-from-waiting_user transition, this test should be expanded to assert the
-    # follow-on re-plan.
-    test "ask_user pauses the loop; steer is recorded; abort terminates" do
-      goal = unique_goal("steer")
+    test "ask_user → steer → :resuming → re-plan → completion", %{counter_table: ct} do
+      goal = unique_goal("steer-replan")
+      :ets.insert(ct, {:plan, 0})
+      :ets.insert(ct, {:eval, 0})
 
       Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
         case phase_from_system(opts) do
-          :planning -> {:ok, plan_response([echo_step("first")])}
-          :execution -> {:ok, execution_response("payload")}
-          :evaluation -> {:ok, evaluation_response("partial")}
+          :planning ->
+            n = counter_inc(ct, :plan)
+            steps = if n == 1, do: [echo_step("first")], else: [echo_step("after_steer")]
+            {:ok, plan_response(steps)}
+
+          :execution ->
+            {:ok, execution_response("payload")}
+
+          :evaluation ->
+            n = counter_inc(ct, :eval)
+            quality = if n == 1, do: "partial", else: "good"
+            {:ok, evaluation_response(quality)}
+
           :decision ->
             {:ok, decision_response("ask_user", question: "Need clarification")}
-          :forced_summary -> {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
-          other -> flunk("Unexpected LLM phase: #{inspect(other)}")
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "done after steer", "working_memory": "wm"}|}
+
+          other ->
+            flunk("Unexpected LLM phase: #{inspect(other)}")
         end
       end)
 
       {:ok, pid} = Loop.start(goal, default_opts())
 
       assert_receive {:waiting_user, %{question: "Need clarification"}}, 10_000
+
       Loop.steer(pid, "use the second approach")
+
       assert_receive {:user_steer, %{guidance: "use the second approach"}}, 2_000
+      assert_receive {:phase_change, %{phase: :resuming}}, 2_000
+      assert_receive {:phase_change, %{phase: :planning}}, 2_000
 
-      Loop.abort(pid)
-      assert :ok = await_loop_done(pid, 5_000)
+      assert :ok = await_loop_done(pid, 15_000)
+      assert {:ok, :completed} = wait_for_complete(2_000)
 
-      assert {:ok, :aborted} = wait_for_complete(2_000)
+      [{:plan, plan_count}] = :ets.lookup(ct, :plan)
+      assert plan_count == 2
+
+      session = find_session_by_goal(goal)
+      assert session.status == "completed"
+      assert session.result =~ "done after steer"
+    end
+
+    test "ask_user → add_context → resume → :resuming → re-plan → completion", %{
+      counter_table: ct
+    } do
+      goal = unique_goal("respond-replan")
+      :ets.insert(ct, {:plan, 0})
+      :ets.insert(ct, {:eval, 0})
+
+      Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            n = counter_inc(ct, :plan)
+            steps = if n == 1, do: [echo_step("first")], else: [echo_step("after_resume")]
+            {:ok, plan_response(steps)}
+
+          :execution ->
+            {:ok, execution_response("payload")}
+
+          :evaluation ->
+            n = counter_inc(ct, :eval)
+            quality = if n == 1, do: "partial", else: "good"
+            {:ok, evaluation_response(quality)}
+
+          :decision ->
+            {:ok, decision_response("ask_user", question: "Need clarification")}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "done after resume", "working_memory": "wm"}|}
+
+          other ->
+            flunk("Unexpected LLM phase: #{inspect(other)}")
+        end
+      end)
+
+      {:ok, pid} = Loop.start(goal, default_opts())
+
+      assert_receive {:waiting_user, %{question: "Need clarification"}}, 10_000
+
+      Loop.add_context(pid, "the answer is 42")
+      assert_receive {:context_added, _}, 2_000
+      Loop.resume(pid)
+
+      assert_receive {:phase_change, %{phase: :resuming}}, 2_000
+      assert_receive {:phase_change, %{phase: :planning}}, 2_000
+
+      assert :ok = await_loop_done(pid, 15_000)
+      assert {:ok, :completed} = wait_for_complete(2_000)
+
+      [{:plan, plan_count}] = :ets.lookup(ct, :plan)
+      assert plan_count == 2
+
+      session = find_session_by_goal(goal)
+      assert session.status == "completed"
+      assert session.result =~ "done after resume"
     end
   end
 

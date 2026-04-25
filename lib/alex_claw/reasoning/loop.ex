@@ -262,6 +262,12 @@ defmodule AlexClaw.Reasoning.Loop do
     {:noreply, state, {:continue, :resume}}
   end
 
+  def handle_cast(:resume, %{status: :waiting_user} = state) do
+    Logger.info("[ReasoningLoop] Resuming from waiting_user — replanning with accumulated context")
+    broadcast(:phase_change, phase_data(state, :resuming))
+    {:noreply, state, {:continue, :start_planning}}
+  end
+
   def handle_cast(:resume, state) do
     {:noreply, state}
   end
@@ -271,6 +277,24 @@ defmodule AlexClaw.Reasoning.Loop do
     shutdown_task(state)
     finish_session(state, :aborted, "Aborted by user")
     {:stop, :normal, state}
+  end
+
+  def handle_cast({:steer, guidance}, %{status: :waiting_user} = state) do
+    Logger.info("[ReasoningLoop] Steer from waiting_user — replanning with guidance: #{String.slice(guidance, 0, 100)}")
+    state = %{state | user_guidance: "[USER GUIDANCE] #{guidance}"}
+
+    Reasoning.record_step(%{
+      session_id: state.session_id,
+      iteration: state.iteration,
+      phase: "user_override",
+      user_guidance: guidance,
+      working_memory_snapshot: state.working_memory,
+      duration_ms: 0
+    })
+
+    broadcast(:user_steer, %{session_id: state.session_id, guidance: guidance})
+    broadcast(:phase_change, phase_data(state, :resuming))
+    {:noreply, state, {:continue, :start_planning}}
   end
 
   def handle_cast({:steer, guidance}, state) do

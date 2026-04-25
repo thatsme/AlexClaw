@@ -6,13 +6,10 @@ defmodule AlexClaw.Reasoning.LoopTest do
   test case is `async: false`. Each phase is dispatched on the system prompt
   passed via `LLM.complete(prompt, system: ...)` — the most reliable seam.
 
-  Assertions target the `:session_complete` broadcast on `"reasoning:loop"`
-  rather than the DB row. Loop's `terminate/2` callback uses the stale
-  in-memory `state.session.status` to decide whether to write a final status,
-  and incorrectly marks cleanly-completed sessions as "failed" once the
-  GenServer stops. The broadcast carries the real terminal status (the value
-  passed to `finish_session/3,4`) and is what `AdminLive.Chat` subscribes to,
-  so it is the contract under test.
+  Assertions target the `:session_complete` broadcast on `"reasoning:loop"`,
+  which is the contract `AdminLive.Chat` subscribes to. Where DB consistency
+  is part of the contract (the happy path, abort), the persisted session row
+  is also asserted.
   """
 
   use AlexClaw.DataCase, async: false
@@ -21,6 +18,7 @@ defmodule AlexClaw.Reasoning.LoopTest do
   import AlexClawTest.ReasoningLoopHelper
 
   alias AlexClaw.LLM
+  alias AlexClaw.Reasoning
   alias AlexClaw.Reasoning.Loop
 
   setup :set_mox_global
@@ -97,6 +95,11 @@ defmodule AlexClaw.Reasoning.LoopTest do
     end
   end
 
+  defp find_session_by_goal(goal) do
+    Reasoning.list_sessions()
+    |> Enum.find(&(&1.goal == goal))
+  end
+
   describe "happy path" do
     test "single-step plan + good eval triggers forced summary; broadcasts fire in order" do
       goal = unique_goal("happy")
@@ -123,6 +126,13 @@ defmodule AlexClaw.Reasoning.LoopTest do
       assert_received {:phase_change, %{phase: :deciding}}
       assert_received {:session_complete, %{status: :completed, result: result}}
       assert result =~ "task complete"
+
+      # Regression: terminate/2 used to overwrite the row with "failed" on
+      # normal stop because it read state.session.status (stale) instead of
+      # the DB. The persisted row must match the broadcast.
+      session = find_session_by_goal(goal)
+      assert session.status == "completed"
+      assert session.result =~ "task complete"
     end
   end
 
@@ -269,6 +279,9 @@ defmodule AlexClaw.Reasoning.LoopTest do
       assert :ok = await_loop_done(pid, 5_000)
 
       assert {:ok, :aborted} = wait_for_complete(2_000)
+
+      session = find_session_by_goal(goal)
+      assert session.status == "aborted"
     end
   end
 

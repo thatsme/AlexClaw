@@ -379,14 +379,25 @@ defmodule AlexClaw.Reasoning.Loop do
   def terminate(reason, state) do
     cancel_timer(state)
 
-    # Only mark as failed if the session isn't already in a terminal state
-    case state.session && state.session.status do
+    # Re-read the session row: state.session is the struct captured in init/1 and
+    # is not updated when finish_session/3,4 writes a terminal status. Trusting
+    # the in-memory copy would let terminate overwrite a cleanly-completed
+    # session with "failed" on a normal stop.
+    current_status =
+      case state.session_id && Reasoning.get_session(state.session_id) do
+        {:ok, session} -> session.status
+        _ -> nil
+      end
+
+    case current_status do
       status when status in ["completed", "failed", "aborted", "stuck"] ->
         :ok
 
       _ ->
         Logger.warning("[ReasoningLoop] Process terminating: #{inspect(reason)}")
-        Reasoning.mark_failed(state.session, "Process terminated: #{inspect(reason)}")
+        if state.session do
+          Reasoning.mark_failed(state.session, "Process terminated: #{inspect(reason)}")
+        end
     end
 
     :ok

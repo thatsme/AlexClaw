@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.3.24 — Containment for Generated Skills (2026-09-19)
+
+Closes the gap 0.3.23 documented: Coder and Forge loaded LLM-generated code into
+the running VM with no second factor, checked only for the `:skill_manage`
+permission.
+
+- **Generated code is staged and judged before it loads** — generation writes to `<skills_dir>/pending/`, never the live directory. `AlexClaw.Skills.CallPolicy` then checks every remote call in the source against an allowlist
+  - Contained code loads with no 2FA code, recorded as approval `containment`
+  - Anything else has its violations fed back to the model as a retry hint naming the calls to replace
+  - If it still will not fit, the file stays staged and a TOTP challenge is raised listing the offending calls; approval loads it as `totp`, and an unconfigured 2FA refuses it
+- **Containment is re-judged on every boot** for skills approved that way, so an allowlist tightened in a release takes effect. `SkillRegistry.reload_persisted/0` applies it on demand. Skills approved by a code are not re-judged
+- **Provenance recorded** — `dynamic_skills` gains `origin` ("upload" | "generated") and `approval` ("totp" | "containment"); existing rows backfill to upload/totp
+- **`validate_runtime/1` runs generated code through `SafeExecutor`** with a timeout instead of calling `run/1` in the caller's process, and only ever for contained code
+- **`SkillRegistry.describe_error/1`** — one formatter for load failures, used by the Skills page, Forge and the gateway reply. Restores the readable messages lost with `load_message/1` in 0.3.23 and covers the failures added since
+
+Hand-written uploads are unchanged: their boundary is still the TOTP code on upload.
+
+### Behaviour changes
+
+- **Generated skills that call outside the allowlist no longer load automatically.** They wait in `pending/` for a 2FA code. Rewrite them against `SkillAPI`, or approve them deliberately.
+- **A containment-approved skill that no longer passes the check will not load on boot**, and is reported over the gateway. This can happen after an upgrade that tightens the allowlist.
+
 ## v0.3.23 — Documentation Accuracy and Budget Wiring (2026-09-19)
 
 Follow-up to 0.3.22. Corrects security documentation that described protections

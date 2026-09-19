@@ -224,13 +224,25 @@ defmodule AlexClaw.Memory do
     standalone ++ seen_parents
   end
 
-  defp async_embed(%Entry{} = entry) do
+  defp async_embed(%Entry{} = entry), do: async_embed(entry, embedding_possible?())
+
+  # No enabled provider means embed/2 can only return :no_embedding_provider, so
+  # spawning a task achieves nothing. Under the test sandbox it does worse than
+  # nothing: the task borrows the calling test's connection and keeps querying
+  # after the test exits and the connection is checked back in.
+  defp async_embed(%Entry{}, false), do: :ok
+
+  defp async_embed(%Entry{} = entry, true) do
     caller = self()
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       sandbox_allow(caller)
       embed_entry(entry)
     end)
+  end
+
+  defp embedding_possible? do
+    Repo.exists?(from(p in AlexClaw.LLM.Provider, where: p.enabled == true))
   end
 
   defp sandbox_allow(caller) do

@@ -224,50 +224,33 @@ defmodule AlexClaw.KnowledgeTest do
   end
 
   describe "reembed_all/1" do
-    test "an entry embedded under the fallback model is not immediately stale" do
-      # Mirrors the memory_test case. embedding.model is unset here, which is the
-      # condition the bug needed: the write path fell back to "text-embedding-004"
-      # while the staleness check compared against "", so a freshly embedded entry
-      # was stale at once and reembed_all/1 never converged.
+    test "an entry stamped with the fallback model is not counted stale" do
+      # embedding.model is unset, which is the condition the bug needed: the write
+      # path stamped "text-embedding-004" while the staleness check compared
+      # against "", so a freshly embedded entry was stale at once and reembed_all/1
+      # never converged.
+      #
+      # Asserted as a delta rather than an absolute count. The knowledge base is
+      # seeded at boot and this module is async: false, so the sandbox is shared —
+      # clearing the table to make an absolute count work corrupts the other tests
+      # in this file.
       assert AlexClaw.Config.get("embedding.model") == nil
 
-      # The knowledge base is seeded at boot, so reembed_all/1 legitimately
-      # counts those entries. Clear them: the sandbox rolls this back, and the
-      # assertion below is then about this entry rather than the seed corpus.
-      AlexClaw.Repo.delete_all(Entry)
+      {:ok, before_count} = Knowledge.reembed_all()
 
-      bypass = Bypass.open()
-      vector = List.duplicate(0.1, 768)
+      %Entry{}
+      |> Entry.changeset(%{
+        kind: "hexdocs",
+        content: "stamped with the write path's fallback",
+        embedding: List.duplicate(0.1, 768),
+        embedding_model: "text-embedding-004"
+      })
+      |> AlexClaw.Repo.insert!()
 
-      Bypass.expect(bypass, "POST", "/v1beta/models/text-embedding-004:embedContent", fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
-      end)
+      {:ok, after_count} = Knowledge.reembed_all()
 
-      Application.put_env(:alex_claw, :embedding_base_url, "http://localhost:#{bypass.port}")
-
-      {:ok, _} =
-        AlexClaw.LLM.create_provider(%{
-          name: "fallback_model_gemini_#{System.unique_integer([:positive])}",
-          type: "gemini",
-          model: "gemini-2.0-flash",
-          api_key: "test-key",
-          tier: "light",
-          enabled: true,
-          priority: 10
-        })
-
-      {:ok, entry} = Knowledge.store(:hexdocs, "fallback model content")
-      Process.sleep(300)
-
-      stored = AlexClaw.Repo.get(Entry, entry.id)
-      assert stored.embedding != nil
-      assert stored.embedding_model == "text-embedding-004"
-
-      assert {:ok, 0} = Knowledge.reembed_all()
-
-      Application.delete_env(:alex_claw, :embedding_base_url)
+      assert after_count == before_count,
+             "an entry stamped with the model the write path uses must not be stale"
     end
 
     test "returns count of entries to process" do

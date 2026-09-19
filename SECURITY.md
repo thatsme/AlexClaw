@@ -29,9 +29,9 @@ from Telegram or Discord — compatible with any TOTP authenticator
 (Google Authenticator, Authy, etc.).
 
 **Operations requiring 2FA (mandatory, no bypass):**
-- **Skill load** — uploading and compiling a new dynamic skill (Admin UI only)
-- **Skill unload** — removing a dynamic skill from the registry (Admin UI only)
-- **Skill reload** — recompiling an existing dynamic skill (Admin UI only)
+- **Skill load** — uploading and compiling a new dynamic skill (Admin UI or `/skill load`)
+- **Skill unload** — removing a dynamic skill from the registry (Admin UI or `/skill unload`)
+- **Skill reload** — recompiling an existing dynamic skill (Admin UI or `/skill reload`)
 - **Shell commands** — `/shell` via Telegram/Discord
 - **Workflows marked `Requires 2FA`** — configurable per workflow
 
@@ -40,9 +40,11 @@ Admin UI, the 2FA challenge is sent to ALL active gateways (Telegram and
 Discord). The user can respond with their 6-digit code from either channel.
 This enables phone-based verification for web UI actions.
 
-**Skill management is Admin UI only.** The `/skill load|unload|reload`
-commands are not available from Telegram/Discord — you cannot upload code
-from a messaging app. The `/skills` command still lists registered skills,
+**Skill management is available from Telegram/Discord**, via
+`/skill load|unload|reload`, and every one of them is 2FA-gated: the command
+raises a TOTP challenge and is refused outright when 2FA is not configured. The
+file must already be inside the skills volume — the gateway names a file, it
+does not carry code. The `/skills` command still lists registered skills,
 and skills execute normally within workflows.
 
 ---
@@ -198,7 +200,7 @@ and vetted as a syntax tree **before** anything is compiled, because compiling a
 module runs its body. The following protections are in place:
 
 - **2FA mandatory** — every load, unload, and reload requires TOTP verification via Telegram/Discord. No exceptions, no config toggle
-- **Admin UI only** — skill management is not available from Telegram/Discord commands. Code cannot be uploaded from a messaging app
+- **Available from the Admin UI and the gateway** — `/skill load|unload|reload` work from Telegram/Discord, 2FA-gated. The gateway names a file already present in the skills volume; code itself cannot be uploaded from a messaging app
 - **Version bump enforcement** — loading a skill that's already loaded with the same version is rejected. The developer must bump `version/0` or use reload to force
 - **Path restriction** — only files inside the configured `SKILLS_DIR` volume are accepted
 - **One module per file** — the file's top level must be exactly one `defmodule` and nothing else. A file carrying a second module could previously replace a core module such as `AlexClaw.Auth.PolicyEngine` in the running VM, and a statement outside the module ran at compile time

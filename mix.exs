@@ -56,6 +56,8 @@ defmodule AlexClaw.MixProject do
       {:anubis_mcp, "~> 1.0"},
       {:mox, "~> 1.2", only: :test},
       {:bypass, "~> 2.1", only: :test},
+      # Required by Phoenix.LiveViewTest to parse rendered markup.
+      {:lazy_html, ">= 0.1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end

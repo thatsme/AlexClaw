@@ -2,6 +2,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @moduledoc "LiveView page for creating, editing, and managing workflows and their steps."
   use Phoenix.LiveView
 
+  alias AlexClaw.Auth.Gate
   alias AlexClaw.Resources
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.{Executor, SkillRegistry}
@@ -127,15 +128,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @impl true
   def handle_event("run_now", %{"id" => id}, socket) do
     case parse_id(id) do
-      {:ok, wf_id} ->
-        Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-          Executor.run(wf_id)
-        end)
-
-        {:noreply, put_flash(socket, :info, "Workflow execution started")}
-
-      :error ->
-        {:noreply, socket}
+      {:ok, wf_id} -> run_workflow(socket, wf_id)
+      :error -> {:noreply, socket}
     end
   end
 
@@ -546,6 +540,40 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       :error ->
         {:noreply, socket}
     end
+  end
+
+  # A workflow marked requires_2fa is gated here exactly as it is on the gateway.
+  # Running it from the admin page used to skip the check entirely.
+  defp run_workflow(socket, wf_id) do
+    case Workflows.get_workflow(wf_id) do
+      {:ok, workflow} -> run_gated(socket, workflow, workflow.metadata["requires_2fa"])
+      {:error, :not_found} -> {:noreply, put_flash(socket, :error, "Workflow not found")}
+    end
+  end
+
+  defp run_gated(socket, workflow, requires_2fa) when requires_2fa in [nil, false] do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> Executor.run(workflow.id) end)
+
+    {:noreply, put_flash(socket, :info, "Workflow execution started")}
+  end
+
+  defp run_gated(socket, workflow, _requires_2fa) do
+    %{type: :run_workflow, workflow_id: workflow.id}
+    |> Gate.request("Run workflow: *#{workflow.name}*")
+    |> run_challenged(socket)
+  end
+
+  defp run_challenged(:challenged, socket) do
+    {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
+  end
+
+  defp run_challenged(:no_2fa, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       "This workflow requires 2FA. Enable 2FA and configure a gateway first."
+     )}
   end
 
   defp workflow_attrs(params, editing) do

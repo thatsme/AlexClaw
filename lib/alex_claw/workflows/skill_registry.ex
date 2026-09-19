@@ -522,7 +522,6 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
-
   @doc """
   Stage an uploaded skill file without making it loadable.
 

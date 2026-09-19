@@ -4,8 +4,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.TOTP
-  alias AlexClaw.Gateway.Router
+  alias AlexClaw.Auth.Gate
   alias AlexClaw.Workflows.SkillRegistry
 
   @max_upload_size 1_000_000
@@ -69,7 +68,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   @impl true
   def handle_event("unload_skill", %{"name" => name}, socket) do
-    case request_2fa(%{type: :skill_unload, name: name}, "Unload skill: *#{name}*") do
+    case Gate.request(%{type: :skill_unload, name: name}, "Unload skill: *#{name}*") do
       :challenged ->
         {:noreply,
          socket
@@ -84,7 +83,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   @impl true
   def handle_event("reload_skill", %{"name" => name}, socket) do
-    case request_2fa(%{type: :skill_reload, name: name}, "Reload skill: *#{name}*") do
+    case Gate.request(%{type: :skill_reload, name: name}, "Reload skill: *#{name}*") do
       :challenged ->
         {:noreply,
          socket
@@ -99,7 +98,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   defp upload_skill(socket, filename) do
     %{type: :skill_load, file_path: filename}
-    |> request_2fa("Load skill: `#{filename}`")
+    |> Gate.request("Load skill: `#{filename}`")
     |> uploaded(socket, filename)
   end
 
@@ -137,32 +136,6 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   def handle_info({:skill_unregistered, _name}, socket) do
     {:noreply, assign(socket, skills: build_skill_list(), pending_2fa: nil)}
-  end
-
-  defp request_2fa(action, description) do
-    challenge(TOTP.enabled?() && notify_chat_ids(), action, description)
-  end
-
-  defp notify_chat_ids do
-    Enum.filter(
-      [
-        AlexClaw.Config.get("telegram.chat_id"),
-        AlexClaw.Config.get("discord.channel_id")
-      ],
-      &(&1 && &1 != "")
-    )
-  end
-
-  defp challenge(chat_ids, _action, _description) when chat_ids in [false, []], do: :no_2fa
-
-  defp challenge(chat_ids, action, description) do
-    for id <- chat_ids, do: TOTP.create_challenge(id, action)
-
-    Router.broadcast(
-      "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:"
-    )
-
-    :challenged
   end
 
   defp build_skill_list do

@@ -189,8 +189,11 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   # point failed containment, so the verified code is what authorises it.
   def execute_2fa_action(%{type: :skill_load, file_path: file_path} = action, _msg) do
     case SkillRegistry.promote_pending(file_path) do
-      {:error, reason} -> Gateway.send_message("Skill load failed: #{inspect(reason)}")
-      _promoted -> report_load(SkillRegistry.load_skill(file_path, load_opts(action)))
+      {:error, reason} ->
+        Gateway.send_message("Skill load failed: #{SkillRegistry.describe_error(reason)}")
+
+      _promoted ->
+        report_load(SkillRegistry.load_skill(file_path, load_opts(action)))
     end
   end
 
@@ -199,15 +202,21 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
 
   def execute_2fa_action(%{type: :skill_unload, name: name}, _msg) do
     case SkillRegistry.unload_skill(name) do
-      :ok -> Gateway.send_message("Skill *#{name}* unloaded.")
-      {:error, reason} -> Gateway.send_message("Skill unload failed: #{inspect(reason)}")
+      :ok ->
+        Gateway.send_message("Skill *#{name}* unloaded.")
+
+      {:error, reason} ->
+        Gateway.send_message("Skill unload failed: #{SkillRegistry.describe_error(reason)}")
     end
   end
 
   def execute_2fa_action(%{type: :skill_reload, name: name}, _msg) do
     case SkillRegistry.reload_skill(name) do
-      {:ok, %{name: n}} -> Gateway.send_message("Skill *#{n}* reloaded and recompiled.")
-      {:error, reason} -> Gateway.send_message("Skill reload failed: #{inspect(reason)}")
+      {:ok, %{name: n}} ->
+        Gateway.send_message("Skill *#{n}* reloaded and recompiled.")
+
+      {:error, reason} ->
+        Gateway.send_message("Skill reload failed: #{SkillRegistry.describe_error(reason)}")
     end
   end
 
@@ -222,6 +231,6 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   end
 
   defp report_load({:error, reason}) do
-    Gateway.send_message("Skill load failed: #{inspect(reason)}")
+    Gateway.send_message("Skill load failed: #{SkillRegistry.describe_error(reason)}")
   end
 end

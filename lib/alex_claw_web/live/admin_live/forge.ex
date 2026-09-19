@@ -4,6 +4,7 @@ defmodule AlexClawWeb.AdminLive.Forge do
   use Phoenix.LiveView
 
   alias AlexClaw.{LLM, Memory}
+  alias AlexClaw.Auth.Gate
   alias AlexClaw.Skills.CodeGenerator
 
   @default_max_retries 5
@@ -151,7 +152,8 @@ defmodule AlexClawWeb.AdminLive.Forge do
         error: nil
       )
       |> add_system_msg(
-        "Skill '#{result.name}' loaded. Permissions: #{inspect(result.permissions)}, Routes: #{inspect(result.routes)}"
+        "Skill '#{result.name}' stayed inside the contained set and loaded without a 2FA code. " <>
+          "Permissions: #{inspect(result.permissions)}, Routes: #{inspect(result.routes)}"
       )
 
     {:noreply, socket}
@@ -175,9 +177,12 @@ defmodule AlexClawWeb.AdminLive.Forge do
 
       {:noreply, socket}
     else
-      {:noreply, assign(socket, status: :failed, loading: false, retries_left: retries_left)}
+      {:noreply, exhausted(socket, reason, retries_left)}
     end
   end
+
+  # Retries are spent. Code that merely failed has nothing more to offer, but code
+  # that only failed containment is still staged — it can load if a person approves it.
 
   def handle_async(:forge_step, {:exit, reason}, socket) do
     socket =
@@ -186,6 +191,39 @@ defmodule AlexClawWeb.AdminLive.Forge do
       |> add_system_msg("Generation process crashed: #{inspect(reason)}")
 
     {:noreply, socket}
+  end
+
+  defp exhausted(socket, {:not_contained, violations}, retries_left) do
+    listed = Enum.join(violations, ", ")
+
+    %{
+      type: :skill_load,
+      file_path: "#{socket.assigns.current_skill_name}.ex",
+      origin: :generated
+    }
+    |> Gate.request("Generated skill #{socket.assigns.current_skill_name} needs: #{listed}")
+    |> approval_msg(socket, listed)
+    |> assign(status: :failed, loading: false, retries_left: retries_left)
+  end
+
+  defp exhausted(socket, _reason, retries_left) do
+    assign(socket, status: :failed, loading: false, retries_left: retries_left)
+  end
+
+  defp approval_msg(:challenged, socket, listed) do
+    add_system_msg(
+      socket,
+      "Left staged in pending/. It calls outside the contained set (#{listed}), " <>
+        "so a 2FA code was requested — approve it to load the skill."
+    )
+  end
+
+  defp approval_msg(:no_2fa, socket, listed) do
+    add_system_msg(
+      socket,
+      "Left staged in pending/ and not loaded: it calls outside the contained set " <>
+        "(#{listed}) and 2FA is not configured. Enable 2FA to approve it."
+    )
   end
 
   @spec start_forge_step(Phoenix.LiveView.Socket.t(), String.t(), String.t(), String.t() | nil) ::

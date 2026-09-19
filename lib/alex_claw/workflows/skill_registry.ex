@@ -230,6 +230,57 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     GenServer.call(__MODULE__, :reload_persisted, 30_000)
   end
 
+  @doc """
+  Turn a load failure into a sentence a person can act on.
+
+  Every surface that reports a failed load — the Skills page, the Forge page, the
+  gateway reply after a 2FA code — formats it through here, so the same refusal
+  reads the same way wherever it appears.
+  """
+  @spec describe_error(term()) :: String.t()
+  def describe_error({:invalid_namespace, module}),
+    do: "Module must be under AlexClaw.Skills.Dynamic.*, got #{module}"
+
+  def describe_error(:missing_run_callback), do: "Module must export run/1"
+
+  def describe_error({:unknown_permissions, invalid}),
+    do: "Unknown permissions: #{inspect(invalid)}"
+
+  def describe_error(:name_conflicts_with_core), do: "Name conflicts with a core skill"
+
+  def describe_error({:compilation_error, message}),
+    do: "Compilation error: #{String.slice(to_string(message), 0, 300)}"
+
+  def describe_error(:path_traversal), do: "File must be inside the skills directory"
+  def describe_error(:file_not_found), do: "File not found"
+  def describe_error(:invalid_filename), do: "Filename must be a plain .ex name"
+  def describe_error(:not_found), do: "Skill not found"
+  def describe_error(:cannot_unload_core), do: "Core skills cannot be unloaded"
+
+  def describe_error({:same_version, nil, hint}), do: "No version defined. #{hint}"
+
+  def describe_error({:same_version, version, hint}),
+    do: "Version #{version} already loaded. #{hint}"
+
+  def describe_error({:forbidden_construct, construct}),
+    do: "Not allowed in a dynamic skill: #{construct}"
+
+  def describe_error({:multiple_modules, modules}),
+    do: "A skill file must define exactly one module, found: #{Enum.join(modules, ", ")}"
+
+  def describe_error({:not_contained, violations}),
+    do: "Calls outside the contained set: #{Enum.join(violations, ", ")}"
+
+  def describe_error({:runtime_validation, reason}),
+    do: "Compiled, but failed when run: #{describe_error(reason)}"
+
+  def describe_error({:runtime_timeout, message}), do: message
+  def describe_error({:runtime_bad_result, message}), do: message
+  def describe_error({:runtime_error_returned, message}), do: message
+  def describe_error({:runtime_crash, message}), do: "Crashed when run: #{message}"
+
+  def describe_error(reason), do: inspect(reason)
+
   @doc "Create a template skill file in the skills directory."
   @spec create_skill(String.t()) :: {:ok, String.t()} | {:error, atom()}
   def create_skill(name) do

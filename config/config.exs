@@ -28,6 +28,22 @@ config :elixir, :time_zone_database, Tz.TimeZoneDatabase
 
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:skill, :provider, :request_id]
+  metadata: [
+    :skill,
+    :provider,
+    :request_id,
+    # Emitted by Workflows.Executor, Auth.AuditLog and Resources.ApiDiscovery.
+    # A key the code passes but this list omits is silently dropped from output,
+    # which is why authorization denials could not be filtered by caller or
+    # permission even though the message text mentioned them.
+    :workflow,
+    :workflow_run_id,
+    :auth,
+    :caller,
+    :caller_type,
+    :permission,
+    :chain_depth,
+    :resource_id
+  ]
 
 import_config "#{config_env()}.exs"

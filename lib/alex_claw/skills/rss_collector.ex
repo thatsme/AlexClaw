@@ -55,72 +55,78 @@ defmodule AlexClaw.Skills.RSSCollector do
     Logger.info("RSS Collector starting#{if force, do: " (force)", else: ""}", skill: :rss)
 
     config = args[:config] || %{}
-    feeds = get_feeds(args)
-
-    threshold =
-      parse_float(config["threshold"], Config.get("skills.rss.relevance_threshold", 0.7))
-
-    max_items = parse_int(config["max_items"], Config.get("skills.rss.max_items", 5))
     fetch_timeout = parse_int(config["fetch_timeout"], Config.get("skills.rss.fetch_timeout", 15))
-    force = force || config["force"] == true
 
-    llm_opts =
-      case args[:llm_provider] do
-        nil -> []
-        "" -> []
-        "auto" -> []
-        provider -> [provider: provider]
-      end
+    opts = %{
+      threshold:
+        parse_float(config["threshold"], Config.get("skills.rss.relevance_threshold", 0.7)),
+      max_items: parse_int(config["max_items"], Config.get("skills.rss.max_items", 5)),
+      llm_opts: provider_opts(args[:llm_provider]),
+      config: config
+    }
 
-    recv_timeout = fetch_timeout * 1_000
-    task_timeout = recv_timeout + 5_000
+    args
+    |> get_feeds()
+    |> fetch_all(fetch_timeout * 1_000)
+    |> select_items(force || config["force"] == true, opts)
+    |> deliver()
+  end
 
-    fetched =
-      feeds
-      |> Task.async_stream(&fetch_feed(&1, recv_timeout),
-        max_concurrency: 5,
-        timeout: task_timeout,
-        on_timeout: :kill_task
-      )
-      |> Enum.flat_map(fn
-        {:ok, {:ok, items}} ->
-          items
+  defp provider_opts(provider) when provider in [nil, "", "auto"], do: []
+  defp provider_opts(provider), do: [provider: provider]
 
-        {:ok, {:error, reason}} ->
-          Logger.warning("Feed fetch failed: #{inspect(reason)}", skill: :rss)
-          []
+  defp fetch_all(feeds, recv_timeout) do
+    feeds
+    |> Task.async_stream(&fetch_feed(&1, recv_timeout),
+      max_concurrency: 5,
+      timeout: recv_timeout + 5_000,
+      on_timeout: :kill_task
+    )
+    |> Enum.flat_map(&feed_result/1)
+  end
 
-        {:exit, reason} ->
-          Logger.warning("Feed fetch crashed: #{inspect(reason)}", skill: :rss)
-          []
-      end)
+  defp feed_result({:ok, {:ok, items}}), do: items
 
-    results =
-      if force do
-        score_and_filter(fetched, threshold, max_items, llm_opts, config)
-      else
-        fetched
-        |> Enum.reject(&already_seen?/1)
-        |> score_and_filter(threshold, max_items, llm_opts, config)
-      end
+  defp feed_result({:ok, {:error, reason}}) do
+    Logger.warning("Feed fetch failed: #{inspect(reason)}", skill: :rss)
+    []
+  end
 
+  defp feed_result({:exit, reason}) do
+    Logger.warning("Feed fetch crashed: #{inspect(reason)}", skill: :rss)
+    []
+  end
+
+  # force bypasses the seen-item filter and rescores everything fetched.
+  defp select_items(fetched, true, opts) do
+    score_and_filter(fetched, opts.threshold, opts.max_items, opts.llm_opts, opts.config)
+  end
+
+  defp select_items(fetched, false, opts) do
+    fetched
+    |> Enum.reject(&already_seen?/1)
+    |> score_and_filter(opts.threshold, opts.max_items, opts.llm_opts, opts.config)
+  end
+
+  defp deliver(results) do
     Enum.each(results, fn item ->
       store_and_notify(item)
       Process.sleep(2_000)
     end)
 
     Logger.info("RSS Collector done: #{length(results)} items", skill: :rss)
+    summarize(results)
+  end
 
+  defp summarize([]), do: {:ok, "No relevant news items found.", :on_empty}
+
+  defp summarize(results) do
     summary =
       Enum.map_join(results, "\n\n", fn item ->
         "**#{item.feed}**: #{item.title}\n#{String.slice(item.description || "", 0, 300)}\n#{item.link}"
       end)
 
-    if summary == "" do
-      {:ok, "No relevant news items found.", :on_empty}
-    else
-      {:ok, summary, :on_items}
-    end
+    {:ok, summary, :on_items}
   end
 
   # --- Feed Fetching ---
@@ -270,16 +276,26 @@ defmodule AlexClaw.Skills.RSSCollector do
   defp month_to_num("Dec"), do: 12
 
   defp score_single_call(items, interests, threshold, max_items, llm_opts) do
+    count = length(items)
+
+    Logger.info(
+      "Scoring #{count} items in single LLM call (interests: #{String.slice(interests, 0, 80)})",
+      skill: :rss
+    )
+
+    interests
+    |> scoring_prompt(items, count)
+    |> AlexClaw.LLM.complete(llm_opts ++ [tier: :light])
+    |> select_scored(items, threshold, max_items)
+  end
+
+  defp scoring_prompt(interests, items, count) do
     numbered =
       items
       |> Enum.with_index(1)
-      |> Enum.map_join("\n", fn {item, i} ->
-        "#{i}. #{item.title || "(no title)"}"
-      end)
+      |> Enum.map_join("\n", fn {item, i} -> "#{i}. #{item.title || "(no title)"}" end)
 
-    count = length(items)
-
-    prompt = """
+    """
     You are a news relevance scorer. Rate each headline below from 0.0 (irrelevant) to 1.0 (highly relevant).
 
     Topics of interest: #{interests}
@@ -292,60 +308,57 @@ defmodule AlexClaw.Skills.RSSCollector do
     - Each line must contain ONLY a decimal number (e.g. 0.8). No text, no numbering, no explanation.
     - Spread your scores: use the full 0.0-1.0 range. The most relevant item should be near 1.0, the least near 0.0.
     """
+  end
+
+  defp select_scored({:error, reason}, _items, _threshold, _max_items) do
+    Logger.warning("Scoring failed: #{inspect(reason)}", skill: :rss)
+    []
+  end
+
+  defp select_scored({:ok, text}, items, threshold, max_items) do
+    Logger.info("Scoring response (first 500 chars): #{String.slice(text, 0, 500)}", skill: :rss)
+
+    scores = parse_scores(text)
+
+    scored =
+      items
+      |> Enum.with_index()
+      |> Enum.map(fn {item, i} -> Map.put(item, :score, Enum.at(scores, i, 0.0)) end)
+      |> Enum.sort_by(& &1.score, :desc)
+
+    # Relative selection: take the top N, with the threshold as a floor.
+    passed =
+      scored
+      |> Enum.filter(&(&1.score >= threshold))
+      |> Enum.take(max_items)
 
     Logger.info(
-      "Scoring #{count} items in single LLM call (interests: #{String.slice(interests, 0, 80)})",
+      "Top-#{max_items} (threshold: #{threshold}): scores=#{inspect(Enum.map(scored, & &1.score))}, passed=#{length(passed)}",
       skill: :rss
     )
 
-    case AlexClaw.LLM.complete(prompt, llm_opts ++ [tier: :light]) do
-      {:ok, text} ->
-        Logger.info("Scoring response (first 500 chars): #{String.slice(text, 0, 500)}",
-          skill: :rss
-        )
-
-        scores =
-          text
-          |> String.split(~r/[\n,]+/, trim: true)
-          |> Enum.map(fn line ->
-            line
-            |> String.trim()
-            |> String.replace(~r/^[\d]+[\.\):\-\s]+/, "")
-            |> String.replace(~r/[^\d\.]/, "")
-            |> Float.parse()
-            |> case do
-              {f, _} when f >= 0.0 and f <= 1.0 -> f
-              {f, _} when f > 1.0 -> f / 10.0
-              _ -> 0.0
-            end
-          end)
-
-        scored =
-          items
-          |> Enum.with_index()
-          |> Enum.map(fn {item, i} ->
-            Map.put(item, :score, Enum.at(scores, i, 0.0))
-          end)
-          |> Enum.sort_by(& &1.score, :desc)
-
-        # Relative selection: take top N items, but apply threshold as minimum floor
-        passed =
-          scored
-          |> Enum.filter(&(&1.score >= threshold))
-          |> Enum.take(max_items)
-
-        Logger.info(
-          "Top-#{max_items} (threshold: #{threshold}): scores=#{inspect(Enum.map(scored, & &1.score))}, passed=#{length(passed)}",
-          skill: :rss
-        )
-
-        passed
-
-      {:error, reason} ->
-        Logger.warning("Scoring failed: #{inspect(reason)}", skill: :rss)
-        []
-    end
+    passed
   end
+
+  defp parse_scores(text) do
+    text
+    |> String.split(~r/[\n,]+/, trim: true)
+    |> Enum.map(&parse_score_line/1)
+  end
+
+  defp parse_score_line(line) do
+    line
+    |> String.trim()
+    |> String.replace(~r/^[\d]+[\.\):\-\s]+/, "")
+    |> String.replace(~r/[^\d\.]/, "")
+    |> Float.parse()
+    |> normalize_score()
+  end
+
+  # A model answering on a 0-10 scale despite the instruction is rescaled.
+  defp normalize_score({f, _rest}) when f >= 0.0 and f <= 1.0, do: f
+  defp normalize_score({f, _rest}) when f > 1.0, do: f / 10.0
+  defp normalize_score(_), do: 0.0
 
   # --- Store & Notify ---
 

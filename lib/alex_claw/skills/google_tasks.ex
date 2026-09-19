@@ -78,59 +78,55 @@ defmodule AlexClaw.Skills.GoogleTasks do
   @spec run(map()) :: {:ok, String.t()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
-    action = config["action"] || "list"
+    dispatch_action(TokenManager.get_token(), config["action"] || "list", config, args[:input])
+  end
 
-    case TokenManager.get_token() do
-      {:ok, token} ->
-        case action do
-          "list" -> list_tasks(token, config)
-          "add" -> add_task(token, config, args[:input])
-          "lists" -> list_task_lists(token)
-          other -> {:error, {:unknown_action, other}}
-        end
+  defp dispatch_action({:error, reason}, _action, _config, _input), do: {:error, reason}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+  defp dispatch_action({:ok, token}, "list", config, _input), do: list_tasks(token, config)
+  defp dispatch_action({:ok, token}, "add", config, input), do: add_task(token, config, input)
+  defp dispatch_action({:ok, token}, "lists", _config, _input), do: list_task_lists(token)
+
+  defp dispatch_action({:ok, _token}, action, _config, _input) do
+    {:error, {:unknown_action, action}}
   end
 
   defp list_tasks(token, config) do
-    task_list_raw = config["task_list"] || "@default"
-    max_results = parse_int(config["max_results"], 20)
-    show_completed = config["show_completed"] == true or config["show_completed"] == "true"
-
-    case resolve_task_list(token, task_list_raw) do
-      {:ok, task_list_id} ->
-        url = "#{@tasks_api}/lists/#{URI.encode(task_list_id)}/tasks"
-
-        params = [
-          maxResults: max_results,
-          showCompleted: show_completed
-        ]
-
-        headers = [{"authorization", "Bearer #{token}"}]
-
-        case Req.get(url, params: params, headers: headers, receive_timeout: 10_000) do
-          {:ok, %{status: 200, body: %{"items" => tasks}}} when tasks != [] ->
-            formatted = format_tasks(tasks)
-            Logger.info("GoogleTasks: fetched #{length(tasks)} tasks", skill: :google_tasks)
-            {:ok, formatted, :on_tasks}
-
-          {:ok, %{status: 200, body: _}} ->
-            {:ok, "No tasks found.", :on_empty}
-
-          {:ok, %{status: status, body: body}} ->
-            Logger.warning("Google Tasks API error: #{status}", skill: :google_tasks)
-            {:error, {:tasks_api, status, body}}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    token
+    |> resolve_task_list(config["task_list"] || "@default")
+    |> fetch_tasks(token, config)
   end
+
+  defp fetch_tasks({:error, reason}, _token, _config), do: {:error, reason}
+
+  defp fetch_tasks({:ok, task_list_id}, token, config) do
+    params = [
+      maxResults: parse_int(config["max_results"], 20),
+      showCompleted: config["show_completed"] in [true, "true"]
+    ]
+
+    "#{@tasks_api}/lists/#{URI.encode(task_list_id)}/tasks"
+    |> Req.get(
+      params: params,
+      headers: [{"authorization", "Bearer #{token}"}],
+      receive_timeout: 10_000
+    )
+    |> tasks_response()
+  end
+
+  defp tasks_response({:ok, %{status: 200, body: %{"items" => tasks}}}) when tasks != [] do
+    Logger.info("GoogleTasks: fetched #{length(tasks)} tasks", skill: :google_tasks)
+    {:ok, format_tasks(tasks), :on_tasks}
+  end
+
+  defp tasks_response({:ok, %{status: 200, body: _}}), do: {:ok, "No tasks found.", :on_empty}
+
+  defp tasks_response({:ok, %{status: status, body: body}}) do
+    Logger.warning("Google Tasks API error: #{status}", skill: :google_tasks)
+    {:error, {:tasks_api, status, body}}
+  end
+
+  defp tasks_response({:error, reason}), do: {:error, reason}
 
   defp list_task_lists(token) do
     case fetch_task_lists(token) do
@@ -172,71 +168,81 @@ defmodule AlexClaw.Skills.GoogleTasks do
   defp resolve_task_list(_token, ""), do: {:ok, "@default"}
 
   defp resolve_task_list(token, name_or_id) do
-    case fetch_task_lists(token) do
-      {:ok, lists} ->
-        case Enum.find(lists, fn l ->
-               String.downcase(l["title"]) == String.downcase(name_or_id)
-             end) do
-          # not a name match, assume it's an ID
-          nil -> {:ok, name_or_id}
-          list -> {:ok, list["id"]}
-        end
+    token
+    |> fetch_task_lists()
+    |> match_task_list(name_or_id)
+  end
 
-      {:error, reason} ->
-        {:error, reason}
+  defp match_task_list({:error, reason}, _name_or_id), do: {:error, reason}
+
+  defp match_task_list({:ok, lists}, name_or_id) do
+    lists
+    |> Enum.find(&(String.downcase(&1["title"]) == String.downcase(name_or_id)))
+    |> matched_list_id(name_or_id)
+  end
+
+  # No title matched, so treat the value as an id already.
+  defp matched_list_id(nil, name_or_id), do: {:ok, name_or_id}
+  defp matched_list_id(list, _name_or_id), do: {:ok, list["id"]}
+
+  defp add_task(token, config, input) do
+    {title, notes} = task_title_and_notes(config, normalize_input(input))
+    create_task(title, notes, token, config)
+  end
+
+  defp normalize_input(nil), do: nil
+  defp normalize_input(input), do: to_string(input)
+
+  # An explicit config title wins and demotes the step input to notes; otherwise
+  # the input becomes the title.
+  defp task_title_and_notes(%{"title" => title} = config, input_str)
+       when is_binary(title) and title != "" do
+    {title, config["notes"] || input_str}
+  end
+
+  defp task_title_and_notes(config, input_str) when is_binary(input_str) and input_str != "" do
+    {input_str, config["notes"]}
+  end
+
+  defp task_title_and_notes(config, _input_str), do: {"", config["notes"]}
+
+  defp create_task("", _notes, _token, _config), do: {:error, :no_task_title}
+
+  defp create_task(title, notes, token, config) do
+    case resolve_task_list(token, config["task_list"] || "@default") do
+      {:ok, task_list_id} -> post_task(task_list_id, title, notes, token, config)
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp add_task(token, config, input) do
-    task_list_raw = config["task_list"] || "@default"
-    input_str = if input, do: to_string(input), else: nil
+  defp post_task(task_list_id, title, notes, token, config) do
+    url = "#{@tasks_api}/lists/#{URI.encode(task_list_id)}/tasks"
+    headers = [{"authorization", "Bearer #{token}"}]
 
-    # If title is in config, use input as notes (if notes not explicitly set)
-    # If no title in config, use input as title
-    {title, notes} =
-      cond do
-        config["title"] && config["title"] != "" ->
-          {config["title"], config["notes"] || input_str}
+    %{"title" => strip_markdown(title)}
+    |> put_notes(notes)
+    |> put_due(config["due"])
+    |> send_task(url, headers)
+  end
 
-        input_str && input_str != "" ->
-          {input_str, config["notes"]}
+  defp put_notes(task, nil), do: task
+  defp put_notes(task, notes), do: Map.put(task, "notes", strip_markdown(notes))
 
-        true ->
-          {"", config["notes"]}
-      end
+  defp put_due(task, nil), do: task
+  defp put_due(task, due), do: Map.put(task, "due", "#{due}T00:00:00.000Z")
 
-    if title == "" do
-      {:error, :no_task_title}
-    else
-      case resolve_task_list(token, task_list_raw) do
-        {:ok, task_list_id} ->
-          url = "#{@tasks_api}/lists/#{URI.encode(task_list_id)}/tasks"
-          headers = [{"authorization", "Bearer #{token}"}]
+  defp send_task(task, url, headers) do
+    case Req.post(url, json: task, headers: headers, receive_timeout: 10_000) do
+      {:ok, %{status: 200, body: %{"title" => created_title}}} ->
+        Logger.info("GoogleTasks: created '#{created_title}'", skill: :google_tasks)
+        {:ok, "Task created: #{created_title}", :on_tasks}
 
-          task = %{"title" => strip_markdown(title)}
-          task = if notes, do: Map.put(task, "notes", strip_markdown(notes)), else: task
+      {:ok, %{status: status, body: body}} ->
+        Logger.warning("Google Tasks create failed: #{status}", skill: :google_tasks)
+        {:error, {:tasks_api, status, body}}
 
-          task =
-            if config["due"],
-              do: Map.put(task, "due", "#{config["due"]}T00:00:00.000Z"),
-              else: task
-
-          case Req.post(url, json: task, headers: headers, receive_timeout: 10_000) do
-            {:ok, %{status: 200, body: %{"title" => created_title}}} ->
-              Logger.info("GoogleTasks: created '#{created_title}'", skill: :google_tasks)
-              {:ok, "Task created: #{created_title}", :on_tasks}
-
-            {:ok, %{status: status, body: body}} ->
-              Logger.warning("Google Tasks create failed: #{status}", skill: :google_tasks)
-              {:error, {:tasks_api, status, body}}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -4,6 +4,10 @@ defmodule AlexClaw.Config.Loader do
   """
   use GenServer
   require Logger
+  alias AlexClaw.Config.EncryptExisting
+  alias AlexClaw.Config.Seeder
+  alias AlexClaw.Knowledge.SelfAwareness
+  alias AlexClaw.LLM.ProviderSeeder
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
@@ -19,19 +23,19 @@ defmodule AlexClaw.Config.Loader do
     # 1. Create ETS table and load raw DB values
     AlexClaw.Config.init()
     # 2. Seed defaults (marks sensitive keys, encrypts new values)
-    AlexClaw.Config.Seeder.seed()
+    Seeder.seed()
     # 3. Encrypt any remaining plaintext sensitive values
-    AlexClaw.Config.EncryptExisting.run()
+    EncryptExisting.run()
     # 4. Reload ETS with decrypted values
     AlexClaw.Config.init()
     # 5. Seed default LLM providers (reads API keys from Config)
     unless Application.get_env(:alex_claw, :skip_provider_seed, false) do
-      AlexClaw.LLM.ProviderSeeder.seed()
+      ProviderSeeder.seed()
     end
 
     # 6. Load self-awareness docs into knowledge base (background, non-blocking)
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Knowledge.SelfAwareness.load()
+      SelfAwareness.load()
     end)
 
     # 7. Subscribe to config changes for cross-node ETS sync

@@ -5,6 +5,7 @@ defmodule AlexClaw.Resources do
   import Ecto.Query
   alias AlexClaw.Repo
   alias AlexClaw.Resources.Resource
+  alias AlexClaw.Resources.ApiDiscovery
 
   @spec list_resources(map()) :: [Resource.t()]
   def list_resources(filters \\ %{}) do
@@ -54,7 +55,7 @@ defmodule AlexClaw.Resources do
   end
 
   defp maybe_trigger_discovery(%Resource{type: "api"} = resource) do
-    AlexClaw.Resources.ApiDiscovery.run_async(resource)
+    ApiDiscovery.run_async(resource)
   end
 
   defp maybe_trigger_discovery(_resource), do: :ok

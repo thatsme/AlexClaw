@@ -5,6 +5,8 @@ defmodule AlexClaw.DataCase do
   """
   use ExUnit.CaseTemplate
 
+  alias Ecto.Adapters.SQL.Sandbox
+
   using do
     quote do
       alias AlexClaw.Repo
@@ -16,9 +18,9 @@ defmodule AlexClaw.DataCase do
   end
 
   setup tags do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(AlexClaw.Repo, shared: not tags[:async])
+    pid = Sandbox.start_owner!(AlexClaw.Repo, shared: not tags[:async])
 
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+    on_exit(fn -> Sandbox.stop_owner(pid) end)
 
     # Ensure ETS tables exist for Config and LLM usage
     ensure_ets_table(:alexclaw_config)

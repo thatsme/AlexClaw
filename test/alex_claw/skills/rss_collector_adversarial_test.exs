@@ -4,9 +4,10 @@ defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
   @moduletag :adversarial
 
   alias AlexClaw.Skills.RSSCollector
+  alias Ecto.Adapters.SQL.Sandbox
 
   setup do
-    Ecto.Adapters.SQL.Sandbox.mode(AlexClaw.Repo, {:shared, self()})
+    Sandbox.mode(AlexClaw.Repo, {:shared, self()})
     :ok
   end
 

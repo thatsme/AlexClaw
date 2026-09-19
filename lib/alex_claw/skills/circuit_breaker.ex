@@ -10,6 +10,8 @@ defmodule AlexClaw.Skills.CircuitBreaker do
   """
   use GenServer
   require Logger
+  alias AlexClaw.Gateway.Router
+  alias AlexClaw.Skills.CircuitBreakerSupervisor
 
   @ets_table :circuit_breakers
   @max_failures Application.compile_env(:alex_claw, [:circuit_breaker, :max_failures], 3)
@@ -35,7 +37,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
   @spec call(String.t(), (-> {:ok, any(), atom()} | {:ok, any()} | {:error, any()})) ::
           {:ok, any(), atom()} | {:ok, any()} | {:error, any()} | {:error, :circuit_open}
   def call(skill_name, fun) do
-    AlexClaw.Skills.CircuitBreakerSupervisor.ensure_started(skill_name)
+    CircuitBreakerSupervisor.ensure_started(skill_name)
 
     if allow?(skill_name) do
       case fun.() do
@@ -202,7 +204,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
 
   defp notify_opened(skill_name, count, reason) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Gateway.Router.broadcast(
+      Router.broadcast(
         "⚡ Circuit *OPEN* for skill `#{skill_name}`\n" <>
           "#{count} consecutive failures. Auto-retry in #{div(@reset_timeout, 60_000)} min.\n" <>
           "Last error: `#{String.slice(inspect(reason), 0, 200)}`"
@@ -212,9 +214,7 @@ defmodule AlexClaw.Skills.CircuitBreaker do
 
   defp notify_closed(skill_name) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Gateway.Router.broadcast(
-        "✅ Circuit *CLOSED* for skill `#{skill_name}` — recovered."
-      )
+      Router.broadcast("✅ Circuit *CLOSED* for skill `#{skill_name}` — recovered.")
     end)
   end
 end

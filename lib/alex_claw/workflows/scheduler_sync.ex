@@ -8,6 +8,7 @@ defmodule AlexClaw.Workflows.SchedulerSync do
   require Logger
 
   alias AlexClaw.Workflows
+  alias Crontab.CronExpression.Parser
 
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts) do
@@ -55,7 +56,7 @@ defmodule AlexClaw.Workflows.SchedulerSync do
     Enum.each(workflows, fn workflow ->
       job_name = :"wf_#{workflow.id}"
 
-      case Crontab.CronExpression.Parser.parse(workflow.schedule) do
+      case Parser.parse(workflow.schedule) do
         {:ok, cron} ->
           job =
             AlexClaw.Scheduler.new_job()

@@ -1,6 +1,8 @@
 defmodule AlexClawWeb.MetricsController do
   @moduledoc "Rich metrics endpoint for authenticated admin. Returns system, LLM, workflow, skill, and log statistics."
   use Phoenix.Controller, formats: [:json]
+  alias AlexClaw.MCP.ToolSchema
+  alias AlexClaw.Workflows.SkillRegistry
 
   @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
@@ -61,7 +63,7 @@ defmodule AlexClawWeb.MetricsController do
 
     %{
       active: children.active,
-      total_registered: length(AlexClaw.Workflows.SkillRegistry.list_skills()),
+      total_registered: length(SkillRegistry.list_skills()),
       circuit_breakers: breakers
     }
   end
@@ -75,7 +77,7 @@ defmodule AlexClawWeb.MetricsController do
         _pid -> "running"
       end
 
-    tool_count = length(AlexClaw.MCP.ToolSchema.all_tools())
+    tool_count = length(ToolSchema.all_tools())
 
     %{
       status: status,

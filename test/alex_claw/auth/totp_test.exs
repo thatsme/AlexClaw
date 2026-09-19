@@ -3,6 +3,7 @@ defmodule AlexClaw.Auth.TOTPTest do
   @moduletag :integration
 
   alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Config.Crypto
 
   describe "setup/0" do
     test "generates a secret and QR code" do
@@ -26,7 +27,7 @@ defmodule AlexClaw.Auth.TOTPTest do
       {:ok, _} = TOTP.setup()
       record = AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.pending_secret")
       assert record.sensitive == true
-      assert AlexClaw.Config.Crypto.encrypted?(record.value)
+      assert Crypto.encrypted?(record.value)
     end
   end
 
@@ -55,7 +56,7 @@ defmodule AlexClaw.Auth.TOTPTest do
 
       record = AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.secret")
       assert record.sensitive == true
-      assert AlexClaw.Config.Crypto.encrypted?(record.value)
+      assert Crypto.encrypted?(record.value)
     end
   end
 

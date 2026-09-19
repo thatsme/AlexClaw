@@ -2,18 +2,24 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.{Gateway, Message}
+  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Gateway
+  alias AlexClaw.Gateway.Router
+  alias AlexClaw.Google.OAuth
+  alias AlexClaw.Message
+  alias AlexClaw.Skills.Shell
+  alias AlexClaw.Workflows.{Executor, SkillRegistry}
 
   @spec dispatch(Message.t()) :: :ok | term()
 
   # --- 2FA Setup ---
 
   def dispatch(%Message{text: "/setup 2fa" <> _} = msg) do
-    case AlexClaw.Auth.TOTP.setup() do
+    case TOTP.setup() do
       {:ok, %{secret: secret, qr_png: qr_png}} ->
         secret_b32 = Base.encode32(secret, padding: false)
 
-        AlexClaw.Gateway.Router.send_photo(
+        Router.send_photo(
           msg.chat_id,
           qr_png,
           "Scan from another device, or use the manual key below.",
@@ -29,7 +35,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   end
 
   def dispatch(%Message{text: "/confirm 2fa " <> code} = msg) do
-    case AlexClaw.Auth.TOTP.confirm_setup(String.trim(code)) do
+    case TOTP.confirm_setup(String.trim(code)) do
       :ok ->
         Gateway.send_message(
           "2FA enabled! Sensitive actions will now require a code from your authenticator app.",
@@ -52,8 +58,8 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   end
 
   def dispatch(%Message{text: "/disable 2fa" <> _} = msg) do
-    if AlexClaw.Auth.TOTP.enabled?() do
-      AlexClaw.Auth.TOTP.disable()
+    if TOTP.enabled?() do
+      TOTP.disable()
       Gateway.send_message("2FA disabled.", chat_id: msg.chat_id, gateway: msg.gateway)
     else
       Gateway.send_message("2FA is not enabled.", chat_id: msg.chat_id, gateway: msg.gateway)
@@ -63,7 +69,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   # --- OAuth ---
 
   def dispatch(%Message{text: "/connect google" <> _} = msg) do
-    case AlexClaw.Google.OAuth.generate_auth_url(msg.chat_id) do
+    case OAuth.generate_auth_url(msg.chat_id) do
       {:ok, url} ->
         Gateway.send_html(
           "<b>Connect Google Calendar</b>\n\nTap the link below to authorize:\n\n#{url}\n\n<i>This link expires in 10 minutes.</i>",
@@ -81,7 +87,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   end
 
   def dispatch(%Message{text: "/disconnect google" <> _} = msg) do
-    AlexClaw.Google.OAuth.disconnect()
+    OAuth.disconnect()
 
     Gateway.send_message("Google disconnected. Refresh token removed.",
       chat_id: msg.chat_id,
@@ -105,8 +111,8 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   """
   @spec require_2fa(Message.t(), map(), String.t()) :: :challenged | :proceed
   def require_2fa(msg, action, description) do
-    if AlexClaw.Auth.TOTP.enabled?() do
-      AlexClaw.Auth.TOTP.create_challenge(msg.chat_id, action)
+    if TOTP.enabled?() do
+      TOTP.create_challenge(msg.chat_id, action)
 
       Gateway.send_message(
         "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:",
@@ -123,13 +129,13 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @spec execute_2fa_action(map(), Message.t()) :: term()
   def execute_2fa_action(%{type: :run_workflow, workflow_id: id}, _msg) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Workflows.Executor.run(id)
+      Executor.run(id)
     end)
   end
 
   def execute_2fa_action(%{type: :shell_command, command: command}, msg) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      case AlexClaw.Skills.Shell.run(%{input: command}) do
+      case Shell.run(%{input: command}) do
         {:ok, result, _branch} ->
           Gateway.send_message(result, gateway: msg.gateway)
 
@@ -140,7 +146,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   end
 
   def execute_2fa_action(%{type: :skill_load, file_path: file_path}, _msg) do
-    case AlexClaw.Workflows.SkillRegistry.load_skill(file_path) do
+    case SkillRegistry.load_skill(file_path) do
       {:ok, %{name: name, permissions: perms}} ->
         perm_list = Enum.map_join(perms, ", ", &to_string/1)
         Gateway.send_message("Skill *#{name}* loaded. Permissions: [#{perm_list}]")
@@ -151,14 +157,14 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   end
 
   def execute_2fa_action(%{type: :skill_unload, name: name}, _msg) do
-    case AlexClaw.Workflows.SkillRegistry.unload_skill(name) do
+    case SkillRegistry.unload_skill(name) do
       :ok -> Gateway.send_message("Skill *#{name}* unloaded.")
       {:error, reason} -> Gateway.send_message("Skill unload failed: #{inspect(reason)}")
     end
   end
 
   def execute_2fa_action(%{type: :skill_reload, name: name}, _msg) do
-    case AlexClaw.Workflows.SkillRegistry.reload_skill(name) do
+    case SkillRegistry.reload_skill(name) do
       {:ok, %{name: n}} -> Gateway.send_message("Skill *#{n}* reloaded and recompiled.")
       {:error, reason} -> Gateway.send_message("Skill reload failed: #{inspect(reason)}")
     end

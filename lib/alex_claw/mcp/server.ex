@@ -26,6 +26,11 @@ defmodule AlexClaw.MCP.Server do
   alias AlexClaw.MCP.{ResourceProvider, ToolSchema}
   alias Anubis.MCP.Error
   alias Anubis.Server.Response
+  alias AlexClaw.Auth.CapabilityToken
+  alias AlexClaw.Skills.SkillAPI
+  alias AlexClaw.Workflows.Executor
+  alias AlexClaw.Workflows.SkillRegistry
+  alias Anubis.Server.Frame
 
   @skills_topic "skills:registry"
 
@@ -49,7 +54,7 @@ defmodule AlexClaw.MCP.Server do
   @spec handle_tool_call(String.t(), map(), map()) :: {:ok, map(), map()} | {:error, map(), map()}
   def handle_tool_call("skill:" <> skill_name, arguments, frame) do
     with {:resolve, {:ok, module}} <-
-           {:resolve, AlexClaw.Workflows.SkillRegistry.resolve(skill_name)},
+           {:resolve, SkillRegistry.resolve(skill_name)},
          {:policy, :allow} <- {:policy, check_mcp_policy("skill:#{skill_name}", :execute)} do
       args = build_skill_args(arguments)
       result = execute_skill(module, skill_name, args)
@@ -126,7 +131,7 @@ defmodule AlexClaw.MCP.Server do
     frame = %{frame | tools: %{}}
 
     Enum.reduce(ToolSchema.all_tools(), frame, fn tool_def, acc ->
-      Anubis.Server.Frame.register_tool(acc, tool_def.name,
+      Frame.register_tool(acc, tool_def.name,
         description: tool_def.description,
         input_schema: tool_def.input_schema
       )
@@ -146,18 +151,18 @@ defmodule AlexClaw.MCP.Server do
   end
 
   defp execute_skill(module, _skill_name, args) do
-    type = AlexClaw.Workflows.SkillRegistry.get_type(module)
+    type = SkillRegistry.get_type(module)
 
     task =
       Task.Supervisor.async_nolink(AlexClaw.TaskSupervisor, fn ->
         permissions =
           if type == :dynamic do
-            AlexClaw.Workflows.SkillRegistry.get_permissions(module)
+            SkillRegistry.get_permissions(module)
           else
-            AlexClaw.Skills.SkillAPI.known_permissions()
+            SkillAPI.known_permissions()
           end
 
-        token = AlexClaw.Auth.CapabilityToken.mint(permissions)
+        token = CapabilityToken.mint(permissions)
         Process.put(:auth_token, token)
 
         module.run(args)
@@ -179,9 +184,9 @@ defmodule AlexClaw.MCP.Server do
 
     result =
       if input do
-        AlexClaw.Workflows.Executor.run_with_input(workflow.id, input)
+        Executor.run_with_input(workflow.id, input)
       else
-        AlexClaw.Workflows.Executor.run(workflow.id)
+        Executor.run(workflow.id)
       end
 
     case result do

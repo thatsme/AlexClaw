@@ -7,6 +7,7 @@ defmodule AlexClaw.LLM do
   import Ecto.Query
 
   alias AlexClaw.LLM.Provider
+  alias AlexClaw.LLM.UsageTracker
 
   @type tier :: :light | :medium | :heavy | :local
   @type complete_opts :: [tier: tier(), system: String.t() | nil]
@@ -109,7 +110,7 @@ defmodule AlexClaw.LLM do
   def track_usage(provider_id) when is_integer(provider_id) do
     key = {provider_id, Date.utc_today()}
     :ets.update_counter(@table, key, {2, 1}, {key, 0})
-    AlexClaw.LLM.UsageTracker.persist(provider_id)
+    UsageTracker.persist(provider_id)
   end
 
   @doc "Get today's usage count for a provider by ID."

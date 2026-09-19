@@ -3,9 +3,10 @@ defmodule AlexClaw.Skills.WebSearchTest do
   @moduletag :integration
 
   alias AlexClaw.Skills.WebSearch
+  alias Ecto.Adapters.SQL.Sandbox
 
   setup do
-    Ecto.Adapters.SQL.Sandbox.mode(AlexClaw.Repo, {:shared, self()})
+    Sandbox.mode(AlexClaw.Repo, {:shared, self()})
     :ok
   end
 

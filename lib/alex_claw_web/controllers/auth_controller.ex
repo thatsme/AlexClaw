@@ -3,6 +3,7 @@ defmodule AlexClawWeb.AuthController do
 
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
+  alias AlexClawWeb.Plugs.RateLimit
 
   plug(:put_root_layout, html: {AlexClawWeb.Layouts, :root})
   plug(:put_layout, false)
@@ -21,7 +22,7 @@ defmodule AlexClawWeb.AuthController do
   @spec authenticate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def authenticate(conn, %{"password" => password}) do
     admin_password = Application.get_env(:alex_claw, :admin_password)
-    ip = AlexClawWeb.Plugs.RateLimit.get_client_ip(conn)
+    ip = RateLimit.get_client_ip(conn)
 
     cond do
       is_nil(admin_password) or admin_password == "" ->

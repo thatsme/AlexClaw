@@ -4,6 +4,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
   use Phoenix.LiveView
 
   alias AlexClaw.Workflows
+  alias AlexClaw.Workflows.Executor
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -33,7 +34,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
         case Workflows.get_workflow(wf_id) do
           {:ok, workflow} ->
             Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-              AlexClaw.Workflows.Executor.run(workflow.id)
+              Executor.run(workflow.id)
             end)
 
             {:noreply, put_flash(socket, :info, "Workflow '#{workflow.name}' triggered")}

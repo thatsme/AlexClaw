@@ -3,6 +3,7 @@ defmodule AlexClawWeb.SecurityHardeningTest do
   @moduletag :integration
 
   alias AlexClaw.Config
+  alias AlexClawWeb.Plugs.RateLimit
 
   describe "session expiration" do
     test "redirects to login when session has no authenticated_at timestamp", %{conn: conn} do
@@ -79,7 +80,7 @@ defmodule AlexClawWeb.SecurityHardeningTest do
     test "ignores X-Forwarded-For by default", %{conn: conn} do
       Config.set("auth.trust_proxy_headers", "false", type: "boolean", category: "auth")
 
-      ip = AlexClawWeb.Plugs.RateLimit.get_client_ip(%{conn | remote_ip: {10, 0, 0, 1}})
+      ip = RateLimit.get_client_ip(%{conn | remote_ip: {10, 0, 0, 1}})
       assert ip == "10.0.0.1"
 
       spoofed =
@@ -87,7 +88,7 @@ defmodule AlexClawWeb.SecurityHardeningTest do
         |> put_req_header("x-forwarded-for", "1.2.3.4")
         |> Map.put(:remote_ip, {10, 0, 0, 1})
 
-      ip = AlexClawWeb.Plugs.RateLimit.get_client_ip(spoofed)
+      ip = RateLimit.get_client_ip(spoofed)
       assert ip == "10.0.0.1"
     end
 
@@ -99,14 +100,14 @@ defmodule AlexClawWeb.SecurityHardeningTest do
         |> put_req_header("x-forwarded-for", "1.2.3.4, 10.0.0.1")
         |> Map.put(:remote_ip, {10, 0, 0, 1})
 
-      ip = AlexClawWeb.Plugs.RateLimit.get_client_ip(spoofed)
+      ip = RateLimit.get_client_ip(spoofed)
       assert ip == "1.2.3.4"
     end
 
     test "falls back to remote_ip when trust enabled but no header", %{conn: conn} do
       Config.set("auth.trust_proxy_headers", "true", type: "boolean", category: "auth")
 
-      ip = AlexClawWeb.Plugs.RateLimit.get_client_ip(%{conn | remote_ip: {192, 168, 1, 1}})
+      ip = RateLimit.get_client_ip(%{conn | remote_ip: {192, 168, 1, 1}})
       assert ip == "192.168.1.1"
     end
   end

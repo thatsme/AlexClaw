@@ -1,5 +1,6 @@
 defmodule AlexClawWeb.Plugs.RateLimitTest do
   use AlexClawWeb.ConnCase, async: false
+  alias AlexClawWeb.Plugs.RateLimit
   @moduletag :integration
 
   describe "call/2" do
@@ -23,7 +24,7 @@ defmodule AlexClawWeb.Plugs.RateLimitTest do
   describe "get_client_ip/1" do
     test "extracts IP from conn" do
       conn = build_conn()
-      ip = AlexClawWeb.Plugs.RateLimit.get_client_ip(conn)
+      ip = RateLimit.get_client_ip(conn)
       assert is_binary(ip)
     end
   end

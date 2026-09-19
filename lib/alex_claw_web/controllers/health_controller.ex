@@ -1,6 +1,7 @@
 defmodule AlexClawWeb.HealthController do
   @moduledoc "Lightweight health check for load balancers and Docker healthcheck."
   use Phoenix.Controller, formats: [:json]
+  alias Ecto.Adapters.SQL
 
   @spec check(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def check(conn, _params) do
@@ -25,7 +26,7 @@ defmodule AlexClawWeb.HealthController do
   end
 
   defp db_connected? do
-    case Ecto.Adapters.SQL.query(AlexClaw.Repo, "SELECT 1", []) do
+    case SQL.query(AlexClaw.Repo, "SELECT 1", []) do
       {:ok, _} -> true
       _ -> false
     end

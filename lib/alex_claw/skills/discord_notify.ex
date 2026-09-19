@@ -32,6 +32,7 @@ defmodule AlexClaw.Skills.DiscordNotify do
     do: "channel_id: target Discord channel. Leave empty to send to the default channel."
 
   require Logger
+  alias AlexClaw.Gateway.Discord
 
   @impl true
   @spec run(map()) :: {:ok, map(), atom()} | {:error, any()}
@@ -50,11 +51,11 @@ defmodule AlexClaw.Skills.DiscordNotify do
         [gateway: :discord]
       end
 
-    if AlexClaw.Gateway.Discord.configured?() do
+    if Discord.configured?() do
       # Discord limit is 2000 chars — split into multiple messages if needed
       message
       |> chunk_message(1900)
-      |> Enum.each(fn chunk -> AlexClaw.Gateway.Discord.send_message(chunk, opts) end)
+      |> Enum.each(fn chunk -> Discord.send_message(chunk, opts) end)
 
       # Pass through the original input so downstream steps still have the data
       {:ok, input, :on_delivered}

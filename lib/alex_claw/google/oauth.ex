@@ -14,6 +14,7 @@ defmodule AlexClaw.Google.OAuth do
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
   alias AlexClaw.Config
+  alias AlexClaw.Google.TokenManager
 
   @token_url "https://oauth2.googleapis.com/token"
   @auth_url "https://accounts.google.com/o/oauth2/v2/auth"
@@ -134,7 +135,7 @@ defmodule AlexClaw.Google.OAuth do
           description: "Google OAuth refresh token (obtained via one-time authorization flow)"
         )
 
-        AlexClaw.Google.TokenManager.refresh()
+        TokenManager.refresh()
 
         Logger.info("Google OAuth connected successfully")
         {:ok, chat_id}

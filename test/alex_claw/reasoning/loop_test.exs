@@ -447,6 +447,8 @@ defmodule AlexClaw.Reasoning.LoopTest do
 
       {:ok, pid} = Loop.start(goal, default_opts())
       assert_receive :asked_user, 10_000
+      # The stub sends from inside the task; wait for the loop itself to transition.
+      assert_receive {:waiting_user, _payload}, 10_000
 
       waiting = :sys.get_state(pid)
       assert waiting.status == :waiting_user

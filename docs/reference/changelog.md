@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.3.22 — Security Hardening (2026-09-19)
+
+Security release. Several of these change existing behaviour — read the
+breaking-changes note before upgrading.
+
+- **Shell skill — callers cannot redefine their own limits** — the allowlist, blocklist and exact-command list are read from Config or the compiled defaults only. A workflow step previously supplied its own `whitelist`, letting any step run any command
+  - Default allowlist narrowed to `df free uptime uname whoami hostname date ls`
+  - Removed: `cat /proc` (matched `/proc/self/environ`, leaking the environment), `bin/alex_claw` (arbitrary code execution via `eval`), `curl`, `git`, `ping`, `nslookup`
+  - `ps` is now exact-match `ps aux`; `ps e` and `ps eww` print other processes' environments
+  - New `shell.exact_commands`, compared byte-for-byte (default `cat /proc/meminfo`, `cat /proc/loadavg`, `ps aux`)
+  - A step may narrow `timeout_seconds` and `max_output_chars` but never widen them
+- **Dynamic skills — vetted as a syntax tree before compiling** — `Code.compile_file/1` defined every module in a file and ran each module body before any check. A skill could ship a second module replacing `AlexClaw.Auth.PolicyEngine`, or act at compile time
+  - The file must be exactly one `defmodule` in `AlexClaw.Skills.Dynamic.*`, and nothing else at the top level
+  - Module body limited to `def`, `defp`, `@`, `alias`, `require`, `import`; attributes must be literals or `~w`/`~s`/`~r` sigils
+  - `use`, `@on_load`, `@after_compile`, `@before_compile`, `@on_definition`, `@compile` and `unquote` rejected
+  - `import`/`require` restricted to `Logger`, `AlexClaw.Skills.Helpers`, `SweetXml` anywhere in the file
+  - A reload that fails validation no longer unloads the working skill
+- **Skill uploads staged** — uploads land in `<skills_dir>/pending/` and move into place only after the 2FA code is verified, so an upload can no longer overwrite a running skill's file beforehand. Stale pending files are swept after an hour
+- **MCP — dangerous tools denied by default** — `skill:shell`, `skill:coder`, `skill:db_backup` and `skill:web_automation` are seeded as `mcp_restriction` denies. `mcp_restriction` was also missing from `Policy`'s valid rule types, so the admin UI could never have created one. Adds an optional `match` mode (`exact` or `contains`)
+- **2FA cannot be turned off without a code** — `/disable 2fa` now requires `/disable 2fa <code>` and verifies it
+- **Workflows marked `requires_2fa` are gated in the admin UI** — the Run button called the executor directly, bypassing the check the gateway applied. Extracted as `AlexClaw.Auth.Gate`
+- **Knowledge deletes go through SkillAPI** — `Knowledge.delete_by_source_prefix/2` requires a kind and a non-empty prefix and escapes LIKE metacharacters; `SkillAPI.knowledge_delete/2` gates it behind `:knowledge_write`. A skill was calling `Repo.delete_all/1` directly
+- **Reasoning loop — task and timer lifecycle** — aborting a session left the LLM task running; the time budget kept counting while paused or waiting on the user; `override_step` orphaned an in-flight task; `count_recent_adjusts` counted the whole session instead of a recent window
+- **Boot-time skill load failures are broadcast** — a skill refused by the stricter gate after upgrade is reported, not just logged
+- **Tests** — live-network tests tagged `:external` and excluded by default (`mix test --include external` to run them); added `lazy_html` for LiveView click testing
+
+### Breaking changes
+
+- **2FA now fails closed.** `/shell`, workflows marked `requires_2fa`, and `/skill load|unload|reload` are **refused** when TOTP is not configured, where they previously ran unprotected. Set up 2FA with `/setup 2fa` before upgrading if you rely on these.
+- **Dynamic skills using `use`, computed module attributes, or `import`/`require` outside `[Logger, AlexClaw.Skills.Helpers, SweetXml]` no longer load.** Check your skills volume before upgrading — a rejected skill is reported over the gateway on boot and stays inactive until fixed.
+- **Shell commands relying on `cat /proc/*`, `curl`, `git`, `ping`, `nslookup`, `bin/alex_claw` or bare `ps` will be rejected.** Add what you need to `shell.whitelist` or `shell.exact_commands` deliberately.
+- **MCP calls to `skill:shell`, `skill:coder`, `skill:db_backup` and `skill:web_automation` are denied.** Disable or delete the seeded policy in Admin > Policies to re-enable one.
+
 ## Unreleased
 
 - **Reasoning loop — `:waiting_user` exit transitions** — both unblock paths now resume the loop instead of dead-ending

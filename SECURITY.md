@@ -118,14 +118,24 @@ by 5 layers of defense-in-depth:
 
 1. **Disabled by default** — `shell.enabled` must be explicitly set to `true` in Admin > Config. The check is enforced both in the Dispatcher and inside the skill itself.
 2. **2FA gate** — every `/shell` command requires TOTP verification when 2FA is enabled.
-3. **Whitelist with word-boundary check** — the command must start with an allowed prefix (`df`, `free`, `ps`, `uptime`, `git`, etc.). The prefix is boundary-checked: `"df"` allows `"df -h"` but not `"define"`. The whitelist is stored as a JSON array in the database and editable from Admin > Config.
-4. **Blocklist** — commands containing shell metacharacters (`&&`, `||`, `|`, `;`, `` ` ``, `$(`, `>`, `<`, `\n`) are rejected even if the prefix is whitelisted.
+3. **Allowlist with word-boundary check** — the command must either match an exact allowed command byte-for-byte, or start with an allowed prefix (`df`, `free`, `uptime`, `uname`, `whoami`, `hostname`, `date`, `ls`). The prefix is boundary-checked: `"df"` allows `"df -h"` but not `"define"`. Commands that are safe only in one exact form live in `shell.exact_commands` (default: `cat /proc/meminfo`, `cat /proc/loadavg`, `ps aux`) — `ps aux` is permitted while `ps eww`, which prints other processes' environments, is not.
+4. **Blocklist** — commands containing shell metacharacters (`&&`, `||`, `|`, `;`, `` ` ``, `$(`, `>`, `<`, `\n`) are rejected even if the prefix is allowed.
 5. **No shell interpretation** — commands are executed via `System.cmd/3` with arguments passed as a list (parsed by `OptionParser.split/1`). No shell is invoked — no globbing, no piping, no variable expansion.
+
+The allowlist, exact-command list and blocklist are read from Config or the
+compiled defaults **only**. A workflow step supplies a command, never the rules
+it is checked against.
 
 Additional protections:
 - **Timeout** — commands are killed after 30 seconds (configurable via `shell.timeout_seconds`)
 - **Output truncation** — output is capped at 4000 characters (configurable via `shell.max_output_chars`)
+- **Limits can be narrowed, never widened** — a step may pass a smaller `timeout_seconds` or `max_output_chars`, but values above the configured ceiling are clamped to it, and non-positive values are ignored
 - **Workflow mode** — when used in workflows, the command comes from step config (not user input), preventing injection through workflow chaining
+
+**The 2FA gate is the boundary, and it is only as strong as the gateway.** `/shell`
+is refused outright when TOTP is not configured, rather than running unprotected.
+Verification happens over Telegram or Discord, so anyone who controls the
+configured chat can approve a shell command.
 
 ---
 
@@ -183,14 +193,18 @@ or environment variables and restart.
 
 ## Dynamic Skill Loading
 
-Dynamic skills are compiled into the BEAM VM at runtime via `Code.compile_file`.
-The following protections are in place:
+Dynamic skills are compiled into the BEAM VM at runtime. The source is parsed
+and vetted as a syntax tree **before** anything is compiled, because compiling a
+module runs its body. The following protections are in place:
 
 - **2FA mandatory** — every load, unload, and reload requires TOTP verification via Telegram/Discord. No exceptions, no config toggle
 - **Admin UI only** — skill management is not available from Telegram/Discord commands. Code cannot be uploaded from a messaging app
 - **Version bump enforcement** — loading a skill that's already loaded with the same version is rejected. The developer must bump `version/0` or use reload to force
 - **Path restriction** — only files inside the configured `SKILLS_DIR` volume are accepted
-- **Namespace enforcement** — module must be `AlexClaw.Skills.Dynamic.*`
+- **One module per file** — the file's top level must be exactly one `defmodule` and nothing else. A file carrying a second module could previously replace a core module such as `AlexClaw.Auth.PolicyEngine` in the running VM, and a statement outside the module ran at compile time
+- **Namespace enforcement** — module must be `AlexClaw.Skills.Dynamic.*`, checked on the syntax tree before compiling
+- **No compile-time execution** — the module body is limited to `def`, `defp`, `@`, `alias`, `require` and `import`. Attributes must be literals or `~w`/`~s`/`~r` sigils; `@on_load`, `@after_compile`, `@before_compile`, `@on_definition`, `@compile`, `use`, and `unquote` are rejected
+- **Restricted compile-time dependencies** — `import` and `require` are limited to `Logger`, `AlexClaw.Skills.Helpers` and `SweetXml`, anywhere in the file. Both bring macros into scope, and a macro expands at compile time wherever it is called, including inside a function body
 - **Behaviour validation** — module must export `run/1`
 - **Permission sandbox** — skills declare permissions; `SkillAPI` enforces them at runtime. Undeclared permissions return `{:error, :permission_denied}`
 - **Integrity checksums** — SHA256 of source file stored on load, verified on boot. Mismatched files are skipped
@@ -218,10 +232,21 @@ safety measures:
 - Always uses `tier: :local` — zero cloud API cost
 - Retry bound prevents infinite loops (configurable, default 3)
 
-**What is NOT sandboxed:** A dynamic skill runs in the same BEAM VM as the rest
-of AlexClaw. A malicious skill could bypass SkillAPI by calling internal modules
-directly. The permission system is a guardrail, not a security boundary.
-Only load skills from sources you trust.
+**What is NOT sandboxed:** the checks above stop code running at *load* time.
+They do not constrain what `run/1` does once the skill is invoked. A dynamic
+skill runs in the same BEAM VM as the rest of AlexClaw, with full VM privileges:
+it can call `File`, `System`, `:os`, or `AlexClaw.Repo` directly, and reach any
+internal module without going through `SkillAPI`.
+
+**The permissions a skill declares are an API contract, not a sandbox.** They
+determine what `SkillAPI` will do on the skill's behalf; they cannot stop a
+skill that ignores `SkillAPI` altogether.
+
+**The load-time TOTP check is the security boundary.** Loading a skill is
+equivalent to deploying code, and is gated accordingly: it is refused when TOTP
+is not configured, and uploads wait in `<skills_dir>/pending/` until the code is
+verified, so an upload cannot replace a running skill's file beforehand. Only
+load skills from sources you trust.
 
 ---
 

@@ -75,8 +75,9 @@ AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs),
 
 Load custom skills at runtime — no code changes, no Docker rebuild, no restart. Drop an `.ex` file into the skills volume (or upload via the admin UI), and it compiles into the running VM immediately.
 
-- **Permission sandbox** — Dynamic skills declare permissions and interact through `SkillAPI` only. Undeclared permissions are denied at runtime. Context-aware `PolicyEngine` evaluates chain depth, capability tokens, and configurable policy rules.
+- **Declared permissions** — Dynamic skills declare permissions and are expected to interact through `SkillAPI`, which denies undeclared permissions at runtime. Context-aware `PolicyEngine` evaluates chain depth, capability tokens, and configurable policy rules. Permissions are an API contract, not a sandbox: a loaded skill runs with full VM privileges, so the load-time 2FA check is the security boundary. See [SECURITY.md](SECURITY.md#dynamic-skill-loading).
 - **External skill detection** — Skills that fetch external data declare `external/0`. Dynamic skills are AST-scanned at load time — undeclared HTTP/socket calls are **rejected** (fail-closed).
+- **Load-time validation** — Skill source is vetted as a syntax tree before it is compiled: one module per file, in the `AlexClaw.Skills.Dynamic.*` namespace, with a module body restricted to declarations. Nothing in the file executes at load time.
 - **Content sanitization** — 7-layer heuristic sanitizer strips prompt injection payloads from external content before LLM ingestion. Detects hidden HTML/CSS, zero-width unicode steganography, known injection patterns (101 from Garak), and imperative tone anomalies. Patterns loaded from JSON at runtime — updatable without recompilation.
 - **Capability tokens** — Macaroon-style HMAC-signed tokens attenuate permissions through the call chain. Workflow steps get scoped tokens; cross-skill invocation further restricts.
 - **Process isolation** — Dynamic skills execute in spawned processes via `SafeExecutor`, isolating auth state from the caller.
@@ -135,14 +136,14 @@ Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-co
 ### Security
 
 - **Session-based authentication** — all routes except `/login` and `/health` require an authenticated session
-- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup via Telegram or Discord (`/setup 2fa`, `/confirm 2fa`). Mandatory for: skill management (Admin UI), workflows marked `Requires 2FA`, and shell commands. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
+- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup via Telegram or Discord (`/setup 2fa`, `/confirm 2fa`). Mandatory for: skill management (Admin UI and gateway), workflows marked `Requires 2FA`, and shell commands — these fail closed, refusing the action when 2FA is not configured rather than running unprotected. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
 - **Encryption at rest** — API keys and tokens are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime
 - **Sensitive key masking** — API keys and tokens show partial values in the admin UI
 - **Agent authorization layer** — Context-aware PolicyEngine with HMAC capability tokens, chain-depth enforcement, process isolation for dynamic skills, configurable policy rules (rate_limit, time_window, chain_restriction, permission_override, mcp_restriction), and persistent audit logging
 - **MCP Bearer token auth** — MCP endpoint requires `Authorization: Bearer <token>` validated against `mcp.api_key` via constant-time comparison. Policy-based tool restrictions allow blocking specific tools for MCP clients. Sensitive config values are redacted in MCP resource responses
-- **Shell command security** — 5-layer defense: disabled by default, 2FA gate, whitelist with word-boundary check, blocklist for shell metacharacters, no shell interpretation (`System.cmd/3` with args as list), configurable timeout + output truncation
+- **Shell command security** — 5-layer defense: disabled by default, 2FA gate, allowlist with word-boundary check plus an exact-match list, blocklist for shell metacharacters, no shell interpretation (`System.cmd/3` with args as list), configurable timeout + output truncation. Allowlists come from configuration only — a workflow step supplies a command, never the rules it is checked against
 
 ---
 

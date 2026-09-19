@@ -343,6 +343,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp register_compiled({:error, reason}, skill) do
     Logger.warning("Failed to load dynamic skill #{skill.name}: #{inspect(reason)}")
+    notify_load_failure(skill.name, reason)
   end
 
   defp register_compiled({:ok, module, permissions}, skill) do
@@ -532,14 +533,208 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  # The file is vetted as a syntax tree before anything is compiled. Code.compile_file/1
+  # defines every module in the file and runs its body, so a file could quietly replace
+  # AlexClaw.Auth.PolicyEngine alongside a well-behaved skill, or act at compile time.
   defp compile_and_validate(full_path) do
-    case Code.compile_file(full_path) do
-      [{module, _bytecode} | _] -> validate_compiled(module, full_path)
+    with {:ok, source} <- File.read(full_path),
+         {:ok, ast} <- parse_source(source),
+         {:ok, expected} <- single_dynamic_module(ast),
+         :ok <- validate_module_body(ast),
+         :ok <- validate_compile_time_deps(ast) do
+      compile_vetted(ast, full_path, expected)
+    end
+  end
+
+  defp parse_source(source) do
+    case Code.string_to_quoted(source) do
+      {:ok, ast} -> {:ok, ast}
+      {:error, {_meta, message, token}} -> {:error, {:compilation_error, "#{message}#{token}"}}
+    end
+  end
+
+  # Exactly one top-level module, in the dynamic namespace. Anything else is refused
+  # before it can be defined in the VM.
+  defp single_dynamic_module(ast) do
+    case top_level_modules(ast) do
+      [{:ok, module}] -> {:ok, module}
       [] -> {:error, :no_module_defined}
+      [{:error, name}] -> {:error, {:invalid_namespace, name}}
+      modules -> {:error, {:multiple_modules, Enum.map(modules, &module_name/1)}}
+    end
+  end
+
+  defp top_level_modules({:defmodule, _meta, [{:__aliases__, _, parts} | _]}),
+    do: [classify_module(parts)]
+
+  defp top_level_modules({:__block__, _meta, statements}),
+    do: Enum.flat_map(statements, &top_level_modules/1)
+
+  defp top_level_modules(_ast), do: []
+
+  defp classify_module(parts) do
+    name = Enum.map_join(parts, ".", &Atom.to_string/1)
+
+    if String.starts_with?(name <> ".", @dynamic_namespace) do
+      {:ok, Module.concat(parts)}
+    else
+      {:error, name}
+    end
+  end
+
+  defp module_name({:ok, module}), do: String.replace_leading(to_string(module), "Elixir.", "")
+  defp module_name({:error, name}), do: name
+
+  defp compile_vetted(ast, full_path, expected) do
+    case Code.compile_quoted(ast, full_path) do
+      [{^expected, _bytecode}] -> validate_compiled(expected, full_path)
+      compiled -> purge_unexpected(compiled)
     end
   rescue
     e ->
       {:error, {:compilation_error, Exception.message(e)}}
+  end
+
+  # Belt and braces: if compilation still yields anything other than the single
+  # module we approved, none of it stays resident.
+  defp purge_unexpected(compiled) do
+    for {module, _bytecode} <- compiled do
+      :code.purge(module)
+      :code.delete(module)
+    end
+
+    {:error, {:multiple_modules, Enum.map(compiled, fn {module, _} -> inspect(module) end)}}
+  end
+
+  # Compiling a module runs its body, so the body is restricted to declarations.
+  # This stops code executing at load time; it says nothing about what run/1 does
+  # once the skill is invoked.
+  @rejected_attributes [:on_load, :after_compile, :before_compile, :on_definition, :compile]
+  @allowed_attributes [:impl, :moduledoc, :doc, :spec, :behaviour, :type, :typep, :opaque]
+  @allowed_sigils [:sigil_w, :sigil_W, :sigil_s, :sigil_S, :sigil_r, :sigil_R]
+
+  defp validate_module_body({:defmodule, _meta, [_alias, [do: body]]}),
+    do: validate_statements(body_statements(body))
+
+  defp validate_module_body({:__block__, _meta, statements}),
+    do: Enum.find_value(statements, :ok, &reject_or_nil(validate_module_body(&1)))
+
+  defp validate_module_body(_ast), do: :ok
+
+  defp body_statements({:__block__, _meta, statements}), do: statements
+  defp body_statements(statement), do: [statement]
+
+  defp reject_or_nil(:ok), do: nil
+  defp reject_or_nil(error), do: error
+
+  defp validate_statements(statements) do
+    Enum.find_value(statements, :ok, &reject_or_nil(validate_statement(&1)))
+  end
+
+  defp validate_statement({:@, _meta, [{name, _, _}]}) when name in @rejected_attributes,
+    do: {:error, {:forbidden_construct, "@#{name}"}}
+
+  defp validate_statement({:@, _meta, [{name, _, args}]}), do: validate_attribute(name, args)
+
+  defp validate_statement({:use, _meta, _args}), do: {:error, {:forbidden_construct, "use"}}
+
+  # alias is inert. import and require are allowed here but their target is checked
+  # against the allowlist by validate_compile_time_deps/1, over the whole file.
+  defp validate_statement({directive, _meta, _args})
+       when directive in [:alias, :require, :import],
+       do: :ok
+
+  # A function definition is allowed; its body runs only when the function is called.
+  defp validate_statement({call, _meta, _args}) when call in [:def, :defp], do: :ok
+
+  # Anything else in a module body executes at compile time. A remote call arrives as
+  # {{:., _, [alias, name]}, _, _}, so it is named rather than reported as a tuple.
+  defp validate_statement({{:., _meta, [_target, name]}, _call_meta, _args}),
+    do: {:error, {:forbidden_construct, "call to #{name}/? in the module body"}}
+
+  defp validate_statement({call, _meta, _args}) when is_atom(call),
+    do: {:error, {:forbidden_construct, to_string(call)}}
+
+  defp validate_statement(statement),
+    do: {:error, {:forbidden_construct, "expression in the module body: #{summarise(statement)}"}}
+
+  defp summarise(statement) do
+    statement |> Macro.to_string() |> String.slice(0, 60)
+  end
+
+  # import and require both bring a module's macros into scope, and a macro call
+  # expands at compile time wherever it appears — including inside a function body.
+  # So the target is checked across the whole file, not only the module body.
+  @allowed_compile_time_modules [Logger, AlexClaw.Skills.Helpers, SweetXml]
+
+  defp validate_compile_time_deps(ast) do
+    {_ast, errors} = Macro.prewalk(ast, [], &collect_dep_error/2)
+
+    case Enum.reverse(errors) do
+      [] -> :ok
+      [error | _rest] -> {:error, error}
+    end
+  end
+
+  defp collect_dep_error({:use, _meta, _args} = node, errors),
+    do: {node, [{:forbidden_construct, "use"} | errors]}
+
+  defp collect_dep_error({directive, _meta, args} = node, errors)
+       when directive in [:import, :require] and is_list(args) do
+    {node, dep_error(directive, dependency_module(args), errors)}
+  end
+
+  defp collect_dep_error(node, errors), do: {node, errors}
+
+  defp dep_error(_directive, module, errors) when module in @allowed_compile_time_modules,
+    do: errors
+
+  defp dep_error(directive, nil, errors),
+    do: [{:forbidden_construct, "#{directive} of an unresolvable module"} | errors]
+
+  defp dep_error(directive, module, errors),
+    do: [{:forbidden_construct, "#{directive} #{inspect(module)}"} | errors]
+
+  # Anything that does not resolve to a plain alias — a multi-alias brace form, or a
+  # module built at runtime — is refused rather than guessed at.
+  defp dependency_module([{:__aliases__, _meta, parts} | _rest]) do
+    if Enum.all?(parts, &is_atom/1), do: Module.concat(parts), else: nil
+  end
+
+  defp dependency_module(_args), do: nil
+
+  defp validate_attribute(name, args) when name in @allowed_attributes do
+    if unquote_free?(args), do: :ok, else: {:error, {:forbidden_construct, "unquote in @#{name}"}}
+  end
+
+  defp validate_attribute(name, [value]) do
+    if literal_attribute?(value) do
+      :ok
+    else
+      {:error, {:forbidden_construct, "@#{name} with a computed value"}}
+    end
+  end
+
+  defp validate_attribute(name, _args), do: {:error, {:forbidden_construct, "@#{name}"}}
+
+  # A module attribute may hold data, never a computation. Sigils are allowed
+  # because ~w/~s/~r are how skills declare lists, strings and patterns.
+  defp literal_attribute?({sigil, _meta, _args} = value) when sigil in @allowed_sigils,
+    do: unquote_free?(value)
+
+  defp literal_attribute?(value) do
+    Macro.quoted_literal?(value) and unquote_free?(value)
+  end
+
+  defp unquote_free?(ast) do
+    {_ast, found} =
+      Macro.prewalk(ast, false, fn
+        {:unquote, _meta, _args} = node, _acc -> {node, true}
+        {:unquote_splicing, _meta, _args} = node, _acc -> {node, true}
+        node, acc -> {node, acc}
+      end)
+
+    not found
   end
 
   defp validate_compiled(module, full_path) do
@@ -731,6 +926,18 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       Router.broadcast(
         "Warning: Dynamic skill '#{skill_name}' file changed since last load. " <>
           "Use /skill reload #{skill_name} to update, or /skill unload #{skill_name} to remove."
+      )
+    end)
+  end
+
+  # A skill that loaded before an upgrade can be refused by a stricter gate
+  # afterwards. Without this it would simply be absent, with only a log line.
+  defp notify_load_failure(skill_name, reason) do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      Router.broadcast(
+        "Warning: Dynamic skill '#{skill_name}' did not load: #{inspect(reason)}. " <>
+          "It is registered but inactive. Fix the file and /skill reload #{skill_name}, " <>
+          "or /skill unload #{skill_name} to remove it."
       )
     end)
   end

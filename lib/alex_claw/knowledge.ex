@@ -117,7 +117,6 @@ defmodule AlexClaw.Knowledge do
     |> Repo.exists?()
   end
 
-
   @doc """
   Delete entries of `kind` whose source starts with `prefix`.
 

@@ -154,7 +154,6 @@ defmodule AlexClaw.Skills.SkillAPI do
     end
   end
 
-
   @doc """
   Delete knowledge entries of a kind whose source starts with a prefix.
 

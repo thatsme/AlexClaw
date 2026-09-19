@@ -7,6 +7,7 @@ defmodule AlexClaw.Auth.Policy do
   - `time_window` — deny permission outside allowed hours
   - `chain_restriction` — restrict cross-skill invocation
   - `permission_override` — temporary grant/deny with optional expiry
+  - `mcp_restriction` — deny a tool exposed over MCP, by exact name or substring
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -24,7 +25,7 @@ defmodule AlexClaw.Auth.Policy do
     timestamps(type: :utc_datetime)
   end
 
-  @valid_rule_types ~w(rate_limit time_window chain_restriction permission_override)
+  @valid_rule_types ~w(rate_limit time_window chain_restriction permission_override mcp_restriction)
 
   @doc false
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()

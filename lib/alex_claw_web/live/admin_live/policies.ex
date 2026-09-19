@@ -26,7 +26,12 @@ defmodule AlexClawWeb.AdminLive.Policies do
     "rate_limit" => %{"permission" => "llm", "max_calls" => 10, "window_seconds" => 60},
     "time_window" => %{"permission" => "llm", "deny_start_hour" => 0, "deny_end_hour" => 6},
     "chain_restriction" => %{"caller_pattern" => "Dynamic"},
-    "permission_override" => %{"permission" => "shell", "action" => "deny", "expires_at" => nil}
+    "permission_override" => %{"permission" => "shell", "action" => "deny", "expires_at" => nil},
+    "mcp_restriction" => %{
+      "tool_pattern" => "skill:shell",
+      "action" => "deny",
+      "match" => "exact"
+    }
   }
 
   @impl true
@@ -196,6 +201,9 @@ defmodule AlexClawWeb.AdminLive.Policies do
 
       "permission_override" ->
         "Temporarily grants or denies a specific permission. Optional expiry date."
+
+      "mcp_restriction" ->
+        "Denies a tool exposed over MCP. tool_pattern is the tool name (\"skill:shell\", \"workflow:deploy\"). match: \"exact\" compares the whole name, \"contains\" matches any tool containing the pattern."
 
       _ ->
         "Select a rule type."

@@ -185,25 +185,33 @@ defmodule AlexClaw.Auth.PolicyEngine do
          %Policy{rule_type: "mcp_restriction", config: config},
          %AuthContext{caller_type: :mcp} = ctx
        ) do
-    tool_pattern = config["tool_pattern"]
-    action = config["action"] || "deny"
-
-    if tool_pattern && ctx.tool_name && String.contains?(ctx.tool_name, tool_pattern) do
-      case action do
-        "deny" ->
-          {:deny, "MCP restriction: tool '#{ctx.tool_name}' blocked by pattern '#{tool_pattern}'"}
-
-        _ ->
-          :ok
-      end
-    else
-      :ok
-    end
+    mcp_restriction(tool_matches?(ctx.tool_name, config), ctx, config)
   end
 
   defp evaluate_policy(%Policy{rule_type: "mcp_restriction"}, _ctx), do: :ok
 
   defp evaluate_policy(_policy, _ctx), do: :ok
+
+  # "exact" is the safe default for a deny rule; "contains" stays the fallback so
+  # patterns written before the mode existed keep matching as they did.
+  defp tool_matches?(nil, _config), do: false
+
+  defp tool_matches?(tool_name, %{"tool_pattern" => pattern} = config) when is_binary(pattern) do
+    case config["match"] do
+      "exact" -> tool_name == pattern
+      _ -> String.contains?(tool_name, pattern)
+    end
+  end
+
+  defp tool_matches?(_tool_name, _config), do: false
+
+  defp mcp_restriction(false, _ctx, _config), do: :ok
+  defp mcp_restriction(true, _ctx, %{"action" => action}) when action != "deny", do: :ok
+
+  defp mcp_restriction(true, ctx, config) do
+    {:deny,
+     "MCP restriction: tool '#{ctx.tool_name}' blocked by pattern '#{config["tool_pattern"]}'"}
+  end
 
   defp override_for(false, _config), do: :ok
   defp override_for(true, %{"expires_at" => nil} = config), do: apply_override(config["action"])

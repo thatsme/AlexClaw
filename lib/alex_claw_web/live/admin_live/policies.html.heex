@@ -38,6 +38,7 @@
               <option value="time_window" selected={@form[:rule_type].value == "time_window"}>Time Window</option>
               <option value="chain_restriction" selected={@form[:rule_type].value == "chain_restriction"}>Chain Restriction</option>
               <option value="permission_override" selected={@form[:rule_type].value == "permission_override"}>Permission Override</option>
+              <option value="mcp_restriction" selected={@form[:rule_type].value == "mcp_restriction"}>MCP Restriction</option>
             </select>
           </div>
         </div>
@@ -89,6 +90,7 @@
               "time_window" -> "bg-purple-900/50 text-purple-400"
               "chain_restriction" -> "bg-orange-900/50 text-orange-400"
               "permission_override" -> "bg-red-900/50 text-red-400"
+              "mcp_restriction" -> "bg-teal-900/50 text-teal-400"
               _ -> "bg-gray-800 text-gray-400"
             end}>
             {policy.rule_type}

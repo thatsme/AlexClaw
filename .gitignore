@@ -42,6 +42,9 @@ CLAUDE.md
 TEST_RULES.md
 TO-DO.md
 
+# Giulia daemon project constitution (local code intelligence, never committed here)
+GIULIA.md
+
 # IDE
 .elixir_ls/
 .vscode/

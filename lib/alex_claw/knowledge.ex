@@ -117,6 +117,40 @@ defmodule AlexClaw.Knowledge do
     |> Repo.exists?()
   end
 
+
+  @doc """
+  Delete entries of `kind` whose source starts with `prefix`.
+
+  Both arguments are required and must be non-empty: there is deliberately no way
+  to express an unscoped delete through this function. `prefix` is matched
+  literally — LIKE metacharacters in it are escaped, so a prefix containing `%`
+  or `_` matches only those characters.
+  """
+  @spec delete_by_source_prefix(String.t(), String.t()) ::
+          {:ok, non_neg_integer()} | {:error, :invalid_scope}
+  def delete_by_source_prefix(kind, prefix)
+      when is_binary(kind) and is_binary(prefix) and kind != "" and prefix != "" do
+    pattern = escape_like(prefix) <> "%"
+
+    {count, _returned} =
+      Entry
+      |> where([e], e.kind == ^kind)
+      |> where([e], like(e.source, ^pattern))
+      |> Repo.delete_all()
+
+    {:ok, count}
+  end
+
+  def delete_by_source_prefix(_kind, _prefix), do: {:error, :invalid_scope}
+
+  # The escape character itself has to go first, or it would escape the escapes.
+  defp escape_like(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
+
   @spec recent(keyword()) :: [Entry.t()]
   def recent(opts \\ []) do
     limit = Keyword.get(opts, :limit, 20)

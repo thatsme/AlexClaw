@@ -393,13 +393,9 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   # --- Force re-scrape ---
 
   defp delete_package_entries(package) do
-    import Ecto.Query
-    prefix = "https://hexdocs.pm/#{package}/"
-
-    AlexClaw.Repo.delete_all(
-      from(e in AlexClaw.Knowledge.Entry,
-        where: e.kind == "hexdocs" and like(e.source, ^"#{prefix}%")
-      )
+    SkillAPI.knowledge_delete(__MODULE__,
+      kind: "hexdocs",
+      source_prefix: "https://hexdocs.pm/#{package}/"
     )
   end
 

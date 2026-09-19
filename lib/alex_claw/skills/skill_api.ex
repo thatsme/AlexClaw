@@ -154,6 +154,25 @@ defmodule AlexClaw.Skills.SkillAPI do
     end
   end
 
+
+  @doc """
+  Delete knowledge entries of a kind whose source starts with a prefix.
+
+  Both `:kind` and `:source_prefix` are required, so a skill cannot express an
+  unscoped delete. This is the only route a skill has to removing knowledge —
+  reaching for Repo directly bypasses the permission check.
+  """
+  @spec knowledge_delete(skill_mod(), keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def knowledge_delete(skill_module, opts) do
+    with :ok <- check_permission(skill_module, :knowledge_write) do
+      AlexClaw.Knowledge.delete_by_source_prefix(
+        Keyword.get(opts, :kind),
+        Keyword.get(opts, :source_prefix)
+      )
+    end
+  end
+
   # --- HTTP ---
 
   @default_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"

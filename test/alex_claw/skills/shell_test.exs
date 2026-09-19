@@ -111,6 +111,68 @@ defmodule AlexClaw.Skills.ShellTest do
     end
   end
 
+  # ps prints other processes' environments with the right flags, which in this
+  # container includes SECRET_KEY_BASE and the database password.
+  describe "ps is exact-match only" do
+    test "ps aux is accepted" do
+      assert {:ok, result, _branch} = Shell.run(%{input: "ps aux"})
+      assert result =~ "$ ps aux"
+    end
+
+    test "ps eww is rejected" do
+      assert {:error, {:not_whitelisted, "ps eww"}} = Shell.run(%{input: "ps eww"})
+    end
+
+    test "ps e is rejected" do
+      assert {:error, {:not_whitelisted, "ps e"}} = Shell.run(%{input: "ps e"})
+    end
+
+    test "bare ps is rejected" do
+      assert {:error, {:not_whitelisted, "ps"}} = Shell.run(%{input: "ps"})
+    end
+  end
+
+  # A non-positive limit is not a narrowing request, and would crash the runner.
+  describe "non-positive limits fall back to the ceiling" do
+    test "a negative timeout does not reach Task.yield" do
+      insert_setting("shell.timeout_seconds", "2", type: "integer", category: "shell")
+      allow(["sleep"])
+
+      assert {:ok, result, :on_timeout} =
+               Shell.run(%{input: "sleep 10", config: %{"timeout_seconds" => -5}})
+
+      assert result =~ "Timed out after 2s"
+    end
+
+    test "a zero timeout does not reach Task.yield" do
+      insert_setting("shell.timeout_seconds", "2", type: "integer", category: "shell")
+      allow(["sleep"])
+
+      assert {:ok, _result, :on_timeout} =
+               Shell.run(%{input: "sleep 10", config: %{"timeout_seconds" => 0}})
+    end
+
+    test "a negative output cap does not reach String.slice" do
+      insert_setting("shell.max_output_chars", "100", type: "integer", category: "shell")
+      allow(["seq"])
+
+      assert {:ok, result, :on_success} =
+               Shell.run(%{input: "seq 1 10000", config: %{"max_output_chars" => -1}})
+
+      assert result =~ "[truncated at 100 chars]"
+    end
+
+    test "a negative value given as a string is ignored too" do
+      insert_setting("shell.timeout_seconds", "2", type: "integer", category: "shell")
+      allow(["sleep"])
+
+      assert {:ok, result, :on_timeout} =
+               Shell.run(%{input: "sleep 10", config: %{"timeout_seconds" => "-5"}})
+
+      assert result =~ "Timed out after 2s"
+    end
+  end
+
   describe "exact command list" do
     test "a default exact entry is accepted" do
       assert {:ok, result, _branch} = Shell.run(%{input: "cat /proc/meminfo"})
@@ -143,7 +205,7 @@ defmodule AlexClaw.Skills.ShellTest do
   describe "blocklist validation" do
     test "pipe is rejected even with valid prefix" do
       assert {:error, {:blocked_metachar, "|"}} =
-               Shell.run(%{input: "ps aux | grep beam"})
+               Shell.run(%{input: "df -h | grep beam"})
     end
 
     test "semicolon is rejected" do

@@ -20,8 +20,8 @@ defmodule AlexClaw.Skills.Shell do
 
   alias AlexClaw.Config
 
-  @default_whitelist ~w[df free ps uptime uname whoami hostname date ls]
-  @default_exact_commands ["cat /proc/meminfo", "cat /proc/loadavg"]
+  @default_whitelist ~w[df free uptime uname whoami hostname date ls]
+  @default_exact_commands ["cat /proc/meminfo", "cat /proc/loadavg", "ps aux"]
   @default_blocklist ["&&", "||", "|", ";", "`", "$(", ">", "<", "\n"]
   @default_timeout_seconds 30
   @default_max_output_chars 4000
@@ -62,7 +62,7 @@ defmodule AlexClaw.Skills.Shell do
   @spec config_help() :: String.t()
   def config_help,
     do:
-      "command: the OS command to execute. Must match an allowed prefix (df, free, ps, uptime, uname, whoami, hostname, date, ls) or an exact allowed command. Shell metacharacters (pipes, redirects, semicolons) are blocked. The allowlist is set in Config, not here; timeout_seconds and max_output_chars may only lower the configured limits."
+      "command: the OS command to execute. Must match an allowed prefix (df, free, uptime, uname, whoami, hostname, date, ls) or an exact allowed command such as 'ps aux'. Shell metacharacters (pipes, redirects, semicolons) are blocked. The allowlist is set in Config, not here; timeout_seconds and max_output_chars may only lower the configured limits."
 
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
@@ -236,13 +236,15 @@ defmodule AlexClaw.Skills.Shell do
     end
   end
 
-  # nil means "the step did not ask", which is different from "the step asked for 0".
+  # nil means "the step did not ask". A non-positive value is treated the same way:
+  # a negative timeout crashes Task.yield/2 and a negative cap crashes String.slice/3.
   defp load_int(nil), do: nil
-  defp load_int(val) when is_integer(val), do: val
+  defp load_int(val) when is_integer(val) and val > 0, do: val
+  defp load_int(val) when is_integer(val), do: nil
 
   defp load_int(val) when is_binary(val) do
     case Integer.parse(val) do
-      {n, ""} -> n
+      {n, ""} when n > 0 -> n
       _ -> nil
     end
   end

@@ -7,11 +7,11 @@ defmodule AlexClaw.Workflows.Executor do
   """
   require Logger
 
-  alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.{Registry, SkillRegistry}
-  alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
   alias AlexClaw.ContentSanitizer
+  alias AlexClaw.Skills.CircuitBreaker
+  alias AlexClaw.Workflows
+  alias AlexClaw.Workflows.{Registry, SkillRegistry}
 
   @doc "Run a workflow by ID. Creates a run record and walks the step graph."
   @spec run(integer()) ::
@@ -76,58 +76,70 @@ defmodule AlexClaw.Workflows.Executor do
       remote_extra_config: Map.get(remote_data, :remote_extra_config, %{})
     }
 
-    case walk(first_position(steps), steps, workflow, run, state) do
-      {:ok, final_result, step_results} ->
-        {:ok, run} =
-          Workflows.update_run(run, %{
-            status: "completed",
-            completed_at: DateTime.utc_now(),
-            result: %{"output" => serialize_result(final_result)},
-            step_results: step_results
-          })
+    ctx = %{steps: steps, workflow: workflow, run: run}
 
-        Registry.deregister(run.id)
+    first_position(steps)
+    |> walk(ctx, state)
+    |> finish(ctx, gateways)
+  end
 
-        Registry.broadcast(
-          {:workflow_run_completed,
-           %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name}}
-        )
+  defp finish({:ok, final_result, step_results}, ctx, _gateways) do
+    {:ok, run} =
+      Workflows.update_run(ctx.run, %{
+        status: "completed",
+        completed_at: DateTime.utc_now(),
+        result: %{"output" => serialize_result(final_result)},
+        step_results: step_results
+      })
 
-        Logger.info("Workflow '#{workflow.name}' completed (run #{run.id})",
-          workflow: workflow.name
-        )
+    Registry.deregister(run.id)
 
-        {:ok, run}
+    Registry.broadcast(
+      {:workflow_run_completed,
+       %{run_id: run.id, workflow_id: ctx.workflow.id, workflow_name: ctx.workflow.name}}
+    )
 
-      {:error, step_name, reason, step_results} ->
-        {:ok, run} =
-          Workflows.update_run(run, %{
-            status: "failed",
-            completed_at: DateTime.utc_now(),
-            error: inspect(reason),
-            step_results: step_results
-          })
+    Logger.info("Workflow '#{ctx.workflow.name}' completed (run #{run.id})",
+      workflow: ctx.workflow.name
+    )
 
-        Registry.deregister(run.id)
+    {:ok, run}
+  end
 
-        Registry.broadcast(
-          {:workflow_run_failed,
-           %{
-             run_id: run.id,
-             workflow_id: workflow.id,
-             workflow_name: workflow.name,
-             error: inspect(reason)
-           }}
-        )
+  defp finish({:error, step_name, reason, step_results}, ctx, gateways) do
+    {:ok, run} =
+      Workflows.update_run(ctx.run, %{
+        status: "failed",
+        completed_at: DateTime.utc_now(),
+        error: inspect(reason),
+        step_results: step_results
+      })
 
-        Logger.error(
-          "Workflow '#{workflow.name}' failed at step '#{step_name}': #{inspect(reason)}",
-          workflow: workflow.name
-        )
+    Registry.deregister(run.id)
 
-        if gateways != [], do: notify_failure(workflow, step_name, reason, gateways)
-        {:error, run}
-    end
+    Registry.broadcast(
+      {:workflow_run_failed,
+       %{
+         run_id: run.id,
+         workflow_id: ctx.workflow.id,
+         workflow_name: ctx.workflow.name,
+         error: inspect(reason)
+       }}
+    )
+
+    Logger.error(
+      "Workflow '#{ctx.workflow.name}' failed at step '#{step_name}': #{inspect(reason)}",
+      workflow: ctx.workflow.name
+    )
+
+    notify_failure_if_any(gateways, ctx.workflow, step_name, reason)
+    {:error, run}
+  end
+
+  defp notify_failure_if_any([], _workflow, _step_name, _reason), do: :ok
+
+  defp notify_failure_if_any(gateways, workflow, step_name, reason) do
+    notify_failure(workflow, step_name, reason, gateways)
   end
 
   # --- Graph Walker ---
@@ -142,143 +154,166 @@ defmodule AlexClaw.Workflows.Executor do
     {:error, "loop_protection", :loop_detected, state.step_results}
   end
 
-  defp walk(pos, steps, workflow, run, state) do
-    step = find_step(steps, pos)
+  # steps, workflow and run are invariant for the whole walk, so they travel as
+  # one context rather than as three parameters threaded through every clause.
+  defp walk(pos, ctx, state) do
+    ctx.steps
+    |> find_step(pos)
+    |> visit(pos, ctx, state)
+  end
 
-    if step do
-      if MapSet.member?(state.visited, pos) do
-        {:error, step.name, :loop_detected, state.step_results}
-      else
-        state = %{
-          state
-          | visited: MapSet.put(state.visited, pos),
-            max_iterations: state.max_iterations - 1
-        }
+  # Position resolved to nothing — the graph has run out of steps.
+  defp visit(nil, _pos, _ctx, state), do: {:ok, last_output(state), state.step_results}
 
-        input = resolve_step_input(step, steps, state.outputs)
+  defp visit(step, pos, ctx, state) do
+    enter(MapSet.member?(state.visited, pos), step, pos, ctx, state)
+  end
 
-        # Inject remote data for receive_from_workflow gate
-        {input, step} =
-          if step.skill == "receive_from_workflow" and state.remote_input != nil do
-            # Remote config goes first so step config takes precedence
-            merged_config = Map.merge(state.remote_extra_config, step.config || %{})
-            {state.remote_input, %{step | config: merged_config}}
-          else
-            {input, step}
-          end
+  defp enter(true, step, _pos, _ctx, state) do
+    {:error, step.name, :loop_detected, state.step_results}
+  end
 
-        Registry.update_step(run.id, step.name)
+  defp enter(false, step, pos, ctx, state) do
+    state = %{
+      state
+      | visited: MapSet.put(state.visited, pos),
+        max_iterations: state.max_iterations - 1
+    }
 
-        Registry.broadcast(
-          {:workflow_step_started,
-           %{
-             run_id: run.id,
-             workflow_name: workflow.name,
-             step_name: step.name,
-             step_position: step.position
-           }}
-        )
+    {input, step} =
+      inject_remote_input(step, resolve_step_input(step, ctx.steps, state.outputs), state)
 
-        Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})",
-          workflow: workflow.name
-        )
+    announce_step(step, ctx)
 
-        started_at = System.monotonic_time(:millisecond)
-        step_result = execute_step(step, input, workflow, run)
-        duration_ms = System.monotonic_time(:millisecond) - started_at
+    started_at = System.monotonic_time(:millisecond)
+    step_result = execute_step(step, input, ctx.workflow, ctx.run)
 
-        record_outcome(run.id, step, step_result, duration_ms)
+    record_outcome(
+      ctx.run.id,
+      step,
+      step_result,
+      System.monotonic_time(:millisecond) - started_at
+    )
 
-        case step_result do
-          {:ok, result, branch} ->
-            Registry.broadcast(
-              {:workflow_step_completed,
-               %{
-                 run_id: run.id,
-                 workflow_name: workflow.name,
-                 step_name: step.name,
-                 step_position: step.position,
-                 branch: branch
-               }}
-            )
+    advance(step_result, step, ctx, state)
+  end
 
-            state = record_step_result(state, step, result, branch)
-            next = resolve_next(step, branch, steps)
-            walk(next, steps, workflow, run, state)
+  # The receive_from_workflow gate takes its input from the remote trigger rather
+  # than from the previous step. Remote config goes first so step config wins.
+  defp inject_remote_input(%{skill: "receive_from_workflow"} = step, input, state) do
+    remote_input(state.remote_input, step, input, state)
+  end
 
-          {:skipped, result} ->
-            state = record_step_result(state, step, result, :skipped)
-            next = next_position(step.position, steps)
-            walk(next, steps, workflow, run, state)
+  defp inject_remote_input(step, input, _state), do: {input, step}
 
-          {:error, reason} ->
-            state = record_step_error(state, step, reason)
-            next = resolve_next(step, :on_error, steps)
+  defp remote_input(nil, step, input, _state), do: {input, step}
 
-            case next do
-              nil ->
-                {:error, step.name, reason, state.step_results}
+  defp remote_input(remote, step, _input, state) do
+    {remote, %{step | config: Map.merge(state.remote_extra_config, step.config || %{})}}
+  end
 
-              next_pos ->
-                # Error is routed to another step — store error info in outputs for that step's input
-                state = %{
-                  state
-                  | outputs: Map.put(state.outputs, step.position, %{error: reason})
-                }
+  defp announce_step(step, ctx) do
+    Registry.update_step(ctx.run.id, step.name)
 
-                walk(next_pos, steps, workflow, run, state)
-            end
-        end
-      end
-    else
-      {:ok, last_output(state), state.step_results}
-    end
+    Registry.broadcast(
+      {:workflow_step_started,
+       %{
+         run_id: ctx.run.id,
+         workflow_name: ctx.workflow.name,
+         step_name: step.name,
+         step_position: step.position
+       }}
+    )
+
+    Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})",
+      workflow: ctx.workflow.name
+    )
+  end
+
+  defp advance({:ok, result, branch}, step, ctx, state) do
+    Registry.broadcast(
+      {:workflow_step_completed,
+       %{
+         run_id: ctx.run.id,
+         workflow_name: ctx.workflow.name,
+         step_name: step.name,
+         step_position: step.position,
+         branch: branch
+       }}
+    )
+
+    state = record_step_result(state, step, result, branch)
+    walk(resolve_next(step, branch, ctx.steps), ctx, state)
+  end
+
+  defp advance({:skipped, result}, step, ctx, state) do
+    state = record_step_result(state, step, result, :skipped)
+    walk(next_position(step.position, ctx.steps), ctx, state)
+  end
+
+  defp advance({:error, reason}, step, ctx, state) do
+    state = record_step_error(state, step, reason)
+    route_error(resolve_next(step, :on_error, ctx.steps), step, reason, ctx, state)
+  end
+
+  defp route_error(nil, step, reason, _ctx, state) do
+    {:error, step.name, reason, state.step_results}
+  end
+
+  # Routed to another step — the error is exposed in outputs so that step can read it.
+  defp route_error(next_pos, step, reason, ctx, state) do
+    state = %{state | outputs: Map.put(state.outputs, step.position, %{error: reason})}
+    walk(next_pos, ctx, state)
   end
 
   # --- Step Execution ---
 
   defp execute_step(step, input, workflow, run) do
-    provider = step.llm_model || workflow.default_provider
-
     args = %{
       input: input,
       resources: workflow.resources,
       config: step.config || %{},
       workflow_run_id: run.id,
-      llm_provider: provider,
+      llm_provider: step.llm_model || workflow.default_provider,
       llm_tier: step.llm_tier,
       prompt_template: step.prompt_template
     }
 
     Process.put(:auth_chain_depth, 0)
+    run_resolved_skill(SkillRegistry.resolve(step.skill), step, args)
+  end
 
-    case SkillRegistry.resolve(step.skill) do
-      {:ok, module} ->
-        skill_type = SkillRegistry.get_type(module) || :dynamic
-        token = mint_step_token(module, skill_type)
-        if token, do: Process.put(:auth_token, token)
+  defp run_resolved_skill({:error, :unknown_skill}, step, args) do
+    handle_missing_skill(step, args)
+  end
 
-        step_timeout = get_in(step.config, ["timeout_ms"])
-        safe_opts = if is_integer(step_timeout), do: [timeout: step_timeout], else: []
+  defp run_resolved_skill({:ok, module}, step, args) do
+    skill_type = SkillRegistry.get_type(module) || :dynamic
+    token = mint_step_token(module, skill_type)
+    if token, do: Process.put(:auth_token, token)
 
-        result =
-          CircuitBreaker.call(step.skill, fn ->
-            SafeExecutor.run(module, args, skill_type, token, safe_opts)
-          end)
+    step.skill
+    |> CircuitBreaker.call(fn ->
+      SafeExecutor.run(module, args, skill_type, token, safe_opts(step))
+    end)
+    |> normalize_result()
+    |> maybe_sanitize(step.skill)
+    |> resolve_step_outcome(step, args)
+  end
 
-        result
-        |> normalize_result()
-        |> maybe_sanitize(step.skill)
-        |> case do
-          {:ok, result, branch} -> {:ok, result, branch}
-          {:error, :circuit_open} -> handle_circuit_open(step, args)
-          {:error, reason} -> {:error, reason}
-        end
-
-      {:error, :unknown_skill} ->
-        handle_missing_skill(step, args)
+  defp safe_opts(step) do
+    case get_in(step.config, ["timeout_ms"]) do
+      timeout when is_integer(timeout) -> [timeout: timeout]
+      _ -> []
     end
   end
+
+  defp resolve_step_outcome({:ok, result, branch}, _step, _args), do: {:ok, result, branch}
+
+  defp resolve_step_outcome({:error, :circuit_open}, step, args),
+    do: handle_circuit_open(step, args)
+
+  defp resolve_step_outcome({:error, reason}, _step, _args), do: {:error, reason}
 
   defp normalize_result({:ok, result, branch}), do: {:ok, result, branch}
   defp normalize_result({:ok, result}), do: {:ok, result, :on_success}
@@ -295,32 +330,27 @@ defmodule AlexClaw.Workflows.Executor do
   defp maybe_sanitize(error, _skill_name), do: error
 
   defp handle_circuit_open(step, args) do
-    case get_in(step.config, ["on_circuit_open"]) do
-      "skip" ->
-        Logger.warning(
-          "[CircuitBreaker] Skipping step #{step.name}, circuit open for #{step.skill}"
-        )
+    circuit_open_strategy(get_in(step.config, ["on_circuit_open"]), step, args)
+  end
 
-        {:skipped, args.input}
+  defp circuit_open_strategy("skip", step, args) do
+    Logger.warning("[CircuitBreaker] Skipping step #{step.name}, circuit open for #{step.skill}")
+    {:skipped, args.input}
+  end
 
-      "fallback" ->
-        fallback_name = get_in(step.config, ["fallback_skill"])
+  defp circuit_open_strategy("fallback", step, args) do
+    fallback_name = get_in(step.config, ["fallback_skill"])
+    run_fallback(SkillRegistry.resolve(fallback_name), fallback_name, args)
+  end
 
-        case SkillRegistry.resolve(fallback_name) do
-          {:ok, mod} ->
-            case mod.run(args) do
-              {:ok, result, branch} -> {:ok, result, branch}
-              {:ok, result} -> {:ok, result, :on_success}
-              {:error, reason} -> {:error, reason}
-            end
+  defp circuit_open_strategy(_halt_or_nil, _step, _args), do: {:error, :circuit_open}
 
-          {:error, :unknown_skill} ->
-            {:error, {:fallback_not_found, fallback_name}}
-        end
+  defp run_fallback({:error, :unknown_skill}, fallback_name, _args) do
+    {:error, {:fallback_not_found, fallback_name}}
+  end
 
-      _halt_or_nil ->
-        {:error, :circuit_open}
-    end
+  defp run_fallback({:ok, mod}, _fallback_name, args) do
+    normalize_result(mod.run(args))
   end
 
   defp handle_missing_skill(step, args) do
@@ -337,26 +367,30 @@ defmodule AlexClaw.Workflows.Executor do
   # --- Route Resolution ---
 
   defp resolve_next(step, branch, steps) do
-    case step.routes do
-      routes when routes == [] or is_nil(routes) ->
-        # No routes defined — fall through to next position on success,
-        # halt on error (backward compatible)
-        if branch == :on_error, do: nil, else: next_position(step.position, steps)
+    route_for(step.routes, step, branch, steps)
+  end
 
-      routes ->
-        branch_str = to_string(branch)
+  # No routes defined — fall through to the next position on success and halt on
+  # error, which is how linear workflows behaved before branching existed.
+  defp route_for(routes, step, branch, steps) when routes == [] or is_nil(routes) do
+    if branch == :on_error, do: nil, else: next_position(step.position, steps)
+  end
 
-        case Enum.find(routes, &(&1["branch"] == branch_str)) do
-          %{"goto" => pos} ->
-            pos
+  defp route_for(routes, _step, branch, _steps) do
+    branch_str = to_string(branch)
 
-          nil ->
-            # No matching route — check for default
-            case Enum.find(routes, &(&1["branch"] == "default")) do
-              %{"goto" => pos} -> pos
-              nil -> nil
-            end
-        end
+    routes
+    |> Enum.find(&(&1["branch"] == branch_str))
+    |> matched_route(routes)
+  end
+
+  defp matched_route(%{"goto" => pos}, _routes), do: pos
+
+  # No matching route — fall back to the default branch if one is defined.
+  defp matched_route(nil, routes) do
+    case Enum.find(routes, &(&1["branch"] == "default")) do
+      %{"goto" => pos} -> pos
+      nil -> nil
     end
   end
 
@@ -473,7 +507,7 @@ defmodule AlexClaw.Workflows.Executor do
   # --- Notifications ---
 
   defp notify_start(workflow, gateways) do
-    step_names = workflow.steps |> Enum.map(& &1.name) |> Enum.join(" → ")
+    step_names = Enum.map_join(workflow.steps, " → ", & &1.name)
     msg = "⚙️ *#{workflow.name}* started\n#{step_names}"
     Enum.each(gateways, fn gw -> gw.send_message(msg, []) end)
   end

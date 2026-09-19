@@ -196,9 +196,14 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   @doc "Load a dynamic skill from a file in the skills directory."
-  @spec load_skill(String.t()) :: {:ok, map()} | {:error, term()}
-  def load_skill(file_path) do
-    GenServer.call(__MODULE__, {:load_skill, file_path}, 30_000)
+  @spec load_skill(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def load_skill(file_path, opts \\ []) do
+    provenance = %{
+      origin: Keyword.get(opts, :origin, "upload"),
+      approval: Keyword.get(opts, :approval, "totp")
+    }
+
+    GenServer.call(__MODULE__, {:load_skill, file_path, provenance}, 30_000)
   end
 
   @doc "Unload a dynamic skill by name."
@@ -239,8 +244,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   @impl true
-  def handle_call({:load_skill, file_path}, _from, state) do
-    result = do_load_skill(file_path)
+  def handle_call({:load_skill, file_path, provenance}, _from, state) do
+    result = do_load_skill(file_path, provenance)
     {:reply, result, state}
   end
 
@@ -275,7 +280,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       Logger.warning("Dynamic skills skipped (DB not ready): #{Exception.message(e)}")
   end
 
-  defp do_load_skill(file_path) do
+  defp do_load_skill(file_path, provenance) do
     full_path = Path.join(skills_dir(), file_path)
 
     with :ok <- validate_path(full_path),
@@ -290,7 +295,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
              file_path,
              permissions,
              extract_routes(module),
-             compute_checksum(source)
+             compute_checksum(source),
+             provenance
            ) do
       skill_name = skill_name_from_module(module)
       routes = extract_routes(module)
@@ -449,7 +455,10 @@ defmodule AlexClaw.Workflows.SkillRegistry do
         checksum: checksum,
         permissions: Enum.map(permissions, &to_string/1),
         routes: Enum.map(routes, &to_string/1),
-        module_name: to_string(module)
+        module_name: to_string(module),
+        # A reload is TOTP-gated at every call site, so it re-establishes that
+        # approval regardless of how the skill originally arrived.
+        approval: "totp"
       })
     )
 
@@ -979,7 +988,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     |> Macro.underscore()
   end
 
-  defp persist_skill(name, module_name, file_path, permissions, routes, checksum) do
+  defp persist_skill(name, module_name, file_path, permissions, routes, checksum, provenance) do
     import Ecto.Query
     perm_strings = Enum.map(permissions, &to_string/1)
     route_strings = Enum.map(routes, &to_string/1)
@@ -991,7 +1000,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       permissions: perm_strings,
       routes: route_strings,
       checksum: checksum,
-      enabled: true
+      enabled: true,
+      origin: provenance.origin,
+      approval: provenance.approval
     }
 
     case Repo.one(from(d in DynamicSkill, where: d.name == ^name)) do

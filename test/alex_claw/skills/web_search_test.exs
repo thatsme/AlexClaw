@@ -23,13 +23,15 @@ defmodule AlexClaw.Skills.WebSearchTest do
       assert {:error, :no_query} = WebSearch.run(%{input: "   ", config: %{}})
     end
 
+    @tag :external
     test "truncates long queries to 200 chars" do
       long_query = String.duplicate("a", 500)
 
       result = WebSearch.run(%{input: long_query, config: %{}})
-      assert match?({:ok, _}, result) or match?({:error, _}, result)
+      assert match?({:ok, _body, _branch}, result) or match?({:error, _reason}, result)
     end
 
+    @tag :external
     test "uses config query over input" do
       result =
         WebSearch.run(%{
@@ -37,9 +39,10 @@ defmodule AlexClaw.Skills.WebSearchTest do
           config: %{"query" => "elixir language"}
         })
 
-      assert match?({:ok, _}, result) or match?({:error, _}, result)
+      assert match?({:ok, _body, _branch}, result) or match?({:error, _reason}, result)
     end
 
+    @tag :external
     test "passes llm_provider from args" do
       result =
         WebSearch.run(%{
@@ -48,7 +51,7 @@ defmodule AlexClaw.Skills.WebSearchTest do
           llm_provider: "nonexistent"
         })
 
-      assert match?({:ok, _}, result) or match?({:error, _}, result)
+      assert match?({:ok, _body, _branch}, result) or match?({:error, _reason}, result)
     end
   end
 end

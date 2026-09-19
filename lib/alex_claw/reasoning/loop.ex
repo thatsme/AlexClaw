@@ -40,8 +40,10 @@ defmodule AlexClaw.Reasoning.Loop do
       :working_memory,
       :user_guidance,
       :task_ref,
+      :task,
       :pending_result,
       :time_budget_ref,
+      :time_budget_remaining_ms,
       consecutive_failures: 0,
       total_llm_calls: 0,
       recent_actions: []
@@ -145,7 +147,7 @@ defmodule AlexClaw.Reasoning.Loop do
     broadcast(:phase_change, phase_data(state, :planning))
 
     task = spawn_llm_task(fn -> run_planning(state) end)
-    {:noreply, %{state | task_ref: task.ref}}
+    {:noreply, %{state | task_ref: task.ref, task: task}}
   end
 
   def handle_continue(:execute_step, state) do
@@ -158,14 +160,14 @@ defmodule AlexClaw.Reasoning.Loop do
     broadcast(:phase_change, phase_data(state, :evaluating))
 
     task = spawn_llm_task(fn -> run_evaluation(state) end)
-    {:noreply, %{state | task_ref: task.ref}}
+    {:noreply, %{state | task_ref: task.ref, task: task}}
   end
 
   def handle_continue(:maybe_compress, state) do
     if rem(state.iteration, 3) == 0 and byte_size(state.working_memory || "") > 500 do
       Logger.info("[ReasoningLoop] Compressing working memory at iteration #{state.iteration}")
       task = spawn_llm_task(fn -> run_compression(state) end)
-      {:noreply, %{state | task_ref: task.ref}}
+      {:noreply, %{state | task_ref: task.ref, task: task}}
     else
       {:noreply, state, {:continue, :decide}}
     end
@@ -206,7 +208,7 @@ defmodule AlexClaw.Reasoning.Loop do
        when is_binary(skill) and skill != "" do
     broadcast(:phase_change, phase_data(state, :executing, %{skill: skill}))
     task = spawn_llm_task(fn -> run_execution(state, step) end)
-    {:noreply, %{state | task_ref: task.ref}}
+    {:noreply, %{state | task_ref: task.ref, task: task}}
   end
 
   defp execute_planned_step(step, state) do
@@ -239,13 +241,13 @@ defmodule AlexClaw.Reasoning.Loop do
     broadcast(:phase_change, phase_data(state, :deciding))
 
     task = spawn_llm_task(fn -> run_decision(state) end)
-    {:noreply, %{state | task_ref: task.ref}}
+    {:noreply, %{state | task_ref: task.ref, task: task}}
   end
 
   # All steps done — produce the final answer via LLM.
   defp run_decided_action(:force_summary, state) do
     task = spawn_llm_task(fn -> run_forced_summary(state) end)
-    {:noreply, %{state | task_ref: task.ref}}
+    {:noreply, %{state | task_ref: task.ref, task: task}}
   end
 
   defp run_decided_action(action, state) do
@@ -259,7 +261,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
   def handle_cast(:pause, state) do
     Logger.info("[ReasoningLoop] Paused at iteration #{state.iteration}, phase #{state.status}")
-    state = %{state | status: :paused}
+    state = %{suspend_time_budget(state) | status: :paused}
     update_session_status(state, "paused")
     broadcast(:phase_change, phase_data(state, :paused))
     {:noreply, state}
@@ -267,6 +269,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
   def handle_cast(:resume, %{status: :paused} = state) do
     Logger.info("[ReasoningLoop] Resuming from pause")
+    state = resume_time_budget(state)
     broadcast(:phase_change, phase_data(state, :resuming))
     {:noreply, state, {:continue, :resume}}
   end
@@ -276,6 +279,7 @@ defmodule AlexClaw.Reasoning.Loop do
       "[ReasoningLoop] Resuming from waiting_user — replanning with accumulated context"
     )
 
+    state = resume_time_budget(state)
     broadcast(:phase_change, phase_data(state, :resuming))
     {:noreply, state, {:continue, :start_planning}}
   end
@@ -296,7 +300,7 @@ defmodule AlexClaw.Reasoning.Loop do
       "[ReasoningLoop] Steer from waiting_user — replanning with guidance: #{String.slice(guidance, 0, 100)}"
     )
 
-    state = %{state | user_guidance: "[USER GUIDANCE] #{guidance}"}
+    state = %{resume_time_budget(state) | user_guidance: "[USER GUIDANCE] #{guidance}"}
 
     Reasoning.record_step(%{
       session_id: state.session_id,
@@ -343,6 +347,16 @@ defmodule AlexClaw.Reasoning.Loop do
     {:noreply, state}
   end
 
+  # Overwriting task_ref while a task is in flight orphaned it: its result arrived
+  # against a ref the loop no longer recognised, and it kept running regardless.
+  def handle_cast({:override_step, _skill_name, _input}, %{task: %Task{}} = state) do
+    Logger.warning(
+      "[ReasoningLoop] Ignoring override while a task is in flight — pause or abort first"
+    )
+
+    {:noreply, state}
+  end
+
   def handle_cast({:override_step, skill_name, input}, state) do
     Logger.info("[ReasoningLoop] User override: #{skill_name}")
     state = %{state | status: :executing}
@@ -352,7 +366,7 @@ defmodule AlexClaw.Reasoning.Loop do
         run_user_override(state, skill_name, input)
       end)
 
-    {:noreply, %{state | task_ref: task.ref}}
+    {:noreply, %{state | task_ref: task.ref, task: task}}
   end
 
   # --- Task Result Handlers ---
@@ -360,7 +374,7 @@ defmodule AlexClaw.Reasoning.Loop do
   @impl true
   def handle_info({ref, {phase, result}}, %{task_ref: ref} = state) do
     Process.demonitor(ref, [:flush])
-    state = %{state | task_ref: nil}
+    state = %{state | task_ref: nil, task: nil}
 
     if state.status == :paused do
       # Store result for when we resume
@@ -371,7 +385,7 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{task_ref: ref} = state) do
-    state = %{state | task_ref: nil}
+    state = %{state | task_ref: nil, task: nil}
     Logger.error("[ReasoningLoop] Task crashed: #{inspect(reason)}")
 
     state = %{state | consecutive_failures: state.consecutive_failures + 1}
@@ -1106,7 +1120,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
   defp handle_decision("ask_user", parsed, _confidence, state) do
     question = Map.get(parsed, "question", "I need more information to proceed.")
-    state = %{state | status: :waiting_user}
+    state = %{suspend_time_budget(state) | status: :waiting_user}
     update_session_status(state, "waiting_user")
     broadcast(:waiting_user, %{session_id: state.session_id, question: question})
     {:noreply, state}
@@ -1134,7 +1148,7 @@ defmodule AlexClaw.Reasoning.Loop do
     )
 
     task = spawn_llm_task(fn -> run_forced_summary(state) end)
-    {:noreply, %{state | task_ref: task.ref}}
+    {:noreply, %{state | task_ref: task.ref, task: task}}
   end
 
   defp adjust_or_summarize(_prev_adjusts, _confidence, _threshold, parsed, state) do
@@ -1224,13 +1238,19 @@ defmodule AlexClaw.Reasoning.Loop do
     Task.Supervisor.async_nolink(AlexClaw.TaskSupervisor, fun)
   end
 
-  defp shutdown_task(%{task_ref: nil}), do: :ok
-
-  defp shutdown_task(%{task_ref: ref}) do
-    Process.demonitor(ref, [:flush])
-    # The task is under TaskSupervisor, find and kill it
+  # Demonitoring alone left the task running: an aborted session went on burning
+  # LLM calls and could still write to the session it belonged to.
+  defp shutdown_task(%{task: %Task{} = task}) do
+    Task.shutdown(task, :brutal_kill)
     :ok
   end
+
+  defp shutdown_task(%{task_ref: ref}) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    :ok
+  end
+
+  defp shutdown_task(_state), do: :ok
 
   defp check_limits(state) do
     cond do
@@ -1563,10 +1583,14 @@ defmodule AlexClaw.Reasoning.Loop do
     end
   end
 
+  # Only the recent window matters: a long session would otherwise accumulate
+  # adjusts forever and read as thrashing when it is not.
   defp count_recent_adjusts(state) do
     state.session_id
     |> Reasoning.list_steps()
-    |> Enum.count(fn step -> step.phase == "decide" and step.decision == "adjust" end)
+    |> Enum.filter(&(&1.phase == "decide"))
+    |> Enum.take(-5)
+    |> Enum.count(&(&1.decision == "adjust"))
   end
 
   defp action_hash(skill_name, input) do
@@ -1620,6 +1644,32 @@ defmodule AlexClaw.Reasoning.Loop do
 
     ref = Process.send_after(self(), :time_budget_exceeded, budget_ms)
     %{state | time_budget_ref: ref}
+  end
+
+  # The budget measures the loop's own work. While it is paused or waiting on the
+  # user, the clock has to stop — otherwise thinking time fails the session.
+  defp suspend_time_budget(%{time_budget_ref: ref} = state) when is_reference(ref) do
+    remaining = Process.cancel_timer(ref)
+    %{state | time_budget_ref: nil, time_budget_remaining_ms: remaining_ms(remaining)}
+  end
+
+  defp suspend_time_budget(state), do: state
+
+  # cancel_timer/1 returns false if the message had already been sent, in which
+  # case the budget is spent and resuming should not hand back a fresh one.
+  defp remaining_ms(remaining) when is_integer(remaining) and remaining > 0, do: remaining
+  defp remaining_ms(_remaining), do: 0
+
+  defp resume_time_budget(%{time_budget_remaining_ms: nil} = state), do: state
+
+  defp resume_time_budget(%{time_budget_remaining_ms: 0} = state) do
+    %{state | time_budget_remaining_ms: nil}
+  end
+
+  defp resume_time_budget(%{time_budget_remaining_ms: remaining} = state) do
+    Logger.info("[ReasoningLoop] Time budget resumed with #{div(remaining, 1000)}s remaining")
+    ref = Process.send_after(self(), :time_budget_exceeded, remaining)
+    %{state | time_budget_ref: ref, time_budget_remaining_ms: nil}
   end
 
   defp broadcast(event, data) do

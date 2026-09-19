@@ -378,6 +378,170 @@ defmodule AlexClaw.Reasoning.LoopTest do
       session = find_session_by_goal(goal)
       assert session.status == "aborted"
     end
+
+    # shutdown_task/1 only demonitored, so the LLM task kept running after abort
+    # and went on spending calls against a session that was already finished.
+    test "abort kills the in-flight task rather than just unlinking it" do
+      goal = unique_goal("abort-kills")
+      test_pid = self()
+
+      Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            {:ok, plan_response([echo_step("step1")])}
+
+          :execution ->
+            send(test_pid, {:execution_task, self()})
+            Process.sleep(10_000)
+            send(test_pid, :execution_finished)
+            {:ok, execution_response("payload")}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          _other ->
+            {:ok, decision_response("done", confidence: 0.9, final_answer: "x")}
+        end
+      end)
+
+      {:ok, pid} = Loop.start(goal, default_opts())
+      assert_receive {:execution_task, task_pid}, 10_000
+      task_ref = Process.monitor(task_pid)
+
+      Loop.abort(pid)
+      assert :ok = await_loop_done(pid, 5_000)
+
+      # The task process is gone, and never reached the end of its sleep.
+      assert_receive {:DOWN, ^task_ref, :process, ^task_pid, _reason}, 5_000
+      refute_receive :execution_finished, 200
+    end
+
+    # The budget measures the loop's work, not the user's thinking time, so the
+    # timer is cancelled on the way into :waiting_user and re-armed on the way out.
+    test "the time budget is suspended while waiting on the user and resumed after" do
+      goal = unique_goal("waiting-budget")
+      test_pid = self()
+
+      Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            {:ok, plan_response([echo_step("step1")])}
+
+          :execution ->
+            {:ok, execution_response("payload")}
+
+          :evaluation ->
+            {:ok, evaluation_response("partial")}
+
+          :decision ->
+            send(test_pid, :asked_user)
+            {:ok, decision_response("ask_user", confidence: 0.4, question: "Which one?")}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          other ->
+            flunk("Unexpected LLM phase: #{inspect(other)}")
+        end
+      end)
+
+      {:ok, pid} = Loop.start(goal, default_opts())
+      assert_receive :asked_user, 10_000
+
+      waiting = :sys.get_state(pid)
+      assert waiting.status == :waiting_user
+      assert is_nil(waiting.time_budget_ref)
+      assert is_integer(waiting.time_budget_remaining_ms)
+      assert waiting.time_budget_remaining_ms > 0
+
+      # Time spent waiting does not consume the budget.
+      Process.sleep(300)
+      assert :sys.get_state(pid).time_budget_remaining_ms == waiting.time_budget_remaining_ms
+
+      Loop.steer(pid, "use the second one")
+      resumed = :sys.get_state(pid)
+      assert is_reference(resumed.time_budget_ref)
+      assert is_nil(resumed.time_budget_remaining_ms)
+
+      Loop.abort(pid)
+      await_loop_done(pid, 5_000)
+    end
+
+    test "pause suspends the time budget and resume re-arms it" do
+      goal = unique_goal("pause-budget")
+      test_pid = self()
+
+      Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            {:ok, plan_response([echo_step("step1")])}
+
+          :execution ->
+            send(test_pid, :execution_started)
+            Process.sleep(400)
+            {:ok, execution_response("payload")}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          _other ->
+            {:ok, decision_response("done", confidence: 0.9, final_answer: "x")}
+        end
+      end)
+
+      {:ok, pid} = Loop.start(goal, default_opts())
+      assert_receive :execution_started, 10_000
+
+      Loop.pause(pid)
+      paused = :sys.get_state(pid)
+      assert paused.status == :paused
+      assert is_nil(paused.time_budget_ref)
+      assert paused.time_budget_remaining_ms > 0
+
+      Loop.resume(pid)
+      resumed = :sys.get_state(pid)
+      assert is_reference(resumed.time_budget_ref)
+      assert is_nil(resumed.time_budget_remaining_ms)
+
+      Loop.abort(pid)
+      await_loop_done(pid, 5_000)
+    end
+
+    test "an override while a task is in flight is ignored, not applied" do
+      goal = unique_goal("override-inflight")
+      test_pid = self()
+
+      Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            {:ok, plan_response([echo_step("step1")])}
+
+          :execution ->
+            send(test_pid, :execution_started)
+            Process.sleep(600)
+            {:ok, execution_response("payload")}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          _other ->
+            {:ok, decision_response("done", confidence: 0.9, final_answer: "x")}
+        end
+      end)
+
+      {:ok, pid} = Loop.start(goal, default_opts())
+      assert_receive :execution_started, 10_000
+
+      before = :sys.get_state(pid).task_ref
+      Loop.override_step(pid, "test_echo", "hijacked")
+      # A cast is asynchronous; give it a turn to be processed.
+      _ = :sys.get_state(pid)
+
+      assert :sys.get_state(pid).task_ref == before
+
+      Loop.abort(pid)
+      await_loop_done(pid, 5_000)
+    end
   end
 
   describe "working memory compression" do

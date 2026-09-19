@@ -45,6 +45,10 @@ TO-DO.md
 # Giulia daemon project constitution (local code intelligence, never committed here)
 GIULIA.md
 
+# Credo thresholds are a local development gate, not a contributor standard.
+# The dependency is declared in mix.exs; a fresh clone runs credo with defaults.
+.credo.exs
+
 # IDE
 .elixir_ls/
 .vscode/

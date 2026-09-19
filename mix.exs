@@ -55,7 +55,8 @@ defmodule AlexClaw.MixProject do
       {:yaml_elixir, "~> 2.11"},
       {:anubis_mcp, "~> 1.0"},
       {:mox, "~> 1.2", only: :test},
-      {:bypass, "~> 2.1", only: :test}
+      {:bypass, "~> 2.1", only: :test},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 

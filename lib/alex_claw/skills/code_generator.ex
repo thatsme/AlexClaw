@@ -102,16 +102,17 @@ defmodule AlexClaw.Skills.CodeGenerator do
   end
 
   # Generated code is staged, judged, and only then loaded. It never reaches the
-  # live directory on the strength of having compiled.
+  # live directory on the strength of having compiled, and it never takes over a
+  # name that belongs to anything but another generated skill.
   @spec try_load(String.t(), String.t()) :: {:ok, map()} | {:error, term(), String.t()}
   defp try_load(code, skill_name) do
     file_name = "#{skill_name}.ex"
 
-    # Unload any existing skill of this name to avoid a version conflict
-    SkillAPI.unload_skill(AlexClaw.Skills.Coder, skill_name)
-
-    case SkillRegistry.write_pending(file_name, code) do
-      :ok -> vet_and_load(file_name, skill_name, code)
+    with :ok <- SkillRegistry.generation_may_replace?(skill_name),
+         :ok <- SkillRegistry.write_pending(file_name, code) do
+      vet_and_load(file_name, skill_name, code)
+    else
+      {:error, {:would_replace, _owner} = reason} -> {:error, reason, code}
       {:error, reason} -> {:error, {:write_failed, reason}, code}
     end
   end
@@ -337,6 +338,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
     call File, System, Code, Req or Repo directly.
     """
   end
+
+  def error_to_hint({:would_replace, owner}),
+    do: "The name is already taken by #{owner}. Retrying will not change that."
 
   def error_to_hint({:write_failed, reason}), do: "Failed to write skill file: #{inspect(reason)}"
   def error_to_hint({:llm_failed, reason}), do: "LLM call failed: #{inspect(reason)}"

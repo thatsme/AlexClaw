@@ -268,6 +268,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   def describe_error({:multiple_modules, modules}),
     do: "A skill file must define exactly one module, found: #{Enum.join(modules, ", ")}"
 
+  def describe_error({:would_replace, owner}),
+    do: "That name already belongs to #{owner}; generation will not replace it"
+
   def describe_error({:not_contained, violations}),
     do: "Calls outside the contained set: #{Enum.join(violations, ", ")}"
 
@@ -745,6 +748,40 @@ defmodule AlexClaw.Workflows.SkillRegistry do
        }}
     end
   end
+
+  @doc """
+  Whether generation may take over the name `skill_name`.
+
+  A generated skill may replace one of its own kind and nothing else. Without this
+  a goal that happens to derive an existing name would silently overwrite a skill
+  somebody uploaded and approved — with no upload, no 2FA, and the same name still
+  resolving.
+  """
+  @spec generation_may_replace?(String.t()) :: :ok | {:error, {:would_replace, String.t()}}
+  def generation_may_replace?(skill_name) do
+    import Ecto.Query
+
+    case Repo.one(from(d in DynamicSkill, where: d.name == ^skill_name)) do
+      nil -> replaceable_core(skill_name)
+      %{origin: "generated", approval: "containment"} -> :ok
+      record -> {:error, {:would_replace, describe_owner(record)}}
+    end
+  end
+
+  defp replaceable_core(skill_name) do
+    if Map.has_key?(@core_skills, skill_name) do
+      {:error, {:would_replace, "a core skill"}}
+    else
+      :ok
+    end
+  end
+
+  defp describe_owner(%{origin: "upload"}), do: "a skill that was uploaded and approved"
+
+  defp describe_owner(%{origin: "generated", approval: approval}),
+    do: "a generated skill approved by #{approval}"
+
+  defp describe_owner(record), do: "an existing skill (#{record.origin}/#{record.approval})"
 
   # Both conditions have to hold for an unattended load, and both are reported
   # together so one retry can address all of it.

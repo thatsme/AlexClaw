@@ -4,18 +4,24 @@ defmodule AlexClaw.Skills.Shell do
   Used for container introspection (disk, memory, connectivity, BEAM diagnostics).
 
   Security model (5 layers):
-  1. 2FA gate — every /shell command requires TOTP when enabled
-  2. Whitelist — command must start with an allowed prefix (word-boundary checked)
+  1. 2FA gate — every /shell command requires TOTP, and is refused when TOTP is off
+  2. Allowlist — command must match an exact entry, or start with an allowed prefix
+     (word-boundary checked)
   3. Blocklist — rejects commands containing shell metacharacters
   4. No shell — System.cmd/3 without shell interpretation, args as list
   5. Timeout + truncation — kill after configurable timeout, cap output
+
+  The allowlist, blocklist and exact-command list are read from Config or the
+  compiled defaults only. A workflow step supplies a command, never the limits it
+  is checked against; it may narrow the timeout and output cap but never widen them.
   """
   @behaviour AlexClaw.Skill
   require Logger
 
   alias AlexClaw.Config
 
-  @default_whitelist ~w[df free ps uptime cat\ /proc ping nslookup curl bin/alex_claw uname whoami hostname date ls git]
+  @default_whitelist ~w[df free ps uptime uname whoami hostname date ls]
+  @default_exact_commands ["cat /proc/meminfo", "cat /proc/loadavg"]
   @default_blocklist ["&&", "||", "|", ";", "`", "$(", ">", "<", "\n"]
   @default_timeout_seconds 30
   @default_max_output_chars 4000
@@ -48,8 +54,7 @@ defmodule AlexClaw.Skills.Shell do
       "Disk" => %{"command" => "df -h"},
       "Processes" => %{"command" => "ps aux"},
       "Uptime" => %{"command" => "uptime"},
-      "BEAM node" => %{"command" => "bin/alex_claw eval \"Node.self()\""},
-      "Git clone" => %{"command" => "git clone https://github.com/user/repo.git /tmp/repo"}
+      "Memory detail" => %{"command" => "cat /proc/meminfo"}
     }
   end
 
@@ -57,7 +62,7 @@ defmodule AlexClaw.Skills.Shell do
   @spec config_help() :: String.t()
   def config_help,
     do:
-      "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked."
+      "command: the OS command to execute. Must match an allowed prefix (df, free, ps, uptime, uname, whoami, hostname, date, ls) or an exact allowed command. Shell metacharacters (pipes, redirects, semicolons) are blocked. The allowlist is set in Config, not here; timeout_seconds and max_output_chars may only lower the configured limits."
 
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
@@ -71,39 +76,60 @@ defmodule AlexClaw.Skills.Shell do
 
   defp do_run(args) do
     config = args[:config] || %{}
-    input = args[:input]
+    command = String.trim(config["command"] || to_string(args[:input] || ""))
 
-    command = config["command"] || to_string(input || "")
-    command = String.trim(command)
+    execute_allowed(command, args_timeout_ms(config), args_max_chars(config))
+  end
 
-    if command == "" do
-      {:error, :no_command}
-    else
-      whitelist = load_list(config["whitelist"], "shell.whitelist", @default_whitelist)
-      blocklist = load_list(config["blocklist"], "shell.blocklist", @default_blocklist)
+  defp execute_allowed("", _timeout_ms, _max_chars), do: {:error, :no_command}
 
-      timeout_ms =
-        load_int(config["timeout_seconds"], "shell.timeout_seconds", @default_timeout_seconds) *
-          1000
+  defp execute_allowed(command, timeout_ms, max_chars) do
+    with :ok <- validate_allowed(command),
+         :ok <-
+           validate_blocklist(command, configured_list("shell.blocklist", @default_blocklist)) do
+      execute(command, timeout_ms, max_chars)
+    end
+  end
 
-      max_chars =
-        load_int(config["max_output_chars"], "shell.max_output_chars", @default_max_output_chars)
+  # A step may narrow the limits but never widen them.
+  defp args_timeout_ms(config) do
+    ceiling = configured_int("shell.timeout_seconds", @default_timeout_seconds) * 1000
 
-      with :ok <- validate_whitelist(command, whitelist),
-           :ok <- validate_blocklist(command, blocklist) do
-        execute(command, timeout_ms, max_chars)
-      end
+    case load_int(config["timeout_seconds"]) do
+      nil -> ceiling
+      seconds -> min(seconds * 1000, ceiling)
+    end
+  end
+
+  defp args_max_chars(config) do
+    ceiling = configured_int("shell.max_output_chars", @default_max_output_chars)
+
+    case load_int(config["max_output_chars"]) do
+      nil -> ceiling
+      chars -> min(chars, ceiling)
     end
   end
 
   # --- Validation ---
 
-  defp validate_whitelist(command, whitelist) do
-    if Enum.any?(whitelist, &prefix_matches?(command, &1)) do
+  defp validate_allowed(command) do
+    if exact_allowed?(command) or prefix_allowed?(command) do
       :ok
     else
       {:error, {:not_whitelisted, command}}
     end
+  end
+
+  # Exact entries are compared byte-for-byte: "cat /proc/meminfo x" is not "cat /proc/meminfo".
+  defp exact_allowed?(command) do
+    command in configured_list("shell.exact_commands", @default_exact_commands)
+  end
+
+  defp prefix_allowed?(command) do
+    Enum.any?(
+      configured_list("shell.whitelist", @default_whitelist),
+      &prefix_matches?(command, &1)
+    )
   end
 
   defp validate_blocklist(command, blocklist) do
@@ -185,21 +211,15 @@ defmodule AlexClaw.Skills.Shell do
 
   # --- Config loading ---
 
-  defp load_list(nil, config_key, default) do
+  # Lists come from Config or the compiled defaults only. A caller-supplied list would
+  # let the step redefine the very limits it is being checked against.
+  defp configured_list(config_key, default) do
     case Config.get(config_key) do
-      nil -> default
+      val when is_list(val) -> val
       val when is_binary(val) -> parse_json_list(val, default)
       _ -> default
     end
   end
-
-  defp load_list(val, _config_key, _default) when is_list(val), do: val
-
-  defp load_list(val, _config_key, default) when is_binary(val) do
-    parse_json_list(val, default)
-  end
-
-  defp load_list(_, _config_key, default), do: default
 
   defp parse_json_list(val, default) do
     case Jason.decode(val) do
@@ -208,23 +228,24 @@ defmodule AlexClaw.Skills.Shell do
     end
   end
 
-  defp load_int(nil, config_key, default) do
+  defp configured_int(config_key, default) do
     case Config.get(config_key) do
-      nil -> default
-      val when is_binary(val) -> String.to_integer(val)
       val when is_integer(val) -> val
+      val when is_binary(val) -> load_int(val) || default
       _ -> default
     end
   end
 
-  defp load_int(val, _config_key, _default) when is_integer(val), do: val
+  # nil means "the step did not ask", which is different from "the step asked for 0".
+  defp load_int(nil), do: nil
+  defp load_int(val) when is_integer(val), do: val
 
-  defp load_int(val, _config_key, default) when is_binary(val) do
+  defp load_int(val) when is_binary(val) do
     case Integer.parse(val) do
       {n, ""} -> n
-      _ -> default
+      _ -> nil
     end
   end
 
-  defp load_int(_, _config_key, default), do: default
+  defp load_int(_val), do: nil
 end

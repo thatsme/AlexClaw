@@ -236,11 +236,41 @@ makes resolves to one of:
 > `Jason`, `Base`, `URI`, `Path`, `Date`, `Time`, `DateTime`, `NaiveDateTime`,
 > `Logger`, `SweetXml`, `Floki`, `:math`
 
-plus calls to itself. Dynamic dispatch (a module held in a variable, `apply/2`,
-`apply/3`), `spawn`, `send`, and `String.to_atom/1` are refused, and so is any
-alias form that cannot be resolved statically (`alias ..., as:`, `A.{B, C}`).
-Contained code is promoted out of `pending/` and loaded with approval
-`containment`.
+plus calls to itself. `Logger` is limited to its level functions, since it also
+carries configuration and backend control. Refused: dynamic dispatch (a module in
+a variable, `apply/2`, `apply/3`), `spawn`, `send`, atom creation from runtime
+data (`String.to_atom/1`, `List.to_atom/1`, `Jason.decode` with any `keys:` other
+than `:strings`), and any alias form that cannot be resolved statically
+(`alias ..., as:`, `A.{B, C}`). `SweetXml` is deliberately absent: it is
+macro-heavy and its parse options decide entity handling, which this checker
+cannot inspect — hand-written skills may still import it.
+
+**The permissions it declares are capped too.** Containment bounds which modules
+the code may call; it cannot bound what `SkillAPI` does on the skill's behalf,
+and the permissions were written by the same model that wrote the code. An
+unattended load may hold only `:llm`, `:web_read`, `:memory_read`,
+`:knowledge_read`, `:resources_read` and `:gateway_send`.
+
+Two exclusions are worth spelling out. `:skill_invoke` reaches core skills:
+`SkillAPI.run_skill/3` resolves through the registry, which resolves core skills,
+and calls `run/1` directly — so it is a route to `shell`, `coder`, `db_backup`
+and `web_automation`, none of which check 2FA inside `run/1`. `:config_read`
+reads secrets: settings are decrypted into the ETS cache, so `config_get/3`
+returns plaintext API keys and the TOTP secret.
+
+`:web_read` together with any of the private reads is refused as a pair even
+though each is allowed alone — read and then post is an exfiltration path.
+`:gateway_send` with a private read stays allowed, because that output goes to
+the configured chat rather than anywhere the skill chooses.
+
+Contained code within the ceiling is promoted out of `pending/` and loaded with
+approval `containment`.
+
+**Generation cannot take over a name it does not own.** A generated skill may
+replace another generated skill that was approved by containment, and nothing
+else. An uploaded skill, a generated skill approved by a TOTP code, and a core
+skill name are all refused — otherwise a goal whose derived name happened to
+collide would quietly replace a skill somebody had approved.
 
 **Anything else waits for a code.** The violations are fed back to the model as a
 retry hint naming the calls to replace. If it still cannot get inside the

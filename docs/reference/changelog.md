@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.3.25 — Tightening the Containment Envelope (2026-09-19)
+
+Follow-up to 0.3.24, closing gaps in what "contained" actually guaranteed.
+
+- **Permission ceiling for unattended loads** — containment bounds which modules generated code may call, not what `SkillAPI` does for it. An auto-load may now hold only `:llm`, `:web_read`, `:memory_read`, `:knowledge_read`, `:resources_read`, `:gateway_send`
+  - `:skill_invoke` excluded: `run_skill/3` resolves core skills and calls `run/1` directly, reaching `shell`, `coder`, `db_backup` and `web_automation`, none of which check 2FA there
+  - `:config_read` excluded: settings are decrypted into the ETS cache, so `config_get/3` returns plaintext API keys and the TOTP secret
+  - `:web_read` with any private read refused as a pair — read then post is an exfiltration path. `:gateway_send` with a private read stays allowed
+  - Anything above the ceiling goes to `pending/` with a TOTP request, and is fed back as a retry hint first
+- **Generation cannot take over a name it does not own** — `try_load/2` unconditionally unloaded any skill sharing the derived name before writing. It now refuses unless the existing skill is itself generated and containment-approved; uploaded skills, TOTP-approved generated skills and core names are all protected
+- **CallPolicy tightened** — `Logger` limited to its level functions; `List.to_atom/1` and `Jason.decode` with `keys:` other than `:strings` refused; `SweetXml` removed from the generated allowlist (still importable by hand-written skills)
+- **Modules never stay resident after vetting** — a skill that compiled but failed its contract check was left loaded, callable by name despite never being registered. `validate_contract/3` now purges on every failure path, and tests assert `:code.is_loaded/1` is false after a contained verdict, a containment failure, a ceiling failure, an AST-gate refusal, a compile error and a contract failure
+- **RSS entity handling pinned** — tests assert external, internal and nested entities are never expanded from feed bodies
+
+### Behaviour changes
+
+- **Generated skills declaring permissions above the ceiling no longer auto-load.** They wait in `pending/` for a code. Narrow the declared permissions, or approve deliberately.
+- **Generation against an existing non-generated name now fails** instead of replacing it.
+
 ## v0.3.24 — Containment for Generated Skills (2026-09-19)
 
 Closes the gap 0.3.23 documented: Coder and Forge loaded LLM-generated code into

@@ -10,6 +10,10 @@ defmodule AlexClaw.Skills.SkillAPI do
   """
   require Logger
 
+  alias AlexClaw.Auth.{AuthContext, CapabilityToken, PolicyEngine}
+  alias AlexClaw.Gateway.Router
+  alias AlexClaw.Workflows.{Executor, SkillRegistry}
+
   @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke skill_write skill_manage workflow_manage)a
 
   @type permission_result :: :ok | {:error, :permission_denied}
@@ -42,7 +46,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec send_message(skill_mod(), String.t(), keyword()) :: :ok | {:error, :permission_denied}
   def send_message(skill_module, message, opts \\ []) do
     with :ok <- check_gateway_permission(skill_module) do
-      AlexClaw.Gateway.Router.send_message(message, opts)
+      Router.send_message(message, opts)
       :ok
     end
   end
@@ -51,7 +55,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec send_html(skill_mod(), String.t(), keyword()) :: :ok | {:error, :permission_denied}
   def send_html(skill_module, message, opts \\ []) do
     with :ok <- check_gateway_permission(skill_module) do
-      AlexClaw.Gateway.Router.send_html(message, opts)
+      Router.send_html(message, opts)
       :ok
     end
   end
@@ -183,11 +187,11 @@ defmodule AlexClaw.Skills.SkillAPI do
   defp with_default_headers(opts) do
     existing_headers = Keyword.get(opts, :headers, %{})
 
-    unless Map.has_key?(existing_headers, "user-agent") or
-             Map.has_key?(existing_headers, "User-Agent") do
-      Keyword.put(opts, :headers, Map.put(existing_headers, "user-agent", @default_user_agent))
-    else
+    if Map.has_key?(existing_headers, "user-agent") or
+         Map.has_key?(existing_headers, "User-Agent") do
       opts
+    else
+      Keyword.put(opts, :headers, Map.put(existing_headers, "user-agent", @default_user_agent))
     end
   end
 
@@ -227,39 +231,42 @@ defmodule AlexClaw.Skills.SkillAPI do
           {:ok, term()} | {:ok, term(), atom()} | {:error, term()}
   def run_skill(skill_module, skill_name, args) do
     with :ok <- check_permission(skill_module, :skill_invoke) do
-      case AlexClaw.Workflows.SkillRegistry.resolve(skill_name) do
-        {:ok, target_module} ->
-          depth = Process.get(:auth_chain_depth, 0)
-          Process.put(:auth_chain_depth, depth + 1)
-
-          # Attenuate current token to target skill's permissions
-          current_token = Process.get(:auth_token)
-          target_perms = AlexClaw.Workflows.SkillRegistry.get_permissions(target_module)
-
-          attenuated =
-            if current_token && is_list(target_perms) do
-              case AlexClaw.Auth.CapabilityToken.attenuate(current_token, target_perms) do
-                {:ok, token} -> token
-                _ -> current_token
-              end
-            else
-              current_token
-            end
-
-          if attenuated, do: Process.put(:auth_token, attenuated)
-
-          try do
-            target_module.run(args)
-          after
-            Process.put(:auth_chain_depth, depth)
-            if current_token, do: Process.put(:auth_token, current_token)
-          end
-
-        {:error, :unknown_skill} ->
-          {:error, {:unknown_skill, skill_name}}
-      end
+      invoke_resolved(SkillRegistry.resolve(skill_name), skill_name, args)
     end
   end
+
+  defp invoke_resolved({:error, :unknown_skill}, skill_name, _args) do
+    {:error, {:unknown_skill, skill_name}}
+  end
+
+  defp invoke_resolved({:ok, target_module}, _skill_name, args) do
+    depth = Process.get(:auth_chain_depth, 0)
+    Process.put(:auth_chain_depth, depth + 1)
+
+    current_token = Process.get(:auth_token)
+    attenuated = attenuate_for(current_token, SkillRegistry.get_permissions(target_module))
+    if attenuated, do: Process.put(:auth_token, attenuated)
+
+    try do
+      target_module.run(args)
+    after
+      Process.put(:auth_chain_depth, depth)
+      if current_token, do: Process.put(:auth_token, current_token)
+    end
+  end
+
+  # Narrow the caller's token to the target skill's permissions. Anything that
+  # cannot be attenuated falls back to the caller's own token unchanged.
+  defp attenuate_for(nil, _target_perms), do: nil
+
+  defp attenuate_for(current_token, target_perms) when is_list(target_perms) do
+    case CapabilityToken.attenuate(current_token, target_perms) do
+      {:ok, token} -> token
+      _ -> current_token
+    end
+  end
+
+  defp attenuate_for(current_token, _target_perms), do: current_token
 
   # --- Skill Outcomes ---
 
@@ -320,7 +327,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec load_skill(skill_mod(), String.t()) :: {:ok, map()} | {:error, term()}
   def load_skill(skill_module, file_name) do
     with :ok <- check_permission(skill_module, :skill_manage) do
-      AlexClaw.Workflows.SkillRegistry.load_skill(file_name)
+      SkillRegistry.load_skill(file_name)
     end
   end
 
@@ -328,7 +335,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec unload_skill(skill_mod(), String.t()) :: :ok | {:error, term()}
   def unload_skill(skill_module, skill_name) do
     with :ok <- check_permission(skill_module, :skill_manage) do
-      AlexClaw.Workflows.SkillRegistry.unload_skill(skill_name)
+      SkillRegistry.unload_skill(skill_name)
     end
   end
 
@@ -336,7 +343,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec reload_skill(skill_mod(), String.t()) :: {:ok, map()} | {:error, term()}
   def reload_skill(skill_module, skill_name) do
     with :ok <- check_permission(skill_module, :skill_manage) do
-      AlexClaw.Workflows.SkillRegistry.reload_skill(skill_name)
+      SkillRegistry.reload_skill(skill_name)
     end
   end
 
@@ -365,7 +372,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec run_workflow(skill_mod(), integer()) :: {:ok, term()} | {:error, term()}
   def run_workflow(skill_module, workflow_id) do
     with :ok <- check_permission(skill_module, :workflow_manage) do
-      AlexClaw.Workflows.Executor.run(workflow_id)
+      Executor.run(workflow_id)
     end
   end
 
@@ -380,10 +387,10 @@ defmodule AlexClaw.Skills.SkillAPI do
   # --- Permission check ---
 
   defp check_permission(skill_module, permission) do
-    permissions = AlexClaw.Workflows.SkillRegistry.get_permissions(skill_module)
-    ctx = AlexClaw.Auth.AuthContext.build(skill_module, permission, permissions)
+    permissions = SkillRegistry.get_permissions(skill_module)
+    ctx = AuthContext.build(skill_module, permission, permissions)
 
-    case AlexClaw.Auth.PolicyEngine.evaluate(ctx, permissions) do
+    case PolicyEngine.evaluate(ctx, permissions) do
       :allow -> :ok
       {:deny, _reason} -> {:error, :permission_denied}
     end

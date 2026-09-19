@@ -7,8 +7,10 @@ defmodule AlexClaw.Knowledge do
   """
   require Logger
   import Ecto.Query
+  alias AlexClaw.Knowledge.{EmbedThrottle, Entry}
+  alias AlexClaw.RAG.{Chunker, QueryRewriter}
   alias AlexClaw.Repo
-  alias AlexClaw.Knowledge.Entry
+  alias Ecto.Adapters.SQL.Sandbox
 
   @default_embedding_model "text-embedding-004"
 
@@ -31,7 +33,7 @@ defmodule AlexClaw.Knowledge do
       expires_at: expires_at
     }
 
-    if AlexClaw.RAG.Chunker.should_chunk?(content) do
+    if Chunker.should_chunk?(content) do
       store_with_chunks(base_attrs)
     else
       store_single(base_attrs)
@@ -56,7 +58,7 @@ defmodule AlexClaw.Knowledge do
 
     case parent_result do
       {:ok, parent} ->
-        chunks = AlexClaw.RAG.Chunker.chunk(attrs.content)
+        chunks = Chunker.chunk(attrs.content)
 
         Enum.each(chunks, fn %{text: text, index: idx} ->
           chunk_attrs = %{
@@ -70,13 +72,10 @@ defmodule AlexClaw.Knowledge do
             chunk_index: idx
           }
 
-          case %Entry{} |> Entry.changeset(chunk_attrs) |> Repo.insert() do
-            {:ok, chunk_entry} ->
-              async_embed(chunk_entry)
-
-            {:error, reason} ->
-              Logger.warning("Failed to insert chunk #{idx}: #{inspect(reason)}")
-          end
+          %Entry{}
+          |> Entry.changeset(chunk_attrs)
+          |> Repo.insert()
+          |> embed_inserted_chunk(idx)
         end)
 
         {:ok, parent}
@@ -93,7 +92,7 @@ defmodule AlexClaw.Knowledge do
     min_score = Keyword.get(opts, :min_score)
     rewrite = Keyword.get(opts, :rewrite, false)
 
-    queries = if rewrite, do: AlexClaw.RAG.QueryRewriter.rewrite(query), else: [query]
+    queries = if rewrite, do: QueryRewriter.rewrite(query), else: [query]
 
     keyword_results = keyword_search(query, kind, limit)
 
@@ -166,16 +165,7 @@ defmodule AlexClaw.Knowledge do
 
         entries
         |> Enum.chunk_every(batch_size)
-        |> Enum.each(fn batch ->
-          batch
-          |> Task.async_stream(
-            fn entry -> embed_entry(entry) end,
-            max_concurrency: max_concurrency,
-            timeout: 30_000,
-            on_timeout: :kill_task
-          )
-          |> Stream.run()
-        end)
+        |> Enum.each(&embed_batch(&1, max_concurrency))
 
         Logger.info("Re-embedding complete: processed #{count} knowledge entries")
       end)
@@ -216,12 +206,12 @@ defmodule AlexClaw.Knowledge do
       sandbox_allow(caller)
 
       # Throttle concurrent embedding requests to avoid overwhelming Ollama/Finch pool
-      case AlexClaw.Knowledge.EmbedThrottle.acquire() do
+      case EmbedThrottle.acquire() do
         :ok ->
           try do
             embed_entry(entry)
           after
-            AlexClaw.Knowledge.EmbedThrottle.release()
+            EmbedThrottle.release()
           end
 
         :drop ->
@@ -243,9 +233,31 @@ defmodule AlexClaw.Knowledge do
     AlexClaw.Config.get("embedding.model") || @default_embedding_model
   end
 
+  defp embed_inserted_chunk({:ok, chunk_entry}, _idx), do: async_embed(chunk_entry)
+
+  defp embed_inserted_chunk({:error, reason}, idx) do
+    Logger.warning("Failed to insert chunk #{idx}: #{inspect(reason)}")
+  end
+
+  defp embed_batch(batch, max_concurrency) do
+    batch
+    |> Task.async_stream(&embed_entry/1,
+      max_concurrency: max_concurrency,
+      timeout: 30_000,
+      on_timeout: :kill_task
+    )
+    |> Stream.run()
+  end
+
+  @stopwords ~w(the and for how does what which with from that this are was were can)
+
+  defp stopword_or_short?(term) do
+    String.length(term) < 3 or String.downcase(term) in @stopwords
+  end
+
   defp sandbox_allow(caller) do
     if Application.get_env(:alex_claw, AlexClaw.Repo)[:pool] == Ecto.Adapters.SQL.Sandbox do
-      Ecto.Adapters.SQL.Sandbox.allow(AlexClaw.Repo, caller, self())
+      Sandbox.allow(AlexClaw.Repo, caller, self())
     end
   end
 
@@ -309,10 +321,7 @@ defmodule AlexClaw.Knowledge do
       query
       |> String.replace(~r/[?!.,;:()\[\]{}"']/, " ")
       |> String.split(~r/\s+/, trim: true)
-      |> Enum.reject(fn t -> String.length(t) < 3 end)
-      |> Enum.reject(fn t ->
-        String.downcase(t) in ~w(the and for how does what which with from that this are was were can)
-      end)
+      |> Enum.reject(&stopword_or_short?/1)
       |> Enum.take(5)
 
     case terms do

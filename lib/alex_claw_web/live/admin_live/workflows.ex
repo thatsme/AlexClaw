@@ -2,9 +2,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @moduledoc "LiveView page for creating, editing, and managing workflows and their steps."
   use Phoenix.LiveView
 
-  alias AlexClaw.Workflows
   alias AlexClaw.Resources
-  alias AlexClaw.Workflows.SkillRegistry
+  alias AlexClaw.Workflows
+  alias AlexClaw.Workflows.{Executor, SkillRegistry}
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -170,7 +170,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     case parse_id(id) do
       {:ok, wf_id} ->
         Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-          AlexClaw.Workflows.Executor.run(wf_id)
+          Executor.run(wf_id)
         end)
 
         {:noreply, put_flash(socket, :info, "Workflow execution started")}
@@ -182,28 +182,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("duplicate", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, wf_id} ->
-        case Workflows.get_workflow(wf_id) do
-          {:ok, workflow} ->
-            case Workflows.duplicate_workflow(workflow) do
-              {:ok, _new_wf} ->
-                {:noreply,
-                 socket
-                 |> put_flash(:info, "Workflow duplicated")
-                 |> assign(workflows: Workflows.list_workflows())}
-
-              {:error, reason} ->
-                {:noreply, put_flash(socket, :error, "Duplicate failed: #{inspect(reason)}")}
-            end
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Workflow not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
+    id |> parse_id() |> duplicate_parsed(socket)
   end
 
   @impl true
@@ -223,70 +202,16 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("import_workflow", _params, socket) do
-    result =
-      consume_uploaded_entries(socket, :workflow_file, fn %{path: tmp_path}, _entry ->
-        case File.read(tmp_path) do
-          {:ok, content} ->
-            case Jason.decode(content) do
-              {:ok, data} -> {:ok, data}
-              {:error, _} -> {:ok, {:parse_error, "Invalid JSON file"}}
-            end
-
-          {:error, reason} ->
-            {:ok, {:read_error, "Could not read file: #{inspect(reason)}"}}
-        end
-      end)
-
-    case result do
-      [data] when is_map(data) ->
-        case Workflows.import_workflow(data) do
-          {:ok, workflow, []} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Workflow '#{workflow.name}' imported successfully")
-             |> assign(workflows: Workflows.list_workflows(), show_import_form: false)}
-
-          {:ok, workflow, warnings} ->
-            msg = "Workflow '#{workflow.name}' imported. Warnings: #{Enum.join(warnings, "; ")}"
-
-            {:noreply,
-             socket
-             |> put_flash(:info, msg)
-             |> assign(workflows: Workflows.list_workflows(), show_import_form: false)}
-
-          {:error, message} ->
-            {:noreply, put_flash(socket, :error, "Import failed: #{message}")}
-        end
-
-      [{:parse_error, msg}] ->
-        {:noreply, put_flash(socket, :error, msg)}
-
-      [{:read_error, msg}] ->
-        {:noreply, put_flash(socket, :error, msg)}
-
-      [] ->
-        {:noreply, put_flash(socket, :error, "No file selected")}
-    end
+    socket
+    |> consume_uploaded_entries(:workflow_file, fn %{path: tmp_path}, _entry ->
+      {:ok, read_upload(File.read(tmp_path))}
+    end)
+    |> apply_import(socket)
   end
 
   @impl true
   def handle_event("edit_step", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, step_id} ->
-        current = socket.assigns.editing_step
-
-        if current && current.id == step_id do
-          {:noreply, assign(socket, editing_step: nil)}
-        else
-          case AlexClaw.Repo.get(AlexClaw.Workflows.WorkflowStep, step_id) do
-            nil -> {:noreply, put_flash(socket, :error, "Step not found")}
-            step -> {:noreply, assign(socket, editing_step: step)}
-          end
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
+    id |> parse_id() |> edit_step(socket)
   end
 
   @impl true
@@ -543,6 +468,89 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         {:noreply, socket}
     end
   end
+
+  defp duplicate_parsed(:error, socket), do: {:noreply, socket}
+
+  defp duplicate_parsed({:ok, wf_id}, socket) do
+    wf_id |> Workflows.get_workflow() |> duplicate_found(socket)
+  end
+
+  defp duplicate_found({:error, :not_found}, socket) do
+    {:noreply, put_flash(socket, :error, "Workflow not found")}
+  end
+
+  defp duplicate_found({:ok, workflow}, socket) do
+    workflow |> Workflows.duplicate_workflow() |> duplicate_result(socket)
+  end
+
+  defp duplicate_result({:ok, _new_wf}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:info, "Workflow duplicated")
+     |> assign(workflows: Workflows.list_workflows())}
+  end
+
+  defp duplicate_result({:error, reason}, socket) do
+    {:noreply, put_flash(socket, :error, "Duplicate failed: #{inspect(reason)}")}
+  end
+
+  defp read_upload({:error, reason}), do: {:read_error, "Could not read file: #{inspect(reason)}"}
+
+  defp read_upload({:ok, content}) do
+    case Jason.decode(content) do
+      {:ok, data} -> data
+      {:error, _} -> {:parse_error, "Invalid JSON file"}
+    end
+  end
+
+  defp apply_import([data], socket) when is_map(data) do
+    data |> Workflows.import_workflow() |> imported(socket)
+  end
+
+  defp apply_import([{:parse_error, msg}], socket), do: {:noreply, put_flash(socket, :error, msg)}
+  defp apply_import([{:read_error, msg}], socket), do: {:noreply, put_flash(socket, :error, msg)}
+
+  defp apply_import([], socket) do
+    {:noreply, put_flash(socket, :error, "No file selected")}
+  end
+
+  defp imported({:ok, workflow, []}, socket) do
+    flash_imported(socket, "Workflow '#{workflow.name}' imported successfully")
+  end
+
+  defp imported({:ok, workflow, warnings}, socket) do
+    flash_imported(
+      socket,
+      "Workflow '#{workflow.name}' imported. Warnings: #{Enum.join(warnings, "; ")}"
+    )
+  end
+
+  defp imported({:error, message}, socket) do
+    {:noreply, put_flash(socket, :error, "Import failed: #{message}")}
+  end
+
+  defp flash_imported(socket, msg) do
+    {:noreply,
+     socket
+     |> put_flash(:info, msg)
+     |> assign(workflows: Workflows.list_workflows(), show_import_form: false)}
+  end
+
+  defp edit_step(:error, socket), do: {:noreply, socket}
+
+  defp edit_step({:ok, step_id}, socket) do
+    toggle_step(socket.assigns.editing_step, step_id, socket)
+  end
+
+  # Clicking the step already being edited closes the editor.
+  defp toggle_step(%{id: id}, id, socket), do: {:noreply, assign(socket, editing_step: nil)}
+
+  defp toggle_step(_current, step_id, socket) do
+    load_step(AlexClaw.Repo.get(AlexClaw.Workflows.WorkflowStep, step_id), socket)
+  end
+
+  defp load_step(nil, socket), do: {:noreply, put_flash(socket, :error, "Step not found")}
+  defp load_step(step, socket), do: {:noreply, assign(socket, editing_step: step)}
 
   defp reorder_step(socket, step_id, direction) do
     workflow = socket.assigns.editing

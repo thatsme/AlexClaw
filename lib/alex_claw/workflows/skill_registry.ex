@@ -9,7 +9,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Repo
-  alias AlexClaw.Skills.{DynamicSkill, SkillAPI}
+  alias AlexClaw.Skills.{CallPolicy, DynamicSkill, SkillAPI}
 
   @ets_table :skill_registry
   @dynamic_namespace "AlexClaw.Skills.Dynamic."
@@ -608,6 +608,58 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @doc "Directory holding uploads awaiting 2FA verification."
   @spec pending_dir() :: Path.t()
   def pending_dir, do: Path.join(skills_dir(), "pending")
+
+  @doc """
+  Write generated source into `pending/` without making it loadable.
+
+  Generated code never lands in the live directory. Whether it gets there depends
+  on the verdict from `vet_pending/1`.
+  """
+  @spec write_pending(String.t(), String.t()) :: :ok | {:error, :invalid_filename}
+  def write_pending(file_name, source) do
+    with :ok <- validate_skill_filename(file_name) do
+      File.mkdir_p!(pending_dir())
+      File.write!(Path.join(pending_dir(), file_name), source)
+      :ok
+    end
+  end
+
+  @doc """
+  Compile a staged file far enough to judge it, then remove it from the VM again.
+
+  Returns the module and permissions it declares, plus a containment verdict from
+  `CallPolicy`. Compiling is safe here because the AST gate refuses anything that
+  would execute at compile time; the module is purged afterwards either way, so
+  nothing stays resident on the strength of this check alone.
+  """
+  @spec vet_pending(String.t()) ::
+          {:ok,
+           %{module: module(), permissions: [atom()], contained: :ok | {:error, [String.t()]}}}
+          | {:error, term()}
+  def vet_pending(file_name) do
+    with :ok <- validate_skill_filename(file_name),
+         path = Path.join(pending_dir(), file_name),
+         {:ok, source} <- read_pending(path),
+         {:ok, ast} <- parse_source(source),
+         {:ok, module, permissions} <- compile_and_validate(path) do
+      purge_module(module)
+
+      {:ok, %{module: module, permissions: permissions, contained: CallPolicy.contained?(ast)}}
+    end
+  end
+
+  defp read_pending(path) do
+    case File.read(path) do
+      {:ok, source} -> {:ok, source}
+      {:error, reason} -> {:error, {:pending_unreadable, reason}}
+    end
+  end
+
+  defp purge_module(module) do
+    :code.purge(module)
+    :code.delete(module)
+    :ok
+  end
 
   defp validate_path(full_path) do
     dir = skills_dir()

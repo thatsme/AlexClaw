@@ -184,14 +184,18 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end)
   end
 
-  # The upload waits in skills_dir/pending until the code is verified; only now
-  # does it become a file the loader will resolve.
-  def execute_2fa_action(%{type: :skill_load, file_path: file_path}, _msg) do
+  # The file waits in skills_dir/pending until the code is verified; only now does
+  # it become a file the loader will resolve. A generated skill that reached this
+  # point failed containment, so the verified code is what authorises it.
+  def execute_2fa_action(%{type: :skill_load, file_path: file_path} = action, _msg) do
     case SkillRegistry.promote_pending(file_path) do
       {:error, reason} -> Gateway.send_message("Skill load failed: #{inspect(reason)}")
-      _promoted -> report_load(SkillRegistry.load_skill(file_path))
+      _promoted -> report_load(SkillRegistry.load_skill(file_path, load_opts(action)))
     end
   end
+
+  defp load_opts(%{origin: :generated}), do: [origin: "generated", approval: "totp"]
+  defp load_opts(_action), do: [origin: "upload", approval: "totp"]
 
   def execute_2fa_action(%{type: :skill_unload, name: name}, _msg) do
     case SkillRegistry.unload_skill(name) do

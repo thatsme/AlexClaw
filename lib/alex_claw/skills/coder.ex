@@ -7,6 +7,7 @@ defmodule AlexClaw.Skills.Coder do
   @behaviour AlexClaw.Skill
   require Logger
 
+  alias AlexClaw.Auth.Gate
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Skills.{CodeGenerator, SkillAPI}
 
@@ -83,10 +84,38 @@ defmodule AlexClaw.Skills.Coder do
   end
 
   defp do_generate(goal, skill_name, config, max_retries) do
-    case generation_loop(goal, skill_name, max_retries, nil) do
+    case generation_loop(goal, skill_name, max_retries, nil, nil) do
       {:ok, result} -> generated(result, skill_name, config["create_workflow"])
-      {:error, _} = err -> err
+      {:needs_approval, violations} -> request_approval(skill_name, violations)
+      {:error, _reason} = err -> err
     end
+  end
+
+  # The file is already staged in pending/. It loads only if a code is verified.
+  defp request_approval(skill_name, violations) do
+    listed = Enum.map_join(violations, ", ", & &1)
+
+    %{type: :skill_load, file_path: "#{skill_name}.ex", origin: :generated}
+    |> Gate.request("Generated skill #{skill_name} needs: #{listed}")
+    |> approval_result(skill_name, listed)
+  end
+
+  defp approval_result(:challenged, skill_name, listed) do
+    {:ok,
+     """
+     Generated skill *#{skill_name}* is waiting for approval.
+
+     It calls outside the contained set: #{listed}
+     A 2FA code has been requested — approve it to load the skill.
+     """, :on_created}
+  end
+
+  defp approval_result(:no_2fa, skill_name, listed) do
+    {:error,
+     {:needs_2fa,
+      "Generated skill #{skill_name} calls outside the contained set (#{listed}) " <>
+        "and 2FA is not configured, so it was not loaded. It is staged in pending/. " <>
+        "Enable 2FA with /setup 2fa."}}
   end
 
   defp generated(result, _skill_name, nil), do: {:ok, format_result(result, nil), :on_created}
@@ -99,11 +128,18 @@ defmodule AlexClaw.Skills.Coder do
     end
   end
 
-  defp generation_loop(_goal, _skill_name, 0, last_error) do
-    {:error, {:generation_failed, last_error}}
+  # The last failure is carried structurally, not just as a hint string: when the
+  # model never gets inside the containment envelope the caller needs the
+  # violations to ask for a code.
+  defp generation_loop(_goal, _skill_name, 0, _hint, {:not_contained, violations}) do
+    {:needs_approval, violations}
   end
 
-  defp generation_loop(goal, skill_name, retries_left, error_context) do
+  defp generation_loop(_goal, _skill_name, 0, _hint, last_reason) do
+    {:error, {:generation_failed, last_reason}}
+  end
+
+  defp generation_loop(goal, skill_name, retries_left, error_context, _last_reason) do
     case CodeGenerator.generate_step(goal, skill_name, "both", "auto", error_context) do
       {:ok, result} ->
         Logger.info("Coder: generated skill #{result.name}", skill: :coder)
@@ -116,7 +152,7 @@ defmodule AlexClaw.Skills.Coder do
         )
 
         hint = CodeGenerator.error_to_hint(reason)
-        generation_loop(goal, skill_name, retries_left - 1, hint)
+        generation_loop(goal, skill_name, retries_left - 1, hint, reason)
     end
   end
 

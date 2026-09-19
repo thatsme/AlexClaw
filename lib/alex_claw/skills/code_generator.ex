@@ -3,7 +3,12 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   require Logger
 
+  # Generated run/1 gets one shot at returning; a blocked one is a failed validation.
+  @runtime_timeout_ms 10_000
+
+  alias AlexClaw.Auth.SafeExecutor
   alias AlexClaw.Skills.SkillAPI
+  alias AlexClaw.Workflows.SkillRegistry
 
   @system_prompt """
   You are a code generator for AlexClaw, an Elixir/OTP agent.
@@ -94,44 +99,76 @@ defmodule AlexClaw.Skills.CodeGenerator do
     end
   end
 
+  # Generated code is staged, judged, and only then loaded. It never reaches the
+  # live directory on the strength of having compiled.
   @spec try_load(String.t(), String.t()) :: {:ok, map()} | {:error, term(), String.t()}
   defp try_load(code, skill_name) do
     file_name = "#{skill_name}.ex"
 
-    # Unload existing skill with the same name to avoid version conflict
+    # Unload any existing skill of this name to avoid a version conflict
     SkillAPI.unload_skill(AlexClaw.Skills.Coder, skill_name)
 
-    case SkillAPI.write_skill(AlexClaw.Skills.Coder, file_name, code) do
-      :ok -> load_written(file_name, code)
+    case SkillRegistry.write_pending(file_name, code) do
+      :ok -> vet_and_load(file_name, skill_name, code)
       {:error, reason} -> {:error, {:write_failed, reason}, code}
     end
   end
 
-  defp load_written(file_name, code) do
-    case SkillAPI.load_skill(AlexClaw.Skills.Coder, file_name) do
-      {:ok, info} -> validated(validate_loaded(info), info, code)
-      {:error, reason} -> {:error, {:load_failed, reason}, code}
+  defp vet_and_load(file_name, skill_name, code) do
+    case SkillRegistry.vet_pending(file_name) do
+      {:ok, %{contained: :ok} = vetted} ->
+        load_contained(file_name, skill_name, vetted, code)
+
+      {:ok, %{contained: {:error, violations}}} ->
+        {:error, {:not_contained, violations}, code}
+
+      {:error, reason} ->
+        {:error, {:load_failed, reason}, code}
     end
   end
 
-  defp validate_loaded(%{external: true, module: module}), do: validate_structure(module)
-  defp validate_loaded(%{module: module}), do: validate_runtime(module)
-
-  defp validated(:ok, info, code) do
-    {:ok,
-     %{
-       name: info.name,
-       module: info.module,
-       permissions: info.permissions,
-       routes: info.routes,
-       code: code
-     }}
+  # Contained: the code cannot reach anything outside the allowlist, so it loads
+  # without a human in the loop.
+  defp load_contained(file_name, skill_name, vetted, code) do
+    with :ok <- SkillRegistry.promote_pending(file_name),
+         {:ok, info} <-
+           SkillRegistry.load_skill(file_name, origin: "generated", approval: "containment") do
+      confirm_runtime(info, vetted, code, skill_name)
+    else
+      {:error, reason} -> {:error, {:load_failed, reason}, code}
+      :no_pending -> {:error, {:load_failed, :no_pending}, code}
+    end
   end
 
-  defp validated({:error, runtime_error}, info, code) do
-    SkillAPI.unload_skill(AlexClaw.Skills.Coder, info.name)
-    {:error, {:runtime_validation, runtime_error}, code}
+  # Only contained code is ever executed, and then only under SafeExecutor so a
+  # generated run/1 that hangs cannot take the caller with it.
+  defp confirm_runtime(info, vetted, code, skill_name) do
+    case runtime_verdict(info, vetted) do
+      :ok -> {:ok, Map.put(skill_summary(info, code), :approval, :containment)}
+      {:error, reason} -> revert_load(skill_name, reason, code)
+    end
   end
+
+  defp runtime_verdict(%{external: true, module: module}, _vetted), do: validate_structure(module)
+  defp runtime_verdict(%{module: module}, _vetted), do: validate_runtime(module)
+
+  defp revert_load(skill_name, reason, code) do
+    SkillAPI.unload_skill(AlexClaw.Skills.Coder, skill_name)
+    {:error, {:runtime_validation, reason}, code}
+  end
+
+  defp skill_summary(info, code) do
+    %{
+      name: info.name,
+      module: info.module,
+      permissions: info.permissions,
+      routes: info.routes,
+      code: code
+    }
+  end
+
+  # Not contained: the file stays in pending and the violations become the retry
+  # hint. If the model cannot get inside the envelope, the caller asks for a code.
 
   @doc "Gather RAG context from the knowledge base based on the goal."
   @spec gather_knowledge(String.t(), String.t()) :: String.t()
@@ -236,11 +273,21 @@ defmodule AlexClaw.Skills.CodeGenerator do
     end
   end
 
-  @doc "Validate that a loaded skill module runs correctly with test input."
+  @doc """
+  Validate that a loaded skill module runs correctly with test input.
+
+  Runs through `SafeExecutor` rather than calling `run/1` directly: a generated
+  `run/1` that blocks would otherwise hang the caller, and there is no reason to
+  give generated code the caller's process.
+
+  Only ever called on code that `CallPolicy` has already found contained.
+  """
   @spec validate_runtime(module()) :: :ok | {:error, term()}
   def validate_runtime(module) do
-    %{input: "test", config: %{}}
-    |> module.run()
+    module
+    |> SafeExecutor.run(%{input: "test", config: %{}}, :dynamic, nil,
+      timeout: @runtime_timeout_ms
+    )
     |> runtime_result()
   rescue
     e -> {:error, {:runtime_crash, Exception.message(e)}}
@@ -255,6 +302,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   defp runtime_result({:ok, _}),
     do: {:error, {:runtime_bad_result, "run/1 must return {:ok, string, :branch}, got 2-tuple"}}
+
+  defp runtime_result({:error, :skill_timeout}),
+    do: {:error, {:runtime_timeout, "run/1 did not return within #{@runtime_timeout_ms}ms"}}
 
   defp runtime_result({:error, reason}),
     do: {:error, {:runtime_error_returned, "run/1 returned {:error, #{inspect(reason)}}"}}
@@ -271,6 +321,20 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   def error_to_hint({:runtime_validation, reason}),
     do: "The code compiled but failed at runtime: #{inspect(reason)}\nFix the code and try again."
+
+  # The violations are the most useful hint the model gets: they name exactly which
+  # calls to replace, and the envelope is small enough to describe in the retry.
+  def error_to_hint({:not_contained, violations}) do
+    """
+    The code called modules a generated skill may not use:
+    #{Enum.map_join(violations, "\n", &"  - #{&1}")}
+
+    Rewrite it using SkillAPI instead. SkillAPI.http_get/3 and http_post/3 for the
+    network, SkillAPI.llm_complete/3 for the model, SkillAPI.memory_store/4 and
+    knowledge_store/4 for persistence, SkillAPI.send_message/3 for output. Do not
+    call File, System, Code, Req or Repo directly.
+    """
+  end
 
   def error_to_hint({:write_failed, reason}), do: "Failed to write skill file: #{inspect(reason)}"
   def error_to_hint({:llm_failed, reason}), do: "LLM call failed: #{inspect(reason)}"

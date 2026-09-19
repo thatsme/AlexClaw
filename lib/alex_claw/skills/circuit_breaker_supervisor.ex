@@ -25,17 +25,25 @@ defmodule AlexClaw.Skills.CircuitBreakerSupervisor do
   @spec ensure_started(String.t()) :: {:ok, pid()}
   def ensure_started(skill_name) do
     case Registry.lookup(AlexClaw.CircuitBreakerRegistry, skill_name) do
-      [{pid, _}] ->
-        {:ok, pid}
+      [{pid, _}] -> reuse_or_start(skill_name, pid, Process.alive?(pid))
+      [] -> start_breaker(skill_name)
+    end
+  end
 
-      [] ->
-        case DynamicSupervisor.start_child(
-               AlexClaw.Skills.CircuitBreakerDynSup,
-               {AlexClaw.Skills.CircuitBreaker, skill_name}
-             ) do
-          {:ok, pid} -> {:ok, pid}
-          {:error, {:already_started, pid}} -> {:ok, pid}
-        end
+  # stop_breaker/1 returns as soon as terminate_child/2 does, but the Registry
+  # unregisters on the process DOWN message, so a lookup can still yield a pid
+  # that has already exited. Returning it would hand the caller a dead breaker
+  # and start no replacement.
+  defp reuse_or_start(_skill_name, pid, true), do: {:ok, pid}
+  defp reuse_or_start(skill_name, _pid, false), do: start_breaker(skill_name)
+
+  defp start_breaker(skill_name) do
+    case DynamicSupervisor.start_child(
+           AlexClaw.Skills.CircuitBreakerDynSup,
+           {AlexClaw.Skills.CircuitBreaker, skill_name}
+         ) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
     end
   end
 

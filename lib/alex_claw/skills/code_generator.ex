@@ -140,7 +140,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @doc "Gather RAG context from the knowledge base based on the goal."
   @spec gather_knowledge(String.t(), String.t()) :: String.t()
   def gather_knowledge(goal, context_source \\ "both") do
-    unless context_source == "none" do
+    if context_source == "none" do
+      ""
+    else
       # Always include skill template and behaviour — these are critical for correct generation
       template_chunks = fetch_by_source(~w(self:skill_template self:skill_behaviour))
       # Real skill examples for pattern reference
@@ -153,8 +155,6 @@ defmodule AlexClaw.Skills.CodeGenerator do
       (template_chunks ++ skill_chunks ++ goal_chunks ++ erlang_chunks ++ elixir_chunks)
       |> Enum.uniq_by(& &1.id)
       |> Enum.map_join("\n---\n", & &1.content)
-    else
-      ""
     end
   end
 

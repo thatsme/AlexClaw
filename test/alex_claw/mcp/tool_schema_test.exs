@@ -8,7 +8,7 @@ defmodule AlexClaw.MCP.ToolSchemaTest do
     test "returns a list of tool definitions" do
       tools = ToolSchema.all_tools()
       assert is_list(tools)
-      assert length(tools) > 0
+      refute Enum.empty?(tools)
     end
 
     test "each tool has name, description, and input_schema" do

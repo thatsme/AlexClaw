@@ -10,7 +10,7 @@ defmodule AlexClaw.MessageTest do
 
       msg = %Message{
         text: "hello",
-        chat_id: 12345,
+        chat_id: 12_345,
         from: "Alessio",
         timestamp: now,
         raw: %{"update_id" => 1},
@@ -18,7 +18,7 @@ defmodule AlexClaw.MessageTest do
       }
 
       assert msg.text == "hello"
-      assert msg.chat_id == 12345
+      assert msg.chat_id == 12_345
       assert msg.from == "Alessio"
       assert msg.timestamp == now
       assert msg.raw == %{"update_id" => 1}

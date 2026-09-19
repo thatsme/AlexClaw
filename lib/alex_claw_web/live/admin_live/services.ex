@@ -328,45 +328,13 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check("ollama") do
-    enabled = Config.get("llm.ollama_enabled")
     host = Config.get("llm.ollama_host") || "http://localhost:11434"
-
-    if enabled not in [true, "true"] do
-      %{status: :not_configured, detail: "Ollama disabled"}
-    else
-      case Req.get("#{host}/api/tags", receive_timeout: 5_000) do
-        {:ok, %{status: 200, body: %{"models" => models}}} ->
-          names = Enum.map_join(models, ", ", & &1["name"])
-          %{status: :connected, detail: "#{length(models)} model(s): #{names}"}
-
-        {:ok, %{status: s}} ->
-          %{status: :error, detail: "HTTP #{s}"}
-
-        {:error, reason} ->
-          %{status: :error, detail: inspect(reason)}
-      end
-    end
+    ollama_status(Config.enabled?("llm.ollama_enabled"), host)
   end
 
   defp live_check("lmstudio") do
-    enabled = Config.get("llm.lmstudio_enabled")
     host = Config.get("llm.lmstudio_host") || "http://host.docker.internal:1234"
-
-    if enabled not in [true, "true"] do
-      %{status: :not_configured, detail: "LM Studio disabled"}
-    else
-      case Req.get("#{host}/v1/models", receive_timeout: 5_000) do
-        {:ok, %{status: 200, body: %{"data" => models}}} ->
-          names = Enum.map_join(models, ", ", & &1["id"])
-          %{status: :connected, detail: "#{length(models)} model(s): #{names}"}
-
-        {:ok, %{status: s}} ->
-          %{status: :error, detail: "HTTP #{s}"}
-
-        {:error, reason} ->
-          %{status: :error, detail: inspect(reason)}
-      end
-    end
+    lmstudio_status(Config.enabled?("llm.lmstudio_enabled"), host)
   end
 
   defp live_check("github") do
@@ -398,26 +366,8 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check("web_automator") do
-    enabled = Config.get("web_automator.enabled")
     host = Config.get("web_automator.host") || "http://web-automator:6900"
-
-    if enabled not in [true, "true"] do
-      %{status: :not_configured, detail: "Web Automator disabled"}
-    else
-      case Req.get("#{host}/status", receive_timeout: 5_000) do
-        {:ok, %{status: 200, body: body}} when is_map(body) ->
-          %{status: :connected, detail: "Sidecar running"}
-
-        {:ok, %{status: 200}} ->
-          %{status: :connected, detail: "Sidecar running"}
-
-        {:ok, %{status: s}} ->
-          %{status: :error, detail: "HTTP #{s}"}
-
-        {:error, reason} ->
-          %{status: :error, detail: inspect(reason)}
-      end
-    end
+    web_automator_status(Config.enabled?("web_automator.enabled"), host)
   end
 
   defp live_check("embeddings") do
@@ -443,6 +393,58 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check(_), do: %{status: :error, detail: "Unknown service"}
+
+  defp ollama_status(false, _host), do: %{status: :not_configured, detail: "Ollama disabled"}
+
+  defp ollama_status(true, host) do
+    case Req.get("#{host}/api/tags", receive_timeout: 5_000) do
+      {:ok, %{status: 200, body: %{"models" => models}}} ->
+        names = Enum.map_join(models, ", ", & &1["name"])
+        %{status: :connected, detail: "#{length(models)} model(s): #{names}"}
+
+      {:ok, %{status: s}} ->
+        %{status: :error, detail: "HTTP #{s}"}
+
+      {:error, reason} ->
+        %{status: :error, detail: inspect(reason)}
+    end
+  end
+
+  defp lmstudio_status(false, _host), do: %{status: :not_configured, detail: "LM Studio disabled"}
+
+  defp lmstudio_status(true, host) do
+    case Req.get("#{host}/v1/models", receive_timeout: 5_000) do
+      {:ok, %{status: 200, body: %{"data" => models}}} ->
+        names = Enum.map_join(models, ", ", & &1["id"])
+        %{status: :connected, detail: "#{length(models)} model(s): #{names}"}
+
+      {:ok, %{status: s}} ->
+        %{status: :error, detail: "HTTP #{s}"}
+
+      {:error, reason} ->
+        %{status: :error, detail: inspect(reason)}
+    end
+  end
+
+  defp web_automator_status(false, _host) do
+    %{status: :not_configured, detail: "Web Automator disabled"}
+  end
+
+  defp web_automator_status(true, host) do
+    case Req.get("#{host}/status", receive_timeout: 5_000) do
+      {:ok, %{status: 200, body: body}} when is_map(body) ->
+        %{status: :connected, detail: "Sidecar running"}
+
+      {:ok, %{status: 200}} ->
+        %{status: :connected, detail: "Sidecar running"}
+
+      {:ok, %{status: s}} ->
+        %{status: :error, detail: "HTTP #{s}"}
+
+      {:error, reason} ->
+        %{status: :error, detail: inspect(reason)}
+    end
+  end
 
   # --- View helpers ---
 

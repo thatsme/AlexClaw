@@ -77,10 +77,10 @@ defmodule AlexClaw.Skills.ApiRequest do
     if url == "" do
       {:error, :no_url}
     else
-      unless method in @allowed_methods do
-        {:error, {:invalid_method, method}}
-      else
+      if method in @allowed_methods do
         execute_request(method, url, headers, body)
+      else
+        {:error, {:invalid_method, method}}
       end
     end
   end

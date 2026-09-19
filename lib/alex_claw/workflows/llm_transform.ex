@@ -92,8 +92,7 @@ defmodule AlexClaw.Workflows.LLMTransform do
 
   defp format_resources(resources) when is_list(resources) do
     resources
-    |> Enum.map(fn r -> "- #{r.name} (#{r.type}): #{r.url || "inline"}" end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn r -> "- #{r.name} (#{r.type}): #{r.url || "inline"}" end)
   end
 
   defp format_resources(_), do: ""

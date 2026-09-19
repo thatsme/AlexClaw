@@ -121,8 +121,7 @@ defmodule AlexClaw.Skills.TelegramNotify do
   def format_for_telegram(text) do
     text
     |> String.split("\n")
-    |> Enum.map(&convert_line/1)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", &convert_line/1)
   end
 
   defp convert_line("#### " <> rest), do: "<b>#{escape_html(rest)}</b>"

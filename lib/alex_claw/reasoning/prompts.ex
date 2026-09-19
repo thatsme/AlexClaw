@@ -210,7 +210,7 @@ defmodule AlexClaw.Reasoning.Prompts do
   defp score_trend_section(nil), do: ""
 
   defp score_trend_section(%{scores: scores, trend: trend}) do
-    scores_str = scores |> Enum.map(&Float.round(&1, 1)) |> Enum.join(" → ")
+    scores_str = Enum.map_join(scores, " → ", &Float.round(&1, 1))
 
     direction =
       cond do

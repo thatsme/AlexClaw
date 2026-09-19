@@ -136,8 +136,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
       {:ok, lists} ->
         formatted =
           lists
-          |> Enum.map(fn l -> "• #{l["title"]}" end)
-          |> Enum.join("\n")
+          |> Enum.map_join("\n", fn l -> "• #{l["title"]}" end)
 
         Logger.info("GoogleTasks: fetched #{length(lists)} task lists", skill: :google_tasks)
         {:ok, formatted, :on_tasks}
@@ -262,8 +261,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
 
   defp format_tasks(tasks) do
     tasks
-    |> Enum.map(&format_task/1)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", &format_task/1)
   end
 
   defp format_task(task) do

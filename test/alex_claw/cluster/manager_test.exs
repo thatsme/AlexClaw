@@ -93,7 +93,7 @@ defmodule AlexClaw.Cluster.ManagerTest do
 
       # Verify a run was created
       runs = Workflows.list_runs(wf.id)
-      assert length(runs) >= 1
+      refute Enum.empty?(runs)
     end
 
     test "accepts workflow with receive_from_workflow + additional steps" do

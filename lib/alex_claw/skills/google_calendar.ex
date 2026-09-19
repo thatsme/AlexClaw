@@ -92,7 +92,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   defp fetch_events(token, calendar_id, days, max_results) do
     now = DateTime.utc_now()
     time_min = DateTime.to_iso8601(now)
-    time_max = DateTime.to_iso8601(DateTime.add(now, days * 86400))
+    time_max = DateTime.to_iso8601(DateTime.add(now, days * 86_400))
 
     url = "#{@calendar_api}/calendars/#{URI.encode(calendar_id)}/events"
 
@@ -128,8 +128,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
 
   defp format_events(events) do
     events
-    |> Enum.map(&format_event/1)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", &format_event/1)
   end
 
   defp format_event(event) do

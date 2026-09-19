@@ -36,23 +36,8 @@ defmodule AlexClaw.Config.Crypto do
   def decrypt(@prefix <> encoded) do
     key = derive_key()
 
-    with {:ok, raw} <- Base.decode64(encoded) do
-      raw_size = byte_size(raw)
-
-      if raw_size < @iv_bytes + @tag_bytes do
-        {:error, :invalid_ciphertext}
-      else
-        ct_size = raw_size - @iv_bytes - @tag_bytes
-
-        <<iv::binary-size(@iv_bytes), ciphertext::binary-size(ct_size),
-          tag::binary-size(@tag_bytes)>> = raw
-
-        case :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, ciphertext, <<>>, tag, false) do
-          plaintext when is_binary(plaintext) -> {:ok, plaintext}
-          :error -> {:error, :decryption_failed}
-        end
-      end
-    else
+    case Base.decode64(encoded) do
+      {:ok, raw} -> decrypt_raw(raw, key)
       :error -> {:error, :invalid_base64}
     end
   rescue
@@ -61,6 +46,23 @@ defmodule AlexClaw.Config.Crypto do
 
   def decrypt(plaintext) when is_binary(plaintext), do: {:ok, plaintext}
   def decrypt(nil), do: {:ok, nil}
+
+  defp decrypt_raw(raw, key) when byte_size(raw) < @iv_bytes + @tag_bytes do
+    _ = key
+    {:error, :invalid_ciphertext}
+  end
+
+  defp decrypt_raw(raw, key) do
+    ct_size = byte_size(raw) - @iv_bytes - @tag_bytes
+
+    <<iv::binary-size(@iv_bytes), ciphertext::binary-size(ct_size), tag::binary-size(@tag_bytes)>> =
+      raw
+
+    case :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, ciphertext, <<>>, tag, false) do
+      plaintext when is_binary(plaintext) -> {:ok, plaintext}
+      :error -> {:error, :decryption_failed}
+    end
+  end
 
   @spec encrypted?(String.t() | nil) :: boolean()
   def encrypted?(@prefix <> _), do: true

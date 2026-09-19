@@ -45,8 +45,8 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
   end
 
   defp format_uptime(total_seconds) do
-    days = div(total_seconds, 86400)
-    hours = div(rem(total_seconds, 86400), 3600)
+    days = div(total_seconds, 86_400)
+    hours = div(rem(total_seconds, 86_400), 3_600)
     minutes = div(rem(total_seconds, 3600), 60)
     secs = rem(total_seconds, 60)
 

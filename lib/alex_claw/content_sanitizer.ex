@@ -388,10 +388,8 @@ defmodule AlexClaw.ContentSanitizer do
   # --- Helpers ---
 
   defp skill_name_list do
-    try do
-      AlexClaw.Workflows.SkillRegistry.list_skills()
-    rescue
-      _ -> []
-    end
+    AlexClaw.Workflows.SkillRegistry.list_skills()
+  rescue
+    _ -> []
   end
 end

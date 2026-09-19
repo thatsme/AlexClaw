@@ -36,10 +36,11 @@ defmodule AlexClaw.Auth.PolicyEngine do
   end
 
   def evaluate(%AuthContext{caller_type: :mcp} = ctx, _permissions) do
-    with :ok <- check_policies(ctx) do
-      AuditLog.log_allow(ctx)
-      :allow
-    else
+    case check_policies(ctx) do
+      :ok ->
+        AuditLog.log_allow(ctx)
+        :allow
+
       {:deny, reason} = denial ->
         AuditLog.log_deny(ctx, reason)
         denial

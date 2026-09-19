@@ -145,7 +145,7 @@ defmodule AlexClaw.MCP.ResourceProviderTest do
     test "get by ID returns workflow with steps" do
       workflows = AlexClaw.Workflows.list_workflows()
 
-      if length(workflows) > 0 do
+      if not Enum.empty?(workflows) do
         wf = hd(workflows)
 
         {:reply, %Response{} = resp, _frame} =

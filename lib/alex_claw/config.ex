@@ -78,53 +78,45 @@ defmodule AlexClaw.Config do
           {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
   def set(key, value, opts \\ []) do
     type = Keyword.get(opts, :type, "string")
-    description = Keyword.get(opts, :description)
-    category = Keyword.get(opts, :category, "general")
-
     existing_record = Repo.get_by(Setting, key: key)
-
-    sensitive =
-      case Keyword.fetch(opts, :sensitive) do
-        {:ok, val} -> val
-        :error -> (existing_record && existing_record.sensitive) || false
-      end
-
+    sensitive = sensitive_flag(Keyword.fetch(opts, :sensitive), existing_record)
     encoded = encode_value(value, type)
-
-    db_value =
-      if sensitive and encoded != "" do
-        Crypto.encrypt!(encoded)
-      else
-        encoded
-      end
 
     attrs = %{
       key: key,
-      value: db_value,
+      value: db_value(encoded, sensitive),
       type: type,
-      description: description,
-      category: category,
+      description: Keyword.get(opts, :description),
+      category: Keyword.get(opts, :category, "general"),
       sensitive: sensitive
     }
 
-    result =
-      case existing_record do
-        nil -> %Setting{} |> Setting.changeset(attrs) |> Repo.insert()
-        existing -> existing |> Setting.changeset(attrs) |> Repo.update()
-      end
-
-    case result do
-      {:ok, setting} ->
-        # ETS gets the plaintext value
-        plain_setting = %{setting | value: encoded}
-        :ets.insert(@table, {key, cast_value(plain_setting)})
-        broadcast_change(key, cast_value(plain_setting))
-        {:ok, setting}
-
-      error ->
-        error
-    end
+    existing_record
+    |> upsert_setting(attrs)
+    |> cache_setting(key, encoded)
   end
+
+  defp sensitive_flag({:ok, val}, _existing_record), do: val
+
+  defp sensitive_flag(:error, existing_record),
+    do: (existing_record && existing_record.sensitive) || false
+
+  defp db_value("", _sensitive), do: ""
+  defp db_value(encoded, true), do: Crypto.encrypt!(encoded)
+  defp db_value(encoded, _sensitive), do: encoded
+
+  defp upsert_setting(nil, attrs), do: %Setting{} |> Setting.changeset(attrs) |> Repo.insert()
+  defp upsert_setting(existing, attrs), do: existing |> Setting.changeset(attrs) |> Repo.update()
+
+  defp cache_setting({:ok, setting}, key, encoded) do
+    # ETS gets the plaintext value
+    cast = cast_value(%{setting | value: encoded})
+    :ets.insert(@table, {key, cast})
+    broadcast_change(key, cast)
+    {:ok, setting}
+  end
+
+  defp cache_setting(error, _key, _encoded), do: error
 
   @doc "Delete a config key."
   @spec delete(String.t()) :: :ok

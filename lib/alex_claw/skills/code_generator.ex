@@ -102,39 +102,35 @@ defmodule AlexClaw.Skills.CodeGenerator do
     SkillAPI.unload_skill(AlexClaw.Skills.Coder, skill_name)
 
     case SkillAPI.write_skill(AlexClaw.Skills.Coder, file_name, code) do
-      :ok ->
-        case SkillAPI.load_skill(AlexClaw.Skills.Coder, file_name) do
-          {:ok, info} ->
-            validation =
-              if info.external do
-                validate_structure(info.module)
-              else
-                validate_runtime(info.module)
-              end
-
-            case validation do
-              :ok ->
-                {:ok,
-                 %{
-                   name: info.name,
-                   module: info.module,
-                   permissions: info.permissions,
-                   routes: info.routes,
-                   code: code
-                 }}
-
-              {:error, runtime_error} ->
-                SkillAPI.unload_skill(AlexClaw.Skills.Coder, info.name)
-                {:error, {:runtime_validation, runtime_error}, code}
-            end
-
-          {:error, reason} ->
-            {:error, {:load_failed, reason}, code}
-        end
-
-      {:error, reason} ->
-        {:error, {:write_failed, reason}, code}
+      :ok -> load_written(file_name, code)
+      {:error, reason} -> {:error, {:write_failed, reason}, code}
     end
+  end
+
+  defp load_written(file_name, code) do
+    case SkillAPI.load_skill(AlexClaw.Skills.Coder, file_name) do
+      {:ok, info} -> validated(validate_loaded(info), info, code)
+      {:error, reason} -> {:error, {:load_failed, reason}, code}
+    end
+  end
+
+  defp validate_loaded(%{external: true, module: module}), do: validate_structure(module)
+  defp validate_loaded(%{module: module}), do: validate_runtime(module)
+
+  defp validated(:ok, info, code) do
+    {:ok,
+     %{
+       name: info.name,
+       module: info.module,
+       permissions: info.permissions,
+       routes: info.routes,
+       code: code
+     }}
+  end
+
+  defp validated({:error, runtime_error}, info, code) do
+    SkillAPI.unload_skill(AlexClaw.Skills.Coder, info.name)
+    {:error, {:runtime_validation, runtime_error}, code}
   end
 
   @doc "Gather RAG context from the knowledge base based on the goal."
@@ -243,29 +239,28 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @doc "Validate that a loaded skill module runs correctly with test input."
   @spec validate_runtime(module()) :: :ok | {:error, term()}
   def validate_runtime(module) do
-    try do
-      case module.run(%{input: "test", config: %{}}) do
-        {:ok, result, _branch} when is_binary(result) ->
-          :ok
-
-        {:ok, result, _branch} ->
-          {:error, {:runtime_bad_result, "run/1 returned non-string result: #{inspect(result)}"}}
-
-        {:ok, _} ->
-          {:error, {:runtime_bad_result, "run/1 must return {:ok, string, :branch}, got 2-tuple"}}
-
-        {:error, reason} ->
-          {:error, {:runtime_error_returned, "run/1 returned {:error, #{inspect(reason)}}"}}
-
-        other ->
-          {:error, {:runtime_bad_result, "run/1 returned unexpected: #{inspect(other)}"}}
-      end
-    rescue
-      e -> {:error, {:runtime_crash, Exception.message(e)}}
-    catch
-      kind, reason -> {:error, {:runtime_crash, "#{kind}: #{inspect(reason)}"}}
-    end
+    %{input: "test", config: %{}}
+    |> module.run()
+    |> runtime_result()
+  rescue
+    e -> {:error, {:runtime_crash, Exception.message(e)}}
+  catch
+    kind, reason -> {:error, {:runtime_crash, "#{kind}: #{inspect(reason)}"}}
   end
+
+  defp runtime_result({:ok, result, _branch}) when is_binary(result), do: :ok
+
+  defp runtime_result({:ok, result, _branch}),
+    do: {:error, {:runtime_bad_result, "run/1 returned non-string result: #{inspect(result)}"}}
+
+  defp runtime_result({:ok, _}),
+    do: {:error, {:runtime_bad_result, "run/1 must return {:ok, string, :branch}, got 2-tuple"}}
+
+  defp runtime_result({:error, reason}),
+    do: {:error, {:runtime_error_returned, "run/1 returned {:error, #{inspect(reason)}}"}}
+
+  defp runtime_result(other),
+    do: {:error, {:runtime_bad_result, "run/1 returned unexpected: #{inspect(other)}"}}
 
   @doc "Format an error into a hint string for the next LLM iteration."
   @spec error_to_hint(term()) :: String.t()

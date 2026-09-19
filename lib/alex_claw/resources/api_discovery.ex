@@ -136,48 +136,44 @@ defmodule AlexClaw.Resources.ApiDiscovery do
 
   @spec discover_openapi(String.t(), String.t()) :: map() | nil
   defp discover_openapi(base_url, full_url) do
-    # Try spec paths relative to the full URL first, then the base host
-    candidates =
-      Enum.map(@spec_paths, fn path -> String.trim_trailing(full_url, "/") <> path end) ++
-        if full_url != base_url do
-          Enum.map(@spec_paths, fn path -> base_url <> path end)
-        else
-          []
-        end
-
-    candidates
+    base_url
+    |> spec_candidates(full_url)
     |> Enum.uniq()
-    |> Enum.find_value(fn spec_url ->
-      case Req.get(spec_url,
-             receive_timeout: @probe_timeout,
-             retry: false,
-             max_retries: 0
-           ) do
-        {:ok, %{status: 200, body: body}} when is_map(body) ->
-          # Req auto-decoded JSON — check if it's an OpenAPI/Swagger spec
-          if Map.has_key?(body, "openapi") or Map.has_key?(body, "swagger") do
-            parse_openapi_spec(body, spec_url)
-          end
-
-        {:ok, %{status: 200, body: body}} when is_binary(body) ->
-          # Non-JSON response or Req didn't decode — try manual parse
-          if byte_size(body) <= @spec_max_bytes do
-            case Jason.decode(body) do
-              {:ok, json} when is_map(json) ->
-                if Map.has_key?(json, "openapi") or Map.has_key?(json, "swagger") do
-                  parse_openapi_spec(json, spec_url)
-                end
-
-              _ ->
-                nil
-            end
-          end
-
-        _ ->
-          nil
-      end
-    end)
+    |> Enum.find_value(&probe_spec/1)
   end
+
+  # Try spec paths relative to the full URL first, then the base host
+  defp spec_candidates(base_url, full_url) do
+    trimmed = String.trim_trailing(full_url, "/")
+
+    Enum.map(@spec_paths, &(trimmed <> &1)) ++ host_candidates(base_url, full_url)
+  end
+
+  defp host_candidates(base_url, base_url), do: []
+  defp host_candidates(base_url, _full_url), do: Enum.map(@spec_paths, &(base_url <> &1))
+
+  defp probe_spec(spec_url) do
+    case Req.get(spec_url, receive_timeout: @probe_timeout, retry: false, max_retries: 0) do
+      # Req auto-decoded JSON
+      {:ok, %{status: 200, body: body}} when is_map(body) -> openapi_spec(body, spec_url)
+      # Non-JSON response or Req didn't decode — try manual parse
+      {:ok, %{status: 200, body: body}} when is_binary(body) -> decode_spec(body, spec_url)
+      _ -> nil
+    end
+  end
+
+  defp decode_spec(body, _spec_url) when byte_size(body) > @spec_max_bytes, do: nil
+
+  defp decode_spec(body, spec_url) do
+    case Jason.decode(body) do
+      {:ok, json} when is_map(json) -> openapi_spec(json, spec_url)
+      _ -> nil
+    end
+  end
+
+  defp openapi_spec(%{"openapi" => _} = spec, spec_url), do: parse_openapi_spec(spec, spec_url)
+  defp openapi_spec(%{"swagger" => _} = spec, spec_url), do: parse_openapi_spec(spec, spec_url)
+  defp openapi_spec(_spec, _spec_url), do: nil
 
   @spec parse_openapi_spec(map(), String.t()) :: map()
   defp parse_openapi_spec(spec, spec_url) do

@@ -259,38 +259,32 @@ defmodule AlexClaw.Config.Seeder do
   @spec seed() :: :ok
   def seed do
     for {key, value_or_fn, type, category, description, sensitive} <- @defaults do
-      existing = Config.get(key)
-
-      value =
-        if is_function(value_or_fn, 1) do
-          value_or_fn.(key)
-        else
-          value_or_fn
-        end
-
       opts = [type: type, category: category, description: description, sensitive: sensitive]
-
-      cond do
-        is_nil(existing) ->
-          Config.set(key, value, opts)
-
-        true ->
-          # Ensure sensitive flag is set even for existing settings
-          if sensitive do
-            case AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: key) do
-              %{sensitive: false} = record ->
-                record
-                |> Ecto.Changeset.change(%{sensitive: true})
-                |> AlexClaw.Repo.update()
-
-              _ ->
-                :ok
-            end
-          end
-
-          :ok
-      end
+      seed_key(key, Config.get(key), resolve_value(value_or_fn, key), opts, sensitive)
     end
+
+    :ok
+  end
+
+  defp resolve_value(value_or_fn, key) when is_function(value_or_fn, 1), do: value_or_fn.(key)
+  defp resolve_value(value, _key), do: value
+
+  defp seed_key(key, nil, value, opts, _sensitive), do: Config.set(key, value, opts)
+
+  # Already present: only the sensitive flag is reconciled, never the value.
+  defp seed_key(_key, _existing, _value, _opts, false), do: :ok
+
+  defp seed_key(key, _existing, _value, _opts, true) do
+    case AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: key) do
+      %{sensitive: false} = record -> mark_sensitive(record)
+      _ -> :ok
+    end
+  end
+
+  defp mark_sensitive(record) do
+    record
+    |> Ecto.Changeset.change(%{sensitive: true})
+    |> AlexClaw.Repo.update()
 
     :ok
   end

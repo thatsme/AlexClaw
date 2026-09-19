@@ -40,33 +40,28 @@ defmodule AlexClaw.Reasoning.SkillExecutor do
   @spec list_whitelisted_skills([String.t()]) :: [{String.t(), String.t()}]
   def list_whitelisted_skills(whitelist) do
     whitelist
-    |> Enum.map(fn name ->
-      case SkillRegistry.resolve(name) do
-        {:ok, module} ->
-          desc =
-            if function_exported?(module, :description, 0),
-              do: module.description(),
-              else: "No description available"
-
-          {name, desc}
-
-        {:error, _} ->
-          nil
-      end
-    end)
+    |> Enum.map(&described_skill/1)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp described_skill(name) do
+    case SkillRegistry.resolve(name) do
+      {:ok, module} -> {name, module_description(module)}
+      {:error, _} -> nil
+    end
+  end
+
+  defp module_description(module) do
+    if function_exported?(module, :description, 0),
+      do: module.description(),
+      else: "No description available"
   end
 
   @spec skill_description(String.t()) :: String.t()
   def skill_description(skill_name) do
     case SkillRegistry.resolve(skill_name) do
-      {:ok, module} ->
-        if function_exported?(module, :description, 0),
-          do: module.description(),
-          else: "No description available"
-
-      {:error, _} ->
-        "Unknown skill"
+      {:ok, module} -> module_description(module)
+      {:error, _} -> "Unknown skill"
     end
   end
 

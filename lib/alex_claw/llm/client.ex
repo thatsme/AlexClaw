@@ -132,23 +132,7 @@ defmodule AlexClaw.LLM.Client do
         {:ok, text}
 
       {:ok, %{status: 429, body: resp_body}} ->
-        if quota_exhausted?(resp_body) do
-          Logger.warning("Gemini daily quota exhausted, not retrying")
-          {:error, {:gemini_quota_exhausted, resp_body}}
-        else
-          if retries > 0 do
-            wait = (4 - retries) * 5_000
-
-            Logger.warning(
-              "Gemini 429 rate limited, retrying in #{div(wait, 1000)}s (#{retries} retries left)"
-            )
-
-            Process.sleep(wait)
-            do_gemini_request(url, body, retries - 1)
-          else
-            {:error, {:gemini, 429, resp_body}}
-          end
-        end
+        gemini_rate_limited(url, body, retries, resp_body, quota_exhausted?(resp_body))
 
       {:ok, %{status: status, body: resp_body}} ->
         {:error, {:gemini, status, resp_body}}
@@ -156,6 +140,26 @@ defmodule AlexClaw.LLM.Client do
       {:error, reason} ->
         {:error, {:gemini, reason}}
     end
+  end
+
+  defp gemini_rate_limited(_url, _body, _retries, resp_body, true) do
+    Logger.warning("Gemini daily quota exhausted, not retrying")
+    {:error, {:gemini_quota_exhausted, resp_body}}
+  end
+
+  defp gemini_rate_limited(_url, _body, retries, resp_body, false) when retries <= 0 do
+    {:error, {:gemini, 429, resp_body}}
+  end
+
+  defp gemini_rate_limited(url, body, retries, _resp_body, false) do
+    wait = (4 - retries) * 5_000
+
+    Logger.warning(
+      "Gemini 429 rate limited, retrying in #{div(wait, 1000)}s (#{retries} retries left)"
+    )
+
+    Process.sleep(wait)
+    do_gemini_request(url, body, retries - 1)
   end
 
   defp quota_exhausted?(%{"error" => %{"status" => "RESOURCE_EXHAUSTED"} = error}) do
@@ -227,67 +231,70 @@ defmodule AlexClaw.LLM.Client do
 
   defp call_openai_compatible(host, model, api_key, extra_headers, options, prompt, system) do
     url = "#{host}/v1/chat/completions"
+    body = openai_body(model, options, chat_messages(prompt, system))
+    headers = openai_headers(extra_headers, api_key)
 
-    messages =
-      if system do
-        [%{role: "system", content: system}, %{role: "user", content: prompt}]
-      else
-        [%{role: "user", content: prompt}]
-      end
+    url
+    |> Req.post(json: body, headers: headers, receive_timeout: 600_000)
+    |> openai_response()
+  end
 
+  defp chat_messages(prompt, nil), do: [%{role: "user", content: prompt}]
+
+  defp chat_messages(prompt, system),
+    do: [%{role: "system", content: system}, %{role: "user", content: prompt}]
+
+  defp openai_headers(extra_headers, api_key) do
     headers = Enum.map(extra_headers || %{}, fn {k, v} -> {to_string(k), to_string(v)} end)
+    authorization_header(headers, api_key)
+  end
 
-    headers =
-      if api_key && api_key != "" do
-        [{"authorization", "Bearer #{api_key}"} | headers]
-      else
-        headers
-      end
+  defp authorization_header(headers, api_key) when api_key in [nil, ""], do: headers
 
-    # OpenAI-compatible APIs use top-level fields, not nested options
-    openai_keys = %{
-      "temperature" => :temperature,
-      "top_p" => :top_p,
-      "max_tokens" => :max_tokens,
-      "num_predict" => :max_tokens
-    }
+  defp authorization_header(headers, api_key),
+    do: [{"authorization", "Bearer #{api_key}"} | headers]
 
+  # OpenAI-compatible APIs use top-level fields, not nested options
+  @openai_keys %{
+    "temperature" => :temperature,
+    "top_p" => :top_p,
+    "max_tokens" => :max_tokens,
+    "num_predict" => :max_tokens
+  }
+
+  defp openai_body(model, options, messages) do
     openai_opts =
-      Enum.reduce(options, %{}, fn {k, v}, acc ->
-        case Map.get(openai_keys, to_string(k)) do
-          nil -> acc
-          field -> Map.put_new(acc, field, v)
-        end
-      end)
+      Enum.reduce(options, %{}, fn {k, v}, acc -> put_openai_opt(acc, to_string(k), v) end)
 
-    # Disable thinking mode for models that support it (e.g. Qwen3)
-    thinking = Map.get(options, "thinking", Map.get(options, :thinking))
+    %{model: model, messages: messages, stream: false}
+    |> Map.merge(openai_opts)
+    |> put_thinking(Map.get(options, "thinking", Map.get(options, :thinking)))
+  end
 
-    body = Map.merge(%{model: model, messages: messages, stream: false}, openai_opts)
-
-    body =
-      if thinking == false,
-        do: Map.put(body, :chat_template_kwargs, %{enable_thinking: false}),
-        else: body
-
-    case Req.post(url, json: body, headers: headers, receive_timeout: 600_000) do
-      {:ok, %{status: 200, body: %{"choices" => [%{"message" => msg} | _]}}} ->
-        text = msg["content"] || ""
-        reasoning = msg["reasoning_content"] || ""
-
-        cond do
-          text != "" -> {:ok, text}
-          reasoning != "" -> {:ok, reasoning}
-          true -> {:error, {:openai_compat, :empty_response}}
-        end
-
-      {:ok, %{status: status, body: resp_body}} ->
-        {:error, {:openai_compat, status, resp_body}}
-
-      {:error, reason} ->
-        {:error, {:openai_compat, reason}}
+  defp put_openai_opt(acc, key, value) do
+    case Map.get(@openai_keys, key) do
+      nil -> acc
+      field -> Map.put_new(acc, field, value)
     end
   end
+
+  # Disable thinking mode for models that support it (e.g. Qwen3)
+  defp put_thinking(body, false),
+    do: Map.put(body, :chat_template_kwargs, %{enable_thinking: false})
+
+  defp put_thinking(body, _thinking), do: body
+
+  defp openai_response({:ok, %{status: 200, body: %{"choices" => [%{"message" => msg} | _]}}}),
+    do: openai_text(msg["content"] || "", msg["reasoning_content"] || "")
+
+  defp openai_response({:ok, %{status: status, body: resp_body}}),
+    do: {:error, {:openai_compat, status, resp_body}}
+
+  defp openai_response({:error, reason}), do: {:error, {:openai_compat, reason}}
+
+  defp openai_text("", ""), do: {:error, {:openai_compat, :empty_response}}
+  defp openai_text("", reasoning), do: {:ok, reasoning}
+  defp openai_text(text, _reasoning), do: {:ok, text}
 
   # --- Gemini Embeddings ---
 

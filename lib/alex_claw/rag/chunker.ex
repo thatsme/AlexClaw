@@ -82,26 +82,22 @@ defmodule AlexClaw.RAG.Chunker do
 
   defp merge_sections(sections, max_chars, overlap) do
     sections
-    |> Enum.reduce([], fn section, acc ->
-      case acc do
-        [] ->
-          [section]
-
-        [current | rest] ->
-          candidate = current <> "\n\n" <> section
-
-          if String.length(candidate) <= max_chars do
-            [candidate | rest]
-          else
-            # Start new chunk with overlap from the end of current
-            overlap_text = take_tail(current, overlap)
-            new_chunk = overlap_text <> "\n\n" <> section
-            [new_chunk, current | rest]
-          end
-      end
-    end)
+    |> Enum.reduce([], &merge_section(&1, &2, max_chars, overlap))
     |> Enum.reverse()
     |> Enum.reject(&(String.trim(&1) == ""))
+  end
+
+  defp merge_section(section, [], _max_chars, _overlap), do: [section]
+
+  defp merge_section(section, [current | rest] = acc, max_chars, overlap) do
+    candidate = current <> "\n\n" <> section
+
+    if String.length(candidate) <= max_chars do
+      [candidate | rest]
+    else
+      # Start new chunk with overlap from the end of current
+      [take_tail(current, overlap) <> "\n\n" <> section | acc]
+    end
   end
 
   defp take_tail(text, chars) do

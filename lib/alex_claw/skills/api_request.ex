@@ -130,50 +130,49 @@ defmodule AlexClaw.Skills.ApiRequest do
   defp execute_request(method, url, headers, body) do
     Logger.info("ApiRequest #{method} #{url}", skill: :api_request)
 
-    opts = [headers: headers, receive_timeout: 30_000]
+    method
+    |> dispatch_request(url, [headers: headers, receive_timeout: 30_000], body)
+    |> request_result()
+  end
 
-    result =
-      case method do
-        "GET" ->
-          Req.get(url, opts)
+  defp dispatch_request("GET", url, opts, _body), do: Req.get(url, opts)
+  defp dispatch_request("DELETE", url, opts, _body), do: Req.delete(url, opts)
 
-        "DELETE" ->
-          Req.delete(url, opts)
+  defp dispatch_request("POST", url, opts, body),
+    do: Req.post(url, Keyword.merge(opts, json_or_body(body)))
 
-        "POST" ->
-          Req.post(url, Keyword.merge(opts, json_or_body(body)))
+  defp dispatch_request("PUT", url, opts, body),
+    do: Req.put(url, Keyword.merge(opts, json_or_body(body)))
 
-        "PUT" ->
-          Req.put(url, Keyword.merge(opts, json_or_body(body)))
+  defp dispatch_request("PATCH", url, opts, body),
+    do: Req.request(Keyword.merge(opts, [method: :patch, url: url] ++ json_or_body(body)))
 
-        "PATCH" ->
-          Req.request(Keyword.merge(opts, [method: :patch, url: url] ++ json_or_body(body)))
-      end
+  defp request_result({:ok, %{status: status, body: resp_body}}) when status in 200..299,
+    do: {:ok, format_response(resp_body), :on_2xx}
 
-    case result do
-      {:ok, %{status: status, body: resp_body}} when status in 200..299 ->
-        {:ok, format_response(resp_body), :on_2xx}
+  defp request_result({:ok, %{status: status, body: resp_body}}) when status in 400..499 do
+    Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
+    {:ok, format_response(resp_body), :on_4xx}
+  end
 
-      {:ok, %{status: status, body: resp_body}} when status in 400..499 ->
-        Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
-        {:ok, format_response(resp_body), :on_4xx}
+  defp request_result({:ok, %{status: status, body: resp_body}}) when status in 500..599 do
+    Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
+    {:ok, format_response(resp_body), :on_5xx}
+  end
 
-      {:ok, %{status: status, body: resp_body}} when status in 500..599 ->
-        Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
-        {:ok, format_response(resp_body), :on_5xx}
+  defp request_result({:ok, %{status: status, body: resp_body}}) do
+    Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
+    {:error, {:http, status, format_response(resp_body)}}
+  end
 
-      {:ok, %{status: status, body: resp_body}} ->
-        Logger.warning("ApiRequest failed: #{status}", skill: :api_request)
-        {:error, {:http, status, format_response(resp_body)}}
+  defp request_result({:error, %Req.TransportError{reason: :timeout}}) do
+    Logger.warning("ApiRequest timeout", skill: :api_request)
+    {:ok, nil, :on_timeout}
+  end
 
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        Logger.warning("ApiRequest timeout", skill: :api_request)
-        {:ok, nil, :on_timeout}
-
-      {:error, reason} ->
-        Logger.error("ApiRequest error: #{inspect(reason)}", skill: :api_request)
-        {:error, reason}
-    end
+  defp request_result({:error, reason}) do
+    Logger.error("ApiRequest error: #{inspect(reason)}", skill: :api_request)
+    {:error, reason}
   end
 
   defp interpolate(template, nil), do: template

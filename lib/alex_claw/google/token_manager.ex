@@ -46,17 +46,20 @@ defmodule AlexClaw.Google.TokenManager do
   @doc "Check if Google OAuth is configured and token is valid."
   @spec status() :: :connected | :expired | :not_configured | :error
   def status do
-    if configured?() do
-      case :ets.lookup(@table, :access_token) do
-        [{:access_token, _token, expires_at}] ->
-          if System.monotonic_time(:second) < expires_at, do: :connected, else: :expired
+    cached_status(configured?())
+  end
 
-        [] ->
-          :expired
-      end
-    else
-      :not_configured
+  defp cached_status(false), do: :not_configured
+
+  defp cached_status(true) do
+    case :ets.lookup(@table, :access_token) do
+      [{:access_token, _token, expires_at}] -> expiry_status(expires_at)
+      [] -> :expired
     end
+  end
+
+  defp expiry_status(expires_at) do
+    if System.monotonic_time(:second) < expires_at, do: :connected, else: :expired
   end
 
   @doc "Force a token refresh."

@@ -122,25 +122,22 @@ defmodule AlexClawWeb.AdminLive.LLM do
   @impl true
   def handle_event("test_provider", %{"id" => id}, socket) do
     case parse_id(id) do
-      {:ok, provider_id} ->
-        case LLM.get_provider(provider_id) do
-          {:ok, provider} ->
-            result =
-              case LLM.complete("Reply with only: OK", provider: provider.name) do
-                {:ok, text} -> "OK: #{String.slice(text, 0, 50)}"
-                {:error, reason} -> "Error: #{inspect(reason)}"
-              end
-
-            {:noreply, put_flash(socket, :info, "#{provider.name}: #{result}")}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Provider not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
+      {:ok, provider_id} -> test_provider(LLM.get_provider(provider_id), socket)
+      :error -> {:noreply, socket}
     end
   end
+
+  defp test_provider({:error, :not_found}, socket) do
+    {:noreply, put_flash(socket, :error, "Provider not found")}
+  end
+
+  defp test_provider({:ok, provider}, socket) do
+    result = probe_result(LLM.complete("Reply with only: OK", provider: provider.name))
+    {:noreply, put_flash(socket, :info, "#{provider.name}: #{result}")}
+  end
+
+  defp probe_result({:ok, text}), do: "OK: #{String.slice(text, 0, 50)}"
+  defp probe_result({:error, reason}), do: "Error: #{inspect(reason)}"
 
   defp assign_data(socket) do
     assign(socket,

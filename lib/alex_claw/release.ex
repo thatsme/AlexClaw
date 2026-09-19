@@ -19,20 +19,26 @@ defmodule AlexClaw.Release do
     load_app()
 
     for repo <- repos() do
-      {:ok, _, _} =
-        Ecto.Migrator.with_repo(repo, fn _repo ->
-          if AlexClaw.Workflows.list_workflows() == [] do
-            seed_path = Application.app_dir(@app, "priv/repo/seeds/example_workflows.exs")
-
-            if File.exists?(seed_path) do
-              IO.puts("First boot detected — seeding example workflows...")
-              Code.eval_file(seed_path)
-            end
-          else
-            IO.puts("Workflows already exist — skipping seed.")
-          end
-        end)
+      {:ok, _, _} = Ecto.Migrator.with_repo(repo, fn _repo -> seed_if_empty() end)
     end
+  end
+
+  defp seed_if_empty do
+    seed_if_empty(AlexClaw.Workflows.list_workflows() == [])
+  end
+
+  defp seed_if_empty(false), do: IO.puts("Workflows already exist — skipping seed.")
+
+  defp seed_if_empty(true) do
+    seed_path = Application.app_dir(@app, "priv/repo/seeds/example_workflows.exs")
+    eval_seed(seed_path, File.exists?(seed_path))
+  end
+
+  defp eval_seed(_seed_path, false), do: :ok
+
+  defp eval_seed(seed_path, true) do
+    IO.puts("First boot detected — seeding example workflows...")
+    Code.eval_file(seed_path)
   end
 
   @spec rollback(module(), integer()) :: {:ok, [integer()], [Ecto.Migration.t()]}

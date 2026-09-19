@@ -23,47 +23,58 @@ defmodule AlexClaw.Gateway.DiscordStarter do
   @impl true
   def handle_info(:start_discord, state) do
     token = AlexClaw.Config.get("discord.bot_token")
-    enabled = AlexClaw.Config.get("discord.enabled")
 
-    # Single node: always start. Cluster: check node assignment.
-    cluster_size = length(AlexClaw.Cluster.list_nodes())
+    start_discord(state, token, startable?(token))
+  end
 
-    on_this_node =
-      if cluster_size <= 1 do
-        true
-      else
-        case AlexClaw.Config.get("discord.node") do
-          val when val in [nil, ""] -> false
-          node_name -> to_string(node()) == node_name
-        end
-      end
+  defp startable?(token) when not is_binary(token) or token == "", do: false
 
-    if on_this_node and (enabled == true or enabled == "true") and is_binary(token) and
-         token != "" do
-      Application.put_env(:nostrum, :token, token)
+  defp startable?(_token) do
+    AlexClaw.Config.enabled?("discord.enabled") and assigned_to_this_node?()
+  end
 
-      Application.put_env(:nostrum, :gateway_intents, [:guilds, :guild_messages, :message_content])
+  # Single node: always start. Cluster: check node assignment.
+  defp assigned_to_this_node? do
+    AlexClaw.Cluster.list_nodes()
+    |> length()
+    |> node_assignment()
+  end
 
-      case Application.ensure_all_started(:nostrum) do
-        {:ok, _} ->
-          # Start the Discord consumer under AlexClaw's supervisor
-          case Supervisor.start_child(AlexClaw.Supervisor, AlexClaw.Gateway.Discord) do
-            {:ok, _pid} ->
-              Logger.info("Discord gateway started")
-              {:noreply, %{state | started: true}}
+  defp node_assignment(cluster_size) when cluster_size <= 1, do: true
+  defp node_assignment(_cluster_size), do: this_node?(AlexClaw.Config.get("discord.node"))
 
-            {:error, reason} ->
-              Logger.warning("Discord consumer failed to start: #{inspect(reason)}")
-              {:noreply, state}
-          end
+  defp this_node?(node_name) when node_name in [nil, ""], do: false
+  defp this_node?(node_name), do: to_string(node()) == node_name
 
-        {:error, reason} ->
-          Logger.warning("Discord gateway disabled: Nostrum failed to start — #{inspect(reason)}")
-          {:noreply, state}
-      end
-    else
-      Logger.info("Discord gateway disabled (not configured)")
-      {:noreply, state}
+  defp start_discord(state, _token, false) do
+    Logger.info("Discord gateway disabled (not configured)")
+    {:noreply, state}
+  end
+
+  defp start_discord(state, token, true) do
+    Application.put_env(:nostrum, :token, token)
+    Application.put_env(:nostrum, :gateway_intents, [:guilds, :guild_messages, :message_content])
+
+    case Application.ensure_all_started(:nostrum) do
+      {:ok, _} ->
+        start_consumer(state)
+
+      {:error, reason} ->
+        Logger.warning("Discord gateway disabled: Nostrum failed to start — #{inspect(reason)}")
+        {:noreply, state}
+    end
+  end
+
+  # Start the Discord consumer under AlexClaw's supervisor
+  defp start_consumer(state) do
+    case Supervisor.start_child(AlexClaw.Supervisor, AlexClaw.Gateway.Discord) do
+      {:ok, _pid} ->
+        Logger.info("Discord gateway started")
+        {:noreply, %{state | started: true}}
+
+      {:error, reason} ->
+        Logger.warning("Discord consumer failed to start: #{inspect(reason)}")
+        {:noreply, state}
     end
   end
 end

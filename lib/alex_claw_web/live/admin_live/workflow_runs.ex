@@ -9,33 +9,30 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(%{"id" => id}, _session, socket) do
     case parse_id(id) do
+      {:ok, wf_id} ->
+        mount_workflow(Workflows.get_workflow(wf_id), socket)
+
       :error ->
         {:ok, socket |> put_flash(:error, "Invalid workflow ID") |> redirect(to: "/workflows")}
-
-      {:ok, wf_id} ->
-        case Workflows.get_workflow(wf_id) do
-          {:ok, workflow} ->
-            if connected?(socket) do
-              Phoenix.PubSub.subscribe(AlexClaw.PubSub, AlexClaw.Workflows.Registry.topic())
-            end
-
-            runs = Workflows.list_runs(workflow.id)
-
-            {:ok,
-             assign(socket,
-               page_title: "Runs: #{workflow.name}",
-               workflow: workflow,
-               runs: runs,
-               expanded: MapSet.new()
-             )}
-
-          {:error, :not_found} ->
-            {:ok,
-             socket
-             |> put_flash(:error, "Workflow not found")
-             |> redirect(to: "/workflows")}
-        end
     end
+  end
+
+  defp mount_workflow({:error, :not_found}, socket) do
+    {:ok, socket |> put_flash(:error, "Workflow not found") |> redirect(to: "/workflows")}
+  end
+
+  defp mount_workflow({:ok, workflow}, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(AlexClaw.PubSub, AlexClaw.Workflows.Registry.topic())
+    end
+
+    {:ok,
+     assign(socket,
+       page_title: "Runs: #{workflow.name}",
+       workflow: workflow,
+       runs: Workflows.list_runs(workflow.id),
+       expanded: MapSet.new()
+     )}
   end
 
   @impl true

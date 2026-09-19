@@ -147,17 +147,21 @@ defmodule AlexClaw.LogBuffer do
   end
 
   defp classify(level, message) do
-    cond do
-      circuit_breaker_pattern?(message) -> :circuit_breaker
-      level == :emergency or level == :alert -> :critical
-      level == :critical -> :critical
-      level == :error and critical_pattern?(message) -> :critical
-      level == :error -> :high
-      level == :warning and high_pattern?(message) -> :high
-      level == :warning -> :moderate
-      true -> :low
-    end
+    classify_level(circuit_breaker_pattern?(message), level, message)
   end
+
+  defp classify_level(true, _level, _message), do: :circuit_breaker
+
+  defp classify_level(false, level, _message) when level in [:emergency, :alert, :critical],
+    do: :critical
+
+  defp classify_level(false, :error, message),
+    do: if(critical_pattern?(message), do: :critical, else: :high)
+
+  defp classify_level(false, :warning, message),
+    do: if(high_pattern?(message), do: :high, else: :moderate)
+
+  defp classify_level(false, _level, _message), do: :low
 
   defp circuit_breaker_pattern?(msg) do
     String.contains?(msg, "[CircuitBreaker]")

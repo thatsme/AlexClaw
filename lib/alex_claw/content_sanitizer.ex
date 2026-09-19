@@ -168,40 +168,36 @@ defmodule AlexClaw.ContentSanitizer do
     # These are invisible to users but readable by parsers
     hidden_tags = ["noscript", "template", "meta[content]", "[aria-hidden=true]"]
 
-    for tag <- hidden_tags do
-      elements = Floki.find(doc, tag)
+    for tag <- hidden_tags, element <- Floki.find(doc, tag) do
+      warn_hidden_element(tag, String.trim(Floki.text(element)), skill_name)
+    end
+  end
 
-      for element <- elements do
-        text = String.trim(Floki.text(element))
-
-        if text != "" and String.length(text) > 5 do
-          Logger.warning(
-            "[ContentSanitizer:HiddenHTML] Hidden content in <#{tag}> from skill '#{skill_name}': " <>
-              String.slice(text, 0, 200)
-          )
-        end
-      end
+  defp warn_hidden_element(tag, text, skill_name) do
+    if String.length(text) > 5 do
+      Logger.warning(
+        "[ContentSanitizer:HiddenHTML] Hidden content in <#{tag}> from skill '#{skill_name}': " <>
+          String.slice(text, 0, 200)
+      )
     end
   end
 
   defp detect_hidden_css(doc, skill_name) do
     # Find elements with inline styles that hide content
-    styled = Floki.find(doc, "[style]")
-
-    for element <- styled do
-      style = List.first(Floki.attribute(element, "style")) || ""
-
-      if Enum.any?(@hidden_css_patterns, &Regex.match?(&1, style)) do
-        text = String.trim(Floki.text(element))
-
-        if text != "" do
-          Logger.warning(
-            "[ContentSanitizer:HiddenCSS] CSS-hidden content from skill '#{skill_name}' " <>
-              "(style: #{String.slice(style, 0, 80)}): #{String.slice(text, 0, 200)}"
-          )
-        end
-      end
+    for element <- Floki.find(doc, "[style]"),
+        style = List.first(Floki.attribute(element, "style")) || "",
+        Enum.any?(@hidden_css_patterns, &Regex.match?(&1, style)) do
+      warn_hidden_css(style, String.trim(Floki.text(element)), skill_name)
     end
+  end
+
+  defp warn_hidden_css(_style, "", _skill_name), do: :ok
+
+  defp warn_hidden_css(style, text, skill_name) do
+    Logger.warning(
+      "[ContentSanitizer:HiddenCSS] CSS-hidden content from skill '#{skill_name}' " <>
+        "(style: #{String.slice(style, 0, 80)}): #{String.slice(text, 0, 200)}"
+    )
   end
 
   # --- Layer 2: Zero-Width Unicode Stripping ---

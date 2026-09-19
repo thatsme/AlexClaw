@@ -64,45 +64,11 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   @impl true
   def handle_event("save", params, socket) do
-    metadata =
-      case Jason.decode(params["metadata"] || "") do
-        {:ok, map} when is_map(map) -> map
-        _ -> nil
-      end
+    editing = socket.assigns.editing
 
-    attrs = %{
-      name: params["name"],
-      type: params["type"],
-      url: params["url"],
-      content: params["content"],
-      tags: parse_tags(params["tags"]),
-      enabled: params["enabled"] == "true"
-    }
-
-    attrs = if metadata, do: Map.put(attrs, :metadata, metadata), else: attrs
-
-    result =
-      case socket.assigns.editing do
-        nil -> Resources.create_resource(attrs)
-        resource -> Resources.update_resource(resource, attrs)
-      end
-
-    case result do
-      {:ok, _resource} ->
-        action = if socket.assigns.editing, do: "updated", else: "created"
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Resource #{action}")
-         |> assign(
-           resources: list_resources(socket.assigns.type_filter),
-           show_form: false,
-           editing: nil
-         )}
-
-      {:error, changeset} ->
-        {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
-    end
+    editing
+    |> persist_resource(resource_attrs(params))
+    |> saved_resource(socket, editing)
   end
 
   @impl true
@@ -171,6 +137,41 @@ defmodule AlexClawWeb.AdminLive.Resources do
       :error ->
         {:noreply, socket}
     end
+  end
+
+  defp resource_attrs(params) do
+    %{
+      name: params["name"],
+      type: params["type"],
+      url: params["url"],
+      content: params["content"],
+      tags: parse_tags(params["tags"]),
+      enabled: params["enabled"] == "true"
+    }
+    |> put_metadata(Jason.decode(params["metadata"] || ""))
+  end
+
+  defp put_metadata(attrs, {:ok, map}) when is_map(map), do: Map.put(attrs, :metadata, map)
+  defp put_metadata(attrs, _decoded), do: attrs
+
+  defp persist_resource(nil, attrs), do: Resources.create_resource(attrs)
+  defp persist_resource(resource, attrs), do: Resources.update_resource(resource, attrs)
+
+  defp saved_resource({:ok, _resource}, socket, editing) do
+    action = if editing, do: "updated", else: "created"
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Resource #{action}")
+     |> assign(
+       resources: list_resources(socket.assigns.type_filter),
+       show_form: false,
+       editing: nil
+     )}
+  end
+
+  defp saved_resource({:error, changeset}, socket, _editing) do
+    {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
   end
 
   @impl true

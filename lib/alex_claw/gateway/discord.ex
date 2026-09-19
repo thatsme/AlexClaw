@@ -31,28 +31,30 @@ defmodule AlexClaw.Gateway.Discord do
   @discord_max_length 2000
 
   def send_message(text, opts \\ []) do
-    channel_id = Keyword.get(opts, :chat_id) || get_channel_id()
+    send_to_channel(Keyword.get(opts, :chat_id) || get_channel_id(), text)
+  end
 
-    if channel_id && channel_id != "" do
-      channel_id = to_integer(channel_id)
+  defp send_to_channel(channel_id, _text) when channel_id in [nil, ""] do
+    Logger.warning("Cannot send to Discord: channel_id not configured")
+    :ok
+  end
 
-      text
-      |> chunk_message(@discord_max_length)
-      |> Enum.each(fn chunk ->
-        case Nostrum.Api.Message.create(channel_id, content: chunk) do
-          {:ok, _msg} ->
-            :ok
+  defp send_to_channel(channel_id, text) do
+    id = to_integer(channel_id)
 
-          {:error, reason} ->
-            Logger.warning("Discord send failed: #{inspect(reason)}")
-            :ok
-        end
-      end)
+    text
+    |> chunk_message(@discord_max_length)
+    |> Enum.each(&send_chunk(id, &1))
+  end
 
-      :ok
-    else
-      Logger.warning("Cannot send to Discord: channel_id not configured")
-      :ok
+  defp send_chunk(channel_id, chunk) do
+    case Nostrum.Api.Message.create(channel_id, content: chunk) do
+      {:ok, _msg} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Discord send failed: #{inspect(reason)}")
+        :ok
     end
   end
 

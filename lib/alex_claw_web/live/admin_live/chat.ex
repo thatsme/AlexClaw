@@ -71,38 +71,7 @@ defmodule AlexClawWeb.AdminLive.Chat do
   # --- Reasoning Mode Events ---
 
   def handle_event("start_reasoning", %{"goal" => goal}, socket) do
-    goal = String.trim(goal)
-
-    if goal == "" do
-      {:noreply, socket}
-    else
-      enabled = Config.get("reasoning.enabled", true)
-
-      if enabled do
-        case Reasoning.start_session(goal) do
-          {:ok, pid} ->
-            {:noreply,
-             assign(socket,
-               loop_pid: pid,
-               loop_status: :planning,
-               reasoning_goal: goal,
-               reasoning_steps: [],
-               reasoning_plan: [],
-               reasoning_result: nil,
-               reasoning_error: nil,
-               waiting_question: nil
-             )}
-
-          {:error, :session_already_active} ->
-            {:noreply, put_flash(socket, :error, "A reasoning session is already active.")}
-
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to start: #{inspect(reason)}")}
-        end
-      else
-        {:noreply, put_flash(socket, :error, "Reasoning loop is disabled in config.")}
-      end
-    end
+    start_reasoning(socket, String.trim(goal), Config.get("reasoning.enabled", true))
   end
 
   def handle_event("pause_loop", _params, socket) do
@@ -184,6 +153,37 @@ defmodule AlexClawWeb.AdminLive.Chat do
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Session not found.")}
     end
+  end
+
+  defp start_reasoning(socket, "", _enabled), do: {:noreply, socket}
+
+  defp start_reasoning(socket, _goal, false),
+    do: {:noreply, put_flash(socket, :error, "Reasoning loop is disabled in config.")}
+
+  defp start_reasoning(socket, goal, _enabled) do
+    case Reasoning.start_session(goal) do
+      {:ok, pid} ->
+        {:noreply, assign_session(socket, pid, goal)}
+
+      {:error, :session_already_active} ->
+        {:noreply, put_flash(socket, :error, "A reasoning session is already active.")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to start: #{inspect(reason)}")}
+    end
+  end
+
+  defp assign_session(socket, pid, goal) do
+    assign(socket,
+      loop_pid: pid,
+      loop_status: :planning,
+      reasoning_goal: goal,
+      reasoning_steps: [],
+      reasoning_plan: [],
+      reasoning_result: nil,
+      reasoning_error: nil,
+      waiting_question: nil
+    )
   end
 
   # --- Chat Async Handlers ---

@@ -16,22 +16,24 @@ defmodule AlexClawWeb.Plugs.McpAuth do
 
   @impl true
   def call(conn, _opts) do
-    expected_key = AlexClaw.Config.get("mcp.api_key")
+    authenticate(conn, AlexClaw.Config.get("mcp.api_key"))
+  end
 
-    if is_nil(expected_key) or expected_key == "" do
-      send_unauthorized(conn, "MCP API key not configured")
+  defp authenticate(conn, expected_key) when expected_key in [nil, ""],
+    do: send_unauthorized(conn, "MCP API key not configured")
+
+  defp authenticate(conn, expected_key) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] -> verify_token(conn, token, expected_key)
+      _ -> send_unauthorized(conn, "Missing Authorization header")
+    end
+  end
+
+  defp verify_token(conn, token, expected_key) do
+    if Plug.Crypto.secure_compare(token, expected_key) do
+      conn
     else
-      case get_req_header(conn, "authorization") do
-        ["Bearer " <> token] ->
-          if Plug.Crypto.secure_compare(token, expected_key) do
-            conn
-          else
-            send_unauthorized(conn, "Invalid API key")
-          end
-
-        _ ->
-          send_unauthorized(conn, "Missing Authorization header")
-      end
+      send_unauthorized(conn, "Invalid API key")
     end
   end
 

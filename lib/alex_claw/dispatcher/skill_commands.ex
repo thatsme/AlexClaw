@@ -96,60 +96,44 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
   def do_reload_after_2fa(name, msg), do: do_reload(name, msg)
 
   defp do_load(file_path, msg) do
-    case SkillRegistry.load_skill(file_path) do
-      {:ok, %{name: name, permissions: perms}} ->
-        perm_list = Enum.map_join(perms, ", ", &to_string/1)
-
-        Gateway.send_message("Skill *#{name}* loaded. Permissions: [#{perm_list}]",
-          gateway: msg.gateway
-        )
-
-      {:error, :path_traversal} ->
-        Gateway.send_message("Error: file must be inside the skills directory.",
-          gateway: msg.gateway
-        )
-
-      {:error, :file_not_found} ->
-        Gateway.send_message("Error: file not found.", gateway: msg.gateway)
-
-      {:error, {:invalid_namespace, ns}} ->
-        Gateway.send_message(
-          "Error: module must be under `AlexClaw.Skills.Dynamic.*`, got `#{ns}`",
-          gateway: msg.gateway
-        )
-
-      {:error, :missing_run_callback} ->
-        Gateway.send_message("Error: module must export `run/1`.", gateway: msg.gateway)
-
-      {:error, {:unknown_permissions, invalid}} ->
-        Gateway.send_message("Error: unknown permissions: #{inspect(invalid)}",
-          gateway: msg.gateway
-        )
-
-      {:error, :name_conflicts_with_core} ->
-        Gateway.send_message("Error: name conflicts with a core skill.", gateway: msg.gateway)
-
-      {:error, {:compilation_error, err_msg}} ->
-        Gateway.send_message("Compilation error:\n`#{String.slice(err_msg, 0, 500)}`",
-          gateway: msg.gateway
-        )
-
-      {:error, {:same_version, nil, _hint}} ->
-        Gateway.send_message(
-          "Error: skill already loaded with no version. Add `def version, do: \"1.0.0\"` and bump it before loading. Use `/skill reload` to force.",
-          gateway: msg.gateway
-        )
-
-      {:error, {:same_version, ver, _hint}} ->
-        Gateway.send_message(
-          "Error: version *#{ver}* already loaded. Bump the version before loading. Use `/skill reload` to force.",
-          gateway: msg.gateway
-        )
-
-      {:error, reason} ->
-        Gateway.send_message("Failed to load skill: #{inspect(reason)}", gateway: msg.gateway)
-    end
+    file_path
+    |> SkillRegistry.load_skill()
+    |> load_message()
+    |> Gateway.send_message(gateway: msg.gateway)
   end
+
+  defp load_message({:ok, %{name: name, permissions: perms}}) do
+    "Skill *#{name}* loaded. Permissions: [#{Enum.map_join(perms, ", ", &to_string/1)}]"
+  end
+
+  defp load_message({:error, :path_traversal}),
+    do: "Error: file must be inside the skills directory."
+
+  defp load_message({:error, :file_not_found}), do: "Error: file not found."
+
+  defp load_message({:error, {:invalid_namespace, ns}}),
+    do: "Error: module must be under `AlexClaw.Skills.Dynamic.*`, got `#{ns}`"
+
+  defp load_message({:error, :missing_run_callback}), do: "Error: module must export `run/1`."
+
+  defp load_message({:error, {:unknown_permissions, invalid}}),
+    do: "Error: unknown permissions: #{inspect(invalid)}"
+
+  defp load_message({:error, :name_conflicts_with_core}),
+    do: "Error: name conflicts with a core skill."
+
+  defp load_message({:error, {:compilation_error, err_msg}}),
+    do: "Compilation error:\n`#{String.slice(err_msg, 0, 500)}`"
+
+  defp load_message({:error, {:same_version, nil, _hint}}),
+    do:
+      "Error: skill already loaded with no version. Add `def version, do: \"1.0.0\"` and bump it before loading. Use `/skill reload` to force."
+
+  defp load_message({:error, {:same_version, ver, _hint}}),
+    do:
+      "Error: version *#{ver}* already loaded. Bump the version before loading. Use `/skill reload` to force."
+
+  defp load_message({:error, reason}), do: "Failed to load skill: #{inspect(reason)}"
 
   defp do_unload(name, msg) do
     case SkillRegistry.unload_skill(name) do

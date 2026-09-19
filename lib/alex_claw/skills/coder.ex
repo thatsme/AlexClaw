@@ -84,21 +84,18 @@ defmodule AlexClaw.Skills.Coder do
 
   defp do_generate(goal, skill_name, config, max_retries) do
     case generation_loop(goal, skill_name, max_retries, nil) do
-      {:ok, result} ->
-        if config["create_workflow"] do
-          case create_skill_workflow(skill_name) do
-            {:ok, workflow_info} ->
-              {:ok, format_result(result, workflow_info), :on_workflow_created}
+      {:ok, result} -> generated(result, skill_name, config["create_workflow"])
+      {:error, _} = err -> err
+    end
+  end
 
-            {:error, _reason} ->
-              {:ok, format_result(result, nil), :on_created}
-          end
-        else
-          {:ok, format_result(result, nil), :on_created}
-        end
+  defp generated(result, _skill_name, nil), do: {:ok, format_result(result, nil), :on_created}
+  defp generated(result, _skill_name, false), do: {:ok, format_result(result, nil), :on_created}
 
-      {:error, _} = err ->
-        err
+  defp generated(result, skill_name, _create_workflow) do
+    case create_skill_workflow(skill_name) do
+      {:ok, workflow_info} -> {:ok, format_result(result, workflow_info), :on_workflow_created}
+      {:error, _reason} -> {:ok, format_result(result, nil), :on_created}
     end
   end
 

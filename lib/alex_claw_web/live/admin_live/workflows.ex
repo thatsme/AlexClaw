@@ -94,52 +94,11 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("save_workflow", params, socket) do
-    schedule =
-      case params["schedule_preset"] do
-        "custom" -> params["schedule_custom"]
-        other -> other
-      end
+    editing = socket.assigns.editing
 
-    existing_metadata =
-      case socket.assigns.editing do
-        nil -> %{}
-        workflow -> workflow.metadata || %{}
-      end
-
-    metadata = Map.put(existing_metadata, "requires_2fa", params["requires_2fa"] == "true")
-
-    attrs = %{
-      name: params["name"],
-      description: params["description"],
-      schedule: blank_to_nil(schedule),
-      enabled: params["enabled"] == "true",
-      default_provider: blank_to_nil(params["default_provider"]),
-      node: blank_to_nil(params["node"]),
-      metadata: metadata
-    }
-
-    result =
-      case socket.assigns.editing do
-        nil -> Workflows.create_workflow(attrs)
-        workflow -> Workflows.update_workflow(workflow, attrs)
-      end
-
-    case result do
-      {:ok, saved} ->
-        Workflows.SchedulerSync.sync()
-        workflow = Workflows.get_workflow!(saved.id)
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Workflow saved")
-         |> assign(
-           workflows: Workflows.list_workflows(),
-           editing: workflow
-         )}
-
-      {:error, changeset} ->
-        {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
-    end
+    editing
+    |> persist_workflow(workflow_attrs(params, editing))
+    |> saved_socket(socket)
   end
 
   @impl true
@@ -589,6 +548,43 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
   end
 
+  defp workflow_attrs(params, editing) do
+    %{
+      name: params["name"],
+      description: params["description"],
+      schedule: blank_to_nil(schedule_value(params)),
+      enabled: params["enabled"] == "true",
+      default_provider: blank_to_nil(params["default_provider"]),
+      node: blank_to_nil(params["node"]),
+      metadata: workflow_metadata(editing, params["requires_2fa"] == "true")
+    }
+  end
+
+  defp schedule_value(%{"schedule_preset" => "custom"} = params), do: params["schedule_custom"]
+  defp schedule_value(%{"schedule_preset" => preset}), do: preset
+  defp schedule_value(_params), do: nil
+
+  defp workflow_metadata(nil, requires_2fa), do: %{"requires_2fa" => requires_2fa}
+
+  defp workflow_metadata(workflow, requires_2fa),
+    do: Map.put(workflow.metadata || %{}, "requires_2fa", requires_2fa)
+
+  defp persist_workflow(nil, attrs), do: Workflows.create_workflow(attrs)
+  defp persist_workflow(workflow, attrs), do: Workflows.update_workflow(workflow, attrs)
+
+  defp saved_socket({:ok, saved}, socket) do
+    Workflows.SchedulerSync.sync()
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Workflow saved")
+     |> assign(workflows: Workflows.list_workflows(), editing: Workflows.get_workflow!(saved.id))}
+  end
+
+  defp saved_socket({:error, changeset}, socket) do
+    {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
+  end
+
   @impl true
   def handle_info({:workflow_run_started, payload}, socket) do
     run = %{
@@ -730,56 +726,48 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp parse_routes_from_params(params, skill_name) do
-    routes_for_skill(skill_name)
-    |> Enum.reduce([], fn branch, acc ->
-      case params["route_#{branch}"] do
-        nil ->
-          acc
-
-        "" ->
-          acc
-
-        "end" ->
-          [%{"branch" => branch, "goto" => "end"} | acc]
-
-        pos_str ->
-          case Integer.parse(pos_str) do
-            {pos, _} -> [%{"branch" => branch, "goto" => pos} | acc]
-            :error -> acc
-          end
-      end
-    end)
+    skill_name
+    |> routes_for_skill()
+    |> Enum.reduce([], fn branch, acc -> add_route(acc, branch, params["route_#{branch}"]) end)
     |> Enum.reverse()
   end
 
-  defp merge_resilience_config(config, params) do
-    config =
-      case params["step_on_circuit_open"] do
-        "halt" ->
-          Map.drop(config, ["on_circuit_open", "fallback_skill"])
+  defp add_route(acc, _branch, nil), do: acc
+  defp add_route(acc, _branch, ""), do: acc
+  defp add_route(acc, branch, "end"), do: [%{"branch" => branch, "goto" => "end"} | acc]
 
-        "skip" ->
-          config |> Map.put("on_circuit_open", "skip") |> Map.drop(["fallback_skill"])
-
-        "fallback" ->
-          config
-          |> Map.put("on_circuit_open", "fallback")
-          |> then(fn c ->
-            case blank_to_nil(params["step_fallback_skill"]) do
-              nil -> c
-              skill -> Map.put(c, "fallback_skill", skill)
-            end
-          end)
-
-        _ ->
-          config
-      end
-
-    case params["step_on_missing_skill"] do
-      "skip" -> Map.put(config, "on_missing_skill", "skip")
-      _ -> Map.delete(config, "on_missing_skill")
+  defp add_route(acc, branch, pos_str) do
+    case Integer.parse(pos_str) do
+      {pos, _} -> [%{"branch" => branch, "goto" => pos} | acc]
+      :error -> acc
     end
   end
+
+  defp merge_resilience_config(config, params) do
+    config
+    |> circuit_open_config(params["step_on_circuit_open"], params)
+    |> missing_skill_config(params["step_on_missing_skill"])
+  end
+
+  defp circuit_open_config(config, "halt", _params),
+    do: Map.drop(config, ["on_circuit_open", "fallback_skill"])
+
+  defp circuit_open_config(config, "skip", _params),
+    do: config |> Map.put("on_circuit_open", "skip") |> Map.drop(["fallback_skill"])
+
+  defp circuit_open_config(config, "fallback", params) do
+    config
+    |> Map.put("on_circuit_open", "fallback")
+    |> put_fallback_skill(blank_to_nil(params["step_fallback_skill"]))
+  end
+
+  defp circuit_open_config(config, _other, _params), do: config
+
+  defp put_fallback_skill(config, nil), do: config
+  defp put_fallback_skill(config, skill), do: Map.put(config, "fallback_skill", skill)
+
+  defp missing_skill_config(config, "skip"), do: Map.put(config, "on_missing_skill", "skip")
+  defp missing_skill_config(config, _other), do: Map.delete(config, "on_missing_skill")
 
   defp format_config(nil), do: ""
   defp format_config(config) when config == %{}, do: ""
@@ -836,21 +824,25 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp api_endpoints_for_workflow(workflow) do
     (workflow.resources || [])
     |> Enum.filter(fn r -> r.type == "api" and r.enabled end)
-    |> Enum.flat_map(fn r ->
-      base_url = get_in(r.metadata || %{}, ["discovery", "base_url"]) || r.url || ""
-      base_path = get_in(r.metadata || %{}, ["discovery", "openapi", "base_path"]) || ""
-      endpoints = get_in(r.metadata || %{}, ["discovery", "openapi", "endpoints"]) || []
+    |> Enum.flat_map(&resource_endpoints/1)
+  end
 
-      Enum.map(endpoints, fn ep ->
-        %{
-          "label" => "#{ep["method"]} #{ep["path"]} — #{ep["summary"] || ""}",
-          "method" => ep["method"],
-          "url" => base_url <> base_path <> ep["path"],
-          "path" => ep["path"],
-          "resource_name" => r.name
-        }
-      end)
-    end)
+  defp resource_endpoints(resource) do
+    discovery = get_in(resource.metadata || %{}, ["discovery"]) || %{}
+    openapi = discovery["openapi"] || %{}
+    prefix = (discovery["base_url"] || resource.url || "") <> (openapi["base_path"] || "")
+
+    Enum.map(openapi["endpoints"] || [], &endpoint_entry(&1, prefix, resource.name))
+  end
+
+  defp endpoint_entry(endpoint, prefix, resource_name) do
+    %{
+      "label" => "#{endpoint["method"]} #{endpoint["path"]} — #{endpoint["summary"] || ""}",
+      "method" => endpoint["method"],
+      "url" => prefix <> endpoint["path"],
+      "path" => endpoint["path"],
+      "resource_name" => resource_name
+    }
   end
 
   defp skill_uses_resources?("rss_collector"), do: true

@@ -135,26 +135,21 @@ defmodule AlexClaw.Gateway.Telegram do
   # --- Config readers (live from DB/ETS) ---
 
   defp get_token do
-    enabled = Config.get("telegram.enabled")
+    token_for(Config.enabled?("telegram.enabled"), Node.list())
+  end
 
-    cond do
-      enabled != true and enabled != "true" ->
-        nil
+  defp token_for(false, _peers), do: nil
 
-      # Single node: always poll, ignore node assignment
-      Node.list() == [] ->
-        Config.get("telegram.bot_token")
+  # Single node: always poll, ignore node assignment
+  defp token_for(true, []), do: Config.get("telegram.bot_token")
 
-      # Cluster: must be assigned to this node
-      true ->
-        case Config.get("telegram.node") do
-          val when val in [nil, ""] ->
-            nil
+  # Cluster: must be assigned to this node
+  defp token_for(true, _peers), do: token_for_node(Config.get("telegram.node"))
 
-          node_name ->
-            if node_name == to_string(node()), do: Config.get("telegram.bot_token")
-        end
-    end
+  defp token_for_node(node_name) when node_name in [nil, ""], do: nil
+
+  defp token_for_node(node_name) do
+    if node_name == to_string(node()), do: Config.get("telegram.bot_token")
   end
 
   defp get_chat_id do
@@ -178,27 +173,8 @@ defmodule AlexClaw.Gateway.Telegram do
 
     case Req.get(url, params: [offset: state.offset, timeout: 30], receive_timeout: 60_000) do
       {:ok, %{status: 200, body: %{"ok" => true, "result" => updates}}} ->
-        Enum.each(updates, fn update ->
-          message = normalize(update)
-
-          if message.text do
-            if authorized_chat?(message.chat_id) do
-              Logger.info("Received: #{message.text}", [])
-              maybe_save_chat_id(message.chat_id)
-              AlexClaw.Dispatcher.dispatch(message)
-            else
-              Logger.warning("Ignored message from unauthorized chat_id: #{message.chat_id}")
-            end
-          end
-        end)
-
-        new_offset =
-          case List.last(updates) do
-            nil -> state.offset
-            last -> last["update_id"] + 1
-          end
-
-        %{state | offset: new_offset}
+        Enum.each(updates, &handle_update/1)
+        %{state | offset: next_offset(List.last(updates), state.offset)}
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Telegram API error: #{status} - #{inspect(body)}")
@@ -208,6 +184,26 @@ defmodule AlexClaw.Gateway.Telegram do
         Logger.warning("Telegram poll failed: #{inspect(reason)}")
         state
     end
+  end
+
+  defp next_offset(nil, offset), do: offset
+  defp next_offset(last, _offset), do: last["update_id"] + 1
+
+  defp handle_update(update) do
+    message = normalize(update)
+    dispatch_message(message, message.text && authorized_chat?(message.chat_id))
+  end
+
+  defp dispatch_message(_message, nil), do: :ok
+
+  defp dispatch_message(message, false) do
+    Logger.warning("Ignored message from unauthorized chat_id: #{message.chat_id}")
+  end
+
+  defp dispatch_message(message, true) do
+    Logger.info("Received: #{message.text}", [])
+    maybe_save_chat_id(message.chat_id)
+    AlexClaw.Dispatcher.dispatch(message)
   end
 
   defp normalize(update) do

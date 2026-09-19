@@ -126,39 +126,37 @@ defmodule AlexClaw.Cluster.Manager do
   defp do_receive(workflow_name, data, source_node) do
     alias AlexClaw.Workflows.Workflow
 
-    case AlexClaw.Repo.one(
-           from(w in Workflow,
-             where: w.name == ^workflow_name and w.enabled == true,
-             preload: [steps: ^from(s in AlexClaw.Workflows.WorkflowStep, order_by: s.position)]
-           )
-         ) do
-      nil ->
-        Logger.warning(
-          "Remote trigger rejected: workflow '#{workflow_name}' not found or disabled"
-        )
+    AlexClaw.Repo.one(
+      from(w in Workflow,
+        where: w.name == ^workflow_name and w.enabled == true,
+        preload: [steps: ^from(s in AlexClaw.Workflows.WorkflowStep, order_by: s.position)]
+      )
+    )
+    |> trigger_workflow(workflow_name, data, source_node)
+  end
 
-        {:error, :workflow_not_found}
+  defp trigger_workflow(nil, workflow_name, _data, _source_node) do
+    Logger.warning("Remote trigger rejected: workflow '#{workflow_name}' not found or disabled")
+    {:error, :workflow_not_found}
+  end
 
-      workflow ->
-        first_step = List.first(workflow.steps)
+  defp trigger_workflow(workflow, workflow_name, data, source_node) do
+    gated? = match?(%{skill: "receive_from_workflow"}, List.first(workflow.steps))
+    run_gated(gated?, workflow, workflow_name, data, source_node)
+  end
 
-        if first_step && first_step.skill == "receive_from_workflow" do
-          Logger.info("Remote trigger accepted: '#{workflow_name}' from #{source_node}")
+  defp run_gated(false, _workflow, workflow_name, _data, _source_node) do
+    Logger.warning("Remote trigger rejected: '#{workflow_name}' lacks receive_from_workflow gate")
+    {:error, :no_receive_gate}
+  end
 
-          Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-            Executor.run_with_input(workflow.id, data, %{
-              "_source_node" => source_node
-            })
-          end)
+  defp run_gated(true, workflow, workflow_name, data, source_node) do
+    Logger.info("Remote trigger accepted: '#{workflow_name}' from #{source_node}")
 
-          {:ok, :started}
-        else
-          Logger.warning(
-            "Remote trigger rejected: '#{workflow_name}' lacks receive_from_workflow gate"
-          )
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      Executor.run_with_input(workflow.id, data, %{"_source_node" => source_node})
+    end)
 
-          {:error, :no_receive_gate}
-        end
-    end
+    {:ok, :started}
   end
 end

@@ -99,50 +99,45 @@ defmodule AlexClaw.Skills.WebAutomation do
     automation_config = find_automation_config(config, resources)
 
     case post("/play", %{config: automation_config}) do
-      {:ok, %{"status" => "success"} = result} ->
-        downloads = result["downloads"] || []
-        scraped = result["scraped_data"] || []
-        steps_count = length(automation_config["steps"] || [])
-
-        parts =
-          ["Automation complete (#{steps_count} steps)."] ++
-            if(downloads != [], do: ["#{length(downloads)} file(s) downloaded."], else: []) ++
-            if(scraped != [], do: ["#{length(scraped)} data set(s) scraped."], else: [])
-
-        msg = Enum.join(parts, "\n")
-
-        msg =
-          if scraped != [] do
-            preview =
-              scraped
-              |> Enum.take(2)
-              |> Enum.map_join("\n\n", fn s ->
-                case s do
-                  %{"type" => "text", "data" => text} when is_binary(text) ->
-                    String.slice(text, 0, 3000)
-
-                  %{"type" => type, "rows" => rows, "headers" => headers} ->
-                    "#{type}: #{length(headers)} cols, #{length(rows)} rows"
-
-                  other ->
-                    String.slice(inspect(other), 0, 500)
-                end
-              end)
-
-            msg <> "\n\n" <> preview
-          else
-            msg
-          end
-
-        {:ok, msg, :on_success}
-
-      {:ok, %{"status" => "error", "error" => error}} ->
-        {:error, {:automation_failed, error}}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, %{"status" => "success"} = result} -> played(result, automation_config)
+      {:ok, %{"status" => "error", "error" => error}} -> {:error, {:automation_failed, error}}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp played(result, automation_config) do
+    downloads = result["downloads"] || []
+    scraped = result["scraped_data"] || []
+
+    summary =
+      ["Automation complete (#{length(automation_config["steps"] || [])} steps)."] ++
+        count_note(downloads, "file(s) downloaded.") ++
+        count_note(scraped, "data set(s) scraped.")
+
+    {:ok, Enum.join(summary, "\n") <> scraped_preview(scraped), :on_success}
+  end
+
+  defp count_note([], _label), do: []
+  defp count_note(items, label), do: ["#{length(items)} #{label}"]
+
+  defp scraped_preview([]), do: ""
+
+  defp scraped_preview(scraped) do
+    preview =
+      scraped
+      |> Enum.take(2)
+      |> Enum.map_join("\n\n", &preview_entry/1)
+
+    "\n\n" <> preview
+  end
+
+  defp preview_entry(%{"type" => "text", "data" => text}) when is_binary(text),
+    do: String.slice(text, 0, 3000)
+
+  defp preview_entry(%{"type" => type, "rows" => rows, "headers" => headers}),
+    do: "#{type}: #{length(headers)} cols, #{length(rows)} rows"
+
+  defp preview_entry(other), do: String.slice(inspect(other), 0, 500)
 
   @doc "Get sidecar status."
   @spec status() :: {:ok, any()} | {:error, any()}

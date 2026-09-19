@@ -56,20 +56,16 @@ defmodule AlexClawWeb.AdminLive.Services do
 
     services =
       Enum.map(socket.assigns.services, fn svc ->
-        if svc.id == "embeddings" do
-          detail =
-            if total > 0,
-              do: "Re-embedding #{total} entries in background...",
-              else: "Nothing to re-embed"
-
-          %{svc | status: :challenged, detail: detail}
-        else
-          svc
-        end
+        if svc.id == "embeddings",
+          do: %{svc | status: :challenged, detail: reembed_detail(total)},
+          else: svc
       end)
 
     {:noreply, assign(socket, services: services)}
   end
+
+  defp reembed_detail(0), do: "Nothing to re-embed"
+  defp reembed_detail(total), do: "Re-embedding #{total} entries in background..."
 
   @impl true
   def handle_info(:reembed_check, socket) do
@@ -250,66 +246,19 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check("telegram") do
-    token = Config.get("telegram.bot_token")
-    chat_id = Config.get("telegram.chat_id")
-    enabled = Config.get("telegram.enabled")
-
-    cond do
-      enabled not in [true, "true"] ->
-        %{status: :not_configured, detail: "Gateway disabled"}
-
-      !token || token == "" ->
-        %{status: :not_configured, detail: "Bot token not set"}
-
-      !chat_id || chat_id == "" ->
-        %{status: :not_configured, detail: "Chat ID not set"}
-
-      true ->
-        url = "#{@telegram_api}#{token}/sendMessage"
-
-        case Req.post(url, json: %{chat_id: chat_id, text: "🦇 AlexClaw connectivity check"}) do
-          {:ok, %{status: 200}} ->
-            %{status: :connected, detail: "Message delivered"}
-
-          {:ok, %{status: s, body: body}} ->
-            %{status: :error, detail: "HTTP #{s}: #{inspect(body)}"}
-
-          {:error, reason} ->
-            %{status: :error, detail: inspect(reason)}
-        end
-    end
+    telegram_check(
+      Config.enabled?("telegram.enabled"),
+      Config.get("telegram.bot_token"),
+      Config.get("telegram.chat_id")
+    )
   end
 
   defp live_check("discord") do
-    enabled = Config.get("discord.enabled")
-    token = Config.get("discord.bot_token")
-    channel_id = Config.get("discord.channel_id")
-
-    cond do
-      enabled not in [true, "true"] ->
-        %{status: :not_configured, detail: "Gateway disabled"}
-
-      !token || token == "" ->
-        %{status: :not_configured, detail: "Bot token not set"}
-
-      !channel_id || channel_id == "" ->
-        %{status: :not_configured, detail: "Channel ID not set"}
-
-      true ->
-        channel_int =
-          case Integer.parse(to_string(channel_id)) do
-            {n, _} -> n
-            :error -> channel_id
-          end
-
-        case Message.create(channel_int, content: "🦇 AlexClaw connectivity check") do
-          {:ok, _msg} ->
-            %{status: :connected, detail: "Message delivered"}
-
-          {:error, reason} ->
-            %{status: :error, detail: inspect(reason)}
-        end
-    end
+    discord_check(
+      Config.enabled?("discord.enabled"),
+      Config.get("discord.bot_token"),
+      Config.get("discord.channel_id")
+    )
   end
 
   defp live_check("totp") do
@@ -399,6 +348,55 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check(_), do: %{status: :error, detail: "Unknown service"}
+
+  defp telegram_check(false, _token, _chat_id),
+    do: %{status: :not_configured, detail: "Gateway disabled"}
+
+  defp telegram_check(true, token, _chat_id) when token in [nil, ""],
+    do: %{status: :not_configured, detail: "Bot token not set"}
+
+  defp telegram_check(true, _token, chat_id) when chat_id in [nil, ""],
+    do: %{status: :not_configured, detail: "Chat ID not set"}
+
+  defp telegram_check(true, token, chat_id) do
+    "#{@telegram_api}#{token}/sendMessage"
+    |> Req.post(json: %{chat_id: chat_id, text: "🦇 AlexClaw connectivity check"})
+    |> telegram_result()
+  end
+
+  defp telegram_result({:ok, %{status: 200}}),
+    do: %{status: :connected, detail: "Message delivered"}
+
+  defp telegram_result({:ok, %{status: status, body: body}}),
+    do: %{status: :error, detail: "HTTP #{status}: #{inspect(body)}"}
+
+  defp telegram_result({:error, reason}), do: %{status: :error, detail: inspect(reason)}
+
+  defp discord_check(false, _token, _channel_id),
+    do: %{status: :not_configured, detail: "Gateway disabled"}
+
+  defp discord_check(true, token, _channel_id) when token in [nil, ""],
+    do: %{status: :not_configured, detail: "Bot token not set"}
+
+  defp discord_check(true, _token, channel_id) when channel_id in [nil, ""],
+    do: %{status: :not_configured, detail: "Channel ID not set"}
+
+  defp discord_check(true, _token, channel_id) do
+    channel_id
+    |> discord_channel_id()
+    |> Message.create(content: "🦇 AlexClaw connectivity check")
+    |> discord_result()
+  end
+
+  defp discord_channel_id(channel_id) do
+    case Integer.parse(to_string(channel_id)) do
+      {n, _} -> n
+      :error -> channel_id
+    end
+  end
+
+  defp discord_result({:ok, _msg}), do: %{status: :connected, detail: "Message delivered"}
+  defp discord_result({:error, reason}), do: %{status: :error, detail: inspect(reason)}
 
   defp ollama_status(false, _host), do: %{status: :not_configured, detail: "Ollama disabled"}
 

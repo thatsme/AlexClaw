@@ -178,30 +178,7 @@ defmodule AlexClaw.Auth.PolicyEngine do
   end
 
   defp evaluate_policy(%Policy{rule_type: "permission_override", config: config}, ctx) do
-    permission = config["permission"]
-    action = config["action"]
-
-    if permission == to_string(ctx.permission) do
-      case config["expires_at"] do
-        nil ->
-          apply_override(action)
-
-        expires_str ->
-          case DateTime.from_iso8601(expires_str) do
-            {:ok, expires, _} ->
-              if DateTime.compare(DateTime.utc_now(), expires) == :lt do
-                apply_override(action)
-              else
-                :ok
-              end
-
-            _ ->
-              :ok
-          end
-      end
-    else
-      :ok
-    end
+    override_for(config["permission"] == to_string(ctx.permission), config)
   end
 
   defp evaluate_policy(
@@ -227,6 +204,21 @@ defmodule AlexClaw.Auth.PolicyEngine do
   defp evaluate_policy(%Policy{rule_type: "mcp_restriction"}, _ctx), do: :ok
 
   defp evaluate_policy(_policy, _ctx), do: :ok
+
+  defp override_for(false, _config), do: :ok
+  defp override_for(true, %{"expires_at" => nil} = config), do: apply_override(config["action"])
+
+  defp override_for(true, %{"expires_at" => expires_str} = config) do
+    case DateTime.from_iso8601(expires_str) do
+      {:ok, expires, _} -> apply_unexpired(DateTime.compare(DateTime.utc_now(), expires), config)
+      _ -> :ok
+    end
+  end
+
+  defp override_for(true, config), do: apply_override(config["action"])
+
+  defp apply_unexpired(:lt, config), do: apply_override(config["action"])
+  defp apply_unexpired(_comparison, _config), do: :ok
 
   defp apply_override("deny"), do: {:deny, "denied by permission override policy"}
   defp apply_override(_), do: :ok

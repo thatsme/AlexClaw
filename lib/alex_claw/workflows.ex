@@ -274,38 +274,39 @@ defmodule AlexClaw.Workflows do
   defp find_or_create_resource(res) do
     alias AlexClaw.Resources.Resource
 
-    query =
-      Resource
-      |> where([r], r.name == ^(res["name"] || ""))
-      |> limit(1)
-
-    query =
-      case res["url"] do
-        nil -> where(query, [r], is_nil(r.url))
-        url -> where(query, [r], r.url == ^url)
-      end
-
-    case Repo.one(query) do
-      nil ->
-        case %Resource{}
-             |> Resource.changeset(%{
-               name: res["name"],
-               type: res["type"],
-               url: res["url"],
-               content: res["content"],
-               metadata: res["metadata"] || %{},
-               tags: res["tags"] || [],
-               enabled: res["enabled"] != false
-             })
-             |> Repo.insert() do
-          {:ok, resource} -> {:ok, resource, :created}
-          {:error, changeset} -> {:error, changeset_to_message(changeset)}
-        end
-
-      resource ->
-        {:ok, resource, :found}
-    end
+    Resource
+    |> where([r], r.name == ^(res["name"] || ""))
+    |> limit(1)
+    |> match_url(res["url"])
+    |> Repo.one()
+    |> found_or_create(res)
   end
+
+  defp match_url(query, nil), do: where(query, [r], is_nil(r.url))
+  defp match_url(query, url), do: where(query, [r], r.url == ^url)
+
+  defp found_or_create(nil, res), do: create_resource(res)
+  defp found_or_create(resource, _res), do: {:ok, resource, :found}
+
+  defp create_resource(res) do
+    alias AlexClaw.Resources.Resource
+
+    %Resource{}
+    |> Resource.changeset(%{
+      name: res["name"],
+      type: res["type"],
+      url: res["url"],
+      content: res["content"],
+      metadata: res["metadata"] || %{},
+      tags: res["tags"] || [],
+      enabled: res["enabled"] != false
+    })
+    |> Repo.insert()
+    |> created()
+  end
+
+  defp created({:ok, resource}), do: {:ok, resource, :created}
+  defp created({:error, changeset}), do: {:error, changeset_to_message(changeset)}
 
   defp link_resource(workflow, resource, role) do
     %WorkflowResource{}

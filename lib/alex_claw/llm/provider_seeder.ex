@@ -80,19 +80,24 @@ defmodule AlexClaw.LLM.ProviderSeeder do
   def seed do
     existing_names = MapSet.new(Repo.all(from(p in Provider, select: p.name)))
 
-    for default <- @defaults do
-      unless MapSet.member?(existing_names, default.name) do
-        attrs = build_attrs(default)
-
-        case Repo.insert(Provider.changeset(%Provider{}, attrs)) do
-          {:ok, p} -> Logger.info("Seeded LLM provider: #{p.name}")
-          {:error, cs} -> Logger.warning("Failed to seed #{default.name}: #{inspect(cs.errors)}")
-        end
-      end
+    for default <- @defaults, not MapSet.member?(existing_names, default.name) do
+      seed_provider(default)
     end
 
     :ok
   end
+
+  defp seed_provider(default) do
+    %Provider{}
+    |> Provider.changeset(build_attrs(default))
+    |> Repo.insert()
+    |> seeded(default)
+  end
+
+  defp seeded({:ok, provider}, _default), do: Logger.info("Seeded LLM provider: #{provider.name}")
+
+  defp seeded({:error, changeset}, default),
+    do: Logger.warning("Failed to seed #{default.name}: #{inspect(changeset.errors)}")
 
   defp build_attrs(%{config_key: config_key} = default) do
     api_key = AlexClaw.Config.get(config_key) || ""

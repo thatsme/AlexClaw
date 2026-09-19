@@ -70,40 +70,36 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
-    repo = config["repo"] || Config.get("github.default_repo", "")
-
-    if repo == "" do
-      {:error, :no_repo_configured}
-    else
-      token = Config.get("github.token", "")
-      mode = config["mode"] || "latest_pr"
-
-      case mode do
-        "latest_pr" ->
-          fetch_latest_pr(repo, token)
-
-        "all_prs" ->
-          fetch_all_prs(repo, token)
-
-        "latest_push" ->
-          fetch_latest_push(repo, token)
-
-        "specific_pr" ->
-          pr = parse_int(config["pr_number"])
-          if pr, do: fetch_pr(repo, pr, token), else: {:error, :missing_pr_number}
-
-        "specific_commit" ->
-          sha = config["commit_sha"]
-
-          if sha && sha != "",
-            do: fetch_commit(repo, sha, token),
-            else: {:error, :missing_commit_sha}
-
-        _ ->
-          {:error, {:unknown_mode, mode}}
-      end
-    end
+    dispatch_mode(config["repo"] || Config.get("github.default_repo", ""), config)
   end
+
+  defp dispatch_mode("", _config), do: {:error, :no_repo_configured}
+
+  defp dispatch_mode(repo, config) do
+    run_mode(config["mode"] || "latest_pr", repo, config, Config.get("github.token", ""))
+  end
+
+  defp run_mode("latest_pr", repo, _config, token), do: fetch_latest_pr(repo, token)
+  defp run_mode("all_prs", repo, _config, token), do: fetch_all_prs(repo, token)
+  defp run_mode("latest_push", repo, _config, token), do: fetch_latest_push(repo, token)
+
+  defp run_mode("specific_pr", repo, config, token) do
+    specific_pr(repo, parse_int(config["pr_number"]), token)
+  end
+
+  defp run_mode("specific_commit", repo, config, token) do
+    specific_commit(repo, config["commit_sha"], token)
+  end
+
+  defp run_mode(mode, _repo, _config, _token), do: {:error, {:unknown_mode, mode}}
+
+  defp specific_pr(_repo, nil, _token), do: {:error, :missing_pr_number}
+  defp specific_pr(repo, pr, token), do: fetch_pr(repo, pr, token)
+
+  defp specific_commit(_repo, sha, _token) when sha in [nil, ""],
+    do: {:error, :missing_commit_sha}
+
+  defp specific_commit(repo, sha, token), do: fetch_commit(repo, sha, token)
 
   # --- Public API for webhook controller and Telegram commands ---
 
@@ -170,37 +166,33 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   defp fetch_all_prs(repo, token) do
     case fetch_open_prs(repo, token, 30) do
-      {:ok, []} ->
-        {:ok, "No open PRs found for #{repo}.", :on_empty}
-
-      {:ok, prs} ->
-        results =
-          Enum.map(prs, fn %{"number" => number} ->
-            case fetch_pr(repo, number, token) do
-              {:ok, report, _branch} -> {:ok, number, report}
-              {:error, reason} -> {:error, number, reason}
-            end
-          end)
-
-        reports = Enum.filter(results, &match?({:ok, _, _}, &1))
-        errors = Enum.filter(results, &match?({:error, _, _}, &1))
-
-        combined =
-          Enum.map_join(reports, "\n---\n\n", fn {:ok, _number, report} -> report end)
-
-        error_note =
-          if errors != [] do
-            failed = Enum.map_join(errors, ", ", fn {:error, n, _} -> "##{n}" end)
-            "\n\n⚠️ Failed to fetch: #{failed}"
-          else
-            ""
-          end
-
-        {:ok, combined <> error_note, :on_diff}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, []} -> {:ok, "No open PRs found for #{repo}.", :on_empty}
+      {:ok, prs} -> combined_report(repo, prs, token)
+      {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp combined_report(repo, prs, token) do
+    {reports, errors} =
+      prs
+      |> Enum.map(fn %{"number" => number} -> pr_result(repo, number, token) end)
+      |> Enum.split_with(&match?({:ok, _, _}, &1))
+
+    combined = Enum.map_join(reports, "\n---\n\n", fn {:ok, _number, report} -> report end)
+    {:ok, combined <> error_note(errors), :on_diff}
+  end
+
+  defp pr_result(repo, number, token) do
+    case fetch_pr(repo, number, token) do
+      {:ok, report, _branch} -> {:ok, number, report}
+      {:error, reason} -> {:error, number, reason}
+    end
+  end
+
+  defp error_note([]), do: ""
+
+  defp error_note(errors) do
+    "\n\n⚠️ Failed to fetch: " <> Enum.map_join(errors, ", ", fn {:error, n, _} -> "##{n}" end)
   end
 
   defp fetch_latest_push(repo, token) do

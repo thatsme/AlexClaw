@@ -47,53 +47,60 @@ defmodule AlexClaw.Skills.SendToWorkflow do
   @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
-    input = args[:input]
     config = args[:config] || %{}
 
-    target_node = config["target_node"]
-    target_workflow = config["target_workflow"]
-    timeout = config["timeout"] || @default_timeout
+    dispatch(
+      config["target_node"],
+      config["target_workflow"],
+      args[:input],
+      config["timeout"] || @default_timeout
+    )
+  end
 
-    cond do
-      is_nil(target_node) or target_node == "" ->
-        {:error, :missing_target_node}
+  defp dispatch(node, _workflow, _input, _timeout) when node in [nil, ""],
+    do: {:error, :missing_target_node}
 
-      is_nil(target_workflow) or target_workflow == "" ->
-        {:error, :missing_target_workflow}
+  defp dispatch(_node, workflow, _input, _timeout) when workflow in [nil, ""],
+    do: {:error, :missing_target_workflow}
 
-      true ->
-        source_node = to_string(node())
+  defp dispatch(node, workflow, input, timeout) do
+    send_to_node(existing_node_atom(node), node, workflow, input, timeout)
+  end
 
-        atom_node =
-          try do
-            String.to_existing_atom(target_node)
-          rescue
-            ArgumentError -> nil
-          end
+  # The target must already be a known node: building the atom from config would
+  # leak atoms on every unreachable name.
+  defp existing_node_atom(node) do
+    String.to_existing_atom(node)
+  rescue
+    ArgumentError -> nil
+  end
 
-        if is_nil(atom_node) do
-          {:error, {:rpc_failed, :unknown_node}}
-        else
-          case :rpc.call(
-                 atom_node,
-                 AlexClaw.Cluster.Manager,
-                 :receive_workflow_data,
-                 [target_workflow, input, source_node],
-                 timeout
-               ) do
-            {:ok, _} ->
-              Logger.info("Sent data to '#{target_workflow}' on #{target_node}")
-              {:ok, input, :on_sent}
+  defp send_to_node(nil, _target, _workflow, _input, _timeout),
+    do: {:error, {:rpc_failed, :unknown_node}}
 
-            {:error, reason} ->
-              Logger.warning("Failed to send to #{target_node}: #{inspect(reason)}")
-              {:error, reason}
+  defp send_to_node(atom_node, target, workflow, input, timeout) do
+    atom_node
+    |> :rpc.call(
+      AlexClaw.Cluster.Manager,
+      :receive_workflow_data,
+      [workflow, input, to_string(node())],
+      timeout
+    )
+    |> rpc_result(target, workflow, input)
+  end
 
-            {:badrpc, reason} ->
-              Logger.warning("RPC failed to #{target_node}: #{inspect(reason)}")
-              {:error, {:rpc_failed, reason}}
-          end
-        end
-    end
+  defp rpc_result({:ok, _}, target, workflow, input) do
+    Logger.info("Sent data to '#{workflow}' on #{target}")
+    {:ok, input, :on_sent}
+  end
+
+  defp rpc_result({:error, reason}, target, _workflow, _input) do
+    Logger.warning("Failed to send to #{target}: #{inspect(reason)}")
+    {:error, reason}
+  end
+
+  defp rpc_result({:badrpc, reason}, target, _workflow, _input) do
+    Logger.warning("RPC failed to #{target}: #{inspect(reason)}")
+    {:error, {:rpc_failed, reason}}
   end
 end

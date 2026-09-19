@@ -117,56 +117,51 @@ defmodule AlexClaw.Workflows.Registry do
 
   def handle_call({:cancel, run_id}, _from, state) do
     case :ets.lookup(@ets_table, run_id) do
-      [row] when elem(row, 0) == run_id ->
-        pid = elem(row, 1)
-        workflow_id = elem(row, 2)
-        workflow_name = elem(row, 3)
-
-        case Workflows.get_run(run_id) do
-          {:ok, run} ->
-            Workflows.update_run(run, %{status: "cancelled", completed_at: DateTime.utc_now()})
-
-          _ ->
-            :ok
-        end
-
-        :ets.delete(@ets_table, run_id)
-
-        {ref, monitors} =
-          Enum.reduce(state.monitors, {nil, state.monitors}, fn {r, rid}, {found, acc} ->
-            if rid == run_id, do: {r, Map.delete(acc, r)}, else: {found, acc}
-          end)
-
-        if ref, do: Process.demonitor(ref, [:flush])
-
-        Process.exit(pid, :cancelled)
-
-        broadcast(
-          {:workflow_run_cancelled,
-           %{run_id: run_id, workflow_id: workflow_id, workflow_name: workflow_name}}
-        )
-
-        Logger.info("[WorkflowRegistry] Cancelled run #{run_id} (#{workflow_name})")
-
-        {:reply, :ok, %{state | monitors: monitors}}
-
-      [] ->
-        {:reply, {:error, :not_found}, state}
+      [row] when elem(row, 0) == run_id -> cancel_run(row, run_id, state)
+      [] -> {:reply, {:error, :not_found}, state}
     end
   end
 
   @impl true
   def handle_call({:deregister, run_id}, _from, state) do
     :ets.delete(@ets_table, run_id)
+    {:reply, :ok, %{state | monitors: drop_monitor(state.monitors, run_id)}}
+  end
 
-    {ref, monitors} =
-      Enum.reduce(state.monitors, {nil, state.monitors}, fn {r, rid}, {found, acc} ->
+  defp cancel_run(row, run_id, state) do
+    pid = elem(row, 1)
+    workflow_id = elem(row, 2)
+    workflow_name = elem(row, 3)
+
+    mark_cancelled(Workflows.get_run(run_id))
+    :ets.delete(@ets_table, run_id)
+    monitors = drop_monitor(state.monitors, run_id)
+    Process.exit(pid, :cancelled)
+
+    broadcast(
+      {:workflow_run_cancelled,
+       %{run_id: run_id, workflow_id: workflow_id, workflow_name: workflow_name}}
+    )
+
+    Logger.info("[WorkflowRegistry] Cancelled run #{run_id} (#{workflow_name})")
+
+    {:reply, :ok, %{state | monitors: monitors}}
+  end
+
+  defp mark_cancelled({:ok, run}),
+    do: Workflows.update_run(run, %{status: "cancelled", completed_at: DateTime.utc_now()})
+
+  defp mark_cancelled(_result), do: :ok
+
+  # The monitor ref is keyed by ref, not run_id, so finding it means a scan.
+  defp drop_monitor(monitors, run_id) do
+    {ref, remaining} =
+      Enum.reduce(monitors, {nil, monitors}, fn {r, rid}, {found, acc} ->
         if rid == run_id, do: {r, Map.delete(acc, r)}, else: {found, acc}
       end)
 
     if ref, do: Process.demonitor(ref, [:flush])
-
-    {:reply, :ok, %{state | monitors: monitors}}
+    remaining
   end
 
   @impl true
@@ -177,24 +172,27 @@ defmodule AlexClaw.Workflows.Registry do
 
       {run_id, monitors} ->
         :ets.delete(@ets_table, run_id)
-
-        unless reason in [:normal, :cancelled] do
-          case Workflows.get_run(run_id) do
-            {:ok, %{status: "running"} = run} ->
-              Workflows.update_run(run, %{
-                status: "failed",
-                completed_at: DateTime.utc_now(),
-                error: "Process crashed: #{inspect(reason)}"
-              })
-
-              Logger.warning("[WorkflowRegistry] Run #{run_id} crashed: #{inspect(reason)}")
-
-            _ ->
-              :ok
-          end
-        end
-
+        mark_crashed(run_id, reason)
         {:noreply, %{state | monitors: monitors}}
     end
+  end
+
+  defp mark_crashed(_run_id, reason) when reason in [:normal, :cancelled], do: :ok
+
+  defp mark_crashed(run_id, reason) do
+    case Workflows.get_run(run_id) do
+      {:ok, %{status: "running"} = run} -> record_crash(run, run_id, reason)
+      _ -> :ok
+    end
+  end
+
+  defp record_crash(run, run_id, reason) do
+    Workflows.update_run(run, %{
+      status: "failed",
+      completed_at: DateTime.utc_now(),
+      error: "Process crashed: #{inspect(reason)}"
+    })
+
+    Logger.warning("[WorkflowRegistry] Run #{run_id} crashed: #{inspect(reason)}")
   end
 end

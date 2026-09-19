@@ -18,25 +18,21 @@ defmodule AlexClaw.Reasoning.PromptParser do
   @spec parse_plan(String.t()) :: {:ok, map()} | {:error, :parse_failed, String.t()}
   def parse_plan(raw) do
     with {:ok, parsed} <- extract_json(raw, :object) do
-      cond do
-        Map.has_key?(parsed, "error") ->
-          {:ok, parsed}
-
-        Map.has_key?(parsed, "steps") and Map.has_key?(parsed, "working_memory") ->
-          steps = Map.get(parsed, "steps", [])
-
-          if is_list(steps) do
-            normalized = normalize_plan_steps(steps)
-            {:ok, Map.put(parsed, "steps", normalized)}
-          else
-            {:error, :parse_failed, "plan steps is not a list"}
-          end
-
-        true ->
-          missing = Enum.reject(["steps", "working_memory"], &Map.has_key?(parsed, &1))
-          {:error, :parse_failed, "plan response missing keys: #{Enum.join(missing, ", ")}"}
-      end
+      validate_plan(parsed)
     end
+  end
+
+  defp validate_plan(%{"error" => _} = parsed), do: {:ok, parsed}
+
+  defp validate_plan(%{"steps" => steps, "working_memory" => _} = parsed) when is_list(steps),
+    do: {:ok, Map.put(parsed, "steps", normalize_plan_steps(steps))}
+
+  defp validate_plan(%{"steps" => _, "working_memory" => _}),
+    do: {:error, :parse_failed, "plan steps is not a list"}
+
+  defp validate_plan(parsed) do
+    missing = Enum.reject(["steps", "working_memory"], &Map.has_key?(parsed, &1))
+    {:error, :parse_failed, "plan response missing keys: #{Enum.join(missing, ", ")}"}
   end
 
   @spec parse_execution(String.t()) :: {:ok, map()} | {:error, :parse_failed, String.t()}
@@ -111,36 +107,21 @@ defmodule AlexClaw.Reasoning.PromptParser do
   end
 
   defp try_decode(json_str, expected_type) do
-    # Try direct decode first
+    # Try direct decode first; only a decode failure is worth fixing and retrying
     case Jason.decode(json_str) do
-      {:ok, result} when is_map(result) and expected_type == :object ->
-        {:ok, result}
-
-      {:ok, result} when is_list(result) and expected_type == :array ->
-        {:ok, result}
-
-      {:ok, _} ->
-        {:error, :parse_failed, "extracted JSON is not #{expected_type}"}
-
-      {:error, _} ->
-        # Try fixing common local model issues
-        fixed = fix_common_issues(json_str)
-
-        case Jason.decode(fixed) do
-          {:ok, result} when is_map(result) and expected_type == :object ->
-            {:ok, result}
-
-          {:ok, result} when is_list(result) and expected_type == :array ->
-            {:ok, result}
-
-          {:ok, _} ->
-            {:error, :parse_failed, "extracted JSON is not #{expected_type}"}
-
-          {:error, %Jason.DecodeError{} = err} ->
-            {:error, :parse_failed, "JSON decode failed: #{Exception.message(err)}"}
-        end
+      {:error, _} -> decoded(Jason.decode(fix_common_issues(json_str)), expected_type)
+      result -> decoded(result, expected_type)
     end
   end
+
+  defp decoded({:ok, result}, :object) when is_map(result), do: {:ok, result}
+  defp decoded({:ok, result}, :array) when is_list(result), do: {:ok, result}
+
+  defp decoded({:ok, _result}, expected_type),
+    do: {:error, :parse_failed, "extracted JSON is not #{expected_type}"}
+
+  defp decoded({:error, %Jason.DecodeError{} = err}, _expected_type),
+    do: {:error, :parse_failed, "JSON decode failed: #{Exception.message(err)}"}
 
   # --- Cleanup Helpers ---
 

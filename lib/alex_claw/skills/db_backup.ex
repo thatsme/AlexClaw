@@ -91,17 +91,20 @@ defmodule AlexClaw.Skills.DbBackup do
 
   defp mount_entry?(dir) do
     case File.read("/proc/mounts") do
-      {:ok, content} ->
-        String.contains?(content, " #{dir} ") or
-          Enum.any?(String.split(content, "\n"), fn line ->
-            case String.split(line, " ") do
-              [_, mount_point | _] -> mount_point == dir
-              _ -> false
-            end
-          end)
+      {:ok, content} -> mounted_at?(content, dir)
+      {:error, _} -> false
+    end
+  end
 
-      {:error, _} ->
-        false
+  defp mounted_at?(content, dir) do
+    String.contains?(content, " #{dir} ") or
+      Enum.any?(String.split(content, "\n"), &mount_line_for?(&1, dir))
+  end
+
+  defp mount_line_for?(line, dir) do
+    case String.split(line, " ") do
+      [_, mount_point | _] -> mount_point == dir
+      _ -> false
     end
   end
 
@@ -123,45 +126,44 @@ defmodule AlexClaw.Skills.DbBackup do
   end
 
   defp dump(backup_dir) do
-    db = db_config()
     timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d_%H%M%S")
     filename = "alexclaw_backup_#{timestamp}.sql.gz"
-    filepath = Path.join(backup_dir, filename)
 
-    pg_dump = System.find_executable("pg_dump")
+    run_pg_dump(System.find_executable("pg_dump"), Path.join(backup_dir, filename), filename)
+  end
 
-    if is_nil(pg_dump) do
-      {:error, :pg_dump_not_found}
-    else
-      args = [
-        "-h",
-        db.hostname,
-        "-U",
-        db.username,
-        "-d",
-        db.database,
-        "--no-owner",
-        "--no-privileges",
-        "--clean",
-        "--if-exists"
-      ]
+  defp run_pg_dump(nil, _filepath, _filename), do: {:error, :pg_dump_not_found}
 
-      env = [{"PGPASSWORD", db.password}]
+  defp run_pg_dump(pg_dump, filepath, filename) do
+    db = db_config()
 
-      case System.cmd(pg_dump, args, env: env, stderr_to_stdout: true) do
-        {output, 0} ->
-          compressed = :zlib.gzip(output)
+    args = [
+      "-h",
+      db.hostname,
+      "-U",
+      db.username,
+      "-d",
+      db.database,
+      "--no-owner",
+      "--no-privileges",
+      "--clean",
+      "--if-exists"
+    ]
 
-          case File.write(filepath, compressed) do
-            :ok -> {:ok, filename}
-            {:error, reason} -> {:error, {:write_failed, reason}}
-          end
+    pg_dump
+    |> System.cmd(args, env: [{"PGPASSWORD", db.password}], stderr_to_stdout: true)
+    |> write_dump(filepath, filename)
+  end
 
-        {output, code} ->
-          {:error, {:pg_dump_exit, code, String.slice(output, 0, 500)}}
-      end
+  defp write_dump({output, 0}, filepath, filename) do
+    case File.write(filepath, :zlib.gzip(output)) do
+      :ok -> {:ok, filename}
+      {:error, reason} -> {:error, {:write_failed, reason}}
     end
   end
+
+  defp write_dump({output, code}, _filepath, _filename),
+    do: {:error, {:pg_dump_exit, code, String.slice(output, 0, 500)}}
 
   defp rotate(backup_dir, max_files) do
     case File.ls(backup_dir) do

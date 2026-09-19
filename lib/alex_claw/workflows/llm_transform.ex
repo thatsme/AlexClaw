@@ -59,30 +59,27 @@ defmodule AlexClaw.Workflows.LLMTransform do
   @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
-    template = args[:prompt_template] || args[:prompt] || ""
+    transform(args[:prompt_template] || args[:prompt] || "", args)
+  end
 
-    if template == "" do
-      {:ok, to_string_safe(args[:input]) || "", :on_success}
-    else
-      prompt = interpolate_template(template, args)
-      tier = parse_tier(args[:llm_tier]) || :light
-      provider = args[:llm_provider]
+  defp transform("", args), do: {:ok, to_string_safe(args[:input]) || "", :on_success}
 
-      llm_opts = [tier: tier]
+  defp transform(template, args) do
+    prompt = interpolate_template(template, args)
+    Logger.info("LLM Transform: #{String.slice(prompt, 0, 100)}...")
 
-      llm_opts =
-        if provider && provider != "",
-          do: Keyword.put(llm_opts, :provider, provider),
-          else: llm_opts
-
-      Logger.info("LLM Transform: #{String.slice(prompt, 0, 100)}...")
-
-      case AlexClaw.LLM.complete(prompt, llm_opts) do
-        {:ok, response} -> {:ok, response, :on_success}
-        {:error, reason} -> {:error, reason}
-      end
+    case AlexClaw.LLM.complete(prompt, transform_opts(args)) do
+      {:ok, response} -> {:ok, response, :on_success}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp transform_opts(args) do
+    put_provider([tier: parse_tier(args[:llm_tier]) || :light], args[:llm_provider])
+  end
+
+  defp put_provider(opts, provider) when provider in [nil, ""], do: opts
+  defp put_provider(opts, provider), do: Keyword.put(opts, :provider, provider)
 
   defp interpolate_template(template, args) do
     template

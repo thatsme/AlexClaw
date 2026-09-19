@@ -27,42 +27,7 @@ defmodule AlexClaw.Knowledge.SelfAwareness do
     release_root = Path.join(app_dir, "../..")
 
     for {file, slug, description} <- @docs do
-      path = resolve_path(file, priv_dir, release_root)
-
-      case path do
-        nil ->
-          Logger.debug("SelfAwareness: #{file} not found, skipping")
-
-        path ->
-          content = File.read!(path)
-          source = @source_prefix <> slug
-          content_hash = content_hash(content)
-
-          if needs_update?(source, content_hash) do
-            # Remove old entries for this source
-            delete_by_source(source)
-
-            # Chunk and store
-            chunks = chunk_by_section(content, @max_chunk_chars)
-            total = length(chunks)
-
-            Enum.each(Enum.with_index(chunks, 1), fn {chunk, idx} ->
-              Knowledge.store(:self_awareness, chunk,
-                source: source,
-                metadata: %{
-                  "file" => file,
-                  "description" => description,
-                  "chunk" => "#{idx}/#{total}",
-                  "content_hash" => content_hash
-                }
-              )
-            end)
-
-            Logger.info("SelfAwareness: loaded #{file} (#{total} chunks)")
-          else
-            Logger.debug("SelfAwareness: #{file} unchanged, skipping")
-          end
-      end
+      load_doc(resolve_path(file, priv_dir, release_root), file, slug, description)
     end
 
     :ok
@@ -70,6 +35,47 @@ defmodule AlexClaw.Knowledge.SelfAwareness do
     e ->
       Logger.warning("SelfAwareness loading failed: #{Exception.message(e)}")
       :ok
+  end
+
+  defp load_doc(nil, file, _slug, _description),
+    do: Logger.debug("SelfAwareness: #{file} not found, skipping")
+
+  defp load_doc(path, file, slug, description) do
+    content = File.read!(path)
+    source = @source_prefix <> slug
+    hash = content_hash(content)
+
+    if needs_update?(source, hash) do
+      store_doc(content, source, hash, file, description)
+    else
+      Logger.debug("SelfAwareness: #{file} unchanged, skipping")
+    end
+  end
+
+  defp store_doc(content, source, hash, file, description) do
+    # Remove old entries for this source
+    delete_by_source(source)
+
+    chunks = chunk_by_section(content, @max_chunk_chars)
+    total = length(chunks)
+
+    chunks
+    |> Enum.with_index(1)
+    |> Enum.each(&store_chunk(&1, source, total, file, description, hash))
+
+    Logger.info("SelfAwareness: loaded #{file} (#{total} chunks)")
+  end
+
+  defp store_chunk({chunk, idx}, source, total, file, description, hash) do
+    Knowledge.store(:self_awareness, chunk,
+      source: source,
+      metadata: %{
+        "file" => file,
+        "description" => description,
+        "chunk" => "#{idx}/#{total}",
+        "content_hash" => hash
+      }
+    )
   end
 
   # --- Path resolution ---

@@ -19,7 +19,7 @@ PLANNING ──→ LLM produces step plan
 │       ↓
 │   ┌── continue ──→ next step ──┐
 │   ├── adjust ────→ new plan ───┤
-│   ├── ask_user ──→ pause ──────┤
+│   ├── ask_user ──→ wait ───────┤  ← user answers or steers → re-plan
 │   ├── done ──────→ deliver ────┤
 │   └── stuck ─────→ terminate ──┘
 │                                │
@@ -58,11 +58,27 @@ All interventions are real-time via PubSub — the GenServer processes them betw
 | Action | Effect |
 |---|---|
 | **Pause** | Completes current task, then halts |
-| **Resume** | Continues from where it paused |
-| **Steer** | Free text injected into working memory with `[USER GUIDANCE]` prefix |
+| **Resume** | From `paused`, continues at the interrupted phase. From `waiting_user`, re-plans — see below |
+| **Steer** | Free text stored as user guidance with a `[USER GUIDANCE]` prefix, recorded as a `user_override` step. From `waiting_user`, also re-plans |
 | **Step override** | Forces a specific skill + input, bypasses decision |
-| **Add context** | Appended to working memory, persists across iterations |
+| **Add context** | Appended to working memory with an `[ADDITIONAL CONTEXT]` prefix, persists across iterations |
 | **Abort** | Kills running task, terminates session |
+
+Steer and add context write to different places: steer sets the guidance field
+consumed by the planning prompt, while add context extends the working memory
+threaded through every phase.
+
+### Leaving `waiting_user`
+
+An `ask_user` decision parks the session in `waiting_user` until the user acts.
+Two paths unblock it, and both re-plan from scratch rather than resuming the
+existing plan — user input can invalidate the remaining steps, so continuing
+with them is the riskier default:
+
+- **Answering** — add context, then resume. The answer is in working memory when
+  planning runs again.
+- **Redirecting** — steer. The guidance is recorded as a `user_override` step and
+  is present as user guidance when planning runs again.
 
 ## Plan Validation
 
@@ -86,6 +102,7 @@ This catches malformed LLM output before it reaches the execution phase.
 | Duplicate detection | 3x same {skill, input} | Automatic |
 | Adjust oscillation | 3+ adjusts at high confidence | Forces final summary |
 | Orphan cleanup | Boot sweep + terminate callback | Automatic |
+| Terminal status preservation | `terminate/2` re-reads the session row | Automatic |
 
 ## Score Trend
 
@@ -113,6 +130,7 @@ All settings are editable from the Admin UI config page.
 | `reasoning.done_confidence_threshold` | `0.7` | Min confidence to accept done |
 | `reasoning.stuck_threshold` | `3` | Consecutive failures before stuck |
 | `reasoning.step_timeout_seconds` | `120` | Per-skill execution timeout |
+| `reasoning.time_budget_seconds` | `900` | Session time budget, rescaled per plan at ~300s per step |
 | `reasoning.max_plan_steps` | `8` | Max steps in a plan |
 | `reasoning.default_delivery` | `["memory"]` | Delivery channels on completion |
 

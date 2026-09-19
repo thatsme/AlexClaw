@@ -43,7 +43,7 @@ The current dashboard shows basic stats. Planned additions:
 
 SMTP skill for sending email notifications as a workflow step. IMAP polling as a workflow trigger source.
 
-### ~~Multi-Gateway Support~~ ✅ Discord (v0.4.0)
+### ~~Multi-Gateway Support~~ ✅ Discord (v0.3.9)
 
 Gateway behaviour abstraction with multi-transport Router. Telegram and Discord run simultaneously. Discord uses Nostrum (WebSocket + REST API). Responses route back to the originating transport via explicit `gateway: msg.gateway` threading. Both gateways auto-detect channel/chat ID on first message. Slack planned as a future addition.
 
@@ -57,7 +57,7 @@ Execute OS commands inside the AlexClaw container via Telegram/Discord. 5-layer 
 
 ### ~~Autonomous Skill Generation (Coder)~~ ✅ Completed (v0.3.5)
 
-Local LLM generates dynamic skills from natural language goals via `/coder <goal>`. SkillAPI extended with `:skill_write`, `:skill_manage`, `:workflow_manage` permissions. Retry loop with error feedback, knowledge base RAG context, optional workflow creation. Zero cloud API cost (always uses `tier: :local`). Generated code passes full validation pipeline (namespace, behaviour, permissions). See [SELF_AWARENESS.md](docs/SELF_AWARENESS.md).
+Local LLM generates dynamic skills from natural language goals via `/coder <goal>`. SkillAPI extended with `:skill_write`, `:skill_manage`, `:workflow_manage` permissions. Retry loop with error feedback, knowledge base RAG context, optional workflow creation. Zero cloud API cost (always uses `tier: :local`). Generated code passes full validation pipeline (namespace, behaviour, permissions). See [SELF_AWARENESS.md](SELF_AWARENESS.md).
 
 ### ~~Composable Skill Decomposition~~ ✅ Completed (v0.3.15)
 

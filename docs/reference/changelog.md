@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Reasoning loop — `:waiting_user` exit transitions** — both unblock paths now resume the loop instead of dead-ending
+  - `resume` after `add_context` (the chat answer path) transitions to `:planning`
+  - `steer` from `:waiting_user` records the guidance, then transitions to `:planning`
+  - Both replan from scratch rather than continuing — user input can invalidate the existing plan
+- **Reasoning loop — terminal status preserved** — `Loop.terminate/2` no longer overwrites a session's final status
+- **Chat page** — `AdminLive.Chat` routed through the `Reasoning` context instead of calling the loop directly
+- **LLM test seam** — `LLM.Behaviour` + `LLM.Real` split allows mock substitution under Mox
+- **Test coverage** — integration tests for `Reasoning.Loop` over the Mox seam; `SkillRateLimiter` sliding-window behaviour
+- **Dependencies** — added `timex`, `csv`, `yaml_elixir`; expanded the hexdocs scraper fixture
+- **Documentation** — reasoning loop documented in the readthedocs architecture section, README, and roadmap
+
 ## v0.3.21 — Reasoning Loop (2026-04-06)
 
 - **[Reasoning loop engine](../architecture/reasoning-loop.md)** — autonomous plan-execute-evaluate cycle
@@ -19,14 +32,6 @@
 
 ## v0.3.20 — Services Page, RAG Pipeline (2026-04-01)
 
-- **RAG pipeline overhaul** — embedding metadata, relevance grading, query rewriting, semantic chunking, fallback routing
-- **Research skill** — cross-store RAG with rewriting and relevance grading
-- **GitHub Security Review** — refactored as pure diff fetcher; 5 modes
-- **Workflow step editor fixes** — save no longer closes editor; nil llm_tier fix
-- **LLM Transform** — 10 prompt presets (Security Review, Code Review, Changelog, etc.)
-
-## v0.3.20 — Services Page (2026-03-31)
-
 - **Services page** — new `/services` admin page showing external service status with real connectivity checks
   - **Database** — verifies PostgreSQL connectivity via `SELECT 1`
   - **Google API** — checks OAuth2 token status (connected/expired/not configured)
@@ -40,6 +45,11 @@
 - **Config seeder fix** — env-backed settings no longer overwrite DB values on boot; Config page is now the sole source of truth after first seed
 - **Dashboard cleanup** — removed Google status card from dashboard (moved to Services), node name moved to dashboard header next to version
 - **Nav bar** — added Services menu item, reduced spacing between AlexClaw title and menu links
+- **RAG pipeline overhaul** — embedding metadata, relevance grading, query rewriting, semantic chunking, fallback routing
+- **Research skill** — cross-store RAG with rewriting and relevance grading
+- **GitHub Security Review** — refactored as pure diff fetcher; 5 modes
+- **Workflow step editor fixes** — save no longer closes editor; nil llm_tier fix
+- **LLM Transform** — 10 prompt presets (Security Review, Code Review, Changelog, etc.)
 
 ## v0.3.18 — Forge & Knowledge Pipeline (2026-03-29)
 

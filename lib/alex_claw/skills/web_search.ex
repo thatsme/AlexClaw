@@ -17,7 +17,7 @@ defmodule AlexClaw.Skills.WebSearch do
   @spec routes() :: [atom()]
   def routes, do: [:on_results, :on_no_results, :on_timeout, :on_error]
   require Logger
-  import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
+  import AlexClaw.Skills.Helpers, only: [llm_opts: 1, sanitize_utf8: 1, strip_noise: 1]
 
   alias AlexClaw.{Gateway, Identity, LLM, Memory}
 
@@ -48,42 +48,30 @@ defmodule AlexClaw.Skills.WebSearch do
     config = args[:config] || %{}
     raw_query = config["query"] || to_string(args[:input] || "")
 
-    query = String.trim(String.slice(raw_query, 0, 200))
-
-    if query == "" do
-      {:error, :no_query}
-    else
-      llm_opts =
-        case args[:llm_provider] do
-          nil -> []
-          "" -> []
-          "auto" -> []
-          provider -> [provider: provider]
-        end
-
-      llm_opts =
-        case args[:llm_tier] do
-          nil -> llm_opts
-          tier when is_atom(tier) -> [{:tier, tier} | llm_opts]
-          tier when is_binary(tier) -> [{:tier, String.to_existing_atom(tier)} | llm_opts]
-        end
-
-      case search_ddg(query) do
-        {:ok, results} when results != [] ->
-          pages = fetch_pages(results)
-          synthesize_for_workflow(query, pages, llm_opts)
-
-        {:ok, []} ->
-          {:ok, "No search results found for: #{query}", :on_no_results}
-
-        {:error, %Req.TransportError{reason: :timeout}} ->
-          {:ok, nil, :on_timeout}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
+    raw_query
+    |> String.slice(0, 200)
+    |> String.trim()
+    |> search(llm_opts(args))
   end
+
+  defp search("", _llm_opts), do: {:error, :no_query}
+
+  defp search(query, llm_opts) do
+    query
+    |> search_ddg()
+    |> searched(query, llm_opts)
+  end
+
+  defp searched({:ok, []}, query, _llm_opts),
+    do: {:ok, "No search results found for: #{query}", :on_no_results}
+
+  defp searched({:ok, results}, query, llm_opts),
+    do: synthesize_for_workflow(query, fetch_pages(results), llm_opts)
+
+  defp searched({:error, %Req.TransportError{reason: :timeout}}, _query, _llm_opts),
+    do: {:ok, nil, :on_timeout}
+
+  defp searched({:error, reason}, _query, _llm_opts), do: {:error, reason}
 
   @spec handle(String.t(), keyword()) :: :ok
   def handle(query, opts \\ []) do
@@ -125,31 +113,30 @@ defmodule AlexClaw.Skills.WebSearch do
     ]
 
     case Req.post(url, form: [q: query], headers: headers, receive_timeout: 10_000) do
-      {:ok, %{status: 200, body: body}} ->
-        results =
-          body
-          |> Floki.parse_document!()
-          |> Floki.find(".result__a")
-          |> Enum.take(@max_results)
-          |> Enum.flat_map(fn element ->
-            href = List.first(Floki.attribute(element, "href"))
-            title = Floki.text(element)
-
-            case extract_url(href) do
-              {:ok, url} -> [%{title: title, url: url}]
-              :skip -> []
-            end
-          end)
-
-        {:ok, results}
-
-      {:ok, %{status: status}} ->
-        {:error, {:ddg, status}}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, %{status: 200, body: body}} -> {:ok, parse_results(body)}
+      {:ok, %{status: status}} -> {:error, {:ddg, status}}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp parse_results(body) do
+    body
+    |> Floki.parse_document!()
+    |> Floki.find(".result__a")
+    |> Enum.take(@max_results)
+    |> Enum.flat_map(&result_entry/1)
+  end
+
+  defp result_entry(element) do
+    element
+    |> Floki.attribute("href")
+    |> List.first()
+    |> extract_url()
+    |> result_entry(Floki.text(element))
+  end
+
+  defp result_entry({:ok, url}, title), do: [%{title: title, url: url}]
+  defp result_entry(:skip, _title), do: []
 
   defp extract_url(nil), do: :skip
 

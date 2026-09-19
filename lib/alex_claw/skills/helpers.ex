@@ -60,4 +60,26 @@ defmodule AlexClaw.Skills.Helpers do
     |> Floki.filter_out("noscript")
     |> Floki.filter_out("svg")
   end
+
+  @doc """
+  Build the LLM option list a skill passes to `AlexClaw.LLM`, from the provider and
+  tier a workflow step supplies. `default_tier` applies when the step names none;
+  `"auto"` and blank providers mean "let the router choose".
+  """
+  @spec llm_opts(map(), atom() | nil) :: keyword()
+  def llm_opts(args, default_tier \\ nil) do
+    args[:llm_provider]
+    |> provider_opts()
+    |> tier_opts(args[:llm_tier] || default_tier)
+  end
+
+  defp provider_opts(provider) when provider in [nil, "", "auto"], do: []
+  defp provider_opts(provider), do: [provider: provider]
+
+  defp tier_opts(opts, nil), do: opts
+  defp tier_opts(opts, tier) when is_atom(tier), do: [{:tier, tier} | opts]
+
+  defp tier_opts(opts, tier) when is_binary(tier) do
+    [{:tier, String.to_existing_atom(tier)} | opts]
+  end
 end

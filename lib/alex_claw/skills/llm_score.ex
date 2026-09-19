@@ -16,7 +16,7 @@ defmodule AlexClaw.Skills.LlmScore do
   def routes, do: [:on_items, :on_empty, :on_error]
 
   require Logger
-  import AlexClaw.Skills.Helpers, only: [parse_float: 2, parse_int: 2]
+  import AlexClaw.Skills.Helpers, only: [llm_opts: 2, parse_float: 2, parse_int: 2]
 
   @default_threshold 0.3
   @default_max_items 10
@@ -67,25 +67,9 @@ defmodule AlexClaw.Skills.LlmScore do
       config["interests"] || "general news, technology, finance, world events",
       threshold,
       parse_int(config["max_items"], @default_max_items),
-      llm_opts(args)
+      # Scoring defaults to the :light tier unless the step names one.
+      llm_opts(args, :light)
     )
-  end
-
-  # Scoring defaults to the :light tier unless the step names one.
-  defp llm_opts(args) do
-    args[:llm_provider]
-    |> provider_opts()
-    |> tier_opts(args[:llm_tier])
-  end
-
-  defp provider_opts(provider) when provider in [nil, "", "auto"], do: []
-  defp provider_opts(provider), do: [provider: provider]
-
-  defp tier_opts(opts, nil), do: [{:tier, :light} | opts]
-  defp tier_opts(opts, tier) when is_atom(tier), do: [{:tier, tier} | opts]
-
-  defp tier_opts(opts, tier) when is_binary(tier) do
-    [{:tier, String.to_existing_atom(tier)} | opts]
   end
 
   defp score_items([], _interests, _threshold, _max_items, _llm_opts) do

@@ -16,7 +16,7 @@ defmodule AlexClaw.Skills.WebBrowse do
   @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_not_found, :on_timeout, :on_error]
   require Logger
-  import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
+  import AlexClaw.Skills.Helpers, only: [llm_opts: 1, sanitize_utf8: 1, strip_noise: 1]
 
   alias AlexClaw.{Gateway, Identity, LLM, Memory}
 
@@ -44,48 +44,38 @@ defmodule AlexClaw.Skills.WebBrowse do
   @spec run(map()) :: {:ok, String.t() | nil, atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
-    url = config["url"] || to_string(args[:input] || "")
-    question = config["question"]
 
-    llm_opts =
-      case args[:llm_provider] do
-        nil -> []
-        "" -> []
-        "auto" -> []
-        provider -> [provider: provider]
-      end
-
-    llm_opts =
-      case args[:llm_tier] do
-        nil -> llm_opts
-        tier when is_atom(tier) -> [{:tier, tier} | llm_opts]
-        tier when is_binary(tier) -> [{:tier, String.to_existing_atom(tier)} | llm_opts]
-      end
-
-    if url == "" do
-      {:error, :no_url}
-    else
-      case fetch_and_extract(url) do
-        {:ok, raw_content} ->
-          content = AlexClaw.ContentSanitizer.sanitize(raw_content, skill: "web_browse")
-
-          if question && question != "" do
-            run_qa(url, content, question, llm_opts)
-          else
-            run_summarize(url, content, llm_opts)
-          end
-
-        {:error, {:http, 404}} ->
-          {:ok, nil, :on_not_found}
-
-        {:error, %Req.TransportError{reason: :timeout}} ->
-          {:ok, nil, :on_timeout}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
+    browse(
+      config["url"] || to_string(args[:input] || ""),
+      config["question"],
+      llm_opts(args)
+    )
   end
+
+  defp browse("", _question, _llm_opts), do: {:error, :no_url}
+
+  defp browse(url, question, llm_opts) do
+    url
+    |> fetch_and_extract()
+    |> browsed(url, question, llm_opts)
+  end
+
+  defp browsed({:ok, raw_content}, url, question, llm_opts) do
+    content = AlexClaw.ContentSanitizer.sanitize(raw_content, skill: "web_browse")
+    answer(content, url, question, llm_opts)
+  end
+
+  defp browsed({:error, {:http, 404}}, _url, _question, _llm_opts), do: {:ok, nil, :on_not_found}
+
+  defp browsed({:error, %Req.TransportError{reason: :timeout}}, _url, _question, _llm_opts),
+    do: {:ok, nil, :on_timeout}
+
+  defp browsed({:error, reason}, _url, _question, _llm_opts), do: {:error, reason}
+
+  defp answer(content, url, question, llm_opts) when question in [nil, ""],
+    do: run_summarize(url, content, llm_opts)
+
+  defp answer(content, url, question, llm_opts), do: run_qa(url, content, question, llm_opts)
 
   defp run_summarize(url, content, llm_opts) do
     system = Identity.system_prompt(%{skill: :research})

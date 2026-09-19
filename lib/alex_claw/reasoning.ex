@@ -165,7 +165,7 @@ defmodule AlexClaw.Reasoning do
   def list_steps(session_id) do
     Step
     |> where([s], s.session_id == ^session_id)
-    |> order_by(asc: :iteration, asc: :inserted_at)
+    |> order_by(asc: :iteration, asc: :inserted_at, asc: :id)
     |> Repo.all()
   end
 
@@ -189,7 +189,7 @@ defmodule AlexClaw.Reasoning do
   def steps_for_iteration(session_id, iteration) do
     Step
     |> where([s], s.session_id == ^session_id and s.iteration == ^iteration)
-    |> order_by(asc: :inserted_at)
+    |> order_by(asc: :inserted_at, asc: :id)
     |> Repo.all()
   end
 end

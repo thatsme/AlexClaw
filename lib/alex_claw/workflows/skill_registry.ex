@@ -737,9 +737,26 @@ defmodule AlexClaw.Workflows.SkillRegistry do
          {:ok, module, permissions} <- compile_and_validate(path) do
       purge_module(module)
 
-      {:ok, %{module: module, permissions: permissions, contained: CallPolicy.contained?(ast)}}
+      {:ok,
+       %{
+         module: module,
+         permissions: permissions,
+         contained: unattended_verdict(ast, permissions)
+       }}
     end
   end
+
+  # Both conditions have to hold for an unattended load, and both are reported
+  # together so one retry can address all of it.
+  defp unattended_verdict(ast, permissions) do
+    case {CallPolicy.contained?(ast), CallPolicy.permitted?(permissions)} do
+      {:ok, :ok} -> :ok
+      {calls, perms} -> {:error, reasons(calls) ++ reasons(perms)}
+    end
+  end
+
+  defp reasons(:ok), do: []
+  defp reasons({:error, found}), do: found
 
   defp read_pending(path) do
     case File.read(path) do

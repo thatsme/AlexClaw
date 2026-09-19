@@ -114,6 +114,70 @@ defmodule AlexClaw.Skills.GeneratedContainmentTest do
     end
   end
 
+  defp source_with(permissions, body \\ ~s|{:ok, "ok", :on_success}|) do
+    """
+    defmodule AlexClaw.Skills.Dynamic.GenPerms do
+      @behaviour AlexClaw.Skill
+      @impl true
+      def version, do: "1.0.0"
+      @impl true
+      def description, do: "permission probe"
+      @impl true
+      def permissions, do: #{inspect(permissions)}
+      @impl true
+      def run(_args) do
+        #{body}
+      end
+    end
+    """
+  end
+
+  # Containment bounds which modules the code may call. It cannot bound what
+  # SkillAPI does for it, so the permissions are capped separately.
+  describe "permission ceiling" do
+    test "contained code declaring :skill_invoke does not auto-load" do
+      :ok = SkillRegistry.write_pending("gen_perms.ex", source_with([:llm, :skill_invoke]))
+
+      assert {:ok, %{contained: {:error, reasons}}} = SkillRegistry.vet_pending("gen_perms.ex")
+      assert Enum.any?(reasons, &String.contains?(&1, ":skill_invoke"))
+    end
+
+    test "contained code declaring :config_read does not auto-load" do
+      :ok = SkillRegistry.write_pending("gen_perms.ex", source_with([:config_read]))
+
+      assert {:ok, %{contained: {:error, reasons}}} = SkillRegistry.vet_pending("gen_perms.ex")
+      assert Enum.any?(reasons, &String.contains?(&1, ":config_read"))
+    end
+
+    test ":web_read with :memory_read does not auto-load" do
+      :ok = SkillRegistry.write_pending("gen_perms.ex", source_with([:web_read, :memory_read]))
+
+      assert {:ok, %{contained: {:error, reasons}}} = SkillRegistry.vet_pending("gen_perms.ex")
+      assert Enum.any?(reasons, &String.contains?(&1, "web_read together with"))
+    end
+
+    test ":llm with :web_read auto-loads" do
+      :ok = SkillRegistry.write_pending("gen_perms.ex", source_with([:llm, :web_read]))
+
+      assert {:ok, %{contained: :ok}} = SkillRegistry.vet_pending("gen_perms.ex")
+    end
+
+    test "call violations and permission violations are reported together" do
+      :ok =
+        SkillRegistry.write_pending(
+          "gen_perms.ex",
+          source_with([:skill_invoke], """
+          File.write!("/tmp/x", "y")
+                {:ok, "ok", :on_success}
+          """)
+        )
+
+      assert {:ok, %{contained: {:error, reasons}}} = SkillRegistry.vet_pending("gen_perms.ex")
+      assert Enum.any?(reasons, &String.contains?(&1, "File.write!"))
+      assert Enum.any?(reasons, &String.contains?(&1, ":skill_invoke"))
+    end
+  end
+
   describe "provenance of a contained load" do
     test "promoting and loading records containment approval", %{skills_dir: dir} do
       :ok = SkillRegistry.write_pending("gen_contained.ex", contained_source())

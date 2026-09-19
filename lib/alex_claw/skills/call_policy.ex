@@ -78,6 +78,59 @@ defmodule AlexClaw.Skills.CallPolicy do
   @spec allowed_modules() :: [module() | atom()]
   def allowed_modules, do: @allowed_modules
 
+  # Containment bounds which modules a skill may call. It cannot bound what
+  # SkillAPI does on the skill's behalf, and the permissions were written by the
+  # same model that wrote the code — so the permissions a skill may hold and still
+  # load unattended are capped separately.
+  @auto_load_permissions [
+    :llm,
+    :web_read,
+    :memory_read,
+    :knowledge_read,
+    :resources_read,
+    :gateway_send
+  ]
+
+  # Reading anything private and reaching the network is an exfiltration path: the
+  # skill can read and then post. Either alone is acceptable unattended.
+  @private_reads [:memory_read, :knowledge_read, :resources_read]
+
+  @doc """
+  Check that declared permissions are ones a generated skill may hold unattended.
+
+  Returns `:ok`, or `{:error, reasons}` naming what disqualified it.
+  """
+  @spec permitted?([atom()]) :: :ok | {:error, [violation()]}
+  def permitted?(permissions) do
+    case Enum.reject(permissions, &(&1 in @auto_load_permissions)) ++
+           exfiltration_reason(permissions) do
+      [] -> :ok
+      reasons -> {:error, Enum.map(reasons, &describe_permission/1)}
+    end
+  end
+
+  @doc "The permissions a generated skill may hold and still load unattended."
+  @spec auto_load_permissions() :: [atom()]
+  def auto_load_permissions, do: @auto_load_permissions
+
+  defp exfiltration_reason(permissions) do
+    reads = Enum.filter(permissions, &(&1 in @private_reads))
+
+    if :web_read in permissions and reads != [] do
+      [{:exfiltration, reads}]
+    else
+      []
+    end
+  end
+
+  defp describe_permission({:exfiltration, reads}) do
+    listed = Enum.map_join(reads, ", ", &":#{&1}")
+    ":web_read together with #{listed} (reading private data and reaching the network)"
+  end
+
+  defp describe_permission(permission),
+    do: ":#{permission} (not permitted for an unattended load)"
+
   # --- Alias resolution ---
 
   # Only the plain `alias A.B.C` form is understood. `as:` and the brace form are

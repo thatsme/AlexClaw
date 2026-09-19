@@ -22,9 +22,11 @@ defmodule AlexClaw.Skills.CodeGenerator do
   - The result MUST be a string
   - MUST implement: description/0, permissions/0 (list only what you need)
   - For external access use AlexClaw.Skills.SkillAPI (alias as SkillAPI)
-  - Available permissions: llm, web_read, memory_read, memory_write,
-    knowledge_read, knowledge_write, config_read, resources_read,
-    skill_invoke, gateway_send
+  - Available permissions: llm, web_read, memory_read, knowledge_read,
+    resources_read, gateway_send. Declare only what the skill uses.
+  - Do NOT declare web_read together with memory_read, knowledge_read or
+    resources_read: reading private data and reaching the network in one skill
+    needs a human to approve it, and the skill will not load on its own.
   - If the skill makes HTTP requests (Req.get, Req.post, etc.), you MUST implement: def external, do: true
   - MUST implement step_fields/0 to declare which UI fields the step editor shows:
     - Skills that use LLM: def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]

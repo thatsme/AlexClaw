@@ -27,6 +27,8 @@ defmodule AlexClaw.Skills.CallPolicyTest do
         call =
           case module do
             :math -> ":math.pi()"
+            # Logger permits only its level functions, checked separately below.
+            Logger -> ~s|Logger.info("m")|
             other -> "#{inspect(other)}.__info__(:module)"
           end
 
@@ -185,6 +187,71 @@ defmodule AlexClaw.Skills.CallPolicyTest do
 
     test "String.to_existing_atom is still allowed" do
       assert :ok = check(skill("String.to_existing_atom(args[:input])"))
+    end
+  end
+
+  describe "Logger is limited to its level functions" do
+    test "the level functions pass" do
+      for level <- ~w(debug info notice warning error) do
+        assert :ok = check(skill("Logger.#{level}(\"msg\")", "require Logger")),
+               "expected Logger.#{level} to be allowed"
+      end
+    end
+
+    # Logger also carries configuration and backend control.
+    test "configuration and backend calls are refused" do
+      for fun <- ~w(configure configure_backend add_backend remove_backend put_process_level) do
+        assert {:error, violations} = check(skill("Logger.#{fun}(:x)", "require Logger")),
+               "expected Logger.#{fun} to be refused"
+
+        assert Enum.any?(violations, &String.contains?(&1, "level functions"))
+      end
+    end
+  end
+
+  describe "atom creation" do
+    test "List.to_atom is refused" do
+      assert {:error, violations} = check(skill("List.to_atom(args[:input])"))
+      assert Enum.any?(violations, &String.contains?(&1, "to_atom"))
+    end
+
+    test "List.to_existing_atom is still allowed" do
+      assert :ok = check(skill("List.to_existing_atom(args[:input])"))
+    end
+  end
+
+  # Jason.decode(body, keys: :atoms) turns every key of an attacker-supplied
+  # document into a permanent atom.
+  describe "JSON decoding" do
+    test "keys: :atoms is refused" do
+      assert {:error, violations} = check(skill("Jason.decode(args[:input], keys: :atoms)"))
+      assert Enum.any?(violations, &String.contains?(&1, "keys:"))
+    end
+
+    test "keys: :atoms! is refused" do
+      assert {:error, violations} = check(skill("Jason.decode!(args[:input], keys: :atoms!)"))
+      assert Enum.any?(violations, &String.contains?(&1, "keys:"))
+    end
+
+    test "decode without options is allowed" do
+      assert :ok = check(skill("Jason.decode(args[:input])"))
+    end
+
+    test "keys: :strings is allowed" do
+      assert :ok = check(skill("Jason.decode(args[:input], keys: :strings)"))
+    end
+
+    test "encode is unaffected" do
+      assert :ok = check(skill("Jason.encode!(%{a: 1})"))
+    end
+  end
+
+  # sweet_xml is macro-heavy and its parse options decide entity handling, which
+  # this checker cannot inspect. Hand-written skills may still import it.
+  describe "SweetXml" do
+    test "is not available to generated code" do
+      assert {:error, violations} = check(skill("SweetXml.xpath(args[:input], ~x\"//a\"l)"))
+      assert Enum.any?(violations, &String.contains?(&1, "SweetXml"))
     end
   end
 

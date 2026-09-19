@@ -41,14 +41,30 @@ defmodule AlexClaw.Skills.CallPolicy do
     DateTime,
     NaiveDateTime,
     Logger,
-    SweetXml,
     Floki,
     :math
   ]
 
-  # Allowed module, denied function: String.to_atom/1 creates atoms that are
-  # never garbage collected, so untrusted input can exhaust the atom table.
-  @denied_remote [{String, :to_atom}, {String, :to_charlist_atom}]
+  # Allowed module, denied function. Atoms are never garbage collected, so building
+  # them from data an attacker controls exhausts the atom table and takes the VM
+  # down with it.
+  @denied_remote [
+    {String, :to_atom},
+    {String, :to_charlist_atom},
+    {List, :to_atom}
+  ]
+
+  # Logger is allowed for its level functions and nothing else: it also carries
+  # configuration and backend control.
+  @allowed_logger_functions [
+    :debug,
+    :info,
+    :notice,
+    :warning,
+    :error,
+    :log,
+    :bare_log
+  ]
 
   # Locally-callable Kernel functions that escape the envelope.
   @denied_local [:spawn, :spawn_link, :spawn_monitor, :send, :apply]
@@ -165,7 +181,8 @@ defmodule AlexClaw.Skills.CallPolicy do
 
   defp check_node({{:., _meta, [target, fun]}, _call_meta, args} = node, acc, aliases)
        when is_atom(fun) and is_list(args) do
-    {node, remote_violation(target, fun, length(args), aliases, acc)}
+    acc = remote_violation(target, fun, length(args), aliases, acc)
+    {node, decode_keys_violation(target, fun, args, aliases, acc)}
   end
 
   defp check_node({local, _meta, args} = node, acc, _aliases)
@@ -211,6 +228,9 @@ defmodule AlexClaw.Skills.CallPolicy do
       apply_call?(module, fun) ->
         ["#{inspect(module)}.#{fun}/#{arity} (dynamic dispatch is not permitted)" | acc]
 
+      module == Logger and fun not in @allowed_logger_functions ->
+        ["Logger.#{fun}/#{arity} (only the level functions are permitted)" | acc]
+
       module in @allowed_modules ->
         acc
 
@@ -221,4 +241,30 @@ defmodule AlexClaw.Skills.CallPolicy do
 
   defp apply_call?(module, :apply) when module in [Kernel, :erlang], do: true
   defp apply_call?(_module, _fun), do: false
+
+  # Jason.decode(body, keys: :atoms) turns every key of an attacker-supplied
+  # document into an atom. Anything but :strings is refused, including a keys:
+  # option this checker cannot read statically.
+  defp decode_keys_violation(target, fun, args, aliases, acc)
+       when fun in [:decode, :decode!] do
+    with Jason <- resolved_target(target, aliases),
+         {:ok, keys} <- decode_keys_option(args),
+         false <- keys == :strings do
+      ["Jason.#{fun} with keys: #{inspect(keys)} (only keys: :strings is permitted)" | acc]
+    else
+      _other -> acc
+    end
+  end
+
+  defp decode_keys_violation(_target, _fun, _args, _aliases, acc), do: acc
+
+  defp resolved_target({:__aliases__, _meta, parts}, aliases), do: resolve_alias(parts, aliases)
+  defp resolved_target(_target, _aliases), do: nil
+
+  defp decode_keys_option(args) do
+    case List.last(args) do
+      opts when is_list(opts) -> Keyword.fetch(opts, :keys)
+      _other -> :error
+    end
+  end
 end

@@ -103,14 +103,12 @@ defmodule AlexClawWeb.AdminLive.Skills do
     |> uploaded(socket, filename)
   end
 
-  # The upload lands on disk before the 2FA challenge, so the client-supplied
-  # name is checked here rather than at load time.
+  # Staged under skills_dir/pending, never the live directory: until the 2FA code
+  # is verified the upload cannot replace a skill that is already loaded.
   defp store_upload(tmp_path, client_name) do
-    case SkillRegistry.validate_skill_filename(client_name) do
-      :ok ->
-        dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
-        File.cp!(tmp_path, Path.join(dir, client_name))
-        client_name
+    case SkillRegistry.stage_upload(tmp_path, client_name) do
+      {:ok, file_name} ->
+        file_name
 
       {:error, reason} ->
         Logger.warning("Rejected skill upload #{inspect(client_name)}: #{inspect(reason)}")

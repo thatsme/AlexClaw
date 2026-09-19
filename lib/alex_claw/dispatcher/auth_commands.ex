@@ -184,14 +184,12 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end)
   end
 
+  # The upload waits in skills_dir/pending until the code is verified; only now
+  # does it become a file the loader will resolve.
   def execute_2fa_action(%{type: :skill_load, file_path: file_path}, _msg) do
-    case SkillRegistry.load_skill(file_path) do
-      {:ok, %{name: name, permissions: perms}} ->
-        perm_list = Enum.map_join(perms, ", ", &to_string/1)
-        Gateway.send_message("Skill *#{name}* loaded. Permissions: [#{perm_list}]")
-
-      {:error, reason} ->
-        Gateway.send_message("Skill load failed: #{inspect(reason)}")
+    case SkillRegistry.promote_pending(file_path) do
+      {:error, reason} -> Gateway.send_message("Skill load failed: #{inspect(reason)}")
+      _promoted -> report_load(SkillRegistry.load_skill(file_path))
     end
   end
 
@@ -212,5 +210,14 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   def execute_2fa_action(action, msg) do
     Logger.warning("Unknown 2FA action: #{inspect(action)}")
     Gateway.send_message("Action completed.", chat_id: msg.chat_id, gateway: msg.gateway)
+  end
+
+  defp report_load({:ok, %{name: name, permissions: perms}}) do
+    perm_list = Enum.map_join(perms, ", ", &to_string/1)
+    Gateway.send_message("Skill *#{name}* loaded. Permissions: [#{perm_list}]")
+  end
+
+  defp report_load({:error, reason}) do
+    Gateway.send_message("Skill load failed: #{inspect(reason)}")
   end
 end

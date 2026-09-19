@@ -522,6 +522,53 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+
+  @doc """
+  Stage an uploaded skill file without making it loadable.
+
+  The file lands in `<skills_dir>/pending/`, which nothing loads from: dynamic
+  skills are loaded from database records, and the loader only ever resolves names
+  against `<skills_dir>` itself. The upload therefore cannot replace a live skill
+  before the 2FA challenge is answered.
+  """
+  @spec stage_upload(Path.t(), String.t()) :: {:ok, String.t()} | {:error, :invalid_filename}
+  def stage_upload(tmp_path, file_name) do
+    with :ok <- validate_skill_filename(file_name) do
+      File.mkdir_p!(pending_dir())
+      File.cp!(tmp_path, Path.join(pending_dir(), file_name))
+      {:ok, file_name}
+    end
+  end
+
+  @doc """
+  Move a staged upload into the live skills directory.
+
+  Returns `:no_pending` when nothing is staged under that name, which is the
+  normal case for `/skill load <path>` on a file that is already in place.
+  """
+  @spec promote_pending(String.t()) :: :ok | :no_pending | {:error, term()}
+  def promote_pending(file_name) do
+    with :ok <- validate_skill_filename(file_name) do
+      staged = Path.join(pending_dir(), file_name)
+      promote_staged(staged, File.exists?(staged), file_name)
+    end
+  end
+
+  defp promote_staged(_staged, false, _file_name), do: :no_pending
+
+  defp promote_staged(staged, true, file_name) do
+    live = Path.join(skills_dir(), file_name)
+
+    case File.rename(staged, live) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:promote_failed, reason}}
+    end
+  end
+
+  @doc "Directory holding uploads awaiting 2FA verification."
+  @spec pending_dir() :: Path.t()
+  def pending_dir, do: Path.join(skills_dir(), "pending")
+
   defp validate_path(full_path) do
     dir = skills_dir()
     normalized = Path.expand(full_path)

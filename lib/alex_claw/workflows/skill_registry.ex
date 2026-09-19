@@ -409,52 +409,62 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     import Ecto.Query
 
     case Repo.one(from(d in DynamicSkill, where: d.name == ^name)) do
-      nil ->
-        {:error, :not_found}
-
-      record ->
-        full_path = Path.join(skills_dir(), record.file_path)
-
-        # Purge old module
-        case :ets.lookup(@ets_table, name) do
-          [{^name, old_module, :dynamic, _, _, _}] ->
-            :code.purge(old_module)
-            :code.delete(old_module)
-
-          _ ->
-            :ok
-        end
-
-        with {:ok, source} <- File.read(full_path),
-             {:ok, module, permissions} <- compile_and_validate(full_path) do
-          checksum = compute_checksum(source)
-
-          routes = extract_routes(module)
-          external = extract_external(module)
-
-          Repo.update!(
-            DynamicSkill.changeset(record, %{
-              checksum: checksum,
-              permissions: Enum.map(permissions, &to_string/1),
-              routes: Enum.map(routes, &to_string/1),
-              module_name: to_string(module)
-            })
-          )
-
-          :ets.insert(@ets_table, {name, module, :dynamic, permissions, routes, external})
-          broadcast({:skill_registered, name})
-          Logger.info("Dynamic skill reloaded: #{name}")
-
-          {:ok,
-           %{
-             name: name,
-             module: module,
-             permissions: permissions,
-             routes: routes,
-             external: external
-           }}
-        end
+      nil -> {:error, :not_found}
+      record -> reload_record(name, record)
     end
+  end
+
+  # The old module is purged only once the new file has compiled and validated.
+  # Purging first meant a rejected reload left the skill unloaded: a bad edit took
+  # a working skill out of service until it was fixed.
+  defp reload_record(name, record) do
+    full_path = Path.join(skills_dir(), record.file_path)
+
+    with {:ok, source} <- File.read(full_path),
+         {:ok, module, permissions} <- compile_and_validate(full_path) do
+      purge_previous(name, module)
+      persist_reload(name, record, module, permissions, compute_checksum(source))
+    end
+  end
+
+  # Nothing to purge when the reload produced the same module that is already
+  # resident — deleting it would unload the code that was just compiled.
+  defp purge_previous(name, new_module) do
+    case :ets.lookup(@ets_table, name) do
+      [{^name, old_module, :dynamic, _, _, _}] when old_module != new_module ->
+        :code.purge(old_module)
+        :code.delete(old_module)
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp persist_reload(name, record, module, permissions, checksum) do
+    routes = extract_routes(module)
+    external = extract_external(module)
+
+    Repo.update!(
+      DynamicSkill.changeset(record, %{
+        checksum: checksum,
+        permissions: Enum.map(permissions, &to_string/1),
+        routes: Enum.map(routes, &to_string/1),
+        module_name: to_string(module)
+      })
+    )
+
+    :ets.insert(@ets_table, {name, module, :dynamic, permissions, routes, external})
+    broadcast({:skill_registered, name})
+    Logger.info("Dynamic skill reloaded: #{name}")
+
+    {:ok,
+     %{
+       name: name,
+       module: module,
+       permissions: permissions,
+       routes: routes,
+       external: external
+     }}
   end
 
   defp do_create_skill(name) do
@@ -534,8 +544,30 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   def stage_upload(tmp_path, file_name) do
     with :ok <- validate_skill_filename(file_name) do
       File.mkdir_p!(pending_dir())
+      sweep_stale_pending()
       File.cp!(tmp_path, Path.join(pending_dir(), file_name))
       {:ok, file_name}
+    end
+  end
+
+  # An upload whose challenge is never answered would otherwise sit here forever.
+  @pending_ttl_seconds 3600
+
+  defp sweep_stale_pending do
+    cutoff = System.os_time(:second) - @pending_ttl_seconds
+
+    case File.ls(pending_dir()) do
+      {:ok, names} -> Enum.each(names, &discard_if_stale(&1, cutoff))
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp discard_if_stale(name, cutoff) do
+    path = Path.join(pending_dir(), name)
+
+    case File.stat(path, time: :posix) do
+      {:ok, %{mtime: mtime}} when mtime < cutoff -> File.rm(path)
+      _other -> :ok
     end
   end
 
@@ -586,7 +618,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     with {:ok, source} <- File.read(full_path),
          {:ok, ast} <- parse_source(source),
          {:ok, expected} <- single_dynamic_module(ast),
-         :ok <- validate_module_body(ast),
+         :ok <- validate_file_shape(ast),
          :ok <- validate_compile_time_deps(ast) do
       compile_vetted(ast, full_path, expected)
     end
@@ -659,11 +691,24 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @allowed_attributes [:impl, :moduledoc, :doc, :spec, :behaviour, :type, :typep, :opaque]
   @allowed_sigils [:sigil_w, :sigil_W, :sigil_s, :sigil_S, :sigil_r, :sigil_R]
 
+  # The whole file must be one defmodule and nothing else. A statement sitting at
+  # the top level, before or after the module, executes at compile time just as a
+  # module-body statement does.
+  defp validate_file_shape({:defmodule, _meta, _args} = ast), do: validate_module_body(ast)
+
+  defp validate_file_shape({:__block__, _meta, statements}),
+    do: Enum.find_value(statements, :ok, &reject_or_nil(validate_top_level(&1)))
+
+  defp validate_file_shape(statement), do: top_level_error(statement)
+
+  defp validate_top_level({:defmodule, _meta, _args} = ast), do: validate_module_body(ast)
+  defp validate_top_level(statement), do: top_level_error(statement)
+
+  defp top_level_error(statement),
+    do: {:error, {:forbidden_construct, "top-level expression: #{summarise(statement)}"}}
+
   defp validate_module_body({:defmodule, _meta, [_alias, [do: body]]}),
     do: validate_statements(body_statements(body))
-
-  defp validate_module_body({:__block__, _meta, statements}),
-    do: Enum.find_value(statements, :ok, &reject_or_nil(validate_module_body(&1)))
 
   defp validate_module_body(_ast), do: :ok
 

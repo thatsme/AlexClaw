@@ -105,6 +105,87 @@ defmodule AlexClaw.Workflows.SkillRegistryAstGateTest do
     end
   end
 
+  # A statement at the top level of the file executes at compile time exactly as a
+  # module-body statement does, so the file's shape is checked too.
+  describe "whole-file shape" do
+    test "an expression before the module is rejected and never runs", %{skills_dir: dir} do
+      marker =
+        Path.join(System.tmp_dir!(), "ast_gate_marker_#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm_rf!(marker) end)
+
+      name =
+        stage(dir, "top_level_call.ex", """
+        File.write!("#{marker}", "executed")
+
+        defmodule AlexClaw.Skills.Dynamic.TopLevelCall do
+          @behaviour AlexClaw.Skill
+          @impl true
+          def run(_args), do: {:ok, "ok", :on_success}
+          @impl true
+          def description, do: "top level"
+        end
+        """)
+
+      assert {:error, {:forbidden_construct, construct}} = SkillRegistry.load_skill(name)
+      assert construct =~ "top-level expression"
+      refute File.exists?(marker)
+    end
+
+    test "an expression after the module is rejected", %{skills_dir: dir} do
+      name =
+        stage(dir, "trailing_call.ex", """
+        defmodule AlexClaw.Skills.Dynamic.TrailingCall do
+          @behaviour AlexClaw.Skill
+          @impl true
+          def run(_args), do: {:ok, "ok", :on_success}
+          @impl true
+          def description, do: "trailing"
+        end
+
+        System.get_env("SECRET_KEY_BASE")
+        """)
+
+      assert {:error, {:forbidden_construct, construct}} = SkillRegistry.load_skill(name)
+      assert construct =~ "top-level expression"
+    end
+
+    test "an import outside the module is rejected", %{skills_dir: dir} do
+      name =
+        stage(dir, "top_level_import.ex", """
+        import SweetXml
+
+        defmodule AlexClaw.Skills.Dynamic.TopLevelImport do
+          @behaviour AlexClaw.Skill
+          @impl true
+          def run(_args), do: {:ok, "ok", :on_success}
+          @impl true
+          def description, do: "top import"
+        end
+        """)
+
+      assert {:error, {:forbidden_construct, construct}} = SkillRegistry.load_skill(name)
+      assert construct =~ "top-level expression"
+    end
+
+    test "a top-level attribute is rejected", %{skills_dir: dir} do
+      name =
+        stage(dir, "top_level_attr.ex", """
+        @thing :value
+
+        defmodule AlexClaw.Skills.Dynamic.TopLevelAttr do
+          @behaviour AlexClaw.Skill
+          @impl true
+          def run(_args), do: {:ok, "ok", :on_success}
+          @impl true
+          def description, do: "top attr"
+        end
+        """)
+
+      assert {:error, {:forbidden_construct, _}} = SkillRegistry.load_skill(name)
+    end
+  end
+
   describe "compile-time execution" do
     test "a computed module attribute is rejected", %{skills_dir: dir} do
       name =

@@ -19,6 +19,7 @@ config :alex_claw, AlexClawWeb.Endpoint,
     "test_only_secret_key_base_that_is_at_least_64_bytes_long_for_alexclaw_test_only!!"
 
 config :alex_claw, skip_provider_seed: true
+config :alex_claw, start_background_workers: false
 config :alex_claw, :skills_dir, Path.expand("../tmp/test_skills", __DIR__)
 
 config :nostrum, token: ""

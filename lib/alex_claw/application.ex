@@ -24,14 +24,28 @@ defmodule AlexClaw.Application do
       {AlexClaw.MCP.Server, transport: {:streamable_http, start: true}},
       AlexClaw.Cluster.Manager,
       AlexClaw.Scheduler,
-      AlexClaw.Workflows.SchedulerSync,
       AlexClaw.Gateway.Telegram,
       AlexClawWeb.Endpoint,
-      AlexClaw.UpdateChecker,
-      AlexClaw.Gateway.DiscordStarter
+      AlexClaw.UpdateChecker
     ]
 
     opts = [strategy: :one_for_one, name: AlexClaw.Supervisor]
-    Supervisor.start_link(children, opts)
+    Supervisor.start_link(children ++ background_children(), opts)
   end
+
+  # Workers that query the database from a boot timer. Under the test sandbox
+  # they own no connection, so each tick crashes them; three restarts inside
+  # the supervisor's five-second window take the whole application down,
+  # including the Repo.
+  defp background_children do
+    :alex_claw
+    |> Application.get_env(:start_background_workers, true)
+    |> background_children()
+  end
+
+  defp background_children(true) do
+    [AlexClaw.Workflows.SchedulerSync, AlexClaw.Gateway.DiscordStarter]
+  end
+
+  defp background_children(false), do: []
 end

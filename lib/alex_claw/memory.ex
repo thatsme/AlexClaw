@@ -176,7 +176,10 @@ defmodule AlexClaw.Memory do
 
     count = length(entries)
 
-    if count > 0 do
+    # Same guard as async_embed/1: with no enabled provider the pass can only log
+    # failures, and under the test sandbox the task outlives the caller that lent
+    # it a connection, breaking whichever test runs next.
+    if count > 0 and embedding_possible?() do
       caller = self()
 
       Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->

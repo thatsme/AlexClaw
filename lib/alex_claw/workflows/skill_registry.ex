@@ -503,6 +503,24 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   # --- Validation helpers ---
 
+  @doc """
+  Validate a skill filename before it is written into the skills directory.
+
+  `validate_path/1` guards traversal at load time, but a file has to be written
+  before it can be loaded — anything accepting a client-supplied name must call
+  this first.
+  """
+  @spec validate_skill_filename(String.t()) :: :ok | {:error, :invalid_filename}
+  def validate_skill_filename(file_name) do
+    cond do
+      String.contains?(file_name, "..") -> {:error, :invalid_filename}
+      String.contains?(file_name, "/") -> {:error, :invalid_filename}
+      String.contains?(file_name, "\\") -> {:error, :invalid_filename}
+      not String.ends_with?(file_name, ".ex") -> {:error, :invalid_filename}
+      true -> :ok
+    end
+  end
+
   defp validate_path(full_path) do
     dir = skills_dir()
     normalized = Path.expand(full_path)

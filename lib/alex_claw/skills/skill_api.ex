@@ -294,7 +294,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec write_skill(skill_mod(), String.t(), String.t()) :: :ok | {:error, term()}
   def write_skill(skill_module, file_name, code_string) do
     with :ok <- check_permission(skill_module, :skill_write),
-         :ok <- validate_skill_filename(file_name) do
+         :ok <- SkillRegistry.validate_skill_filename(file_name) do
       dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
       File.mkdir_p!(dir)
       File.write(Path.join(dir, file_name), code_string)
@@ -305,19 +305,9 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec read_skill(skill_mod(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def read_skill(skill_module, file_name) do
     with :ok <- check_permission(skill_module, :skill_write),
-         :ok <- validate_skill_filename(file_name) do
+         :ok <- SkillRegistry.validate_skill_filename(file_name) do
       dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
       File.read(Path.join(dir, file_name))
-    end
-  end
-
-  defp validate_skill_filename(file_name) do
-    cond do
-      String.contains?(file_name, "..") -> {:error, :invalid_filename}
-      String.contains?(file_name, "/") -> {:error, :invalid_filename}
-      String.contains?(file_name, "\\") -> {:error, :invalid_filename}
-      not String.ends_with?(file_name, ".ex") -> {:error, :invalid_filename}
-      true -> :ok
     end
   end
 

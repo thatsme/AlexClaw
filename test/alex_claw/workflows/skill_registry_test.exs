@@ -336,6 +336,35 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
     end
   end
 
+  # Guards the skills-directory write that happens before the 2FA challenge:
+  # the filename comes from the browser, so traversal must be refused here.
+  describe "validate_skill_filename/1" do
+    test "accepts a plain .ex filename" do
+      assert :ok = SkillRegistry.validate_skill_filename("my_skill.ex")
+    end
+
+    test "rejects parent-directory traversal" do
+      assert {:error, :invalid_filename} =
+               SkillRegistry.validate_skill_filename("../../app/lib/evil.ex")
+
+      assert {:error, :invalid_filename} = SkillRegistry.validate_skill_filename("..ex")
+    end
+
+    test "rejects path separators" do
+      assert {:error, :invalid_filename} = SkillRegistry.validate_skill_filename("nested/ok.ex")
+
+      assert {:error, :invalid_filename} =
+               SkillRegistry.validate_skill_filename("nested\\ok.ex")
+    end
+
+    test "rejects anything that is not .ex" do
+      assert {:error, :invalid_filename} = SkillRegistry.validate_skill_filename("skill.exs")
+      assert {:error, :invalid_filename} = SkillRegistry.validate_skill_filename("skill.sh")
+      assert {:error, :invalid_filename} = SkillRegistry.validate_skill_filename("skill")
+      assert {:error, :invalid_filename} = SkillRegistry.validate_skill_filename("")
+    end
+  end
+
   describe "get_routes/1" do
     test "returns custom routes for core skills that declare them" do
       assert [:on_items, :on_empty, :on_error] = SkillRegistry.get_routes("rss_collector")

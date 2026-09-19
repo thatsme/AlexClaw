@@ -2,6 +2,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
   @moduledoc "LiveView page listing all registered skills with upload and unload for dynamic skills."
 
   use Phoenix.LiveView
+  require Logger
 
   alias AlexClaw.Auth.TOTP
   alias AlexClaw.Gateway.Router
@@ -27,6 +28,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
        pending_2fa: nil
      )
      |> allow_upload(:skill_file,
+       # `.ex` has no registered MIME type, so allow_upload/3 refuses it as an
+       # accept filter. The filename is enforced server-side in store_upload/2.
        accept: :any,
        max_entries: 1,
        max_file_size: @max_upload_size
@@ -46,50 +49,21 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
     result =
       consume_uploaded_entries(socket, :skill_file, fn %{path: tmp_path}, entry ->
-        skills_dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
-        dest = Path.join(skills_dir, entry.client_name)
-        File.cp!(tmp_path, dest)
-        {:ok, entry.client_name}
+        {:ok, store_upload(tmp_path, entry.client_name)}
       end)
 
     case result do
       [filename] when is_binary(filename) ->
-        case request_2fa(%{type: :skill_load, file_path: filename}, "Load skill: `#{filename}`") do
-          :challenged ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "File uploaded. 2FA code requested — check Telegram/Discord")
-             |> assign(uploading: false, pending_2fa: filename)}
+        upload_skill(socket, filename)
 
-          :proceed ->
-            case SkillRegistry.load_skill(filename) do
-              {:ok, %{name: name, permissions: perms}} ->
-                perm_list = Enum.map_join(perms, ", ", &to_string/1)
-
-                {:noreply,
-                 socket
-                 |> put_flash(:info, "Skill '#{name}' loaded. Permissions: #{perm_list}")
-                 |> assign(uploading: false, skills: build_skill_list())}
-
-              {:error, reason} ->
-                {:noreply,
-                 socket
-                 |> put_flash(:error, "Load failed: #{format_error(reason)}")
-                 |> assign(uploading: false)}
-            end
-
-          :no_2fa ->
-            {:noreply,
-             socket
-             |> put_flash(:error, "2FA must be enabled for skill operations. Set up 2FA first.")
-             |> assign(uploading: false)}
-        end
-
-      [] ->
+      [{:error, :invalid_filename}] ->
         {:noreply,
          socket
-         |> put_flash(:error, "No file selected")
+         |> put_flash(:error, "Rejected: skill files must be a plain .ex filename")
          |> assign(uploading: false)}
+
+      [] ->
+        {:noreply, socket |> put_flash(:error, "No file selected") |> assign(uploading: false)}
     end
   end
 
@@ -101,21 +75,6 @@ defmodule AlexClawWeb.AdminLive.Skills do
          socket
          |> assign(pending_2fa: name)
          |> put_flash(:info, "2FA code requested — check Telegram/Discord")}
-
-      :proceed ->
-        case SkillRegistry.unload_skill(name) do
-          :ok ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Skill '#{name}' unloaded")
-             |> assign(skills: build_skill_list())}
-
-          {:error, :cannot_unload_core} ->
-            {:noreply, put_flash(socket, :error, "Cannot unload core skills")}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Skill not found")}
-        end
 
       :no_2fa ->
         {:noreply,
@@ -132,13 +91,45 @@ defmodule AlexClawWeb.AdminLive.Skills do
          |> assign(pending_2fa: name)
          |> put_flash(:info, "2FA code requested — check Telegram/Discord")}
 
-      :proceed ->
-        do_reload(name, socket)
-
       :no_2fa ->
         {:noreply,
          put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
     end
+  end
+
+  defp upload_skill(socket, filename) do
+    %{type: :skill_load, file_path: filename}
+    |> request_2fa("Load skill: `#{filename}`")
+    |> uploaded(socket, filename)
+  end
+
+  # The upload lands on disk before the 2FA challenge, so the client-supplied
+  # name is checked here rather than at load time.
+  defp store_upload(tmp_path, client_name) do
+    case SkillRegistry.validate_skill_filename(client_name) do
+      :ok ->
+        dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
+        File.cp!(tmp_path, Path.join(dir, client_name))
+        client_name
+
+      {:error, reason} ->
+        Logger.warning("Rejected skill upload #{inspect(client_name)}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp uploaded(:challenged, socket, filename) do
+    {:noreply,
+     socket
+     |> put_flash(:info, "File uploaded. 2FA code requested — check Telegram/Discord")
+     |> assign(uploading: false, pending_2fa: filename)}
+  end
+
+  defp uploaded(:no_2fa, socket, _filename) do
+    {:noreply,
+     socket
+     |> put_flash(:error, "2FA must be enabled for skill operations. Set up 2FA first.")
+     |> assign(uploading: false)}
   end
 
   @impl true
@@ -150,52 +141,30 @@ defmodule AlexClawWeb.AdminLive.Skills do
     {:noreply, assign(socket, skills: build_skill_list(), pending_2fa: nil)}
   end
 
-  defp do_reload(name, socket) do
-    case SkillRegistry.reload_skill(name) do
-      {:ok, %{name: n, module: module, permissions: perms}} ->
-        perm_list = Enum.map_join(perms, ", ", &to_string/1)
-
-        version =
-          if function_exported?(module, :version, 0), do: " v#{module.version()}", else: ""
-
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           "Skill '#{n}'#{version} reloaded and recompiled. Permissions: #{perm_list}"
-         )
-         |> assign(skills: build_skill_list())}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Reload failed: #{format_error(reason)}")}
-    end
+  defp request_2fa(action, description) do
+    challenge(TOTP.enabled?() && notify_chat_ids(), action, description)
   end
 
-  defp request_2fa(action, description) do
-    if TOTP.enabled?() do
-      chat_ids =
-        Enum.filter(
-          [
-            AlexClaw.Config.get("telegram.chat_id"),
-            AlexClaw.Config.get("discord.channel_id")
-          ],
-          &(&1 && &1 != "")
-        )
+  defp notify_chat_ids do
+    Enum.filter(
+      [
+        AlexClaw.Config.get("telegram.chat_id"),
+        AlexClaw.Config.get("discord.channel_id")
+      ],
+      &(&1 && &1 != "")
+    )
+  end
 
-      if chat_ids != [] do
-        for id <- chat_ids, do: TOTP.create_challenge(id, action)
+  defp challenge(chat_ids, _action, _description) when chat_ids in [false, []], do: :no_2fa
 
-        Router.broadcast(
-          "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:"
-        )
+  defp challenge(chat_ids, action, description) do
+    for id <- chat_ids, do: TOTP.create_challenge(id, action)
 
-        :challenged
-      else
-        :no_2fa
-      end
-    else
-      :no_2fa
-    end
+    Router.broadcast(
+      "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:"
+    )
+
+    :challenged
   end
 
   defp build_skill_list do
@@ -231,25 +200,6 @@ defmodule AlexClawWeb.AdminLive.Skills do
   defp get_version(module) do
     if function_exported?(module, :version, 0), do: module.version(), else: nil
   end
-
-  defp format_error({:invalid_namespace, ns}),
-    do: "Module must be under AlexClaw.Skills.Dynamic.*, got #{ns}"
-
-  defp format_error(:missing_run_callback), do: "Module must export run/1"
-
-  defp format_error({:unknown_permissions, invalid}),
-    do: "Unknown permissions: #{inspect(invalid)}"
-
-  defp format_error(:name_conflicts_with_core), do: "Name conflicts with a core skill"
-
-  defp format_error({:compilation_error, msg}),
-    do: "Compilation error: #{String.slice(msg, 0, 300)}"
-
-  defp format_error(:path_traversal), do: "Invalid file path"
-  defp format_error(:file_not_found), do: "File not found"
-  defp format_error({:same_version, nil, hint}), do: "No version defined. #{hint}"
-  defp format_error({:same_version, ver, hint}), do: "Version #{ver} already loaded. #{hint}"
-  defp format_error(reason), do: inspect(reason)
 
   defp format_size(bytes) when bytes < 1024, do: "#{bytes} B"
   defp format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"

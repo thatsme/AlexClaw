@@ -100,6 +100,91 @@ defmodule AlexClaw.Skills.GeneratedContainmentTest do
     end
   end
 
+  # vet_pending compiles to read the module. Whatever the verdict, nothing may be
+  # left resident: a module that stayed loaded would be callable by name without
+  # ever having been approved or registered.
+  describe "nothing stays loaded after vetting" do
+    test "not after a contained verdict" do
+      :ok = SkillRegistry.write_pending("gen_contained.ex", contained_source())
+
+      {:ok, %{contained: :ok, module: module}} = SkillRegistry.vet_pending("gen_contained.ex")
+
+      refute :erlang.module_loaded(module)
+      assert :code.is_loaded(module) == false
+    end
+
+    test "not after a containment failure" do
+      :ok = SkillRegistry.write_pending("gen_escaping.ex", escaping_source())
+
+      {:ok, %{contained: {:error, _}, module: module}} =
+        SkillRegistry.vet_pending("gen_escaping.ex")
+
+      refute :erlang.module_loaded(module)
+      assert :code.is_loaded(module) == false
+    end
+
+    test "not after a permission-ceiling failure" do
+      :ok = SkillRegistry.write_pending("gen_perms.ex", source_with([:skill_invoke]))
+
+      {:ok, %{contained: {:error, _}, module: module}} = SkillRegistry.vet_pending("gen_perms.ex")
+
+      assert :code.is_loaded(module) == false
+    end
+
+    test "not after the AST gate refuses the file" do
+      :ok =
+        SkillRegistry.write_pending("gen_gated.ex", """
+        defmodule AlexClaw.Skills.Dynamic.GenGated do
+          @behaviour AlexClaw.Skill
+          use GenServer
+          @impl true
+          def run(_args), do: {:ok, "ok", :on_success}
+          @impl true
+          def description, do: "gated"
+        end
+        """)
+
+      assert {:error, _reason} = SkillRegistry.vet_pending("gen_gated.ex")
+      assert :code.is_loaded(AlexClaw.Skills.Dynamic.GenGated) == false
+    end
+
+    test "not after a compile error" do
+      :ok =
+        SkillRegistry.write_pending("gen_broken.ex", """
+        defmodule AlexClaw.Skills.Dynamic.GenBroken do
+          @behaviour AlexClaw.Skill
+          @impl true
+          def run(_args), do: undefined_local_function()
+          @impl true
+          def description, do: "broken"
+        end
+        """)
+
+      _result = SkillRegistry.vet_pending("gen_broken.ex")
+
+      assert :code.is_loaded(AlexClaw.Skills.Dynamic.GenBroken) == false
+    end
+
+    test "not after the contract check rejects it" do
+      # Declares a permission that does not exist, so validate_contract refuses.
+      :ok =
+        SkillRegistry.write_pending("gen_badperm.ex", """
+        defmodule AlexClaw.Skills.Dynamic.GenBadperm do
+          @behaviour AlexClaw.Skill
+          @impl true
+          def permissions, do: [:not_a_real_permission]
+          @impl true
+          def run(_args), do: {:ok, "ok", :on_success}
+          @impl true
+          def description, do: "bad perm"
+        end
+        """)
+
+      assert {:error, _reason} = SkillRegistry.vet_pending("gen_badperm.ex")
+      assert :code.is_loaded(AlexClaw.Skills.Dynamic.GenBadperm) == false
+    end
+  end
+
   describe "staging" do
     test "write_pending never touches the live directory", %{skills_dir: dir} do
       :ok = SkillRegistry.write_pending("gen_contained.ex", contained_source())

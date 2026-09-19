@@ -1058,10 +1058,20 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     {:error, reason}
   end
 
+  # A module that compiles but fails its contract must not stay resident: it would
+  # remain callable by name despite never being registered or approved. The
+  # namespace and run/1 checks already purge; these did not.
   defp validate_contract(module, full_path, permissions) do
-    with :ok <- validate_permissions(permissions),
-         :ok <- validate_external_declaration(module, full_path) do
-      {:ok, module, permissions}
+    case validate_permissions(permissions) do
+      :ok -> validate_declaration(module, full_path, permissions)
+      {:error, reason} -> reject_module(module, reason)
+    end
+  end
+
+  defp validate_declaration(module, full_path, permissions) do
+    case validate_external_declaration(module, full_path) do
+      :ok -> {:ok, module, permissions}
+      {:error, reason} -> reject_module(module, reason)
     end
   end
 

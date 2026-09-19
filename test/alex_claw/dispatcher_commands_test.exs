@@ -5,14 +5,25 @@ defmodule AlexClaw.DispatcherCommandsTest do
   alias AlexClaw.{Dispatcher, Message}
 
   defp msg(text) do
-    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
+    %Message{
+      text: text,
+      chat_id: "123",
+      from: "Test",
+      timestamp: DateTime.utc_now(),
+      raw: %{},
+      gateway: :test
+    }
   end
 
   describe "web automation commands" do
     test "matches /record <url>" do
       # Will fail at HTTP level (no sidecar) but should not crash on pattern match
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
 
       result = Dispatcher.dispatch(msg("/record https://example.com"))
       assert result != :ignored
@@ -20,7 +31,11 @@ defmodule AlexClaw.DispatcherCommandsTest do
 
     test "matches /record start <url> and forwards to /record" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
 
       result = Dispatcher.dispatch(msg("/record start https://example.com"))
       assert result != :ignored
@@ -28,7 +43,11 @@ defmodule AlexClaw.DispatcherCommandsTest do
 
     test "matches /record stop <session_id>" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
 
       result = Dispatcher.dispatch(msg("/record stop abc123"))
       assert result != :ignored
@@ -43,7 +62,11 @@ defmodule AlexClaw.DispatcherCommandsTest do
 
     test "matches /automate <url>" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
 
       result = Dispatcher.dispatch(msg("/automate https://example.com"))
       assert result != :ignored
@@ -51,12 +74,19 @@ defmodule AlexClaw.DispatcherCommandsTest do
 
     test "matches /replay <id>" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
 
-      {:ok, resource} = AlexClaw.Resources.create_resource(%{
-        name: "Test Auto", type: "automation", url: "https://example.com",
-        metadata: %{"steps" => []}
-      })
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
+
+      {:ok, resource} =
+        AlexClaw.Resources.create_resource(%{
+          name: "Test Auto",
+          type: "automation",
+          url: "https://example.com",
+          metadata: %{"steps" => []}
+        })
 
       result = Dispatcher.dispatch(msg("/replay #{resource.id}"))
       assert result != :ignored
@@ -65,9 +95,12 @@ defmodule AlexClaw.DispatcherCommandsTest do
     test "/replay returns error for non-automation resource" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
 
-      {:ok, resource} = AlexClaw.Resources.create_resource(%{
-        name: "RSS Feed", type: "rss_feed", url: "https://example.com/feed"
-      })
+      {:ok, resource} =
+        AlexClaw.Resources.create_resource(%{
+          name: "RSS Feed",
+          type: "rss_feed",
+          url: "https://example.com/feed"
+        })
 
       result = Dispatcher.dispatch(msg("/replay #{resource.id}"))
       assert result != :ignored
@@ -159,7 +192,15 @@ defmodule AlexClaw.DispatcherCommandsTest do
     end
 
     test "nil text returns :ignored" do
-      assert :ignored = Dispatcher.dispatch(%Message{text: nil, chat_id: nil, from: nil, timestamp: nil, raw: %{}, gateway: :test})
+      assert :ignored =
+               Dispatcher.dispatch(%Message{
+                 text: nil,
+                 chat_id: nil,
+                 from: nil,
+                 timestamp: nil,
+                 raw: %{},
+                 gateway: :test
+               })
     end
   end
 end

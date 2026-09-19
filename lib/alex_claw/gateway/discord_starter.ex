@@ -38,8 +38,10 @@ defmodule AlexClaw.Gateway.DiscordStarter do
         end
       end
 
-    if on_this_node and (enabled == true or enabled == "true") and is_binary(token) and token != "" do
+    if on_this_node and (enabled == true or enabled == "true") and is_binary(token) and
+         token != "" do
       Application.put_env(:nostrum, :token, token)
+
       Application.put_env(:nostrum, :gateway_intents, [:guilds, :guild_messages, :message_content])
 
       case Application.ensure_all_started(:nostrum) do

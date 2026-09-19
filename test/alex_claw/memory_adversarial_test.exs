@@ -19,6 +19,7 @@ defmodule AlexClaw.MemoryAdversarialTest do
 
     test "null bytes in content cause Postgres error — known limitation" do
       content = "before\0after"
+
       assert_raise Postgrex.Error, fn ->
         Memory.store(:test, content)
       end

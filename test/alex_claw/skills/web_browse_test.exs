@@ -32,10 +32,11 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         """)
       end)
 
-      result = WebBrowse.run(%{
-        config: %{"url" => "http://localhost:#{bypass.port}/page"},
-        input: nil
-      })
+      result =
+        WebBrowse.run(%{
+          config: %{"url" => "http://localhost:#{bypass.port}/page"},
+          input: nil
+        })
 
       assert match?({:ok, _, _}, result) or match?({:error, {:summarize_failed, _}}, result)
     end
@@ -49,10 +50,11 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         |> Plug.Conn.resp(200, "<html><body>configured page</body></html>")
       end)
 
-      result = WebBrowse.run(%{
-        config: %{"url" => "http://localhost:#{bypass.port}/configured"},
-        input: "http://ignored.example.com"
-      })
+      result =
+        WebBrowse.run(%{
+          config: %{"url" => "http://localhost:#{bypass.port}/configured"},
+          input: "http://ignored.example.com"
+        })
 
       assert match?({:ok, _, _}, result) or match?({:error, _}, result)
     end
@@ -64,10 +66,11 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         Plug.Conn.resp(conn, 404, "Not found")
       end)
 
-      result = WebBrowse.run(%{
-        config: %{"url" => "http://localhost:#{bypass.port}/notfound"},
-        input: nil
-      })
+      result =
+        WebBrowse.run(%{
+          config: %{"url" => "http://localhost:#{bypass.port}/notfound"},
+          input: nil
+        })
 
       assert {:ok, nil, :on_not_found} = result
     end
@@ -81,13 +84,14 @@ defmodule AlexClaw.Skills.WebBrowseTest do
         |> Plug.Conn.resp(200, "<html><body>The answer is 42</body></html>")
       end)
 
-      result = WebBrowse.run(%{
-        config: %{
-          "url" => "http://localhost:#{bypass.port}/qa",
-          "question" => "What is the answer?"
-        },
-        input: nil
-      })
+      result =
+        WebBrowse.run(%{
+          config: %{
+            "url" => "http://localhost:#{bypass.port}/qa",
+            "question" => "What is the answer?"
+          },
+          input: nil
+        })
 
       assert match?({:ok, _, _}, result) or match?({:error, {:qa_failed, _}}, result)
     end

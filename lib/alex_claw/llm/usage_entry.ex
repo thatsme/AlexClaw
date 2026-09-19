@@ -11,9 +11,9 @@ defmodule AlexClaw.LLM.UsageEntry do
         }
 
   schema "llm_usage" do
-    field :model, :string
-    field :date, :date
-    field :count, :integer, default: 0
+    field(:model, :string)
+    field(:date, :date)
+    field(:count, :integer, default: 0)
   end
 
   @spec changeset(t(), map()) :: Ecto.Changeset.t()

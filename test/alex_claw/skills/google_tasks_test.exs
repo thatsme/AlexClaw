@@ -10,7 +10,10 @@ defmodule AlexClaw.Skills.GoogleTasksTest do
       _ -> :ok
     end
 
-    :ets.insert(:google_token_cache, {:access_token, "fake-test-token", System.monotonic_time(:second) + 3600})
+    :ets.insert(
+      :google_token_cache,
+      {:access_token, "fake-test-token", System.monotonic_time(:second) + 3600}
+    )
 
     on_exit(fn ->
       case :ets.info(:google_token_cache) do
@@ -50,5 +53,4 @@ defmodule AlexClaw.Skills.GoogleTasksTest do
       assert {:error, _} = result
     end
   end
-
 end

@@ -126,9 +126,10 @@ defmodule AlexClaw.Cluster.Manager do
     alias AlexClaw.Workflows.Workflow
 
     case AlexClaw.Repo.one(
-           from w in Workflow,
+           from(w in Workflow,
              where: w.name == ^workflow_name and w.enabled == true,
              preload: [steps: ^from(s in AlexClaw.Workflows.WorkflowStep, order_by: s.position)]
+           )
          ) do
       nil ->
         Logger.warning(

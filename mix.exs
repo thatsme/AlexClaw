@@ -69,7 +69,9 @@ defmodule AlexClaw.MixProject do
 
   defp build_suffix do
     case System.cmd("git", ["rev-list", "--count", "HEAD"], stderr_to_stdout: true) do
-      {count, 0} -> "+build.#{String.trim(count)}"
+      {count, 0} ->
+        "+build.#{String.trim(count)}"
+
       _ ->
         case System.get_env("BUILD_NUMBER") do
           nil -> ""

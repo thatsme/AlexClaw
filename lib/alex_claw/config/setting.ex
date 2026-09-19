@@ -5,12 +5,12 @@ defmodule AlexClaw.Config.Setting do
   import Ecto.Changeset
 
   schema "settings" do
-    field :key, :string
-    field :value, :string, default: ""
-    field :type, :string, default: "string"
-    field :description, :string
-    field :category, :string, default: "general"
-    field :sensitive, :boolean, default: false
+    field(:key, :string)
+    field(:value, :string, default: "")
+    field(:type, :string, default: "string")
+    field(:description, :string)
+    field(:category, :string, default: "general")
+    field(:sensitive, :boolean, default: false)
 
     timestamps(type: :utc_datetime)
   end

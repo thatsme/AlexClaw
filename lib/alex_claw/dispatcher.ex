@@ -26,32 +26,49 @@ defmodule AlexClaw.Dispatcher do
     uptime = :erlang.statistics(:wall_clock) |> elem(0) |> div(1000)
     memory = div(:erlang.memory(:total), 1_048_576)
 
-    Gateway.send_message("""
-    *AlexClaw* status
-    Uptime: #{uptime}s
-    Memory: #{memory} MB
-    Skills running: #{DynamicSupervisor.count_children(SkillSupervisor).active}
-    """, gateway: msg.gateway)
+    Gateway.send_message(
+      """
+      *AlexClaw* status
+      Uptime: #{uptime}s
+      Memory: #{memory} MB
+      Skills running: #{DynamicSupervisor.count_children(SkillSupervisor).active}
+      """,
+      gateway: msg.gateway
+    )
   end
 
   def dispatch(%Message{text: "/task add " <> title} = msg) do
-    case AlexClaw.Skills.GoogleTasks.run(%{config: %{"action" => "add"}, input: String.trim(title)}) do
-      {:ok, result, _branch} -> Gateway.send_message(result, gateway: msg.gateway)
-      {:error, reason} -> Gateway.send_message("Failed to add task: #{inspect(reason)}", gateway: msg.gateway)
+    case AlexClaw.Skills.GoogleTasks.run(%{
+           config: %{"action" => "add"},
+           input: String.trim(title)
+         }) do
+      {:ok, result, _branch} ->
+        Gateway.send_message(result, gateway: msg.gateway)
+
+      {:error, reason} ->
+        Gateway.send_message("Failed to add task: #{inspect(reason)}", gateway: msg.gateway)
     end
   end
 
   def dispatch(%Message{text: "/tasklists" <> _} = msg) do
     case AlexClaw.Skills.GoogleTasks.run(%{config: %{"action" => "lists"}}) do
-      {:ok, result, _branch} -> Gateway.send_message("*Your Task Lists*\n\n#{result}", gateway: msg.gateway)
-      {:error, reason} -> Gateway.send_message("Failed to fetch task lists: #{inspect(reason)}", gateway: msg.gateway)
+      {:ok, result, _branch} ->
+        Gateway.send_message("*Your Task Lists*\n\n#{result}", gateway: msg.gateway)
+
+      {:error, reason} ->
+        Gateway.send_message("Failed to fetch task lists: #{inspect(reason)}",
+          gateway: msg.gateway
+        )
     end
   end
 
   def dispatch(%Message{text: "/tasks" <> _} = msg) do
     case AlexClaw.Skills.GoogleTasks.run(%{config: %{"action" => "list"}}) do
-      {:ok, result, _branch} -> Gateway.send_message("*Your Tasks*\n\n#{result}", gateway: msg.gateway)
-      {:error, reason} -> Gateway.send_message("Failed to fetch tasks: #{inspect(reason)}", gateway: msg.gateway)
+      {:ok, result, _branch} ->
+        Gateway.send_message("*Your Tasks*\n\n#{result}", gateway: msg.gateway)
+
+      {:error, reason} ->
+        Gateway.send_message("Failed to fetch tasks: #{inspect(reason)}", gateway: msg.gateway)
     end
   end
 
@@ -70,19 +87,33 @@ defmodule AlexClaw.Dispatcher do
 
         if provider = Keyword.get(flags, :provider) do
           Config.set("skill.research.provider", provider)
-          Gateway.send_message("Research defaults saved: tier=#{new_tier}, provider=#{provider}", gateway: msg.gateway)
+
+          Gateway.send_message("Research defaults saved: tier=#{new_tier}, provider=#{provider}",
+            gateway: msg.gateway
+          )
         else
           Gateway.send_message("Research default tier saved: #{new_tier}", gateway: msg.gateway)
         end
 
       query == "" ->
-        Gateway.send_message("Usage: /research [--tier light|medium|heavy|local] [--provider name] <query>", gateway: msg.gateway)
+        Gateway.send_message(
+          "Usage: /research [--tier light|medium|heavy|local] [--provider name] <query>",
+          gateway: msg.gateway
+        )
 
       true ->
         tier = CommandParser.resolve_tier(flags, "skill.research.tier", "medium")
         provider = CommandParser.resolve_provider(flags, "skill.research.provider")
-        Gateway.send_message("Research (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
-        AlexClaw.Skills.Research.handle(query, tier: tier, provider: provider, gateway: msg.gateway)
+
+        Gateway.send_message("Research (tier: #{tier}, provider: #{provider})",
+          gateway: msg.gateway
+        )
+
+        AlexClaw.Skills.Research.handle(query,
+          tier: tier,
+          provider: provider,
+          gateway: msg.gateway
+        )
     end
   end
 
@@ -93,7 +124,10 @@ defmodule AlexClaw.Dispatcher do
       Keyword.get(flags, :tier) == :query ->
         tier = Config.get("skill.web_search.tier") || "medium"
         provider = Config.get("skill.web_search.provider") || "auto"
-        Gateway.send_message("Web Search: tier=#{tier}, provider=#{provider}", gateway: msg.gateway)
+
+        Gateway.send_message("Web Search: tier=#{tier}, provider=#{provider}",
+          gateway: msg.gateway
+        )
 
       query == "" and Keyword.has_key?(flags, :tier) ->
         new_tier = Keyword.get(flags, :tier)
@@ -101,19 +135,33 @@ defmodule AlexClaw.Dispatcher do
 
         if provider = Keyword.get(flags, :provider) do
           Config.set("skill.web_search.provider", provider)
-          Gateway.send_message("Search defaults saved: tier=#{new_tier}, provider=#{provider}", gateway: msg.gateway)
+
+          Gateway.send_message("Search defaults saved: tier=#{new_tier}, provider=#{provider}",
+            gateway: msg.gateway
+          )
         else
           Gateway.send_message("Search default tier saved: #{new_tier}", gateway: msg.gateway)
         end
 
       query == "" ->
-        Gateway.send_message("Usage: /search [--tier light|medium|heavy|local] [--provider name] <query>", gateway: msg.gateway)
+        Gateway.send_message(
+          "Usage: /search [--tier light|medium|heavy|local] [--provider name] <query>",
+          gateway: msg.gateway
+        )
 
       true ->
         tier = CommandParser.resolve_tier(flags, "skill.web_search.tier", "medium")
         provider = CommandParser.resolve_provider(flags, "skill.web_search.provider")
-        Gateway.send_message("Search (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
-        AlexClaw.Skills.WebSearch.handle(query, tier: tier, provider: provider, gateway: msg.gateway)
+
+        Gateway.send_message("Search (tier: #{tier}, provider: #{provider})",
+          gateway: msg.gateway
+        )
+
+        AlexClaw.Skills.WebSearch.handle(query,
+          tier: tier,
+          provider: provider,
+          gateway: msg.gateway
+        )
     end
   end
 
@@ -126,7 +174,10 @@ defmodule AlexClaw.Dispatcher do
 
       if provider = Keyword.get(flags, :provider) do
         Config.set("skill.web_browse.provider", provider)
-        Gateway.send_message("Browse defaults saved: tier=#{new_tier}, provider=#{provider}", gateway: msg.gateway)
+
+        Gateway.send_message("Browse defaults saved: tier=#{new_tier}, provider=#{provider}",
+          gateway: msg.gateway
+        )
       else
         Gateway.send_message("Browse default tier saved: #{new_tier}", gateway: msg.gateway)
       end
@@ -136,28 +187,47 @@ defmodule AlexClaw.Dispatcher do
 
       case String.split(rest, " ", parts: 2) do
         [url, question] ->
-          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
-          AlexClaw.Skills.WebBrowse.handle(url, question, tier: tier, provider: provider, gateway: msg.gateway)
+          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})",
+            gateway: msg.gateway
+          )
+
+          AlexClaw.Skills.WebBrowse.handle(url, question,
+            tier: tier,
+            provider: provider,
+            gateway: msg.gateway
+          )
 
         [url] ->
-          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
-          AlexClaw.Skills.WebBrowse.handle(url, nil, tier: tier, provider: provider, gateway: msg.gateway)
+          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})",
+            gateway: msg.gateway
+          )
+
+          AlexClaw.Skills.WebBrowse.handle(url, nil,
+            tier: tier,
+            provider: provider,
+            gateway: msg.gateway
+          )
       end
     end
   end
 
   def dispatch(%Message{text: "/skills" <> _} = msg) do
     text =
-      Enum.map_join(AlexClaw.Workflows.SkillRegistry.list_all_with_type(), "\n", fn {name, module, type, perms, _routes, _ext} ->
+      Enum.map_join(AlexClaw.Workflows.SkillRegistry.list_all_with_type(), "\n", fn {name, module,
+                                                                                     type, perms,
+                                                                                     _routes,
+                                                                                     _ext} ->
         desc =
           if function_exported?(module, :description, 0),
             do: module.description(),
             else: "—"
 
         tag = if type == :dynamic, do: " `[dynamic]`", else: ""
-        perm_text = if type == :dynamic and is_list(perms),
-          do: " — permissions: #{Enum.join(perms, ", ")}",
-          else: ""
+
+        perm_text =
+          if type == :dynamic and is_list(perms),
+            do: " — permissions: #{Enum.join(perms, ", ")}",
+            else: ""
 
         "• *#{name}*#{tag} — #{desc}#{perm_text}"
       end)
@@ -168,7 +238,10 @@ defmodule AlexClaw.Dispatcher do
   # --- Delegated Command Groups ---
 
   def dispatch(%Message{text: "/skill" <> _} = msg) do
-    Gateway.send_message("Skill management is only available from the Admin UI.\n2FA verification will be sent here when actions are performed.", gateway: msg.gateway)
+    Gateway.send_message(
+      "Skill management is only available from the Admin UI.\n2FA verification will be sent here when actions are performed.",
+      gateway: msg.gateway
+    )
   end
 
   def dispatch(%Message{text: "/record " <> _} = msg), do: AutomationCommands.dispatch(msg)
@@ -196,7 +269,9 @@ defmodule AlexClaw.Dispatcher do
           "• *#{wf.name}* (#{status}#{schedule}) — id: #{wf.id}"
         end)
 
-      Gateway.send_message("*AlexClaw Workflows*\n\n#{text}\n\nRun with: `/run <id>`", gateway: msg.gateway)
+      Gateway.send_message("*AlexClaw Workflows*\n\n#{text}\n\nRun with: `/run <id>`",
+        gateway: msg.gateway
+      )
     end
   end
 
@@ -206,27 +281,47 @@ defmodule AlexClaw.Dispatcher do
     workflow =
       case Integer.parse(input) do
         {id, ""} ->
-          AlexClaw.Repo.preload(AlexClaw.Repo.get(AlexClaw.Workflows.Workflow, id), [:steps, :resources])
+          AlexClaw.Repo.preload(AlexClaw.Repo.get(AlexClaw.Workflows.Workflow, id), [
+            :steps,
+            :resources
+          ])
 
         _ ->
-          Enum.find(AlexClaw.Workflows.list_workflows(), &(String.downcase(&1.name) == String.downcase(input)))
+          Enum.find(
+            AlexClaw.Workflows.list_workflows(),
+            &(String.downcase(&1.name) == String.downcase(input))
+          )
       end
 
     if workflow do
       if workflow.metadata["requires_2fa"] do
-        case AuthCommands.require_2fa(msg, %{type: :run_workflow, workflow_id: workflow.id},
-               "Run workflow: *#{workflow.name}*") do
-          :challenged -> :ok
+        case AuthCommands.require_2fa(
+               msg,
+               %{type: :run_workflow, workflow_id: workflow.id},
+               "Run workflow: *#{workflow.name}*"
+             ) do
+          :challenged ->
+            :ok
+
           :proceed ->
-            Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> AlexClaw.Workflows.Executor.run(workflow.id) end)
+            Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+              AlexClaw.Workflows.Executor.run(workflow.id)
+            end)
+
             Gateway.send_message("Workflow '#{workflow.name}' started.", gateway: msg.gateway)
         end
       else
-        Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> AlexClaw.Workflows.Executor.run(workflow.id) end)
+        Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+          AlexClaw.Workflows.Executor.run(workflow.id)
+        end)
+
         Gateway.send_message("Workflow '#{workflow.name}' started.", gateway: msg.gateway)
       end
     else
-      Gateway.send_message("Workflow not found: `#{input}`\nUse /workflows to see available workflows.", gateway: msg.gateway)
+      Gateway.send_message(
+        "Workflow not found: `#{input}`\nUse /workflows to see available workflows.",
+        gateway: msg.gateway
+      )
     end
   end
 
@@ -242,7 +337,9 @@ defmodule AlexClaw.Dispatcher do
           "• *#{run.workflow_name}* (run #{run.run_id}) — #{elapsed}s"
         end)
 
-      Gateway.send_message("*Active Runs*\n\n#{text}\n\nCancel with: `/cancel <run_id>`", gateway: msg.gateway)
+      Gateway.send_message("*Active Runs*\n\n#{text}\n\nCancel with: `/cancel <run_id>`",
+        gateway: msg.gateway
+      )
     end
   end
 
@@ -254,7 +351,9 @@ defmodule AlexClaw.Dispatcher do
             Gateway.send_message("Run #{run_id} cancelled.", gateway: msg.gateway)
 
           {:error, :not_found} ->
-            Gateway.send_message("Run #{run_id} not found or already finished.", gateway: msg.gateway)
+            Gateway.send_message("Run #{run_id} not found or already finished.",
+              gateway: msg.gateway
+            )
         end
 
       _ ->
@@ -273,8 +372,14 @@ defmodule AlexClaw.Dispatcher do
 
       [run_id_str, raw_reaction] ->
         case normalize_reaction(raw_reaction) do
-          {:ok, quality} -> rate_all_outcomes(run_id_str, quality, nil, msg)
-          :error -> Gateway.send_message("Unknown rating: `#{raw_reaction}`. Use `+`/`-`, `up`/`down`, or 👍/👎.", gateway: msg.gateway)
+          {:ok, quality} ->
+            rate_all_outcomes(run_id_str, quality, nil, msg)
+
+          :error ->
+            Gateway.send_message(
+              "Unknown rating: `#{raw_reaction}`. Use `+`/`-`, `up`/`down`, or 👍/👎.",
+              gateway: msg.gateway
+            )
         end
 
       [run_id_str, second, third] ->
@@ -285,21 +390,29 @@ defmodule AlexClaw.Dispatcher do
 
           :error ->
             case normalize_reaction(third) do
-              {:ok, quality} -> rate_step_outcome(run_id_str, second, quality, nil, msg)
-              :error -> Gateway.send_message("Unknown rating. Use `+`/`-`, `up`/`down`, or 👍/👎.", gateway: msg.gateway)
+              {:ok, quality} ->
+                rate_step_outcome(run_id_str, second, quality, nil, msg)
+
+              :error ->
+                Gateway.send_message("Unknown rating. Use `+`/`-`, `up`/`down`, or 👍/👎.",
+                  gateway: msg.gateway
+                )
             end
         end
 
       _ ->
-        Gateway.send_message("""
-        *Rate workflow outcomes*
-        `/rate <run_id>` — show steps for a run
-        `/rate <run_id> +` — thumbs up entire run
-        `/rate <run_id> -` — thumbs down entire run
-        `/rate <run_id> <step> +` — rate a specific step
-        `/rate <run_id> + optional feedback` — with comment
-        Also accepts: `up`/`down`, `yes`/`no`, 👍/👎
-        """, gateway: msg.gateway)
+        Gateway.send_message(
+          """
+          *Rate workflow outcomes*
+          `/rate <run_id>` — show steps for a run
+          `/rate <run_id> +` — thumbs up entire run
+          `/rate <run_id> -` — thumbs down entire run
+          `/rate <run_id> <step> +` — rate a specific step
+          `/rate <run_id> + optional feedback` — with comment
+          Also accepts: `up`/`down`, `yes`/`no`, 👍/👎
+          """,
+          gateway: msg.gateway
+        )
     end
   end
 
@@ -313,16 +426,20 @@ defmodule AlexClaw.Dispatcher do
         else
           text =
             Enum.map_join(outcomes, "\n", fn o ->
-              quality = case o.result_quality do
-                "thumbs_up" -> "👍"
-                "thumbs_down" -> "👎"
-                _ -> "—"
-              end
+              quality =
+                case o.result_quality do
+                  "thumbs_up" -> "👍"
+                  "thumbs_down" -> "👎"
+                  _ -> "—"
+                end
 
               "#{o.step_position}. *#{o.skill_name}* #{quality} (#{o.duration_ms || 0}ms)"
             end)
 
-          Gateway.send_message("*Run #{run_id} outcomes*\n\n#{text}\n\nRate: `/rate #{run_id} 👍` or `/rate #{run_id} <step> 👎`", gateway: msg.gateway)
+          Gateway.send_message(
+            "*Run #{run_id} outcomes*\n\n#{text}\n\nRate: `/rate #{run_id} 👍` or `/rate #{run_id} <step> 👎`",
+            gateway: msg.gateway
+          )
         end
 
       _ ->
@@ -343,7 +460,10 @@ defmodule AlexClaw.Dispatcher do
           end)
 
           emoji = quality_emoji(quality)
-          Gateway.send_message("#{emoji} Rated #{length(outcomes)} steps for run #{run_id}.", gateway: msg.gateway)
+
+          Gateway.send_message("#{emoji} Rated #{length(outcomes)} steps for run #{run_id}.",
+            gateway: msg.gateway
+          )
         end
 
       _ ->
@@ -358,12 +478,18 @@ defmodule AlexClaw.Dispatcher do
 
       case Enum.find(outcomes, &(&1.step_position == step_pos)) do
         nil ->
-          Gateway.send_message("Step #{step_pos} not found in run #{run_id}.", gateway: msg.gateway)
+          Gateway.send_message("Step #{step_pos} not found in run #{run_id}.",
+            gateway: msg.gateway
+          )
 
         outcome ->
           AlexClaw.Workflows.annotate_outcome(outcome.id, quality, feedback)
           emoji = quality_emoji(quality)
-          Gateway.send_message("#{emoji} Rated step #{step_pos} (#{outcome.skill_name}) for run #{run_id}.", gateway: msg.gateway)
+
+          Gateway.send_message(
+            "#{emoji} Rated step #{step_pos} (#{outcome.skill_name}) for run #{run_id}.",
+            gateway: msg.gateway
+          )
       end
     else
       _ -> Gateway.send_message("Usage: `/rate <run_id> <step> +|-`", gateway: msg.gateway)
@@ -408,10 +534,13 @@ defmodule AlexClaw.Dispatcher do
           cond do
             name == "Ollama" ->
               if Config.get("llm.ollama_enabled"), do: "enabled", else: "disabled"
+
             name == "LM Studio" ->
               if Config.get("llm.lmstudio_enabled"), do: "enabled", else: "disabled"
+
             key_path == nil ->
               "disabled"
+
             true ->
               key = Config.get(key_path) || ""
               if key != "", do: "configured", else: "no key"
@@ -431,15 +560,25 @@ defmodule AlexClaw.Dispatcher do
         case Integer.parse(pr) do
           {pr_number, ""} ->
             AlexClaw.Skills.GitHubSecurityReview.review_pr(repo, pr_number, gateway: msg.gateway)
-            Gateway.send_message("GitHub security review started for PR ##{pr_number} on #{repo}.", gateway: msg.gateway)
+
+            Gateway.send_message(
+              "GitHub security review started for PR ##{pr_number} on #{repo}.",
+              gateway: msg.gateway
+            )
 
           _ ->
-            Gateway.send_message("Invalid PR number: `#{pr}`\nUsage: /github pr owner/repo <number>", gateway: msg.gateway)
+            Gateway.send_message(
+              "Invalid PR number: `#{pr}`\nUsage: /github pr owner/repo <number>",
+              gateway: msg.gateway
+            )
         end
 
       [repo] ->
         AlexClaw.Skills.GitHubSecurityReview.review_pr(repo, nil, gateway: msg.gateway)
-        Gateway.send_message("GitHub security review started for latest PR on #{repo}.", gateway: msg.gateway)
+
+        Gateway.send_message("GitHub security review started for latest PR on #{repo}.",
+          gateway: msg.gateway
+        )
     end
   end
 
@@ -447,7 +586,11 @@ defmodule AlexClaw.Dispatcher do
     case String.split(String.trim(rest), " ", parts: 2) do
       [repo, sha] ->
         AlexClaw.Skills.GitHubSecurityReview.review_commit(repo, sha, gateway: msg.gateway)
-        Gateway.send_message("GitHub security review started for commit #{String.slice(sha, 0, 8)} on #{repo}.", gateway: msg.gateway)
+
+        Gateway.send_message(
+          "GitHub security review started for commit #{String.slice(sha, 0, 8)} on #{repo}.",
+          gateway: msg.gateway
+        )
 
       _ ->
         Gateway.send_message("Usage: /github commit owner/repo <sha>", gateway: msg.gateway)
@@ -466,80 +609,100 @@ defmodule AlexClaw.Dispatcher do
   end
 
   def dispatch(%Message{text: "/coder" <> _} = msg) do
-    Gateway.send_message("""
-    *Coder — autonomous skill generation*
-    /coder <goal> — generate a dynamic skill from a natural language description
+    Gateway.send_message(
+      """
+      *Coder — autonomous skill generation*
+      /coder <goal> — generate a dynamic skill from a natural language description
 
-    Example: `/coder a skill that returns the current BEAM process count and memory usage`
-    """, gateway: msg.gateway)
+      Example: `/coder a skill that returns the current BEAM process count and memory usage`
+      """,
+      gateway: msg.gateway
+    )
   end
 
   # --- Shell ---
 
   def dispatch(%Message{text: "/shell " <> command} = msg) do
     command = String.trim(command)
+
     if Config.get("shell.enabled") == true do
-      case AuthCommands.require_2fa(msg, %{type: :shell_command, command: command},
-             "Execute: `#{String.slice(command, 0, 80)}`") do
-        :challenged -> :ok
+      case AuthCommands.require_2fa(
+             msg,
+             %{type: :shell_command, command: command},
+             "Execute: `#{String.slice(command, 0, 80)}`"
+           ) do
+        :challenged ->
+          :ok
+
         :proceed ->
           Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
             case AlexClaw.Skills.Shell.run(%{input: command}) do
-              {:ok, result, _branch} -> Gateway.send_message(result, gateway: msg.gateway)
-              {:error, reason} -> Gateway.send_message("Shell error: #{inspect(reason)}", gateway: msg.gateway)
+              {:ok, result, _branch} ->
+                Gateway.send_message(result, gateway: msg.gateway)
+
+              {:error, reason} ->
+                Gateway.send_message("Shell error: #{inspect(reason)}", gateway: msg.gateway)
             end
           end)
       end
     else
-      Gateway.send_message("Shell commands are disabled. Enable in Admin > Config.", gateway: msg.gateway)
+      Gateway.send_message("Shell commands are disabled. Enable in Admin > Config.",
+        gateway: msg.gateway
+      )
     end
   end
 
   def dispatch(%Message{text: "/shell" <> _} = msg) do
-    Gateway.send_message("""
-    *Shell — container introspection*
-    /shell <command> — execute a whitelisted command (2FA-gated)
+    Gateway.send_message(
+      """
+      *Shell — container introspection*
+      /shell <command> — execute a whitelisted command (2FA-gated)
 
-    Examples: `df -h`, `ps aux`, `free -m`, `uptime`
-    """, gateway: msg.gateway)
+      Examples: `df -h`, `ps aux`, `free -m`, `uptime`
+      """,
+      gateway: msg.gateway
+    )
   end
 
   # --- Help ---
 
   def dispatch(%Message{text: "/help" <> _} = msg) do
-    Gateway.send_message("""
-    *AlexClaw commands*
-    /ping — check if alive
-    /status — system status
-    /skills — list registered skills
-    /llm — show LLM providers status
-    /workflows — list all workflows
-    /run <id or name> — run a workflow
-    /runs — show active workflow runs
-    /cancel <run\_id> — cancel a running workflow
-    /rate <run\_id> — view/rate workflow step outcomes (+/- or up/down)
-    /research <query> — deep research
-    /search <query> — search the web
-    /web <url> — summarize a web page
-    /web <url> <question> — answer a question about a page
-    /github pr <owner/repo> [pr\_number] — security review a PR
-    /github commit <owner/repo> <sha> — security review a commit
-    /tasks — list your Google Tasks
-    /tasklists — list your task lists with IDs
-    /task add <title> — add a new task
-    /coder <goal> — generate a dynamic skill from a description
-    /shell <command> — run whitelisted OS command (2FA-gated)
-    /record <url> — start browser recording (returns noVNC link)
-    /record stop <session\_id> — stop recording, get captured actions
-    /replay <resource\_id> — replay a recorded automation
-    /automate <url> — scrape and screenshot a URL via web-automator
-    /connect google — connect Google Calendar/Tasks via OAuth
-    /disconnect google — remove Google connection
-    /setup 2fa — enable two-factor authentication
-    /disable 2fa — disable two-factor authentication
-    /help — this message
-    _Anything else → conversation_
-    """, gateway: msg.gateway)
+    Gateway.send_message(
+      """
+      *AlexClaw commands*
+      /ping — check if alive
+      /status — system status
+      /skills — list registered skills
+      /llm — show LLM providers status
+      /workflows — list all workflows
+      /run <id or name> — run a workflow
+      /runs — show active workflow runs
+      /cancel <run\_id> — cancel a running workflow
+      /rate <run\_id> — view/rate workflow step outcomes (+/- or up/down)
+      /research <query> — deep research
+      /search <query> — search the web
+      /web <url> — summarize a web page
+      /web <url> <question> — answer a question about a page
+      /github pr <owner/repo> [pr\_number] — security review a PR
+      /github commit <owner/repo> <sha> — security review a commit
+      /tasks — list your Google Tasks
+      /tasklists — list your task lists with IDs
+      /task add <title> — add a new task
+      /coder <goal> — generate a dynamic skill from a description
+      /shell <command> — run whitelisted OS command (2FA-gated)
+      /record <url> — start browser recording (returns noVNC link)
+      /record stop <session\_id> — stop recording, get captured actions
+      /replay <resource\_id> — replay a recorded automation
+      /automate <url> — scrape and screenshot a URL via web-automator
+      /connect google — connect Google Calendar/Tasks via OAuth
+      /disconnect google — remove Google connection
+      /setup 2fa — enable two-factor authentication
+      /disable 2fa — disable two-factor authentication
+      /help — this message
+      _Anything else → conversation_
+      """,
+      gateway: msg.gateway
+    )
   end
 
   # --- Catch-all: 2FA challenge response or conversational ---
@@ -550,15 +713,25 @@ defmodule AlexClaw.Dispatcher do
     if Regex.match?(~r/^\d{6}$/, trimmed) and AlexClaw.Auth.TOTP.pending_challenge?(msg.chat_id) do
       case AlexClaw.Auth.TOTP.resolve_challenge(msg.chat_id, trimmed) do
         {:ok, action} ->
-          Gateway.send_message("Code verified. Executing...", chat_id: msg.chat_id, gateway: msg.gateway)
+          Gateway.send_message("Code verified. Executing...",
+            chat_id: msg.chat_id,
+            gateway: msg.gateway
+          )
+
           Phoenix.PubSub.broadcast(AlexClaw.PubSub, "services:totp", {:totp_verified, action})
           AuthCommands.execute_2fa_action(action, msg)
 
         {:error, :invalid_code} ->
-          Gateway.send_message("Invalid code. Try again (2 minutes remaining).", chat_id: msg.chat_id, gateway: msg.gateway)
+          Gateway.send_message("Invalid code. Try again (2 minutes remaining).",
+            chat_id: msg.chat_id,
+            gateway: msg.gateway
+          )
 
         {:error, :challenge_expired} ->
-          Gateway.send_message("Challenge expired. Please trigger the action again.", chat_id: msg.chat_id, gateway: msg.gateway)
+          Gateway.send_message("Challenge expired. Please trigger the action again.",
+            chat_id: msg.chat_id,
+            gateway: msg.gateway
+          )
       end
     else
       AlexClaw.Skills.Conversational.handle(msg)

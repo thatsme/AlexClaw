@@ -34,7 +34,8 @@ defmodule AlexClawWeb.AdminLive.Logs do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("clear", _, socket) do
     LogBuffer.clear()
 

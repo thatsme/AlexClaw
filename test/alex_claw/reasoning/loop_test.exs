@@ -251,13 +251,23 @@ defmodule AlexClaw.Reasoning.LoopTest do
 
       Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
         case phase_from_system(opts) do
-          :planning -> {:ok, plan_response([echo_step("step1"), echo_step("step2")])}
-          :execution -> {:ok, execution_response("payload")}
-          :evaluation -> {:ok, evaluation_response("failed")}
+          :planning ->
+            {:ok, plan_response([echo_step("step1"), echo_step("step2")])}
+
+          :execution ->
+            {:ok, execution_response("payload")}
+
+          :evaluation ->
+            {:ok, evaluation_response("failed")}
+
           :decision ->
             {:ok, decision_response("done", confidence: 0.9, final_answer: "giving up")}
-          :forced_summary -> {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
-          other -> flunk("Unexpected LLM phase: #{inspect(other)}")
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          other ->
+            flunk("Unexpected LLM phase: #{inspect(other)}")
         end
       end)
 
@@ -312,7 +322,9 @@ defmodule AlexClaw.Reasoning.LoopTest do
       Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
         case phase_from_system(opts) do
           :planning ->
-            {:ok, plan_response([%{"skill" => "nonexistent_skill", "input_description" => "won't"}])}
+            {:ok,
+             plan_response([%{"skill" => "nonexistent_skill", "input_description" => "won't"}])}
+
           _ ->
             {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
         end
@@ -333,15 +345,25 @@ defmodule AlexClaw.Reasoning.LoopTest do
 
       Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
         case phase_from_system(opts) do
-          :planning -> {:ok, plan_response([echo_step("step1"), echo_step("step2")])}
+          :planning ->
+            {:ok, plan_response([echo_step("step1"), echo_step("step2")])}
+
           :execution ->
             send(test_pid, :execution_started)
             Process.sleep(500)
             {:ok, execution_response("payload")}
-          :evaluation -> {:ok, evaluation_response("good")}
-          :decision -> {:ok, decision_response("done", confidence: 0.9, final_answer: "x")}
-          :forced_summary -> {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
-          other -> flunk("Unexpected LLM phase: #{inspect(other)}")
+
+          :evaluation ->
+            {:ok, evaluation_response("good")}
+
+          :decision ->
+            {:ok, decision_response("done", confidence: 0.9, final_answer: "x")}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          other ->
+            flunk("Unexpected LLM phase: #{inspect(other)}")
         end
       end)
 
@@ -380,6 +402,7 @@ defmodule AlexClaw.Reasoning.LoopTest do
 
           :decision ->
             n = counter_inc(ct, :dec)
+
             if n < 2 do
               {:ok, decision_response("continue")}
             else

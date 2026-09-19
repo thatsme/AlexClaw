@@ -4,7 +4,6 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
   use Phoenix.LiveView
   import AlexClawWeb.TimeHelpers
 
-
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
@@ -58,7 +57,6 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
     |> Enum.join(" ")
   end
 
-
   defp cluster_warnings do
     if Node.list() == [] do
       []
@@ -69,7 +67,10 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
         if AlexClaw.Config.get("telegram.node") in [nil, ""] and
              AlexClaw.Config.get("telegram.enabled") in [true, "true"] and
              AlexClaw.Config.get("telegram.bot_token") not in [nil, ""] do
-          ["Telegram gateway paused — assign a node in Config > Telegram > telegram.node" | warnings]
+          [
+            "Telegram gateway paused — assign a node in Config > Telegram > telegram.node"
+            | warnings
+          ]
         else
           warnings
         end

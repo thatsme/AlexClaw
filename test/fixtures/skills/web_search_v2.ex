@@ -51,7 +51,10 @@ defmodule AlexClaw.Skills.Dynamic.WebSearchV2 do
     headers = [{"user-agent", "Mozilla/5.0 (compatible; AlexClaw/1.0)"}]
 
     case SkillAPI.http_post(__MODULE__, "https://html.duckduckgo.com/html/",
-           form: [q: query], headers: headers, receive_timeout: 10_000) do
+           form: [q: query],
+           headers: headers,
+           receive_timeout: 10_000
+         ) do
       {:ok, %{status: 200, body: body}} ->
         results =
           body
@@ -114,7 +117,11 @@ defmodule AlexClaw.Skills.Dynamic.WebSearchV2 do
     ]
 
     case SkillAPI.http_get(__MODULE__, url,
-           headers: headers, receive_timeout: 10_000, redirect: true, max_redirects: 5) do
+           headers: headers,
+           receive_timeout: 10_000,
+           redirect: true,
+           max_redirects: 5
+         ) do
       {:ok, %{status: 200, body: body}} when is_binary(body) ->
         text =
           body

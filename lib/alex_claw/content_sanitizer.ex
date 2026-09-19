@@ -50,25 +50,44 @@ defmodule AlexClaw.ContentSanitizer do
 
   # Zero-width and invisible unicode characters used for steganographic injection
   @zero_width_chars [
-    "\u200B",  # zero-width space
-    "\u200C",  # zero-width non-joiner
-    "\u200D",  # zero-width joiner
-    "\u200E",  # left-to-right mark
-    "\u200F",  # right-to-left mark
-    "\u2060",  # word joiner
-    "\u2061",  # function application
-    "\u2062",  # invisible times
-    "\u2063",  # invisible separator
-    "\u2064",  # invisible plus
-    "\uFEFF",  # byte order mark (when mid-text)
-    "\u00AD",  # soft hyphen
-    "\u034F",  # combining grapheme joiner
-    "\u061C",  # arabic letter mark
-    "\u115F",  # hangul choseong filler
-    "\u1160",  # hangul jungseong filler
-    "\u17B4",  # khmer vowel inherent aq
-    "\u17B5",  # khmer vowel inherent aa
-    "\u180E"   # mongolian vowel separator
+    # zero-width space
+    "\u200B",
+    # zero-width non-joiner
+    "\u200C",
+    # zero-width joiner
+    "\u200D",
+    # left-to-right mark
+    "\u200E",
+    # right-to-left mark
+    "\u200F",
+    # word joiner
+    "\u2060",
+    # function application
+    "\u2061",
+    # invisible times
+    "\u2062",
+    # invisible separator
+    "\u2063",
+    # invisible plus
+    "\u2064",
+    # byte order mark (when mid-text)
+    "\uFEFF",
+    # soft hyphen
+    "\u00AD",
+    # combining grapheme joiner
+    "\u034F",
+    # arabic letter mark
+    "\u061C",
+    # hangul choseong filler
+    "\u115F",
+    # hangul jungseong filler
+    "\u1160",
+    # khmer vowel inherent aq
+    "\u17B4",
+    # khmer vowel inherent aa
+    "\u17B5",
+    # mongolian vowel separator
+    "\u180E"
   ]
 
   # CSS patterns that hide content visually but keep it in the DOM
@@ -235,7 +254,10 @@ defmodule AlexClaw.ContentSanitizer do
 
   defp enforce_size(text, max_size) do
     if byte_size(text) > max_size do
-      Logger.warning("[ContentSanitizer] Content truncated from #{byte_size(text)} to #{max_size} bytes")
+      Logger.warning(
+        "[ContentSanitizer] Content truncated from #{byte_size(text)} to #{max_size} bytes"
+      )
+
       String.slice(text, 0, max_size)
     else
       text
@@ -344,13 +366,16 @@ defmodule AlexClaw.ContentSanitizer do
     low = String.downcase(String.trim(sentence))
 
     # Must have directive markers to be considered imperative
-    has_directive_target = Regex.match?(~r/\b(you|your|the ai|the model|the assistant|the system)\b/, low)
+    has_directive_target =
+      Regex.match?(~r/\b(you|your|the ai|the model|the assistant|the system)\b/, low)
+
     has_imperative_verb = Enum.any?(@imperative_verbs, &Regex.match?(imperative_regex(&1), low))
 
     # Sentence starts with an imperative verb (direct command)
-    starts_with_imperative = Enum.any?(@imperative_verbs, fn verb ->
-      String.starts_with?(low, verb <> " ") or String.starts_with?(low, verb <> ",")
-    end)
+    starts_with_imperative =
+      Enum.any?(@imperative_verbs, fn verb ->
+        String.starts_with?(low, verb <> " ") or String.starts_with?(low, verb <> ",")
+      end)
 
     # Must have both directive target + imperative verb, OR start with imperative verb
     (has_directive_target and has_imperative_verb) or starts_with_imperative

@@ -3,7 +3,7 @@ defmodule AlexClawWeb.CoreComponents do
 
   use Phoenix.Component
 
-  attr :flash, :map, required: true
+  attr(:flash, :map, required: true)
 
   @spec flash_group(map()) :: Phoenix.LiveView.Rendered.t()
   def flash_group(assigns) do
@@ -15,8 +15,8 @@ defmodule AlexClawWeb.CoreComponents do
     """
   end
 
-  attr :kind, :atom, required: true
-  attr :message, :string, required: true
+  attr(:kind, :atom, required: true)
+  attr(:message, :string, required: true)
 
   @spec flash(map()) :: Phoenix.LiveView.Rendered.t()
   def flash(assigns) do

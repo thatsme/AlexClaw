@@ -97,7 +97,9 @@ defmodule AlexClaw.WorkflowsTest do
       assert run.status == "running"
       assert run.workflow_id == wf.id
 
-      {:ok, updated} = Workflows.update_run(run, %{status: "completed", completed_at: DateTime.utc_now()})
+      {:ok, updated} =
+        Workflows.update_run(run, %{status: "completed", completed_at: DateTime.utc_now()})
+
       assert updated.status == "completed"
     end
 
@@ -136,7 +138,10 @@ defmodule AlexClaw.WorkflowsTest do
     test "counts runs by status for today" do
       wf = create_workflow()
       {:ok, r1} = Workflows.create_run(wf)
-      {:ok, _} = Workflows.update_run(r1, %{status: "completed", completed_at: DateTime.utc_now()})
+
+      {:ok, _} =
+        Workflows.update_run(r1, %{status: "completed", completed_at: DateTime.utc_now()})
+
       {:ok, r2} = Workflows.create_run(wf)
       {:ok, _} = Workflows.update_run(r2, %{status: "failed", completed_at: DateTime.utc_now()})
       {:ok, _} = Workflows.create_run(wf)

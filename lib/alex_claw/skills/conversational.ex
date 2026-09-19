@@ -30,7 +30,8 @@ defmodule AlexClaw.Skills.Conversational do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "message: text to send to the LLM. Leave empty to use {input} from the previous step."
+  def config_help,
+    do: "message: text to send to the LLM. Leave empty to use {input} from the previous step."
 
   @impl true
   @spec prompt_help() :: String.t()
@@ -80,10 +81,13 @@ defmodule AlexClaw.Skills.Conversational do
     prompt = "#{context}\n\nUser: #{text}"
 
     tier = String.to_existing_atom(Config.get("skill.conversational.tier") || "light")
-    provider = case Config.get("skill.conversational.provider") do
-      p when p in [nil, "", "auto"] -> nil
-      p -> p
-    end
+
+    provider =
+      case Config.get("skill.conversational.provider") do
+        p when p in [nil, "", "auto"] -> nil
+        p -> p
+      end
+
     llm_opts = [tier: tier, system: system] ++ if(provider, do: [provider: provider], else: [])
 
     case LLM.complete(prompt, llm_opts) do

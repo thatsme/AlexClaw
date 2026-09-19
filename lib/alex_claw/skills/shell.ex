@@ -55,7 +55,9 @@ defmodule AlexClaw.Skills.Shell do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked."
+  def config_help,
+    do:
+      "command: the OS command to execute. Must match a whitelisted prefix (df, free, ps, uptime, ls, etc.). Shell metacharacters (pipes, redirects, semicolons) are blocked."
 
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
@@ -79,8 +81,13 @@ defmodule AlexClaw.Skills.Shell do
     else
       whitelist = load_list(config["whitelist"], "shell.whitelist", @default_whitelist)
       blocklist = load_list(config["blocklist"], "shell.blocklist", @default_blocklist)
-      timeout_ms = load_int(config["timeout_seconds"], "shell.timeout_seconds", @default_timeout_seconds) * 1000
-      max_chars = load_int(config["max_output_chars"], "shell.max_output_chars", @default_max_output_chars)
+
+      timeout_ms =
+        load_int(config["timeout_seconds"], "shell.timeout_seconds", @default_timeout_seconds) *
+          1000
+
+      max_chars =
+        load_int(config["max_output_chars"], "shell.max_output_chars", @default_max_output_chars)
 
       with :ok <- validate_whitelist(command, whitelist),
            :ok <- validate_blocklist(command, blocklist) do

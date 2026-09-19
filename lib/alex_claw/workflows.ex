@@ -349,7 +349,8 @@ defmodule AlexClaw.Workflows do
     |> Repo.insert()
   end
 
-  @spec update_step(WorkflowStep.t(), map()) :: {:ok, WorkflowStep.t()} | {:error, Ecto.Changeset.t()}
+  @spec update_step(WorkflowStep.t(), map()) ::
+          {:ok, WorkflowStep.t()} | {:error, Ecto.Changeset.t()}
   def update_step(%WorkflowStep{} = step, attrs) do
     step
     |> WorkflowStep.changeset(attrs)
@@ -376,10 +377,15 @@ defmodule AlexClaw.Workflows do
 
   # --- Resource Assignment ---
 
-  @spec assign_resource(Workflow.t(), integer(), String.t()) :: {:ok, WorkflowResource.t()} | {:error, Ecto.Changeset.t()}
+  @spec assign_resource(Workflow.t(), integer(), String.t()) ::
+          {:ok, WorkflowResource.t()} | {:error, Ecto.Changeset.t()}
   def assign_resource(%Workflow{} = workflow, resource_id, role \\ "input") do
     %WorkflowResource{}
-    |> WorkflowResource.changeset(%{workflow_id: workflow.id, resource_id: resource_id, role: role})
+    |> WorkflowResource.changeset(%{
+      workflow_id: workflow.id,
+      resource_id: resource_id,
+      role: role
+    })
     |> Repo.insert()
   end
 
@@ -405,7 +411,8 @@ defmodule AlexClaw.Workflows do
     |> Repo.insert()
   end
 
-  @spec update_run(WorkflowRun.t(), map()) :: {:ok, WorkflowRun.t()} | {:error, Ecto.Changeset.t()}
+  @spec update_run(WorkflowRun.t(), map()) ::
+          {:ok, WorkflowRun.t()} | {:error, Ecto.Changeset.t()}
   def update_run(%WorkflowRun{} = run, attrs) do
     run
     |> WorkflowRun.changeset(attrs)
@@ -439,7 +446,12 @@ defmodule AlexClaw.Workflows do
   end
 
   @doc "Aggregate run statistics for today (UTC). Returns counts by status."
-  @spec run_stats_today() :: %{total: non_neg_integer(), completed: non_neg_integer(), failed: non_neg_integer(), running: non_neg_integer()}
+  @spec run_stats_today() :: %{
+          total: non_neg_integer(),
+          completed: non_neg_integer(),
+          failed: non_neg_integer(),
+          running: non_neg_integer()
+        }
   def run_stats_today do
     today_start = DateTime.new!(Date.utc_today(), ~T[00:00:00], "Etc/UTC")
 
@@ -498,7 +510,11 @@ defmodule AlexClaw.Workflows do
   end
 
   @doc "Aggregate outcome stats for a skill: total, thumbs_up, thumbs_down counts."
-  @spec outcome_stats(String.t()) :: %{total: non_neg_integer(), thumbs_up: non_neg_integer(), thumbs_down: non_neg_integer()}
+  @spec outcome_stats(String.t()) :: %{
+          total: non_neg_integer(),
+          thumbs_up: non_neg_integer(),
+          thumbs_down: non_neg_integer()
+        }
   def outcome_stats(skill_name) do
     results =
       SkillOutcome
@@ -516,7 +532,8 @@ defmodule AlexClaw.Workflows do
   end
 
   @doc "Annotate an existing outcome with user quality rating and optional feedback."
-  @spec annotate_outcome(integer(), String.t(), String.t() | nil) :: {:ok, SkillOutcome.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  @spec annotate_outcome(integer(), String.t(), String.t() | nil) ::
+          {:ok, SkillOutcome.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def annotate_outcome(outcome_id, quality, feedback \\ nil) do
     case Repo.get(SkillOutcome, outcome_id) do
       nil ->

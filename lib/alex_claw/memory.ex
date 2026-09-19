@@ -73,8 +73,11 @@ defmodule AlexClaw.Memory do
           }
 
           case %Entry{} |> Entry.changeset(chunk_attrs) |> Repo.insert() do
-            {:ok, chunk_entry} -> async_embed(chunk_entry)
-            {:error, reason} -> Logger.warning("Failed to insert chunk #{idx}: #{inspect(reason)}")
+            {:ok, chunk_entry} ->
+              async_embed(chunk_entry)
+
+            {:error, reason} ->
+              Logger.warning("Failed to insert chunk #{idx}: #{inspect(reason)}")
           end
         end)
 
@@ -162,7 +165,11 @@ defmodule AlexClaw.Memory do
 
     entries =
       Entry
-      |> where([e], is_nil(e.embedding) or is_nil(e.embedding_model) or e.embedding_model != ^(current_model || ""))
+      |> where(
+        [e],
+        is_nil(e.embedding) or is_nil(e.embedding_model) or
+          e.embedding_model != ^(current_model || "")
+      )
       |> Repo.all()
 
     count = length(entries)

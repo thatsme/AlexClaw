@@ -7,7 +7,9 @@ defmodule AlexClaw.Skills.Dynamic.SystemInfo do
     hostname = :os.cmd('hostname') |> to_string() |> String.trim()
     elixir_version = System.version()
 
-    result_string = "UTC Date/Time: #{date_time}, Hostname: #{hostname}, Elixir Version: #{elixir_version}"
+    result_string =
+      "UTC Date/Time: #{date_time}, Hostname: #{hostname}, Elixir Version: #{elixir_version}"
+
     {:ok, result_string, :on_success}
   end
 

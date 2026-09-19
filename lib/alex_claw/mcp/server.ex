@@ -48,14 +48,16 @@ defmodule AlexClaw.MCP.Server do
   @impl true
   @spec handle_tool_call(String.t(), map(), map()) :: {:ok, map(), map()} | {:error, map(), map()}
   def handle_tool_call("skill:" <> skill_name, arguments, frame) do
-    with {:resolve, {:ok, module}} <- {:resolve, AlexClaw.Workflows.SkillRegistry.resolve(skill_name)},
+    with {:resolve, {:ok, module}} <-
+           {:resolve, AlexClaw.Workflows.SkillRegistry.resolve(skill_name)},
          {:policy, :allow} <- {:policy, check_mcp_policy("skill:#{skill_name}", :execute)} do
       args = build_skill_args(arguments)
       result = execute_skill(module, skill_name, args)
       format_tool_result(result, frame)
     else
       {:resolve, {:error, :unknown_skill}} ->
-        {:error, Error.protocol(:invalid_params, %{message: "Unknown skill: #{skill_name}"}), frame}
+        {:error, Error.protocol(:invalid_params, %{message: "Unknown skill: #{skill_name}"}),
+         frame}
 
       {:policy, {:deny, reason}} ->
         {:error, Error.execution(reason), frame}
@@ -69,7 +71,8 @@ defmodule AlexClaw.MCP.Server do
       format_tool_result(result, frame)
     else
       {:find, {:error, :not_found}} ->
-        {:error, Error.protocol(:invalid_params, %{message: "Unknown workflow: #{workflow_name}"}), frame}
+        {:error,
+         Error.protocol(:invalid_params, %{message: "Unknown workflow: #{workflow_name}"}), frame}
 
       {:policy, {:deny, reason}} ->
         {:error, Error.execution(reason), frame}
@@ -183,11 +186,12 @@ defmodule AlexClaw.MCP.Server do
 
     case result do
       {:ok, run} ->
-        {:ok, %{
-          run_id: run.id,
-          status: run.status,
-          result: run.result
-        }}
+        {:ok,
+         %{
+           run_id: run.id,
+           status: run.status,
+           result: run.result
+         }}
 
       {:error, reason} ->
         {:error, reason}

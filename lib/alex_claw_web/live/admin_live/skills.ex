@@ -32,7 +32,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("validate_upload", _params, socket) do
     {:noreply, socket}
   end
@@ -115,7 +116,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
         end
 
       :no_2fa ->
-        {:noreply, put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
+        {:noreply,
+         put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
     end
   end
 
@@ -132,7 +134,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
         do_reload(name, socket)
 
       :no_2fa ->
-        {:noreply, put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
+        {:noreply,
+         put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
     end
   end
 
@@ -149,11 +152,16 @@ defmodule AlexClawWeb.AdminLive.Skills do
     case SkillRegistry.reload_skill(name) do
       {:ok, %{name: n, module: module, permissions: perms}} ->
         perm_list = Enum.map_join(perms, ", ", &to_string/1)
-        version = if function_exported?(module, :version, 0), do: " v#{module.version()}", else: ""
+
+        version =
+          if function_exported?(module, :version, 0), do: " v#{module.version()}", else: ""
 
         {:noreply,
          socket
-         |> put_flash(:info, "Skill '#{n}'#{version} reloaded and recompiled. Permissions: #{perm_list}")
+         |> put_flash(
+           :info,
+           "Skill '#{n}'#{version} reloaded and recompiled. Permissions: #{perm_list}"
+         )
          |> assign(skills: build_skill_list())}
 
       {:error, reason} ->
@@ -189,7 +197,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
   end
 
   defp build_skill_list do
-    Enum.map(SkillRegistry.list_all_with_type(), fn {name, module, type, permissions, routes, _ext} ->
+    Enum.map(SkillRegistry.list_all_with_type(), fn {name, module, type, permissions, routes,
+                                                     _ext} ->
       %{
         name: name,
         module: module,
@@ -212,18 +221,28 @@ defmodule AlexClawWeb.AdminLive.Skills do
   end
 
   defp get_description(module) do
-    if function_exported?(module, :description, 0), do: module.description(), else: "No description available"
+    if function_exported?(module, :description, 0),
+      do: module.description(),
+      else: "No description available"
   end
 
   defp get_version(module) do
     if function_exported?(module, :version, 0), do: module.version(), else: nil
   end
 
-  defp format_error({:invalid_namespace, ns}), do: "Module must be under AlexClaw.Skills.Dynamic.*, got #{ns}"
+  defp format_error({:invalid_namespace, ns}),
+    do: "Module must be under AlexClaw.Skills.Dynamic.*, got #{ns}"
+
   defp format_error(:missing_run_callback), do: "Module must export run/1"
-  defp format_error({:unknown_permissions, invalid}), do: "Unknown permissions: #{inspect(invalid)}"
+
+  defp format_error({:unknown_permissions, invalid}),
+    do: "Unknown permissions: #{inspect(invalid)}"
+
   defp format_error(:name_conflicts_with_core), do: "Name conflicts with a core skill"
-  defp format_error({:compilation_error, msg}), do: "Compilation error: #{String.slice(msg, 0, 300)}"
+
+  defp format_error({:compilation_error, msg}),
+    do: "Compilation error: #{String.slice(msg, 0, 300)}"
+
   defp format_error(:path_traversal), do: "Invalid file path"
   defp format_error(:file_not_found), do: "File not found"
   defp format_error({:same_version, nil, hint}), do: "No version defined. #{hint}"

@@ -27,7 +27,8 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form)}
   end
@@ -49,7 +50,11 @@ defmodule AlexClawWeb.AdminLive.Cluster do
 
       {:error, changeset} ->
         msg =
-          Enum.map_join(Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end), ", ", fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
+          Enum.map_join(
+            Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end),
+            ", ",
+            fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end
+          )
 
         {:noreply, put_flash(socket, :error, "Failed: #{msg}")}
     end

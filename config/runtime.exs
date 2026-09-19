@@ -7,17 +7,17 @@ if config_env() == :prod do
     System.get_env("SECRET_KEY_BASE") ||
       raise "SECRET_KEY_BASE not set. Generate with: mix phx.gen.secret"
 
-  config :alex_claw, AlexClawWeb.Endpoint,
-    secret_key_base: secret_key_base
+  config :alex_claw, AlexClawWeb.Endpoint, secret_key_base: secret_key_base
 
   config :alex_claw, AlexClaw.Repo,
     username: System.fetch_env!("DATABASE_USERNAME"),
     password: System.fetch_env!("DATABASE_PASSWORD"),
     hostname: System.fetch_env!("DATABASE_HOSTNAME"),
-    pool_size: (case Integer.parse(System.get_env("POOL_SIZE") || "10") do
-      {n, _} -> n
-      :error -> 10
-    end)
+    pool_size:
+      (case Integer.parse(System.get_env("POOL_SIZE") || "10") do
+         {n, _} -> n
+         :error -> 10
+       end)
 
   config :alex_claw, admin_password: System.get_env("ADMIN_PASSWORD")
 

@@ -8,7 +8,9 @@ defmodule AlexClaw.ReasoningTest do
 
   describe "create_session/1" do
     test "creates a session with valid goal" do
-      assert {:ok, session} = Reasoning.create_session(%{goal: "Research Elixir GenServer patterns"})
+      assert {:ok, session} =
+               Reasoning.create_session(%{goal: "Research Elixir GenServer patterns"})
+
       assert session.goal == "Research Elixir GenServer patterns"
       assert session.status == "planning"
       assert session.iteration_count == 0
@@ -113,7 +115,13 @@ defmodule AlexClaw.ReasoningTest do
   describe "update_session/2" do
     test "updates session fields" do
       {:ok, session} = Reasoning.create_session(%{goal: "test"})
-      assert {:ok, updated} = Reasoning.update_session(session, %{status: "paused", working_memory: "paused state"})
+
+      assert {:ok, updated} =
+               Reasoning.update_session(session, %{
+                 status: "paused",
+                 working_memory: "paused state"
+               })
+
       assert updated.status == "paused"
       assert updated.working_memory == "paused state"
     end
@@ -302,7 +310,13 @@ defmodule AlexClaw.ReasoningTest do
     test "returns most recent step" do
       {:ok, session} = Reasoning.create_session(%{goal: "test"})
       Reasoning.record_step(%{session_id: session.id, iteration: 1, phase: "plan"})
-      Reasoning.record_step(%{session_id: session.id, iteration: 1, phase: "execute", skill_name: "web_search"})
+
+      Reasoning.record_step(%{
+        session_id: session.id,
+        iteration: 1,
+        phase: "execute",
+        skill_name: "web_search"
+      })
 
       latest = Reasoning.latest_step(session.id)
       assert latest.phase == "execute"

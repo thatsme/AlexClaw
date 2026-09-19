@@ -16,7 +16,8 @@ defmodule AlexClaw.Skills.ApiRequest do
   def external, do: true
   @impl true
   @spec description() :: String.t()
-  def description, do: "Generic REST client — GET/POST/PUT/PATCH/DELETE with {input} interpolation"
+  def description,
+    do: "Generic REST client — GET/POST/PUT/PATCH/DELETE with {input} interpolation"
 
   @impl true
   @spec routes() :: [atom()]
@@ -39,13 +40,20 @@ defmodule AlexClaw.Skills.ApiRequest do
   def config_presets do
     %{
       "GET" => %{"method" => "GET", "url" => "https://...", "headers" => %{}},
-      "POST" => %{"method" => "POST", "url" => "https://...", "headers" => %{"content-type" => "application/json"}, "body" => "{}"}
+      "POST" => %{
+        "method" => "POST",
+        "url" => "https://...",
+        "headers" => %{"content-type" => "application/json"},
+        "body" => "{}"
+      }
     }
   end
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "HTTP request parameters: method, url, headers, body. The response becomes the next step's input."
+  def config_help,
+    do:
+      "HTTP request parameters: method, url, headers, body. The response becomes the next step's input."
 
   require Logger
 
@@ -126,11 +134,20 @@ defmodule AlexClaw.Skills.ApiRequest do
 
     result =
       case method do
-        "GET" -> Req.get(url, opts)
-        "DELETE" -> Req.delete(url, opts)
-        "POST" -> Req.post(url, Keyword.merge(opts, json_or_body(body)))
-        "PUT" -> Req.put(url, Keyword.merge(opts, json_or_body(body)))
-        "PATCH" -> Req.request(Keyword.merge(opts, [method: :patch, url: url] ++ json_or_body(body)))
+        "GET" ->
+          Req.get(url, opts)
+
+        "DELETE" ->
+          Req.delete(url, opts)
+
+        "POST" ->
+          Req.post(url, Keyword.merge(opts, json_or_body(body)))
+
+        "PUT" ->
+          Req.put(url, Keyword.merge(opts, json_or_body(body)))
+
+        "PATCH" ->
+          Req.request(Keyword.merge(opts, [method: :patch, url: url] ++ json_or_body(body)))
       end
 
     case result do
@@ -160,34 +177,43 @@ defmodule AlexClaw.Skills.ApiRequest do
   end
 
   defp interpolate(template, nil), do: template
+
   defp interpolate(template, input) when is_binary(input) do
     template
     |> String.replace("{input_encoded}", URI.encode(input))
     |> String.replace("{input}", input)
   end
+
   defp interpolate(template, input) when is_map(input) do
-    json = case Jason.encode(input) do
-      {:ok, encoded} -> encoded
-      {:error, _} -> inspect(input)
-    end
+    json =
+      case Jason.encode(input) do
+        {:ok, encoded} -> encoded
+        {:error, _} -> inspect(input)
+      end
+
     template
     |> String.replace("{input_encoded}", URI.encode(json))
     |> String.replace("{input}", json)
   end
+
   defp interpolate(template, input) do
     str = inspect(input)
+
     template
     |> String.replace("{input_encoded}", URI.encode(str))
     |> String.replace("{input}", str)
   end
 
   defp parse_headers(nil), do: []
+
   defp parse_headers(headers) when is_map(headers) do
     Enum.map(headers, fn {k, v} -> {to_string(k), to_string(v)} end)
   end
+
   defp parse_headers(_), do: []
 
   defp json_or_body(""), do: []
+
   defp json_or_body(body) do
     case Jason.decode(body) do
       {:ok, parsed} -> [json: parsed]
@@ -196,6 +222,9 @@ defmodule AlexClaw.Skills.ApiRequest do
   end
 
   defp format_response(body) when is_binary(body), do: body
-  defp format_response(body) when is_map(body) or is_list(body), do: Jason.encode!(body, pretty: true)
+
+  defp format_response(body) when is_map(body) or is_list(body),
+    do: Jason.encode!(body, pretty: true)
+
   defp format_response(body), do: inspect(body)
 end

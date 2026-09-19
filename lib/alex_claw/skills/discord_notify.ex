@@ -28,7 +28,8 @@ defmodule AlexClaw.Skills.DiscordNotify do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "channel_id: target Discord channel. Leave empty to send to the default channel."
+  def config_help,
+    do: "channel_id: target Discord channel. Leave empty to send to the default channel."
 
   require Logger
 
@@ -54,6 +55,7 @@ defmodule AlexClaw.Skills.DiscordNotify do
       message
       |> chunk_message(1900)
       |> Enum.each(fn chunk -> AlexClaw.Gateway.Discord.send_message(chunk, opts) end)
+
       # Pass through the original input so downstream steps still have the data
       {:ok, input, :on_delivered}
     else

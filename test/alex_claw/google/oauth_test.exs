@@ -10,8 +10,15 @@ defmodule AlexClaw.Google.OAuthTest do
     end
 
     test "returns URL when client_id is configured" do
-      insert_setting("google.oauth.client_id", "test-client-id", type: "string", category: "google")
-      insert_setting("google.oauth.redirect_uri", "http://localhost:4000/auth/google/callback", type: "string", category: "google")
+      insert_setting("google.oauth.client_id", "test-client-id",
+        type: "string",
+        category: "google"
+      )
+
+      insert_setting("google.oauth.redirect_uri", "http://localhost:4000/auth/google/callback",
+        type: "string",
+        category: "google"
+      )
 
       assert {:ok, url} = OAuth.generate_auth_url("12345")
       assert url =~ "accounts.google.com"

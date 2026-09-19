@@ -54,7 +54,9 @@ defmodule AlexClaw.UpdateChecker do
         }
 
         :ets.insert(@table, {:latest, info})
-        if info.update_available, do: Logger.info("Update available: v#{latest} (running v#{current})")
+
+        if info.update_available,
+          do: Logger.info("Update available: v#{latest} (running v#{current})")
 
       {:ok, %{status: status}} ->
         Logger.warning("Update check: GitHub API returned #{status}")

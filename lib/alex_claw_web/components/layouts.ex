@@ -5,5 +5,5 @@ defmodule AlexClawWeb.Layouts do
   import Phoenix.Controller, only: [get_csrf_token: 0]
   import AlexClawWeb.CoreComponents
 
-  embed_templates "layouts/*"
+  embed_templates("layouts/*")
 end

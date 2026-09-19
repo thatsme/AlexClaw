@@ -11,7 +11,7 @@ defmodule AlexClaw.Skills.ApiRequestTest do
 
     test "returns error for invalid method" do
       assert {:error, {:invalid_method, "TRACE"}} =
-        ApiRequest.run(%{config: %{"method" => "TRACE", "url" => "http://example.com"}})
+               ApiRequest.run(%{config: %{"method" => "TRACE", "url" => "http://example.com"}})
     end
 
     test "interpolates {input} in URL" do
@@ -21,10 +21,11 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, ~s({"ticker": "AAPL"}))
       end)
 
-      result = ApiRequest.run(%{
-        config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/api/{input}"},
-        input: "AAPL"
-      })
+      result =
+        ApiRequest.run(%{
+          config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/api/{input}"},
+          input: "AAPL"
+        })
 
       assert {:ok, body, _branch} = result
       assert body =~ "AAPL"
@@ -39,10 +40,14 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      result = ApiRequest.run(%{
-        config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/search?q={input_encoded}"},
-        input: "hello world"
-      })
+      result =
+        ApiRequest.run(%{
+          config: %{
+            "method" => "GET",
+            "url" => "http://localhost:#{bypass.port}/search?q={input_encoded}"
+          },
+          input: "hello world"
+        })
 
       assert {:ok, "ok", _branch} = result
     end
@@ -54,9 +59,10 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, ~s({"status": "ok"}))
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-        config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/data"}
-      })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/data"}
+               })
     end
 
     test "handles POST request with JSON body" do
@@ -68,13 +74,14 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, ~s({"received": true}))
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-        config: %{
-          "method" => "POST",
-          "url" => "http://localhost:#{bypass.port}/submit",
-          "body" => ~s({"key": "value"})
-        }
-      })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{
+                   "method" => "POST",
+                   "url" => "http://localhost:#{bypass.port}/submit",
+                   "body" => ~s({"key": "value"})
+                 }
+               })
     end
 
     test "returns error for non-2xx status" do
@@ -84,9 +91,10 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 404, "not found")
       end)
 
-      assert {:ok, "not found", :on_4xx} = ApiRequest.run(%{
-        config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/fail"}
-      })
+      assert {:ok, "not found", :on_4xx} =
+               ApiRequest.run(%{
+                 config: %{"method" => "GET", "url" => "http://localhost:#{bypass.port}/fail"}
+               })
     end
 
     test "passes custom headers" do
@@ -98,13 +106,14 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, "ok", _branch} = ApiRequest.run(%{
-        config: %{
-          "method" => "GET",
-          "url" => "http://localhost:#{bypass.port}/auth",
-          "headers" => %{"x-api-key" => "secret123"}
-        }
-      })
+      assert {:ok, "ok", _branch} =
+               ApiRequest.run(%{
+                 config: %{
+                   "method" => "GET",
+                   "url" => "http://localhost:#{bypass.port}/auth",
+                   "headers" => %{"x-api-key" => "secret123"}
+                 }
+               })
     end
 
     test "defaults to GET method" do
@@ -114,9 +123,10 @@ defmodule AlexClaw.Skills.ApiRequestTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-        config: %{"url" => "http://localhost:#{bypass.port}/default"}
-      })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/default"}
+               })
     end
   end
 end

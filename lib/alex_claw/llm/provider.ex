@@ -10,17 +10,17 @@ defmodule AlexClaw.LLM.Provider do
   @allowed_types ~w(openai_compatible ollama gemini anthropic custom)
 
   schema "llm_providers" do
-    field :name, :string
-    field :type, :string, default: "openai_compatible"
-    field :tier, :string
-    field :host, :string
-    field :model, :string
-    field :api_key, :string
-    field :daily_limit, :integer
-    field :headers, :map, default: %{}
-    field :enabled, :boolean, default: true
-    field :priority, :integer, default: 100
-    field :options, :map, default: %{}
+    field(:name, :string)
+    field(:type, :string, default: "openai_compatible")
+    field(:tier, :string)
+    field(:host, :string)
+    field(:model, :string)
+    field(:api_key, :string)
+    field(:daily_limit, :integer)
+    field(:headers, :map, default: %{})
+    field(:enabled, :boolean, default: true)
+    field(:priority, :integer, default: 100)
+    field(:options, :map, default: %{})
 
     timestamps(type: :utc_datetime)
   end
@@ -28,7 +28,19 @@ defmodule AlexClaw.LLM.Provider do
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(provider, attrs) do
     provider
-    |> cast(attrs, [:name, :type, :tier, :host, :model, :api_key, :daily_limit, :headers, :enabled, :priority, :options])
+    |> cast(attrs, [
+      :name,
+      :type,
+      :tier,
+      :host,
+      :model,
+      :api_key,
+      :daily_limit,
+      :headers,
+      :enabled,
+      :priority,
+      :options
+    ])
     |> validate_required([:name, :type, :tier, :model])
     |> validate_inclusion(:tier, @allowed_tiers)
     |> validate_inclusion(:type, @allowed_types)

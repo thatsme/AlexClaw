@@ -190,7 +190,12 @@ defmodule AlexClawWeb.AdminLive.Chat do
 
   @impl true
   def handle_async(:llm_response, {:ok, {:error, reason}}, socket) do
-    error_msg = %{role: :system, content: "Error: #{inspect(reason)}", timestamp: DateTime.utc_now()}
+    error_msg = %{
+      role: :system,
+      content: "Error: #{inspect(reason)}",
+      timestamp: DateTime.utc_now()
+    }
+
     {:noreply, assign(socket, messages: socket.assigns.messages ++ [error_msg], loading: false)}
   end
 
@@ -209,7 +214,12 @@ defmodule AlexClawWeb.AdminLive.Chat do
   end
 
   def handle_async(:llm_response, {:exit, reason}, socket) do
-    error_msg = %{role: :system, content: "Request failed: #{inspect(reason)}", timestamp: DateTime.utc_now()}
+    error_msg = %{
+      role: :system,
+      content: "Request failed: #{inspect(reason)}",
+      timestamp: DateTime.utc_now()
+    }
+
     {:noreply, assign(socket, messages: socket.assigns.messages ++ [error_msg], loading: false)}
   end
 
@@ -242,7 +252,10 @@ defmodule AlexClawWeb.AdminLive.Chat do
     {:noreply, assign(socket, reasoning_steps: steps)}
   end
 
-  def handle_info({:decision_made, %{session_id: session_id, action: action, confidence: confidence}}, socket) do
+  def handle_info(
+        {:decision_made, %{session_id: session_id, action: action, confidence: confidence}},
+        socket
+      ) do
     steps = reload_steps(session_id)
     {:noreply, assign(socket, reasoning_steps: steps, loop_status: :deciding)}
   end

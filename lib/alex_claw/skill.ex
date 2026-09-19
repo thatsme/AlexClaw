@@ -28,7 +28,16 @@ defmodule AlexClaw.Skill do
   @callback config_help() :: String.t()
   @callback prompt_help() :: String.t()
 
-  @optional_callbacks description: 0, permissions: 0, version: 0, routes: 0, external: 0,
-                      step_fields: 0, config_hint: 0, config_scaffold: 0, config_presets: 0,
-                      prompt_presets: 0, config_help: 0, prompt_help: 0
+  @optional_callbacks description: 0,
+                      permissions: 0,
+                      version: 0,
+                      routes: 0,
+                      external: 0,
+                      step_fields: 0,
+                      config_hint: 0,
+                      config_scaffold: 0,
+                      config_presets: 0,
+                      prompt_presets: 0,
+                      config_help: 0,
+                      prompt_help: 0
 end

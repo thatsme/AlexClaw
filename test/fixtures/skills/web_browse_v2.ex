@@ -60,7 +60,10 @@ defmodule AlexClaw.Skills.Dynamic.WebBrowseV2 do
     case SkillAPI.llm_complete(__MODULE__, prompt, llm_opts ++ [tier: :light, system: system]) do
       {:ok, response} ->
         SkillAPI.memory_store(__MODULE__, :web_page, response,
-          source: url, metadata: %{type: "summary"})
+          source: url,
+          metadata: %{type: "summary"}
+        )
+
         {:ok, response}
 
       {:error, reason} ->
@@ -87,7 +90,10 @@ defmodule AlexClaw.Skills.Dynamic.WebBrowseV2 do
     case SkillAPI.llm_complete(__MODULE__, prompt, llm_opts ++ [tier: :light, system: system]) do
       {:ok, response} ->
         SkillAPI.memory_store(__MODULE__, :web_page, response,
-          source: url, metadata: %{type: "qa", question: question})
+          source: url,
+          metadata: %{type: "qa", question: question}
+        )
+
         {:ok, response}
 
       {:error, reason} ->
@@ -104,7 +110,11 @@ defmodule AlexClaw.Skills.Dynamic.WebBrowseV2 do
     ]
 
     case SkillAPI.http_get(__MODULE__, url,
-           headers: headers, receive_timeout: 15_000, redirect: true, max_redirects: 5) do
+           headers: headers,
+           receive_timeout: 15_000,
+           redirect: true,
+           max_redirects: 5
+         ) do
       {:ok, %{status: 200, body: body}} when is_binary(body) ->
         {:ok, extract_text(body)}
 

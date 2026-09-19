@@ -51,7 +51,11 @@ defmodule AlexClawWeb.AdminLive.Services do
     services =
       Enum.map(socket.assigns.services, fn svc ->
         if svc.id == "embeddings" do
-          detail = if total > 0, do: "Re-embedding #{total} entries in background...", else: "Nothing to re-embed"
+          detail =
+            if total > 0,
+              do: "Re-embedding #{total} entries in background...",
+              else: "Nothing to re-embed"
+
           %{svc | status: :challenged, detail: detail}
         else
           svc
@@ -67,7 +71,9 @@ defmodule AlexClawWeb.AdminLive.Services do
 
     services =
       Enum.map(socket.assigns.services, fn svc ->
-        if svc.id == "embeddings", do: %{svc | status: result.status, detail: result.detail}, else: svc
+        if svc.id == "embeddings",
+          do: %{svc | status: result.status, detail: result.detail},
+          else: svc
       end)
 
     if result.status == :expired or result.status == :challenged do
@@ -83,16 +89,86 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   defp build_services do
     [
-      %{id: "database", name: "Database", icon: "🗄️", status: initial_status("database"), detail: nil, config_url: "/config"},
-      %{id: "google", name: "Google API", icon: "🔗", status: initial_status("google"), detail: nil, config_url: "/config"},
-      %{id: "telegram", name: "Telegram Bot", icon: "📨", status: initial_status("telegram"), detail: nil, config_url: "/config"},
-      %{id: "discord", name: "Discord Bot", icon: "🎮", status: initial_status("discord"), detail: nil, config_url: "/config"},
-      %{id: "totp", name: "2FA (TOTP)", icon: "🔐", status: initial_status("totp"), detail: nil, config_url: "/config"},
-      %{id: "ollama", name: "Ollama", icon: "🦙", status: initial_status("ollama"), detail: nil, config_url: "/config"},
-      %{id: "lmstudio", name: "LM Studio", icon: "🧠", status: initial_status("lmstudio"), detail: nil, config_url: "/config"},
-      %{id: "github", name: "GitHub API", icon: "🐙", status: initial_status("github"), detail: nil, config_url: "/config"},
-      %{id: "web_automator", name: "Web Automator", icon: "🌐", status: initial_status("web_automator"), detail: nil, config_url: "/config"},
-      %{id: "embeddings", name: "Embeddings", icon: "📐", status: initial_status("embeddings"), detail: nil, config_url: "/config"}
+      %{
+        id: "database",
+        name: "Database",
+        icon: "🗄️",
+        status: initial_status("database"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "google",
+        name: "Google API",
+        icon: "🔗",
+        status: initial_status("google"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "telegram",
+        name: "Telegram Bot",
+        icon: "📨",
+        status: initial_status("telegram"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "discord",
+        name: "Discord Bot",
+        icon: "🎮",
+        status: initial_status("discord"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "totp",
+        name: "2FA (TOTP)",
+        icon: "🔐",
+        status: initial_status("totp"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "ollama",
+        name: "Ollama",
+        icon: "🦙",
+        status: initial_status("ollama"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "lmstudio",
+        name: "LM Studio",
+        icon: "🧠",
+        status: initial_status("lmstudio"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "github",
+        name: "GitHub API",
+        icon: "🐙",
+        status: initial_status("github"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "web_automator",
+        name: "Web Automator",
+        icon: "🌐",
+        status: initial_status("web_automator"),
+        detail: nil,
+        config_url: "/config"
+      },
+      %{
+        id: "embeddings",
+        name: "Embeddings",
+        icon: "📐",
+        status: initial_status("embeddings"),
+        detail: nil,
+        config_url: "/config"
+      }
     ]
   end
 
@@ -300,8 +376,12 @@ defmodule AlexClawWeb.AdminLive.Services do
       %{status: :not_configured, detail: "Token not set"}
     else
       case Req.get("https://api.github.com/user",
-             headers: [{"authorization", "Bearer #{token}"}, {"accept", "application/vnd.github+json"}],
-             receive_timeout: 5_000) do
+             headers: [
+               {"authorization", "Bearer #{token}"},
+               {"accept", "application/vnd.github+json"}
+             ],
+             receive_timeout: 5_000
+           ) do
         {:ok, %{status: 200, body: %{"login" => login}}} ->
           %{status: :connected, detail: "Authenticated as #{login}"}
 
@@ -353,7 +433,11 @@ defmodule AlexClawWeb.AdminLive.Services do
       if total_stale == 0 do
         %{status: :connected, detail: "All embeddings use #{model}"}
       else
-        %{status: :expired, detail: "#{total_stale} stale embeddings (#{stale_mem} memory, #{stale_kb} knowledge) — model: #{model}"}
+        %{
+          status: :expired,
+          detail:
+            "#{total_stale} stale embeddings (#{stale_mem} memory, #{stale_kb} knowledge) — model: #{model}"
+        }
       end
     end
   end

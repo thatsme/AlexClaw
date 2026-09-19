@@ -11,7 +11,8 @@ config :alex_claw, AlexClawWeb.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "dev_only_secret_key_base_that_is_at_least_64_bytes_long_for_alexclaw_dev_only!!",
+  secret_key_base:
+    "dev_only_secret_key_base_that_is_at_least_64_bytes_long_for_alexclaw_dev_only!!",
   live_reload: [
     patterns: [
       ~r"lib/alex_claw_web/(live|components)/.*(ex|heex)$"

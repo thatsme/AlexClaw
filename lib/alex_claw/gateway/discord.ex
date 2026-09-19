@@ -40,7 +40,9 @@ defmodule AlexClaw.Gateway.Discord do
       |> chunk_message(@discord_max_length)
       |> Enum.each(fn chunk ->
         case Nostrum.Api.Message.create(channel_id, content: chunk) do
-          {:ok, _msg} -> :ok
+          {:ok, _msg} ->
+            :ok
+
           {:error, reason} ->
             Logger.warning("Discord send failed: #{inspect(reason)}")
             :ok
@@ -144,7 +146,9 @@ defmodule AlexClaw.Gateway.Discord do
         category: "discord"
       )
 
-      Logger.warning("Auto-saved Discord channel_id: #{channel_id} — verify this is your channel. Set discord.channel_id in config to disable auto-detect.")
+      Logger.warning(
+        "Auto-saved Discord channel_id: #{channel_id} — verify this is your channel. Set discord.channel_id in config to disable auto-detect."
+      )
     end
   end
 

@@ -21,7 +21,8 @@ defmodule AlexClaw.Skills.TelegramNotify do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|
+  def config_hint,
+    do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|
 
   @impl true
   @spec config_scaffold() :: map()
@@ -29,7 +30,8 @@ defmodule AlexClaw.Skills.TelegramNotify do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "Optional overrides. Leave empty to use default bot/chat. parse_mode: Markdown or HTML."
+  def config_help,
+    do: "Optional overrides. Leave empty to use default bot/chat. parse_mode: Markdown or HTML."
 
   require Logger
 
@@ -75,16 +77,24 @@ defmodule AlexClaw.Skills.TelegramNotify do
 
     case Req.post(url, json: %{chat_id: chat_id, text: text, parse_mode: parse_mode}) do
       {:ok, %{status: 200}} ->
-        Logger.info("TelegramNotify sent to chat #{chat_id} via custom bot", skill: :telegram_notify)
+        Logger.info("TelegramNotify sent to chat #{chat_id} via custom bot",
+          skill: :telegram_notify
+        )
+
         {:ok, input, :on_delivered}
 
       {:ok, %{status: 400, body: body}} ->
-        Logger.warning("TelegramNotify markdown failed, retrying plain: #{inspect(body)}", skill: :telegram_notify)
+        Logger.warning("TelegramNotify markdown failed, retrying plain: #{inspect(body)}",
+          skill: :telegram_notify
+        )
+
         case Req.post(url, json: %{chat_id: chat_id, text: text}) do
           {:ok, %{status: 200}} ->
             {:ok, input, :on_delivered}
+
           {:ok, %{status: s, body: b}} ->
             {:error, {:telegram, s, b}}
+
           {:error, reason} ->
             {:error, reason}
         end

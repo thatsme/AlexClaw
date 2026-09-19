@@ -46,15 +46,24 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"packages": ["phoenix", "ecto", "req"], "timeout_ms": 300000, "delay_between_packages_ms": 2000}|
+  def config_hint,
+    do:
+      ~s|{"packages": ["phoenix", "ecto", "req"], "timeout_ms": 300000, "delay_between_packages_ms": 2000}|
 
   @impl true
   @spec config_scaffold() :: map()
-  def config_scaffold, do: %{"packages" => @default_packages, "timeout_ms" => 300_000, "delay_between_packages_ms" => 2000}
+  def config_scaffold,
+    do: %{
+      "packages" => @default_packages,
+      "timeout_ms" => 300_000,
+      "delay_between_packages_ms" => 2000
+    }
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "packages: hex package names. timeout_ms: total time (default 300s). delay_between_packages_ms: pause between packages."
+  def config_help,
+    do:
+      "packages: hex package names. timeout_ms: total time (default 300s). delay_between_packages_ms: pause between packages."
 
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
@@ -91,7 +100,8 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
         {pkg, :timeout} -> "#{pkg}: skipped (deadline reached)"
       end)
 
-    report = "Packages: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
+    report =
+      "Packages: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
       {:ok, report, :on_success}
@@ -106,9 +116,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
     case fetch_guide_ids(package) do
       {:ok, guide_ids} when guide_ids != [] ->
         stored =
-          Enum.sum(
-            Enum.map(guide_ids, fn guide_id -> scrape_guide(package, guide_id) end)
-          )
+          Enum.sum(Enum.map(guide_ids, fn guide_id -> scrape_guide(package, guide_id) end))
 
         if stored > 0, do: {:stored, stored}, else: :skipped
 
@@ -189,7 +197,9 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
             text = extract_text(html)
 
             if String.length(text) > 100 do
-              chunks = chunk_text("HexDocs Guide — #{package}/#{guide_id}\n\n#{text}", @max_chunk_chars)
+              chunks =
+                chunk_text("HexDocs Guide — #{package}/#{guide_id}\n\n#{text}", @max_chunk_chars)
+
               store_chunks(package, guide_id, chunks, source_url)
             else
               0
@@ -280,11 +290,13 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
 
   defp to_int(nil, default), do: default
   defp to_int(val, _) when is_integer(val), do: val
+
   defp to_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {n, _} -> n
       :error -> default
     end
   end
+
   defp to_int(_, default), do: default
 end

@@ -9,7 +9,8 @@ defmodule AlexClaw.Skills.WebBrowse do
   def external, do: true
   @impl true
   @spec description() :: String.t()
-  def description, do: "Fetches a URL, extracts readable text, optionally answers questions via LLM"
+  def description,
+    do: "Fetches a URL, extracts readable text, optionally answers questions via LLM"
 
   @impl true
   @spec routes() :: [atom()]
@@ -35,7 +36,8 @@ defmodule AlexClaw.Skills.WebBrowse do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "url: page to fetch. question: optional question to answer about the page content."
+  def config_help,
+    do: "url: page to fetch. question: optional question to answer about the page content."
 
   @doc "Workflow-compatible entry point. Uses config url/question or args[:input] as URL."
   @impl true
@@ -98,6 +100,7 @@ defmodule AlexClaw.Skills.WebBrowse do
     """
 
     default_tier = resolve_tier()
+
     case LLM.complete(prompt, [{:tier, default_tier}, {:system, system}] ++ llm_opts) do
       {:ok, response} ->
         Memory.store(:web_page, response, source: url, metadata: %{type: "summary"})
@@ -123,9 +126,14 @@ defmodule AlexClaw.Skills.WebBrowse do
     """
 
     default_tier = resolve_tier()
+
     case LLM.complete(prompt, [{:tier, default_tier}, {:system, system}] ++ llm_opts) do
       {:ok, response} ->
-        Memory.store(:web_page, response, source: url, metadata: %{type: "qa", question: question})
+        Memory.store(:web_page, response,
+          source: url,
+          metadata: %{type: "qa", question: question}
+        )
+
         {:ok, response, :on_success}
 
       {:error, reason} ->
@@ -147,14 +155,18 @@ defmodule AlexClaw.Skills.WebBrowse do
     llm_provider = if provider && provider != "auto", do: provider, else: nil
 
     case run(%{config: config, llm_provider: llm_provider, llm_tier: tier}) do
-      {:ok, response, _branch} -> Gateway.send_message(response, gateway_opts)
+      {:ok, response, _branch} ->
+        Gateway.send_message(response, gateway_opts)
+
       {:error, reason} ->
         Logger.warning("WebBrowse failed: #{inspect(reason)}", skill: :web)
         Gateway.send_message("Failed: #{inspect(reason)}", gateway_opts)
     end
   end
 
-  defp resolve_tier, do: String.to_existing_atom(AlexClaw.Config.get("skill.web_browse.tier") || "light")
+  defp resolve_tier,
+    do: String.to_existing_atom(AlexClaw.Config.get("skill.web_browse.tier") || "light")
+
   defp resolve_provider do
     case AlexClaw.Config.get("skill.web_browse.provider") do
       p when p in [nil, "", "auto"] -> nil
@@ -190,12 +202,10 @@ defmodule AlexClaw.Skills.WebBrowse do
     |> String.slice(0, @max_content_length)
   end
 
-
   defp clean_text(text) do
     text
     |> String.replace(~r/\n{3,}/, "\n\n")
     |> String.replace(~r/[ \t]+/, " ")
     |> String.trim()
   end
-
 end

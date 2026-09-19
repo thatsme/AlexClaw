@@ -37,8 +37,16 @@ defmodule AlexClaw.Skills.LlmScore do
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
-      "News" => %{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.3, "max_items" => 10},
-      "Strict" => %{"interests" => "AI, cybersecurity, Elixir, finance", "threshold" => 0.7, "max_items" => 5}
+      "News" => %{
+        "interests" => "AI, cybersecurity, Elixir, finance",
+        "threshold" => 0.3,
+        "max_items" => 10
+      },
+      "Strict" => %{
+        "interests" => "AI, cybersecurity, Elixir, finance",
+        "threshold" => 0.7,
+        "max_items" => 5
+      }
     }
   end
 

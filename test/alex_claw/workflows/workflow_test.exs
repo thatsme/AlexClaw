@@ -11,14 +11,15 @@ defmodule AlexClaw.Workflows.WorkflowTest do
     end
 
     test "valid with all fields" do
-      cs = Workflow.changeset(%Workflow{}, %{
-        name: "Full Workflow",
-        description: "A complete workflow",
-        enabled: false,
-        schedule: "0 7 * * *",
-        metadata: %{source: "test"},
-        default_provider: "groq"
-      })
+      cs =
+        Workflow.changeset(%Workflow{}, %{
+          name: "Full Workflow",
+          description: "A complete workflow",
+          enabled: false,
+          schedule: "0 7 * * *",
+          metadata: %{source: "test"},
+          default_provider: "groq"
+        })
 
       assert cs.valid?
     end

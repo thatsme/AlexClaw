@@ -23,7 +23,12 @@ defmodule AlexClaw.Gateway.DiscordTest do
 
     test "configured? returns true when enabled with token" do
       AlexClaw.Config.set("discord.enabled", "true", type: "boolean", category: "discord")
-      AlexClaw.Config.set("discord.bot_token", "test-discord-token", type: "string", category: "discord")
+
+      AlexClaw.Config.set("discord.bot_token", "test-discord-token",
+        type: "string",
+        category: "discord"
+      )
+
       assert Discord.configured?()
     end
   end

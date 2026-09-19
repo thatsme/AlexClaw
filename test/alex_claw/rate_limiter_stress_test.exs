@@ -10,7 +10,11 @@ defmodule AlexClaw.RateLimiterStressTest do
 
     # Use high threshold so we can measure count accumulation
     insert_setting("auth.rate_limit.max_attempts", "200", type: "integer", category: "auth")
-    insert_setting("auth.rate_limit.block_duration_seconds", "60", type: "integer", category: "auth")
+
+    insert_setting("auth.rate_limit.block_duration_seconds", "60",
+      type: "integer",
+      category: "auth"
+    )
 
     :ok
   end
@@ -58,10 +62,10 @@ defmodule AlexClaw.RateLimiterStressTest do
 
       # Reads should all return either :ok or {:error, :rate_limited, _}
       assert Enum.all?(read_results, fn
-        :ok -> true
-        {:error, :rate_limited, _} -> true
-        _ -> false
-      end)
+               :ok -> true
+               {:error, :rate_limited, _} -> true
+               _ -> false
+             end)
     end
   end
 

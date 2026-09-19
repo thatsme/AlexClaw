@@ -19,11 +19,21 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   # modules that wrap these functions won't be caught. Future: integrate Giulia's
   # coupling graph for transitive call analysis at load time.
   @external_indicators [
-    {Req, :get}, {Req, :post}, {Req, :put}, {Req, :delete}, {Req, :request},
-    {HTTPoison, :get}, {HTTPoison, :post}, {HTTPoison, :request},
-    {Finch, :request}, {Finch, :build},
-    {Tesla, :get}, {Tesla, :post}, {Tesla, :request},
-    {:gen_tcp, :connect}, {:gen_udp, :open},
+    {Req, :get},
+    {Req, :post},
+    {Req, :put},
+    {Req, :delete},
+    {Req, :request},
+    {HTTPoison, :get},
+    {HTTPoison, :post},
+    {HTTPoison, :request},
+    {Finch, :request},
+    {Finch, :build},
+    {Tesla, :get},
+    {Tesla, :post},
+    {Tesla, :request},
+    {:gen_tcp, :connect},
+    {:gen_udp, :open},
     {:httpc, :request},
     {AlexClaw.Skills.SkillAPI, :http_get},
     {AlexClaw.Skills.SkillAPI, :http_post},
@@ -90,7 +100,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   @doc "List all skills with type, permissions, routes, and external flag."
-  @spec list_all_with_type() :: [{String.t(), module(), :core | :dynamic, :all | [atom()], [atom()], boolean()}]
+  @spec list_all_with_type() :: [
+          {String.t(), module(), :core | :dynamic, :all | [atom()], [atom()], boolean()}
+        ]
   def list_all_with_type do
     @ets_table
     |> :ets.tab2list()
@@ -137,13 +149,19 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     Code.ensure_loaded(module)
 
     %{
-      step_fields: extract_callback(module, :step_fields, [:llm_tier, :llm_model, :prompt_template, :config]),
+      step_fields:
+        extract_callback(module, :step_fields, [:llm_tier, :llm_model, :prompt_template, :config]),
       config_hint: extract_callback(module, :config_hint, ""),
       config_scaffold: extract_callback(module, :config_scaffold, %{}),
       config_presets: extract_callback(module, :config_presets, %{}),
       prompt_presets: extract_callback(module, :prompt_presets, %{}),
       config_help: extract_callback(module, :config_help, "Skill-specific parameters as JSON."),
-      prompt_help: extract_callback(module, :prompt_help, "Template sent to the LLM. Use {input} for previous step output.")
+      prompt_help:
+        extract_callback(
+          module,
+          :prompt_help,
+          "Template sent to the LLM. Use {input} for previous step output."
+        )
     }
   end
 
@@ -248,7 +266,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp load_dynamic_skills_from_db do
     import Ecto.Query
-    skills = Repo.all(from d in DynamicSkill, where: d.enabled == true)
+    skills = Repo.all(from(d in DynamicSkill, where: d.enabled == true))
 
     for skill <- skills do
       full_path = Path.join(skills_dir(), skill.file_path)
@@ -261,7 +279,12 @@ defmodule AlexClaw.Workflows.SkillRegistry do
             {:ok, module, permissions} ->
               routes = extract_routes(module)
               external = extract_external(module)
-              :ets.insert(@ets_table, {skill.name, module, :dynamic, permissions, routes, external})
+
+              :ets.insert(
+                @ets_table,
+                {skill.name, module, :dynamic, permissions, routes, external}
+              )
+
               Logger.info("Dynamic skill loaded: #{skill.name}")
 
             {:error, reason} ->
@@ -305,15 +328,28 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       external = extract_external(module)
       :ets.insert(@ets_table, {skill_name, module, :dynamic, permissions, routes, external})
       broadcast({:skill_registered, skill_name})
-      Logger.info("Dynamic skill loaded: #{skill_name} with permissions: #{inspect(permissions)}, routes: #{inspect(routes)}, external: #{external}")
-      {:ok, %{name: skill_name, module: module, permissions: permissions, routes: routes, external: external}}
+
+      Logger.info(
+        "Dynamic skill loaded: #{skill_name} with permissions: #{inspect(permissions)}, routes: #{inspect(routes)}, external: #{external}"
+      )
+
+      {:ok,
+       %{
+         name: skill_name,
+         module: module,
+         permissions: permissions,
+         routes: routes,
+         external: external
+       }}
     end
   end
 
   defp check_version_bump(module, skill_name) do
     case :ets.lookup(@ets_table, skill_name) do
       [{^skill_name, old_module, :dynamic, _, _, _}] ->
-        old_version = if function_exported?(old_module, :version, 0), do: old_module.version(), else: nil
+        old_version =
+          if function_exported?(old_module, :version, 0), do: old_module.version(), else: nil
+
         new_version = if function_exported?(module, :version, 0), do: module.version(), else: nil
 
         cond do
@@ -321,7 +357,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
             {:error, {:same_version, nil, "Add a version/0 callback to track skill versions"}}
 
           old_version == new_version ->
-            {:error, {:same_version, old_version, "Bump the version before reloading. Use /skill reload to force."}}
+            {:error,
+             {:same_version, old_version,
+              "Bump the version before reloading. Use /skill reload to force."}}
 
           true ->
             :ok
@@ -341,7 +379,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
         :ets.delete(@ets_table, name)
 
         import Ecto.Query
-        Repo.delete_all(from d in DynamicSkill, where: d.name == ^name)
+        Repo.delete_all(from(d in DynamicSkill, where: d.name == ^name))
 
         :code.purge(module)
         :code.delete(module)
@@ -358,7 +396,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   defp do_reload_skill(name) do
     import Ecto.Query
 
-    case Repo.one(from d in DynamicSkill, where: d.name == ^name) do
+    case Repo.one(from(d in DynamicSkill, where: d.name == ^name)) do
       nil ->
         {:error, :not_found}
 
@@ -394,7 +432,15 @@ defmodule AlexClaw.Workflows.SkillRegistry do
           :ets.insert(@ets_table, {name, module, :dynamic, permissions, routes, external})
           broadcast({:skill_registered, name})
           Logger.info("Dynamic skill reloaded: #{name}")
-          {:ok, %{name: name, module: module, permissions: permissions, routes: routes, external: external}}
+
+          {:ok,
+           %{
+             name: name,
+             module: module,
+             permissions: permissions,
+             routes: routes,
+             external: external
+           }}
         end
     end
   end
@@ -633,7 +679,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       enabled: true
     }
 
-    case Repo.one(from d in DynamicSkill, where: d.name == ^name) do
+    case Repo.one(from(d in DynamicSkill, where: d.name == ^name)) do
       nil -> %DynamicSkill{} |> DynamicSkill.changeset(attrs) |> Repo.insert()
       existing -> existing |> DynamicSkill.changeset(attrs) |> Repo.update()
     end

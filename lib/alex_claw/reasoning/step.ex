@@ -12,31 +12,40 @@ defmodule AlexClaw.Reasoning.Step do
   @decisions ~w(continue adjust ask_user done stuck)
 
   schema "reasoning_steps" do
-    field :iteration, :integer
-    field :phase, :string
-    field :skill_name, :string
-    field :llm_prompt, :string
-    field :llm_response, :string
-    field :skill_input, :map, default: %{}
-    field :skill_output, :string
-    field :decision, :string
-    field :confidence, :float
-    field :rubric_scores, :map
-    field :user_guidance, :string
-    field :working_memory_snapshot, :string
-    field :duration_ms, :integer
-    field :error, :string
+    field(:iteration, :integer)
+    field(:phase, :string)
+    field(:skill_name, :string)
+    field(:llm_prompt, :string)
+    field(:llm_response, :string)
+    field(:skill_input, :map, default: %{})
+    field(:skill_output, :string)
+    field(:decision, :string)
+    field(:confidence, :float)
+    field(:rubric_scores, :map)
+    field(:user_guidance, :string)
+    field(:working_memory_snapshot, :string)
+    field(:duration_ms, :integer)
+    field(:error, :string)
 
-    belongs_to :session, Session
+    belongs_to(:session, Session)
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields [:session_id, :iteration, :phase]
   @optional_fields [
-    :skill_name, :llm_prompt, :llm_response, :skill_input, :skill_output,
-    :decision, :confidence, :rubric_scores, :user_guidance,
-    :working_memory_snapshot, :duration_ms, :error
+    :skill_name,
+    :llm_prompt,
+    :llm_response,
+    :skill_input,
+    :skill_output,
+    :decision,
+    :confidence,
+    :rubric_scores,
+    :user_guidance,
+    :working_memory_snapshot,
+    :duration_ms,
+    :error
   ]
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()

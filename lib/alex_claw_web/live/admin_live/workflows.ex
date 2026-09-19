@@ -45,9 +45,16 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
-    {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil, editing_step: nil, custom_schedule: false)}
+    {:noreply,
+     assign(socket,
+       show_form: !socket.assigns.show_form,
+       editing: nil,
+       editing_step: nil,
+       custom_schedule: false
+     )}
   end
 
   @impl true
@@ -57,13 +64,15 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         case Workflows.get_workflow(wf_id) do
           {:ok, workflow} ->
             custom = not schedule_is_preset?(workflow.schedule)
-            {:noreply, assign(socket,
-              editing: workflow,
-              show_form: true,
-              editing_step: nil,
-              custom_schedule: custom,
-              api_endpoints: api_endpoints_for_workflow(workflow)
-            )}
+
+            {:noreply,
+             assign(socket,
+               editing: workflow,
+               show_form: true,
+               editing_step: nil,
+               custom_schedule: custom,
+               api_endpoints: api_endpoints_for_workflow(workflow)
+             )}
 
           {:error, :not_found} ->
             {:noreply, put_flash(socket, :error, "Workflow not found")}
@@ -160,7 +169,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   def handle_event("run_now", %{"id" => id}, socket) do
     case parse_id(id) do
       {:ok, wf_id} ->
-        Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> AlexClaw.Workflows.Executor.run(wf_id) end)
+        Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+          AlexClaw.Workflows.Executor.run(wf_id)
+        end)
+
         {:noreply, put_flash(socket, :info, "Workflow execution started")}
 
       :error ->
@@ -280,6 +292,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @impl true
   def handle_event("save_step", params, socket) do
     step = AlexClaw.Repo.get!(AlexClaw.Workflows.WorkflowStep, socket.assigns.editing_step.id)
+
     case parse_config_json(params["step_config"]) do
       {:ok, config} ->
         config = merge_resilience_config(config, params)
@@ -326,6 +339,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @impl true
   def handle_event("scaffold_config", _, socket) do
     step = socket.assigns.editing_step
+
     if step do
       scaffold = skill_config_scaffold(step.skill)
       # Merge scaffold with existing config to preserve user values
@@ -341,6 +355,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @impl true
   def handle_event("scaffold_config_named", %{"scaffold" => key}, socket) do
     step = socket.assigns.editing_step
+
     if step do
       scaffolds = skill_scaffolds(step.skill)
       config = Jason.decode!(scaffolds[key] || "{}")
@@ -354,6 +369,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @impl true
   def handle_event("scaffold_prompt", %{"scaffold" => key}, socket) do
     step = socket.assigns.editing_step
+
     if step do
       scaffolds = skill_prompt_scaffolds(step.skill)
       updated_step = Map.put(step, :prompt_template, scaffolds[key] || "")
@@ -386,7 +402,12 @@ defmodule AlexClawWeb.AdminLive.Workflows do
             {:noreply, socket}
 
           ep ->
-            config = Jason.encode!(%{"method" => ep["method"], "url" => ep["url"], "headers" => %{}, "body" => ""}, pretty: true)
+            config =
+              Jason.encode!(
+                %{"method" => ep["method"], "url" => ep["url"], "headers" => %{}, "body" => ""},
+                pretty: true
+              )
+
             {:noreply, assign(socket, adding_step_config: config)}
         end
 
@@ -401,7 +422,12 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   def handle_event("begin_add_step", %{"skill" => skill}, socket) do
-    {:noreply, assign(socket, adding_step: skill, adding_step_config: skill_config_scaffold(skill), adding_step_prompt: nil)}
+    {:noreply,
+     assign(socket,
+       adding_step: skill,
+       adding_step_config: skill_config_scaffold(skill),
+       adding_step_prompt: nil
+     )}
   end
 
   @impl true
@@ -493,7 +519,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         workflow = socket.assigns.editing
         Workflows.assign_resource(workflow, rid)
         workflow = Workflows.get_workflow!(workflow.id)
-        {:noreply, assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
+
+        {:noreply,
+         assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
 
       :error ->
         {:noreply, socket}
@@ -507,7 +535,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
         workflow = socket.assigns.editing
         Workflows.unassign_resource(workflow, rid)
         workflow = Workflows.get_workflow!(workflow.id)
-        {:noreply, assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
+
+        {:noreply,
+         assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
 
       :error ->
         {:noreply, socket}
@@ -523,8 +553,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       case direction do
         :up when idx > 0 ->
           steps |> List.delete_at(idx) |> List.insert_at(idx - 1, Enum.at(steps, idx))
+
         :down when idx < length(steps) - 1 ->
           steps |> List.delete_at(idx) |> List.insert_at(idx + 1, Enum.at(steps, idx))
+
         _ ->
           steps
       end
@@ -568,8 +600,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       when event in [:workflow_step_started, :workflow_step_completed] do
     active =
       case Map.get(socket.assigns.active_runs, payload.run_id) do
-        nil -> socket.assigns.active_runs
-        run -> Map.put(socket.assigns.active_runs, payload.run_id, %{run | current_step: payload.step_name})
+        nil ->
+          socket.assigns.active_runs
+
+        run ->
+          Map.put(socket.assigns.active_runs, payload.run_id, %{
+            run
+            | current_step: payload.step_name
+          })
       end
 
     {:noreply, assign(socket, active_runs: active)}
@@ -577,16 +615,24 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   def handle_info({event, payload}, socket)
       when event in [:workflow_run_completed, :workflow_run_failed, :workflow_run_cancelled] do
-    finished_status = case event do
-      :workflow_run_completed -> :completed
-      :workflow_run_failed -> :failed
-      :workflow_run_cancelled -> :cancelled
-    end
+    finished_status =
+      case event do
+        :workflow_run_completed -> :completed
+        :workflow_run_failed -> :failed
+        :workflow_run_cancelled -> :cancelled
+      end
 
     active =
       case Map.get(socket.assigns.active_runs, payload.run_id) do
-        nil -> socket.assigns.active_runs
-        run -> Map.put(socket.assigns.active_runs, payload.run_id, Map.put(run, :status, finished_status))
+        nil ->
+          socket.assigns.active_runs
+
+        run ->
+          Map.put(
+            socket.assigns.active_runs,
+            payload.run_id,
+            Map.put(run, :status, finished_status)
+          )
       end
 
     Process.send_after(self(), {:clear_finished_run, payload.run_id}, 10_000)
@@ -616,7 +662,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp initial_active_runs do
-    Map.new(Workflows.list_active_runs(), fn run -> {run.run_id, Map.put(run, :status, :running)} end)
+    Map.new(Workflows.list_active_runs(), fn run ->
+      {run.run_id, Map.put(run, :status, :running)}
+    end)
   end
 
   defp dynamic_skill_names do
@@ -642,6 +690,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   defp parse_input_from(nil), do: nil
   defp parse_input_from(""), do: nil
+
   defp parse_input_from(val) when is_binary(val) do
     case Integer.parse(val) do
       {n, _} -> n
@@ -651,6 +700,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   defp parse_config_json(nil), do: {:ok, %{}}
   defp parse_config_json(""), do: {:ok, %{}}
+
   defp parse_config_json(json) do
     case Jason.decode(json) do
       {:ok, map} when is_map(map) -> {:ok, map}
@@ -675,9 +725,15 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     routes_for_skill(skill_name)
     |> Enum.reduce([], fn branch, acc ->
       case params["route_#{branch}"] do
-        nil -> acc
-        "" -> acc
-        "end" -> [%{"branch" => branch, "goto" => "end"} | acc]
+        nil ->
+          acc
+
+        "" ->
+          acc
+
+        "end" ->
+          [%{"branch" => branch, "goto" => "end"} | acc]
+
         pos_str ->
           case Integer.parse(pos_str) do
             {pos, _} -> [%{"branch" => branch, "goto" => pos} | acc]
@@ -691,8 +747,12 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp merge_resilience_config(config, params) do
     config =
       case params["step_on_circuit_open"] do
-        "halt" -> Map.drop(config, ["on_circuit_open", "fallback_skill"])
-        "skip" -> config |> Map.put("on_circuit_open", "skip") |> Map.drop(["fallback_skill"])
+        "halt" ->
+          Map.drop(config, ["on_circuit_open", "fallback_skill"])
+
+        "skip" ->
+          config |> Map.put("on_circuit_open", "skip") |> Map.drop(["fallback_skill"])
+
         "fallback" ->
           config
           |> Map.put("on_circuit_open", "fallback")
@@ -702,7 +762,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
               skill -> Map.put(c, "fallback_skill", skill)
             end
           end)
-        _ -> config
+
+        _ ->
+          config
       end
 
     case params["step_on_missing_skill"] do
@@ -742,12 +804,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   defp schedule_is_preset?(nil), do: true
   defp schedule_is_preset?(""), do: true
+
   defp schedule_is_preset?(schedule) do
     Enum.any?(@schedule_presets, fn {cron, _} -> cron == schedule end)
   end
 
   defp schedule_label(nil), do: "Manual"
   defp schedule_label(""), do: "Manual"
+
   defp schedule_label(schedule) do
     case Enum.find(@schedule_presets, fn {cron, _} -> cron == schedule end) do
       {_, label} -> label
@@ -803,7 +867,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp skill_scaffolds(skill) do
-    Enum.into(skill_meta(skill).config_presets, %{}, fn {name, data} -> {name, Jason.encode!(data, pretty: true)} end)
+    Enum.into(skill_meta(skill).config_presets, %{}, fn {name, data} ->
+      {name, Jason.encode!(data, pretty: true)}
+    end)
   end
 
   defp skill_has_scaffolds?(skill), do: skill_meta(skill).config_presets != %{}
@@ -843,12 +909,21 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   defp load_steps(workflow_id) do
     import Ecto.Query
-    AlexClaw.Repo.all(from s in AlexClaw.Workflows.WorkflowStep, where: s.workflow_id == ^workflow_id)
+
+    AlexClaw.Repo.all(
+      from(s in AlexClaw.Workflows.WorkflowStep, where: s.workflow_id == ^workflow_id)
+    )
   end
 
   defp count_runs(workflow_id) do
     import Ecto.Query
-    AlexClaw.Repo.one(from r in AlexClaw.Workflows.WorkflowRun, where: r.workflow_id == ^workflow_id, select: count(r.id))
+
+    AlexClaw.Repo.one(
+      from(r in AlexClaw.Workflows.WorkflowRun,
+        where: r.workflow_id == ^workflow_id,
+        select: count(r.id)
+      )
+    )
   end
 
   defp find_resource_name(resources, resource_id) do

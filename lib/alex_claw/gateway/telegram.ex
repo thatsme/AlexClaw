@@ -148,7 +148,9 @@ defmodule AlexClaw.Gateway.Telegram do
       # Cluster: must be assigned to this node
       true ->
         case Config.get("telegram.node") do
-          val when val in [nil, ""] -> nil
+          val when val in [nil, ""] ->
+            nil
+
           node_name ->
             if node_name == to_string(node()), do: Config.get("telegram.bot_token")
         end
@@ -234,7 +236,10 @@ defmodule AlexClaw.Gateway.Telegram do
 
     if current == nil or current == "" do
       Config.set("telegram.chat_id", to_string(chat_id), type: "string", category: "telegram")
-      Logger.warning("Auto-saved Telegram chat_id: #{chat_id} — verify this is your chat. Set telegram.chat_id in config to disable auto-detect.")
+
+      Logger.warning(
+        "Auto-saved Telegram chat_id: #{chat_id} — verify this is your chat. Set telegram.chat_id in config to disable auto-detect."
+      )
     end
   end
 

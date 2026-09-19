@@ -39,11 +39,12 @@ defmodule AlexClaw.Workflows.ExecutorTest do
 
       wf = create_workflow()
 
-      {:ok, _step} = Workflows.add_step(wf, %{
-        name: "Fetch Data",
-        skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/data", "method" => "GET"}
-      })
+      {:ok, _step} =
+        Workflows.add_step(wf, %{
+          name: "Fetch Data",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/data", "method" => "GET"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -67,17 +68,19 @@ defmodule AlexClaw.Workflows.ExecutorTest do
 
       wf = create_workflow()
 
-      {:ok, _s1} = Workflows.add_step(wf, %{
-        name: "Step 1",
-        skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/step1", "method" => "GET"}
-      })
+      {:ok, _s1} =
+        Workflows.add_step(wf, %{
+          name: "Step 1",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/step1", "method" => "GET"}
+        })
 
-      {:ok, _s2} = Workflows.add_step(wf, %{
-        name: "Step 2",
-        skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/step2", "method" => "GET"}
-      })
+      {:ok, _s2} =
+        Workflows.add_step(wf, %{
+          name: "Step 2",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/step2", "method" => "GET"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -88,10 +91,11 @@ defmodule AlexClaw.Workflows.ExecutorTest do
     test "fails on unknown skill" do
       wf = create_workflow()
 
-      {:ok, _step} = Workflows.add_step(wf, %{
-        name: "Bad Step",
-        skill: "nonexistent_skill"
-      })
+      {:ok, _step} =
+        Workflows.add_step(wf, %{
+          name: "Bad Step",
+          skill: "nonexistent_skill"
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
@@ -101,10 +105,11 @@ defmodule AlexClaw.Workflows.ExecutorTest do
     test "records step results on failure" do
       wf = create_workflow()
 
-      {:ok, _step} = Workflows.add_step(wf, %{
-        name: "Will Fail",
-        skill: "nonexistent_skill"
-      })
+      {:ok, _step} =
+        Workflows.add_step(wf, %{
+          name: "Will Fail",
+          skill: "nonexistent_skill"
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.step_results["1"]["error"] =~ "unknown_skill"
@@ -113,12 +118,13 @@ defmodule AlexClaw.Workflows.ExecutorTest do
     test "prompt_template step fails gracefully without LLM" do
       wf = create_workflow()
 
-      {:ok, _step} = Workflows.add_step(wf, %{
-        name: "LLM Step",
-        skill: "llm_transform",
-        prompt_template: "Summarize: {input}",
-        llm_tier: "light"
-      })
+      {:ok, _step} =
+        Workflows.add_step(wf, %{
+          name: "LLM Step",
+          skill: "llm_transform",
+          prompt_template: "Summarize: {input}",
+          llm_tier: "light"
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"

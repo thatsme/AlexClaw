@@ -68,7 +68,12 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
   describe "workflow-resource association" do
     test "assign same resource twice is idempotent or errors" do
       wf = create_workflow()
-      {:ok, resource} = Resources.create_resource(%{name: "RSS #{System.unique_integer([:positive])}", type: "rss_feed"})
+
+      {:ok, resource} =
+        Resources.create_resource(%{
+          name: "RSS #{System.unique_integer([:positive])}",
+          type: "rss_feed"
+        })
 
       {:ok, _} = Workflows.assign_resource(wf, resource.id, "input")
       result = Workflows.assign_resource(wf, resource.id, "input")
@@ -77,7 +82,12 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
 
     test "unassign resource that was never assigned returns zero deletes" do
       wf = create_workflow()
-      {:ok, resource} = Resources.create_resource(%{name: "Orphan #{System.unique_integer([:positive])}", type: "api"})
+
+      {:ok, resource} =
+        Resources.create_resource(%{
+          name: "Orphan #{System.unique_integer([:positive])}",
+          type: "api"
+        })
 
       {count, _} = Workflows.unassign_resource(wf, resource.id)
       assert count == 0
@@ -85,7 +95,13 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
 
     test "delete resource cascades — removes from workflow" do
       wf = create_workflow()
-      {:ok, resource} = Resources.create_resource(%{name: "Cascade #{System.unique_integer([:positive])}", type: "api"})
+
+      {:ok, resource} =
+        Resources.create_resource(%{
+          name: "Cascade #{System.unique_integer([:positive])}",
+          type: "api"
+        })
+
       {:ok, _} = Workflows.assign_resource(wf, resource.id, "input")
 
       {:ok, _} = Resources.delete_resource(resource)
@@ -139,7 +155,11 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
     end
 
     test "list_scheduled_workflows excludes nil schedule" do
-      create_workflow(%{name: "No Schedule #{System.unique_integer([:positive])}", schedule: nil, enabled: true})
+      create_workflow(%{
+        name: "No Schedule #{System.unique_integer([:positive])}",
+        schedule: nil,
+        enabled: true
+      })
 
       scheduled = Workflows.list_scheduled_workflows()
       refute Enum.any?(scheduled, &is_nil(&1.schedule))

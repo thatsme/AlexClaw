@@ -11,7 +11,10 @@ defmodule AlexClawWeb.WorkflowExportController do
     case Workflows.get_workflow(id) do
       {:ok, workflow} ->
         json_data = workflow |> Workflows.export_workflow() |> Jason.encode!(pretty: true)
-        safe_name = workflow.name |> String.replace(~r/[^\w\s-]/u, "") |> String.replace(~r/\s+/, "_")
+
+        safe_name =
+          workflow.name |> String.replace(~r/[^\w\s-]/u, "") |> String.replace(~r/\s+/, "_")
+
         filename = "#{safe_name}.json"
 
         conn

@@ -23,7 +23,7 @@ defmodule AlexClaw.IdentityAdversarialTest do
       prompt = Identity.system_prompt()
       # Fallback: "You are {name}, a personal AI agent."
       assert is_binary(prompt)
-      assert prompt =~ "AI agent" or prompt =~ Config.get("identity.name") || ""
+      assert (prompt =~ "AI agent" or prompt =~ Config.get("identity.name")) || ""
     end
 
     test "handles both name and base_prompt being nil without crash" do
@@ -71,7 +71,10 @@ defmodule AlexClaw.IdentityAdversarialTest do
     end
 
     test "handles name with special characters" do
-      Config.set("identity.name", "<script>alert('xss')</script>", type: "string", category: "identity")
+      Config.set("identity.name", "<script>alert('xss')</script>",
+        type: "string",
+        category: "identity"
+      )
 
       prompt = Identity.system_prompt()
       # Should contain the raw string (prompt is not HTML-escaped at this layer)
@@ -99,7 +102,10 @@ defmodule AlexClaw.IdentityAdversarialTest do
 
   describe "system_prompt/1 with persona" do
     test "appends persona when set" do
-      Config.set("identity.persona", "Always reply in Italian.", type: "string", category: "identity")
+      Config.set("identity.persona", "Always reply in Italian.",
+        type: "string",
+        category: "identity"
+      )
 
       prompt = Identity.system_prompt()
       assert prompt =~ "Always reply in Italian."

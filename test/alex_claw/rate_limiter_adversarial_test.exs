@@ -11,7 +11,11 @@ defmodule AlexClaw.RateLimiterAdversarialTest do
 
     # Seed rate limit config
     insert_setting("auth.rate_limit.max_attempts", "3", type: "integer", category: "auth")
-    insert_setting("auth.rate_limit.block_duration_seconds", "60", type: "integer", category: "auth")
+
+    insert_setting("auth.rate_limit.block_duration_seconds", "60",
+      type: "integer",
+      category: "auth"
+    )
 
     :ok
   end

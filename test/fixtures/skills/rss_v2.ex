@@ -17,7 +17,16 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
   def version, do: "2.0.0"
 
   @impl true
-  def permissions, do: [:llm, :web_read, :telegram_send, :memory_read, :memory_write, :config_read, :resources_read]
+  def permissions,
+    do: [
+      :llm,
+      :web_read,
+      :telegram_send,
+      :memory_read,
+      :memory_write,
+      :config_read,
+      :resources_read
+    ]
 
   @impl true
   def description, do: "RSS collector v2 — with full article fetch and configurable timeouts"
@@ -38,7 +47,11 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
 
     fetched =
       feeds
-      |> Task.async_stream(&fetch_feed(&1, recv_timeout), max_concurrency: 5, timeout: task_timeout, on_timeout: :kill_task)
+      |> Task.async_stream(&fetch_feed(&1, recv_timeout),
+        max_concurrency: 5,
+        timeout: task_timeout,
+        on_timeout: :kill_task
+      )
       |> Enum.flat_map(fn
         {:ok, {:ok, items}} -> items
         _ -> []
@@ -57,7 +70,11 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
     results =
       if fetch_articles do
         results
-        |> Task.async_stream(&fetch_article(&1, recv_timeout), max_concurrency: 3, timeout: task_timeout, on_timeout: :kill_task)
+        |> Task.async_stream(&fetch_article(&1, recv_timeout),
+          max_concurrency: 3,
+          timeout: task_timeout,
+          on_timeout: :kill_task
+        )
         |> Enum.map(fn
           {:ok, item} -> item
           {:exit, _} -> nil
@@ -201,7 +218,7 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
         |> Enum.with_index()
         |> Enum.map(fn {item, i} -> Map.put(item, :score, Enum.at(scores, i, 0.0)) end)
         |> Enum.sort_by(& &1.score, :desc)
-        |> Enum.filter(& &1.score >= threshold)
+        |> Enum.filter(&(&1.score >= threshold))
         |> Enum.take(max_items)
 
       {:error, _} ->
@@ -249,17 +266,35 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
 
   defp parse_rfc2822(date_str) do
     months = %{
-      "Jan" => 1, "Feb" => 2, "Mar" => 3, "Apr" => 4, "May" => 5, "Jun" => 6,
-      "Jul" => 7, "Aug" => 8, "Sep" => 9, "Oct" => 10, "Nov" => 11, "Dec" => 12
+      "Jan" => 1,
+      "Feb" => 2,
+      "Mar" => 3,
+      "Apr" => 4,
+      "May" => 5,
+      "Jun" => 6,
+      "Jul" => 7,
+      "Aug" => 8,
+      "Sep" => 9,
+      "Oct" => 10,
+      "Nov" => 11,
+      "Dec" => 12
     }
 
-    case Regex.run(~r/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})/, date_str) do
+    case Regex.run(
+           ~r/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(\d{2}):(\d{2})/,
+           date_str
+         ) do
       [_, day, month, year, hour, min] ->
         with month_num when is_integer(month_num) <- months[month],
-             {:ok, ndt} <- NaiveDateTime.new(
-               to_int(year, 0), month_num, to_int(day, 0),
-               to_int(hour, 0), to_int(min, 0), 0
-             ) do
+             {:ok, ndt} <-
+               NaiveDateTime.new(
+                 to_int(year, 0),
+                 month_num,
+                 to_int(day, 0),
+                 to_int(hour, 0),
+                 to_int(min, 0),
+                 0
+               ) do
           {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
         else
           _ -> :error
@@ -305,22 +340,26 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
 
   defp to_int(nil, default), do: default
   defp to_int(val, _) when is_integer(val), do: val
+
   defp to_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {n, _} -> n
       :error -> default
     end
   end
+
   defp to_int(_, default), do: default
 
   defp to_float(nil, default), do: default
   defp to_float(val, _) when is_float(val), do: val
   defp to_float(val, _) when is_integer(val), do: val / 1.0
+
   defp to_float(val, default) when is_binary(val) do
     case Float.parse(val) do
       {f, _} -> f
       :error -> default
     end
   end
+
   defp to_float(_, default), do: default
 end

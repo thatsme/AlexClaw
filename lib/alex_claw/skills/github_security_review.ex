@@ -21,7 +21,8 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   @impl true
   @spec description() :: String.t()
-  def description, do: "Fetches PR/commit diffs from GitHub — pair with llm_transform for analysis"
+  def description,
+    do: "Fetches PR/commit diffs from GitHub — pair with llm_transform for analysis"
 
   @impl true
   @spec routes() :: [atom()]
@@ -93,7 +94,10 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
         "specific_commit" ->
           sha = config["commit_sha"]
-          if sha && sha != "", do: fetch_commit(repo, sha, token), else: {:error, :missing_commit_sha}
+
+          if sha && sha != "",
+            do: fetch_commit(repo, sha, token),
+            else: {:error, :missing_commit_sha}
 
         _ ->
           {:error, {:unknown_mode, mode}}
@@ -121,7 +125,11 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
         {:error, reason} ->
           Logger.warning("PR fetch failed: #{inspect(reason)}", skill: :github)
-          AlexClaw.Gateway.send_message("⚠️ Failed to fetch PR ##{pr_number}: #{inspect(reason)}", opts)
+
+          AlexClaw.Gateway.send_message(
+            "⚠️ Failed to fetch PR ##{pr_number}: #{inspect(reason)}",
+            opts
+          )
       end
     end)
 
@@ -139,7 +147,11 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
         {:error, reason} ->
           Logger.warning("Commit fetch failed: #{inspect(reason)}", skill: :github)
-          AlexClaw.Gateway.send_message("⚠️ Failed to fetch commit `#{String.slice(sha, 0, 8)}`: #{inspect(reason)}", opts)
+
+          AlexClaw.Gateway.send_message(
+            "⚠️ Failed to fetch commit `#{String.slice(sha, 0, 8)}`: #{inspect(reason)}",
+            opts
+          )
       end
     end)
 
@@ -238,13 +250,16 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
     short_head = String.slice(head_sha, 0, 8)
     Logger.info("Fetching compare #{short_base}...#{short_head} on #{repo}", skill: :github)
 
-    with {:ok, compare_data} <- github_get("#{@github_api}/repos/#{repo}/compare/#{base_sha}...#{head_sha}", token),
+    with {:ok, compare_data} <-
+           github_get("#{@github_api}/repos/#{repo}/compare/#{base_sha}...#{head_sha}", token),
          {:ok, diff} <- fetch_compare_diff(repo, base_sha, head_sha, token) do
       files = compare_data["files"] || []
 
       meta = %{
         message: "#{short_base}...#{short_head}",
-        author: get_in(compare_data, ["commits", Access.at(0), "commit", "author", "name"]) || "multiple",
+        author:
+          get_in(compare_data, ["commits", Access.at(0), "commit", "author", "name"]) ||
+            "multiple",
         url: compare_data["html_url"],
         additions: Enum.reduce(files, 0, &(&1["additions"] + &2)),
         deletions: Enum.reduce(files, 0, &(&1["deletions"] + &2)),
@@ -292,7 +307,10 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   # --- GitHub API ---
 
   defp fetch_open_prs(repo, token, per_page) do
-    github_get("#{@github_api}/repos/#{repo}/pulls?state=open&sort=created&direction=desc&per_page=#{per_page}", token)
+    github_get(
+      "#{@github_api}/repos/#{repo}/pulls?state=open&sort=created&direction=desc&per_page=#{per_page}",
+      token
+    )
   end
 
   defp fetch_recent_commits(repo, token, per_page) do
@@ -310,16 +328,17 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   defp fetch_pr_meta(repo, pr_number, token) do
     case github_get("#{@github_api}/repos/#{repo}/pulls/#{pr_number}", token) do
       {:ok, body} ->
-        {:ok, %{
-          title: body["title"],
-          author: get_in(body, ["user", "login"]),
-          base: get_in(body, ["base", "ref"]),
-          head: get_in(body, ["head", "ref"]),
-          url: body["html_url"],
-          additions: body["additions"],
-          deletions: body["deletions"],
-          changed_files: body["changed_files"]
-        }}
+        {:ok,
+         %{
+           title: body["title"],
+           author: get_in(body, ["user", "login"]),
+           base: get_in(body, ["base", "ref"]),
+           head: get_in(body, ["head", "ref"]),
+           url: body["html_url"],
+           additions: body["additions"],
+           deletions: body["deletions"],
+           changed_files: body["changed_files"]
+         }}
 
       error ->
         error
@@ -337,14 +356,15 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   defp fetch_commit_meta(repo, sha, token) do
     case github_get("#{@github_api}/repos/#{repo}/commits/#{sha}", token) do
       {:ok, body} ->
-        {:ok, %{
-          message: get_in(body, ["commit", "message"]),
-          author: get_in(body, ["commit", "author", "name"]),
-          url: body["html_url"],
-          additions: get_in(body, ["stats", "additions"]),
-          deletions: get_in(body, ["stats", "deletions"]),
-          changed_files: length(body["files"] || [])
-        }}
+        {:ok,
+         %{
+           message: get_in(body, ["commit", "message"]),
+           author: get_in(body, ["commit", "author", "name"]),
+           url: body["html_url"],
+           additions: get_in(body, ["stats", "additions"]),
+           deletions: get_in(body, ["stats", "deletions"]),
+           changed_files: length(body["files"] || [])
+         }}
 
       error ->
         error
@@ -366,6 +386,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("GitHub API #{status} for #{url}: #{inspect(body)}", skill: :github)
+
         case status do
           404 -> {:error, :not_found}
           401 -> {:error, :unauthorized}
@@ -403,7 +424,9 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
     |> String.split("\n")
     |> Enum.drop(-1)
     |> Enum.join("\n")
-    |> Kernel.<>("\n\n[diff truncated — #{byte_size(diff)} bytes total, showing first #{@max_diff_bytes}]")
+    |> Kernel.<>(
+      "\n\n[diff truncated — #{byte_size(diff)} bytes total, showing first #{@max_diff_bytes}]"
+    )
   end
 
   defp truncate_diff(diff), do: diff

@@ -92,7 +92,9 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "timeout_ms: total allowed time (default 300000 = 5 min). delay_between_modules_ms: pause between modules (default 1000)."
+  def config_help,
+    do:
+      "timeout_ms: total allowed time (default 300000 = 5 min). delay_between_modules_ms: pause between modules (default 1000)."
 
   @impl true
   def run(args) do
@@ -129,7 +131,8 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
         {mod, :timeout} -> "#{mod}: skipped (deadline reached)"
       end)
 
-    report = "Modules: #{length(modules)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
+    report =
+      "Modules: #{length(modules)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
       {:ok, report, :on_success}
@@ -211,6 +214,7 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
           |> Enum.filter(fn
             {{kind, _, _}, _, _, doc, _} ->
               kind in [:function, :macro] and doc != :hidden and doc != :none
+
             _ ->
               false
           end)
@@ -285,7 +289,9 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     # Extract module doc
     mod_doc =
       case Regex.run(~r/-moduledoc\s+"""(.*?)"""/s, source) do
-        [_, doc] -> doc
+        [_, doc] ->
+          doc
+
         _ ->
           case Regex.run(~r/-moduledoc\s+"(.*?)"\./s, source) do
             [_, doc] -> doc
@@ -314,7 +320,8 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
   # --- Chunking ---
 
   defp chunk_and_prefix(mod_name, text) do
-    header = ":#{mod_name} — Erlang/OTP docs\nIn Elixir, call as: :#{mod_name}.function_name(args)\n\n"
+    header =
+      ":#{mod_name} — Erlang/OTP docs\nIn Elixir, call as: :#{mod_name}.function_name(args)\n\n"
 
     text
     |> chunk_text(@max_chunk_chars - byte_size(header))
@@ -377,12 +384,14 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
 
   defp to_int(nil, default), do: default
   defp to_int(val, _) when is_integer(val), do: val
+
   defp to_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {n, _} -> n
       :error -> default
     end
   end
+
   defp to_int(_, default), do: default
 
   defp store_chunks(_mod, [], _source_key), do: 0

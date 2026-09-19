@@ -43,7 +43,9 @@ defmodule AlexClaw.Config.Crypto do
         {:error, :invalid_ciphertext}
       else
         ct_size = raw_size - @iv_bytes - @tag_bytes
-        <<iv::binary-size(@iv_bytes), ciphertext::binary-size(ct_size), tag::binary-size(@tag_bytes)>> = raw
+
+        <<iv::binary-size(@iv_bytes), ciphertext::binary-size(ct_size),
+          tag::binary-size(@tag_bytes)>> = raw
 
         case :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, ciphertext, <<>>, tag, false) do
           plaintext when is_binary(plaintext) -> {:ok, plaintext}

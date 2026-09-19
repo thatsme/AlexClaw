@@ -12,23 +12,42 @@ defmodule AlexClaw.WorkflowsExportImportTest do
   end
 
   defp create_resource(attrs \\ %{}) do
-    default = %{name: "Resource #{System.unique_integer([:positive])}", type: "rss_feed", url: "https://example.com/feed"}
+    default = %{
+      name: "Resource #{System.unique_integer([:positive])}",
+      type: "rss_feed",
+      url: "https://example.com/feed"
+    }
+
     {:ok, res} = Resources.create_resource(Map.merge(default, attrs))
     res
   end
 
   defp build_full_workflow do
-    wf = create_workflow(%{name: "Full Export Test", description: "desc", schedule: "0 7 * * *", default_provider: "groq"})
+    wf =
+      create_workflow(%{
+        name: "Full Export Test",
+        description: "desc",
+        schedule: "0 7 * * *",
+        default_provider: "groq"
+      })
 
-    {:ok, _s1} = Workflows.add_step(wf, %{
-      name: "Fetch", skill: "rss_collector", llm_tier: "light",
-      config: %{"timeout" => 30}, routes: [%{"branch" => "on_items", "goto" => 2}]
-    })
+    {:ok, _s1} =
+      Workflows.add_step(wf, %{
+        name: "Fetch",
+        skill: "rss_collector",
+        llm_tier: "light",
+        config: %{"timeout" => 30},
+        routes: [%{"branch" => "on_items", "goto" => 2}]
+      })
 
-    {:ok, _s2} = Workflows.add_step(wf, %{
-      name: "Transform", skill: "llm_transform", llm_tier: "medium",
-      prompt_template: "Summarize: {{input}}", input_from: 1
-    })
+    {:ok, _s2} =
+      Workflows.add_step(wf, %{
+        name: "Transform",
+        skill: "llm_transform",
+        llm_tier: "medium",
+        prompt_template: "Summarize: {{input}}",
+        input_from: 1
+      })
 
     res = create_resource(%{name: "Tech Feed"})
     {:ok, _} = Workflows.assign_resource(wf, res.id, "input")
@@ -184,7 +203,12 @@ defmodule AlexClaw.WorkflowsExportImportTest do
         "workflow" => %{"name" => "Reuse Resource Test #{System.unique_integer([:positive])}"},
         "steps" => [],
         "resources" => [
-          %{"name" => "Existing Resource", "type" => "rss_feed", "url" => "https://example.com/feed", "role" => "input"}
+          %{
+            "name" => "Existing Resource",
+            "type" => "rss_feed",
+            "url" => "https://example.com/feed",
+            "role" => "input"
+          }
         ]
       }
 
@@ -202,8 +226,14 @@ defmodule AlexClaw.WorkflowsExportImportTest do
         "workflow" => %{"name" => "New Resource Test #{System.unique_integer([:positive])}"},
         "steps" => [],
         "resources" => [
-          %{"name" => "Brand New Feed", "type" => "rss_feed", "url" => "https://new.example.com/rss",
-            "tags" => ["finance"], "enabled" => true, "role" => "input"}
+          %{
+            "name" => "Brand New Feed",
+            "type" => "rss_feed",
+            "url" => "https://new.example.com/rss",
+            "tags" => ["finance"],
+            "enabled" => true,
+            "role" => "input"
+          }
         ]
       }
 
@@ -214,7 +244,9 @@ defmodule AlexClaw.WorkflowsExportImportTest do
       {:ok, loaded} = Workflows.get_workflow(wf.id)
       assert length(loaded.workflow_resources) == 1
 
-      created = AlexClaw.Repo.get!(AlexClaw.Resources.Resource, hd(loaded.workflow_resources).resource_id)
+      created =
+        AlexClaw.Repo.get!(AlexClaw.Resources.Resource, hd(loaded.workflow_resources).resource_id)
+
       assert created.name == "Brand New Feed"
       assert created.url == "https://new.example.com/rss"
       assert created.tags == ["finance"]
@@ -228,7 +260,9 @@ defmodule AlexClaw.WorkflowsExportImportTest do
     end
 
     test "rejects missing version" do
-      assert {:error, msg} = Workflows.import_workflow(%{"workflow" => %{"name" => "X"}, "steps" => []})
+      assert {:error, msg} =
+               Workflows.import_workflow(%{"workflow" => %{"name" => "X"}, "steps" => []})
+
       assert msg =~ "version"
     end
 

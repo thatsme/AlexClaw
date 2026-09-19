@@ -31,7 +31,8 @@ defmodule AlexClaw.Skills.SendToWorkflow do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"target_node": "node_name@host", "target_workflow": "workflow name", "timeout": 5000}|
+  def config_hint,
+    do: ~s|{"target_node": "node_name@host", "target_workflow": "workflow name", "timeout": 5000}|
 
   @impl true
   @spec config_scaffold() :: map()
@@ -95,5 +96,4 @@ defmodule AlexClaw.Skills.SendToWorkflow do
         end
     end
   end
-
 end

@@ -47,9 +47,7 @@ defmodule AlexClaw.Auth.AuditLog do
   def prune do
     cutoff = DateTime.add(DateTime.utc_now(), -@retention_days, :day)
 
-    Repo.delete_all(
-      from(e in AuditEntry, where: e.inserted_at < ^cutoff)
-    )
+    Repo.delete_all(from(e in AuditEntry, where: e.inserted_at < ^cutoff))
   rescue
     _ -> {0, nil}
   end

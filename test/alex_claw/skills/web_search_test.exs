@@ -30,20 +30,22 @@ defmodule AlexClaw.Skills.WebSearchTest do
     end
 
     test "uses config query over input" do
-      result = WebSearch.run(%{
-        input: "fallback query",
-        config: %{"query" => "elixir language"}
-      })
+      result =
+        WebSearch.run(%{
+          input: "fallback query",
+          config: %{"query" => "elixir language"}
+        })
 
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
 
     test "passes llm_provider from args" do
-      result = WebSearch.run(%{
-        input: "test",
-        config: %{},
-        llm_provider: "nonexistent"
-      })
+      result =
+        WebSearch.run(%{
+          input: "test",
+          config: %{},
+          llm_provider: "nonexistent"
+        })
 
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end

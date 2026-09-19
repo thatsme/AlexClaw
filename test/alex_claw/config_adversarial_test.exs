@@ -8,6 +8,7 @@ defmodule AlexClaw.ConfigAdversarialTest do
   describe "set/3 edge cases" do
     test "rejects very long key (DB varchar limit)" do
       long_key = String.duplicate("k", 500)
+
       assert_raise Postgrex.Error, fn ->
         Config.set(long_key, "value")
       end

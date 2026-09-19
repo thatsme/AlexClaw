@@ -55,10 +55,11 @@ defmodule AlexClaw.Skills.RSSCollectorTest do
         enabled: true
       }
 
-      result = RSSCollector.run(%{
-        resources: [resource],
-        config: %{"threshold" => 0.0}
-      })
+      result =
+        RSSCollector.run(%{
+          resources: [resource],
+          config: %{"threshold" => 0.0}
+        })
 
       assert {:ok, _, _branch} = result
     end

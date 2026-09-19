@@ -64,7 +64,10 @@ defmodule AlexClaw.Workflows.SchedulerSync do
             |> Quantum.Job.set_task({AlexClaw.Workflows.Executor, :run, [workflow.id]})
 
           AlexClaw.Scheduler.add_job(job)
-          Logger.info("Scheduled workflow '#{workflow.name}' as #{job_name}: #{workflow.schedule}")
+
+          Logger.info(
+            "Scheduled workflow '#{workflow.name}' as #{job_name}: #{workflow.schedule}"
+          )
 
         {:error, reason} ->
           Logger.warning("Invalid cron for workflow '#{workflow.name}': #{inspect(reason)}")

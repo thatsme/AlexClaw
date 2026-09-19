@@ -34,7 +34,11 @@ defmodule AlexClaw.LLM.ClientTest do
     end
 
     test "falls back to config for anthropic provider with no key" do
-      insert_setting("llm.anthropic_api_key", "config-anthropic-key", type: "string", category: "llm")
+      insert_setting("llm.anthropic_api_key", "config-anthropic-key",
+        type: "string",
+        category: "llm"
+      )
+
       provider = build_provider(%{type: "anthropic", api_key: nil})
       assert Client.resolve_api_key(provider) == "config-anthropic-key"
     end

@@ -6,25 +6,27 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
 
   describe "changeset/2" do
     test "valid with required fields" do
-      cs = WorkflowStep.changeset(%WorkflowStep{}, %{
-        position: 1,
-        name: "Fetch Data",
-        skill: "api_request"
-      })
+      cs =
+        WorkflowStep.changeset(%WorkflowStep{}, %{
+          position: 1,
+          name: "Fetch Data",
+          skill: "api_request"
+        })
 
       assert cs.valid?
     end
 
     test "valid with all fields" do
-      cs = WorkflowStep.changeset(%WorkflowStep{}, %{
-        position: 2,
-        name: "Transform",
-        skill: "llm_transform",
-        llm_tier: "medium",
-        llm_model: "gpt-4",
-        prompt_template: "Summarize: {input}",
-        config: %{"max_tokens" => 500}
-      })
+      cs =
+        WorkflowStep.changeset(%WorkflowStep{}, %{
+          position: 2,
+          name: "Transform",
+          skill: "llm_transform",
+          llm_tier: "medium",
+          llm_model: "gpt-4",
+          prompt_template: "Summarize: {input}",
+          config: %{"max_tokens" => 500}
+        })
 
       assert cs.valid?
     end
@@ -49,17 +51,27 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
 
     test "validates llm_tier inclusion" do
       for tier <- ~w(light medium heavy local) do
-        cs = WorkflowStep.changeset(%WorkflowStep{}, %{
-          position: 1, name: "S", skill: "s", llm_tier: tier
-        })
+        cs =
+          WorkflowStep.changeset(%WorkflowStep{}, %{
+            position: 1,
+            name: "S",
+            skill: "s",
+            llm_tier: tier
+          })
+
         assert cs.valid?, "Expected tier '#{tier}' to be valid"
       end
     end
 
     test "rejects invalid llm_tier" do
-      cs = WorkflowStep.changeset(%WorkflowStep{}, %{
-        position: 1, name: "S", skill: "s", llm_tier: "superfast"
-      })
+      cs =
+        WorkflowStep.changeset(%WorkflowStep{}, %{
+          position: 1,
+          name: "S",
+          skill: "s",
+          llm_tier: "superfast"
+        })
+
       refute cs.valid?
       assert errors_on_field(cs, :llm_tier) != []
     end
@@ -77,9 +89,13 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
     test "accepts routes as list of maps" do
       routes = [%{"branch" => "on_success", "goto" => 2}, %{"branch" => "on_error", "goto" => 3}]
 
-      cs = WorkflowStep.changeset(%WorkflowStep{}, %{
-        position: 1, name: "S", skill: "s", routes: routes
-      })
+      cs =
+        WorkflowStep.changeset(%WorkflowStep{}, %{
+          position: 1,
+          name: "S",
+          skill: "s",
+          routes: routes
+        })
 
       assert cs.valid?
       assert Ecto.Changeset.get_field(cs, :routes) == routes

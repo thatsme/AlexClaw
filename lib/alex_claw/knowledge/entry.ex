@@ -5,17 +5,17 @@ defmodule AlexClaw.Knowledge.Entry do
   import Ecto.Changeset
 
   schema "knowledge_entries" do
-    field :kind, :string
-    field :content, :string
-    field :source, :string
-    field :embedding, Pgvector.Ecto.Vector
-    field :metadata, :map, default: %{}
-    field :expires_at, :utc_datetime
-    field :embedding_model, :string
-    field :embedding_dim, :integer
-    field :embedded_at, :utc_datetime
-    field :parent_id, :integer
-    field :chunk_index, :integer
+    field(:kind, :string)
+    field(:content, :string)
+    field(:source, :string)
+    field(:embedding, Pgvector.Ecto.Vector)
+    field(:metadata, :map, default: %{})
+    field(:expires_at, :utc_datetime)
+    field(:embedding_model, :string)
+    field(:embedding_dim, :integer)
+    field(:embedded_at, :utc_datetime)
+    field(:parent_id, :integer)
+    field(:chunk_index, :integer)
 
     timestamps(type: :utc_datetime)
   end
@@ -40,7 +40,19 @@ defmodule AlexClaw.Knowledge.Entry do
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(entry, attrs) do
     entry
-    |> cast(attrs, [:kind, :content, :source, :embedding, :metadata, :expires_at, :embedding_model, :embedding_dim, :embedded_at, :parent_id, :chunk_index])
+    |> cast(attrs, [
+      :kind,
+      :content,
+      :source,
+      :embedding,
+      :metadata,
+      :expires_at,
+      :embedding_model,
+      :embedding_dim,
+      :embedded_at,
+      :parent_id,
+      :chunk_index
+    ])
     |> validate_required([:kind, :content])
   end
 end

@@ -46,15 +46,25 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   def step_fields, do: [:config]
 
   @impl true
-  def config_hint, do: ~s|{"packages": ["phoenix", "ecto", "req"], "force": false, "max_modules_per_package": 50, "delay_between_packages_ms": 2000, "timeout_ms": 300000}|
+  def config_hint,
+    do:
+      ~s|{"packages": ["phoenix", "ecto", "req"], "force": false, "max_modules_per_package": 50, "delay_between_packages_ms": 2000, "timeout_ms": 300000}|
 
   @impl true
   def config_scaffold do
-    %{"packages" => @default_packages, "force" => false, "max_modules_per_package" => 50, "delay_between_packages_ms" => 2000, "timeout_ms" => 300_000}
+    %{
+      "packages" => @default_packages,
+      "force" => false,
+      "max_modules_per_package" => 50,
+      "delay_between_packages_ms" => 2000,
+      "timeout_ms" => 300_000
+    }
   end
 
   @impl true
-  def config_help, do: "packages: hex package names to scrape. max_modules_per_package: cap per package. delay_between_packages_ms: pause between packages (default 2000). timeout_ms: total allowed time (default 300000 = 5 min)."
+  def config_help,
+    do:
+      "packages: hex package names to scrape. max_modules_per_package: cap per package. delay_between_packages_ms: pause between packages (default 2000). timeout_ms: total allowed time (default 300000 = 5 min)."
 
   @impl true
   def run(args) do
@@ -101,7 +111,8 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
         {pkg, :timeout} -> "#{pkg}: skipped (deadline reached)"
       end)
 
-    report = "Packages: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
+    report =
+      "Packages: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
       {:ok, report, :on_success}

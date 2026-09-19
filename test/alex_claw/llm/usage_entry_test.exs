@@ -6,11 +6,12 @@ defmodule AlexClaw.LLM.UsageEntryTest do
 
   describe "changeset/2" do
     test "valid with required fields" do
-      cs = UsageEntry.changeset(%UsageEntry{}, %{
-        model: "llama-3-8b",
-        date: Date.utc_today(),
-        count: 5
-      })
+      cs =
+        UsageEntry.changeset(%UsageEntry{}, %{
+          model: "llama-3-8b",
+          date: Date.utc_today(),
+          count: 5
+        })
 
       assert cs.valid?
     end

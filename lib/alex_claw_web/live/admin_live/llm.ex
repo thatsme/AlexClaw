@@ -22,9 +22,15 @@ defmodule AlexClawWeb.AdminLive.LLM do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
-    {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil, form_type: "openai_compatible")}
+    {:noreply,
+     assign(socket,
+       show_form: !socket.assigns.show_form,
+       editing: nil,
+       form_type: "openai_compatible"
+     )}
   end
 
   @impl true
@@ -38,7 +44,8 @@ defmodule AlexClawWeb.AdminLive.LLM do
       {:ok, provider_id} ->
         case LLM.get_provider(provider_id) do
           {:ok, provider} ->
-            {:noreply, assign(socket, editing: provider, show_form: true, form_type: provider.type)}
+            {:noreply,
+             assign(socket, editing: provider, show_form: true, form_type: provider.type)}
 
           {:error, :not_found} ->
             {:noreply, put_flash(socket, :error, "Provider not found")}
@@ -222,6 +229,7 @@ defmodule AlexClawWeb.AdminLive.LLM do
   defp parse_option_value(_, :boolean), do: nil
 
   defp get_option(nil, _key), do: ""
+
   defp get_option(provider, key) do
     case Map.get(provider.options || %{}, key) do
       nil -> ""
@@ -240,12 +248,23 @@ defmodule AlexClawWeb.AdminLive.LLM do
 
   defp show_option?(type, opt) do
     case type do
-      "ollama" -> opt in ~w(num_ctx num_predict temperature top_p top_k repeat_penalty num_thread num_gpu)
-      "openai_compatible" -> opt in ~w(temperature top_p num_predict thinking)
-      "custom" -> opt in ~w(temperature top_p num_predict thinking)
-      "gemini" -> opt in ~w(temperature top_p num_predict)
-      "anthropic" -> opt in ~w(temperature top_p num_predict)
-      _ -> false
+      "ollama" ->
+        opt in ~w(num_ctx num_predict temperature top_p top_k repeat_penalty num_thread num_gpu)
+
+      "openai_compatible" ->
+        opt in ~w(temperature top_p num_predict thinking)
+
+      "custom" ->
+        opt in ~w(temperature top_p num_predict thinking)
+
+      "gemini" ->
+        opt in ~w(temperature top_p num_predict)
+
+      "anthropic" ->
+        opt in ~w(temperature top_p num_predict)
+
+      _ ->
+        false
     end
   end
 

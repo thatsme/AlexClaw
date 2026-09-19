@@ -60,7 +60,9 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "timeout_ms: total allowed time (default 300000). delay_between_chapters_ms: pause between chapters (default 2000). discover_chapters: true to auto-discover from table of contents."
+  def config_help,
+    do:
+      "timeout_ms: total allowed time (default 300000). delay_between_chapters_ms: pause between chapters (default 2000). discover_chapters: true to auto-discover from table of contents."
 
   @impl true
   def run(args) do
@@ -107,7 +109,8 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
         {ch, :timeout} -> "#{ch}: skipped (deadline reached)"
       end)
 
-    report = "Chapters: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
+    report =
+      "Chapters: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
       {:ok, report, :on_success}
@@ -199,7 +202,9 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
   defp extract_main_content(html) do
     # Try to extract just the content div
     case Regex.run(~r{<div\s+id="content"[^>]*>(.*?)</div>\s*<div\s+id="footer"}s, html) do
-      [_, content] -> content
+      [_, content] ->
+        content
+
       _ ->
         # Fallback: extract body content
         case Regex.run(~r{<body[^>]*>(.*)</body>}s, html) do
@@ -275,12 +280,14 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
 
   defp to_int(nil, default), do: default
   defp to_int(val, _) when is_integer(val), do: val
+
   defp to_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {n, _} -> n
       :error -> default
     end
   end
+
   defp to_int(_, default), do: default
 
   defp store_chunks(_chapter, [], _source_key), do: 0

@@ -7,11 +7,11 @@ defmodule AlexClaw.Cluster.ClusterNode do
   @type t :: %__MODULE__{}
 
   schema "cluster_nodes" do
-    field :name, :string
-    field :label, :string
-    field :status, :string, default: "unknown"
-    field :last_seen_at, :utc_datetime
-    field :metadata, :map, default: %{}
+    field(:name, :string)
+    field(:label, :string)
+    field(:status, :string, default: "unknown")
+    field(:last_seen_at, :utc_datetime)
+    field(:metadata, :map, default: %{})
 
     timestamps(type: :utc_datetime)
   end

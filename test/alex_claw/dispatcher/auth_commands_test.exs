@@ -5,7 +5,14 @@ defmodule AlexClaw.Dispatcher.AuthCommandsTest do
   alias AlexClaw.{Dispatcher, Message}
 
   defp msg(text) do
-    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
+    %Message{
+      text: text,
+      chat_id: "123",
+      from: "Test",
+      timestamp: DateTime.utc_now(),
+      raw: %{},
+      gateway: :test
+    }
   end
 
   describe "2FA commands routing" do
@@ -44,7 +51,8 @@ defmodule AlexClaw.Dispatcher.AuthCommandsTest do
 
   describe "require_2fa/3" do
     test "returns :proceed when 2FA is not enabled" do
-      assert :proceed = Dispatcher.AuthCommands.require_2fa(msg("/test"), %{type: :test}, "Test action")
+      assert :proceed =
+               Dispatcher.AuthCommands.require_2fa(msg("/test"), %{type: :test}, "Test action")
     end
   end
 end

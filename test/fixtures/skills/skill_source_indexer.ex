@@ -36,7 +36,8 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "exclude: list of filenames to skip. Indexes all .ex files in the skills directory."
+  def config_help,
+    do: "exclude: list of filenames to skip. Indexes all .ex files in the skills directory."
 
   @impl true
   def run(args) do
@@ -68,7 +69,8 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
             {f, {:failed, reason}} -> "#{f}: failed (#{reason})"
           end)
 
-        report = "Files: #{length(skill_files)} | New: #{total_stored} | Updated: #{total_updated} | Unchanged: #{total_skipped} | Failed: #{total_failed}\n\n#{summary}"
+        report =
+          "Files: #{length(skill_files)} | New: #{total_stored} | Updated: #{total_updated} | Unchanged: #{total_skipped} | Failed: #{total_failed}\n\n#{summary}"
 
         if total_stored > 0 or total_updated > 0 do
           {:ok, report, :on_success}
@@ -91,7 +93,9 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
     case already_stored?(source_key) do
       true ->
         case check_freshness(skills_dir, file_name, source_key) do
-          :fresh -> :fresh
+          :fresh ->
+            :fresh
+
           :stale ->
             case reindex_file(skills_dir, file_name, source_key) do
               n when is_integer(n) and n > 0 -> {:updated, n}
@@ -134,7 +138,8 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
 
     with {:ok, content} <- File.read(path),
          checksum = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower),
-         {:ok, results} <- SkillAPI.knowledge_search(__MODULE__, source_key, limit: 1, kind: "skill_source") do
+         {:ok, results} <-
+           SkillAPI.knowledge_search(__MODULE__, source_key, limit: 1, kind: "skill_source") do
       case results do
         [%{metadata: %{"checksum" => ^checksum}} | _] -> :fresh
         _ -> :stale

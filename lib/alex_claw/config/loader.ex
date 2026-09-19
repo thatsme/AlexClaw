@@ -28,10 +28,12 @@ defmodule AlexClaw.Config.Loader do
     unless Application.get_env(:alex_claw, :skip_provider_seed, false) do
       AlexClaw.LLM.ProviderSeeder.seed()
     end
+
     # 6. Load self-awareness docs into knowledge base (background, non-blocking)
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       AlexClaw.Knowledge.SelfAwareness.load()
     end)
+
     # 7. Subscribe to config changes for cross-node ETS sync
     AlexClaw.Config.subscribe()
     {:ok, %{}}

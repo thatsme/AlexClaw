@@ -19,7 +19,11 @@ defmodule AlexClaw.Cluster.ManagerTest do
   describe "receive_workflow_data/3" do
     test "rejects workflow that doesn't exist" do
       assert {:error, :workflow_not_found} =
-               Manager.receive_workflow_data("nonexistent_workflow", "data", "alexclaw@test.local")
+               Manager.receive_workflow_data(
+                 "nonexistent_workflow",
+                 "data",
+                 "alexclaw@test.local"
+               )
     end
 
     test "rejects disabled workflow" do

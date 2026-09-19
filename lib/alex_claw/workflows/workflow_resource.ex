@@ -7,10 +7,10 @@ defmodule AlexClaw.Workflows.WorkflowResource do
   @type t :: %__MODULE__{}
 
   schema "workflow_resources" do
-    belongs_to :workflow, AlexClaw.Workflows.Workflow
-    belongs_to :resource, AlexClaw.Resources.Resource
+    belongs_to(:workflow, AlexClaw.Workflows.Workflow)
+    belongs_to(:resource, AlexClaw.Resources.Resource)
 
-    field :role, :string, default: "input"
+    field(:role, :string, default: "input")
 
     timestamps(type: :utc_datetime, updated_at: false)
   end

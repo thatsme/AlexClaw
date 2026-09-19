@@ -71,9 +71,10 @@ defmodule AlexClaw.Auth.SafeExecutorTest do
       # signal to the test process. We trap exits to observe it.
       Process.flag(:trap_exit, true)
 
-      pid = spawn_link(fn ->
-        SafeExecutor.run(CrashSkill, %{}, :dynamic, token, [])
-      end)
+      pid =
+        spawn_link(fn ->
+          SafeExecutor.run(CrashSkill, %{}, :dynamic, token, [])
+        end)
 
       assert_receive {:EXIT, ^pid, _reason}, 5_000
     end
@@ -96,9 +97,10 @@ defmodule AlexClaw.Auth.SafeExecutorTest do
 
       Process.flag(:trap_exit, true)
 
-      pid = spawn_link(fn ->
-        SafeExecutor.run(NonExistentModule, %{}, :dynamic, token, [])
-      end)
+      pid =
+        spawn_link(fn ->
+          SafeExecutor.run(NonExistentModule, %{}, :dynamic, token, [])
+        end)
 
       assert_receive {:EXIT, ^pid, _reason}, 5_000
     end

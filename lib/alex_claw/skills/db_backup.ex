@@ -61,15 +61,25 @@ defmodule AlexClaw.Skills.DbBackup do
         :ok
 
       File.exists?(dir) ->
-        Logger.warning("Backup dir #{dir} is NOT a separate mount — backups will be lost on container recreation", skill: :db_backup)
-        {:error, {:not_mounted, "#{dir} is on the same filesystem as /app — configure a bind mount in docker-compose.yml"}}
+        Logger.warning(
+          "Backup dir #{dir} is NOT a separate mount — backups will be lost on container recreation",
+          skill: :db_backup
+        )
+
+        {:error,
+         {:not_mounted,
+          "#{dir} is on the same filesystem as /app — configure a bind mount in docker-compose.yml"}}
 
       true ->
         # Dir doesn't exist yet — ensure_dir will create it.
         # Can't verify mount before the dir exists, but if the bind mount is
         # configured in docker-compose.yml, Docker creates the mount point.
         # If it doesn't exist, the mount is likely missing.
-        Logger.warning("Backup dir #{dir} does not exist — is the bind mount configured in docker-compose.yml?", skill: :db_backup)
+        Logger.warning(
+          "Backup dir #{dir} does not exist — is the bind mount configured in docker-compose.yml?",
+          skill: :db_backup
+        )
+
         {:error, {:not_mounted, "#{dir} does not exist — add a bind mount in docker-compose.yml"}}
     end
   end
@@ -119,9 +129,12 @@ defmodule AlexClaw.Skills.DbBackup do
       {:error, :pg_dump_not_found}
     else
       args = [
-        "-h", db.hostname,
-        "-U", db.username,
-        "-d", db.database,
+        "-h",
+        db.hostname,
+        "-U",
+        db.username,
+        "-d",
+        db.database,
         "--no-owner",
         "--no-privileges",
         "--clean",

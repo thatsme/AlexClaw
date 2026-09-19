@@ -54,7 +54,13 @@ defmodule AlexClaw.LogBuffer do
   end
 
   @doc "Return counts per severity."
-  @spec counts() :: %{critical: non_neg_integer(), high: non_neg_integer(), moderate: non_neg_integer(), low: non_neg_integer(), circuit_breaker: non_neg_integer()}
+  @spec counts() :: %{
+          critical: non_neg_integer(),
+          high: non_neg_integer(),
+          moderate: non_neg_integer(),
+          low: non_neg_integer(),
+          circuit_breaker: non_neg_integer()
+        }
   def counts do
     entries =
       @table

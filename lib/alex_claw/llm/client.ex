@@ -49,7 +49,10 @@ defmodule AlexClaw.LLM.Client do
 
   def call_provider(%Provider{type: "ollama"} = p, prompt, system) do
     host = p.host || ""
-    if host == "", do: {:error, :host_not_set}, else: call_ollama(host, p.model, p.options || %{}, prompt, system)
+
+    if host == "",
+      do: {:error, :host_not_set},
+      else: call_ollama(host, p.model, p.options || %{}, prompt, system)
   end
 
   def call_provider(%Provider{type: type} = p, prompt, system)
@@ -58,7 +61,16 @@ defmodule AlexClaw.LLM.Client do
 
     if host == "",
       do: {:error, :host_not_set},
-      else: call_openai_compatible(host, p.model, p.api_key, p.headers, p.options || %{}, prompt, system)
+      else:
+        call_openai_compatible(
+          host,
+          p.model,
+          p.api_key,
+          p.headers,
+          p.options || %{},
+          prompt,
+          system
+        )
   end
 
   # --- Provider Embedding Calls ---
@@ -252,7 +264,11 @@ defmodule AlexClaw.LLM.Client do
     thinking = Map.get(options, "thinking", Map.get(options, :thinking))
 
     body = Map.merge(%{model: model, messages: messages, stream: false}, openai_opts)
-    body = if thinking == false, do: Map.put(body, :chat_template_kwargs, %{enable_thinking: false}), else: body
+
+    body =
+      if thinking == false,
+        do: Map.put(body, :chat_template_kwargs, %{enable_thinking: false}),
+        else: body
 
     case Req.post(url, json: body, headers: headers, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => msg} | _]}}} ->

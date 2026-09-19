@@ -33,11 +33,13 @@ defmodule AlexClaw.Skills.Research do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "query: the research topic. Leave empty to use {input} from the previous step."
+  def config_help,
+    do: "query: the research topic. Leave empty to use {input} from the previous step."
 
   @impl true
   @spec prompt_help() :: String.t()
-  def prompt_help, do: "Research query template. Use {input} to include data from the previous step."
+  def prompt_help,
+    do: "Research query template. Use {input} to include data from the previous step."
 
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
@@ -58,7 +60,9 @@ defmodule AlexClaw.Skills.Research do
     gateway_opts = Keyword.take(opts, [:gateway, :chat_id])
 
     case do_research(query, tier: tier, provider: provider) do
-      {:ok, response, _branch} -> Gateway.send_message(response, gateway_opts)
+      {:ok, response, _branch} ->
+        Gateway.send_message(response, gateway_opts)
+
       {:error, reason} ->
         Logger.warning("Research failed: #{inspect(reason)}", skill: :research)
         Gateway.send_message("Research failed: #{inspect(reason)}", gateway_opts)
@@ -66,6 +70,7 @@ defmodule AlexClaw.Skills.Research do
   end
 
   defp resolve_tier, do: String.to_existing_atom(Config.get("skill.research.tier") || "medium")
+
   defp resolve_provider do
     case Config.get("skill.research.provider") do
       p when p in [nil, "", "auto"] -> nil
@@ -100,7 +105,9 @@ defmodule AlexClaw.Skills.Research do
 
     tier = Keyword.get(llm_opts, :tier, resolve_tier())
     provider = Keyword.get(llm_opts, :provider, resolve_provider())
-    complete_opts = [tier: tier, system: system] ++ if(provider, do: [provider: provider], else: [])
+
+    complete_opts =
+      [tier: tier, system: system] ++ if(provider, do: [provider: provider], else: [])
 
     case LLM.complete(prompt, complete_opts) do
       {:ok, response} ->

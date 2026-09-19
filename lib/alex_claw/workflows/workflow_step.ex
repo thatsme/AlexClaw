@@ -7,17 +7,17 @@ defmodule AlexClaw.Workflows.WorkflowStep do
   @allowed_tiers ~w(light medium heavy local)
 
   schema "workflow_steps" do
-    belongs_to :workflow, AlexClaw.Workflows.Workflow
+    belongs_to(:workflow, AlexClaw.Workflows.Workflow)
 
-    field :position, :integer
-    field :name, :string
-    field :skill, :string
-    field :llm_tier, :string
-    field :llm_model, :string
-    field :prompt_template, :string
-    field :config, :map, default: %{}
-    field :input_from, :integer
-    field :routes, {:array, :map}, default: []
+    field(:position, :integer)
+    field(:name, :string)
+    field(:skill, :string)
+    field(:llm_tier, :string)
+    field(:llm_model, :string)
+    field(:prompt_template, :string)
+    field(:config, :map, default: %{})
+    field(:input_from, :integer)
+    field(:routes, {:array, :map}, default: [])
 
     timestamps(type: :utc_datetime)
   end
@@ -25,7 +25,18 @@ defmodule AlexClaw.Workflows.WorkflowStep do
   @spec changeset(%__MODULE__{} | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(step, attrs) do
     step
-    |> cast(attrs, [:workflow_id, :position, :name, :skill, :llm_tier, :llm_model, :prompt_template, :config, :input_from, :routes])
+    |> cast(attrs, [
+      :workflow_id,
+      :position,
+      :name,
+      :skill,
+      :llm_tier,
+      :llm_model,
+      :prompt_template,
+      :config,
+      :input_from,
+      :routes
+    ])
     |> validate_required([:position, :name, :skill])
     |> validate_tier()
     |> foreign_key_constraint(:workflow_id)

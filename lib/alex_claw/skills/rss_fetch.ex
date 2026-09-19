@@ -78,10 +78,13 @@ defmodule AlexClaw.Skills.RssFetch do
           on_timeout: :kill_task
         )
         |> Enum.flat_map(fn
-          {:ok, {:ok, items}} -> items
+          {:ok, {:ok, items}} ->
+            items
+
           {:ok, {:error, reason}} ->
             Logger.warning("Feed fetch failed: #{inspect(reason)}", skill: :rss_fetch)
             []
+
           {:exit, reason} ->
             Logger.warning("Feed fetch crashed: #{inspect(reason)}", skill: :rss_fetch)
             []
@@ -116,7 +119,9 @@ defmodule AlexClaw.Skills.RssFetch do
         |> Enum.map(fn r -> {r.name, r.url} end)
 
       _ ->
-        Enum.map(Resources.list_resources(%{type: "rss_feed", enabled: true}), fn r -> {r.name, r.url} end)
+        Enum.map(Resources.list_resources(%{type: "rss_feed", enabled: true}), fn r ->
+          {r.name, r.url}
+        end)
     end
   end
 
@@ -147,7 +152,10 @@ defmodule AlexClaw.Skills.RssFetch do
     end)
   rescue
     e ->
-      Logger.warning("RSS parse failed for #{feed_name}: #{Exception.message(e)}", skill: :rss_fetch)
+      Logger.warning("RSS parse failed for #{feed_name}: #{Exception.message(e)}",
+        skill: :rss_fetch
+      )
+
       []
   catch
     :exit, reason ->

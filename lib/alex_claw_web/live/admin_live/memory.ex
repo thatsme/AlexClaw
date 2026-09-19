@@ -3,7 +3,6 @@ defmodule AlexClawWeb.AdminLive.Memory do
 
   use Phoenix.LiveView
 
-
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
@@ -17,7 +16,8 @@ defmodule AlexClawWeb.AdminLive.Memory do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("search", %{"query" => query}, socket) do
     entries =
       if String.trim(query) == "" do
@@ -36,7 +36,8 @@ defmodule AlexClawWeb.AdminLive.Memory do
 
   @impl true
   def handle_event("filter_kind", %{"kind" => kind}, socket) do
-    {:noreply, assign(socket, filter_kind: kind, entries: AlexClaw.Memory.recent(limit: 50, kind: kind))}
+    {:noreply,
+     assign(socket, filter_kind: kind, entries: AlexClaw.Memory.recent(limit: 50, kind: kind))}
   end
 
   @impl true

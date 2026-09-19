@@ -7,7 +7,7 @@ defmodule AlexClaw.Cluster do
 
   @spec list_nodes() :: [ClusterNode.t()]
   def list_nodes do
-    Repo.all(from n in ClusterNode, order_by: n.name)
+    Repo.all(from(n in ClusterNode, order_by: n.name))
   end
 
   @spec get_node!(integer()) :: ClusterNode.t()
@@ -25,7 +25,8 @@ defmodule AlexClaw.Cluster do
     |> Repo.insert()
   end
 
-  @spec update_node(ClusterNode.t(), map()) :: {:ok, ClusterNode.t()} | {:error, Ecto.Changeset.t()}
+  @spec update_node(ClusterNode.t(), map()) ::
+          {:ok, ClusterNode.t()} | {:error, Ecto.Changeset.t()}
   def update_node(%ClusterNode{} = node, attrs) do
     node
     |> ClusterNode.changeset(attrs)

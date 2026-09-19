@@ -9,7 +9,9 @@ defmodule AlexClaw.Skills.WebSearch do
   def external, do: true
   @impl true
   @spec description() :: String.t()
-  def description, do: "Searches DuckDuckGo and returns short snippets: titles and brief descriptions only. Does NOT return full page content"
+  def description,
+    do:
+      "Searches DuckDuckGo and returns short snippets: titles and brief descriptions only. Does NOT return full page content"
 
   @impl true
   @spec routes() :: [atom()]
@@ -36,7 +38,8 @@ defmodule AlexClaw.Skills.WebSearch do
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "query: the search terms. Leave empty to use {input} from the previous step."
+  def config_help,
+    do: "query: the search terms. Leave empty to use {input} from the previous step."
 
   @doc "Workflow-compatible entry point. Uses config query or args[:input] as the search query."
   @impl true
@@ -92,15 +95,21 @@ defmodule AlexClaw.Skills.WebSearch do
     provider = Keyword.get(opts, :provider, resolve_provider())
 
     case run(%{input: query, llm_provider: provider, llm_tier: tier}) do
-      {:ok, response, _branch} -> Gateway.send_message(response, gateway_opts)
-      {:error, :no_query} -> Gateway.send_message("No query provided.", gateway_opts)
+      {:ok, response, _branch} ->
+        Gateway.send_message(response, gateway_opts)
+
+      {:error, :no_query} ->
+        Gateway.send_message("No query provided.", gateway_opts)
+
       {:error, reason} ->
         Logger.warning("WebSearch failed: #{inspect(reason)}", skill: :web_search)
         Gateway.send_message("Search failed: #{inspect(reason)}", gateway_opts)
     end
   end
 
-  defp resolve_tier, do: String.to_existing_atom(AlexClaw.Config.get("skill.web_search.tier") || "medium")
+  defp resolve_tier,
+    do: String.to_existing_atom(AlexClaw.Config.get("skill.web_search.tier") || "medium")
+
   defp resolve_provider do
     case AlexClaw.Config.get("skill.web_search.provider") do
       p when p in [nil, "", "auto"] -> nil
@@ -157,8 +166,15 @@ defmodule AlexClaw.Skills.WebSearch do
     |> Task.async_stream(
       fn %{title: title, url: url} ->
         case fetch_text(url) do
-          {:ok, text} -> %{title: title, url: url, content: AlexClaw.ContentSanitizer.sanitize(text, skill: "web_search")}
-          {:error, _} -> %{title: title, url: url, content: "(failed to fetch)"}
+          {:ok, text} ->
+            %{
+              title: title,
+              url: url,
+              content: AlexClaw.ContentSanitizer.sanitize(text, skill: "web_search")
+            }
+
+          {:error, _} ->
+            %{title: title, url: url, content: "(failed to fetch)"}
         end
       end,
       max_concurrency: 3,
@@ -199,7 +215,6 @@ defmodule AlexClaw.Skills.WebSearch do
     end
   end
 
-
   defp synthesize_for_workflow(query, pages, llm_opts) do
     system = Identity.system_prompt(%{skill: :research})
 
@@ -222,17 +237,18 @@ defmodule AlexClaw.Skills.WebSearch do
     """
 
     default_tier = resolve_tier()
+
     case LLM.complete(prompt, [{:tier, default_tier}, {:system, system}] ++ llm_opts) do
       {:ok, response} ->
         Memory.store(:web_search, response,
           source: "search:#{query}",
           metadata: %{query: query, urls: Enum.map(pages, & &1.url)}
         )
+
         {:ok, response, :on_results}
 
       {:error, reason} ->
         {:error, {:synthesis_failed, reason}}
     end
   end
-
 end

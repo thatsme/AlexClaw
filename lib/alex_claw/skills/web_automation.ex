@@ -25,7 +25,8 @@ defmodule AlexClaw.Skills.WebAutomation do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"action": "play"} — runs the automation config from the assigned Resource|
+  def config_hint,
+    do: ~s|{"action": "play"} — runs the automation config from the assigned Resource|
 
   @impl true
   @spec config_scaffold() :: map()
@@ -105,30 +106,33 @@ defmodule AlexClaw.Skills.WebAutomation do
 
         parts =
           ["Automation complete (#{steps_count} steps)."] ++
-          if(downloads != [], do: ["#{length(downloads)} file(s) downloaded."], else: []) ++
-          if(scraped != [], do: ["#{length(scraped)} data set(s) scraped."], else: [])
+            if(downloads != [], do: ["#{length(downloads)} file(s) downloaded."], else: []) ++
+            if(scraped != [], do: ["#{length(scraped)} data set(s) scraped."], else: [])
 
         msg = Enum.join(parts, "\n")
 
-        msg = if scraped != [] do
-          preview = scraped
-            |> Enum.take(2)
-            |> Enum.map_join("\n\n", fn s ->
-              case s do
-                %{"type" => "text", "data" => text} when is_binary(text) ->
-                  String.slice(text, 0, 3000)
+        msg =
+          if scraped != [] do
+            preview =
+              scraped
+              |> Enum.take(2)
+              |> Enum.map_join("\n\n", fn s ->
+                case s do
+                  %{"type" => "text", "data" => text} when is_binary(text) ->
+                    String.slice(text, 0, 3000)
 
-                %{"type" => type, "rows" => rows, "headers" => headers} ->
-                  "#{type}: #{length(headers)} cols, #{length(rows)} rows"
+                  %{"type" => type, "rows" => rows, "headers" => headers} ->
+                    "#{type}: #{length(headers)} cols, #{length(rows)} rows"
 
-                other ->
-                  String.slice(inspect(other), 0, 500)
-              end
-            end)
-          msg <> "\n\n" <> preview
-        else
-          msg
-        end
+                  other ->
+                    String.slice(inspect(other), 0, 500)
+                end
+              end)
+
+            msg <> "\n\n" <> preview
+          else
+            msg
+          end
 
         {:ok, msg, :on_success}
 

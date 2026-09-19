@@ -14,12 +14,12 @@ defmodule AlexClaw.Auth.Policy do
   @type t :: %__MODULE__{}
 
   schema "auth_policies" do
-    field :name, :string
-    field :description, :string
-    field :rule_type, :string
-    field :config, :map, default: %{}
-    field :enabled, :boolean, default: true
-    field :priority, :integer, default: 0
+    field(:name, :string)
+    field(:description, :string)
+    field(:rule_type, :string)
+    field(:config, :map, default: %{})
+    field(:enabled, :boolean, default: true)
+    field(:priority, :integer, default: 0)
 
     timestamps(type: :utc_datetime)
   end

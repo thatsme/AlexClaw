@@ -4,8 +4,8 @@ defmodule AlexClawWeb.AuthController do
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
 
-  plug :put_root_layout, html: {AlexClawWeb.Layouts, :root}
-  plug :put_layout, false
+  plug(:put_root_layout, html: {AlexClawWeb.Layouts, :root})
+  plug(:put_layout, false)
 
   @spec login(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def login(conn, _params) do
@@ -27,10 +27,14 @@ defmodule AlexClawWeb.AuthController do
       is_nil(admin_password) or admin_password == "" ->
         conn
         |> put_resp_content_type("text/html")
-        |> send_resp(401, render_login("ADMIN_PASSWORD is not set. Set it in your .env file and restart."))
+        |> send_resp(
+          401,
+          render_login("ADMIN_PASSWORD is not set. Set it in your .env file and restart.")
+        )
 
       Plug.Crypto.secure_compare(password, admin_password) ->
         AlexClaw.RateLimiter.clear(ip)
+
         conn
         |> configure_session(renew: true)
         |> put_session(:authenticated, true)
@@ -39,6 +43,7 @@ defmodule AlexClawWeb.AuthController do
 
       true ->
         AlexClaw.RateLimiter.record_failure(ip)
+
         conn
         |> put_resp_content_type("text/html")
         |> send_resp(401, render_login("Invalid password"))

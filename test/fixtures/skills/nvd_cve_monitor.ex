@@ -74,7 +74,11 @@ defmodule AlexClaw.Skills.Dynamic.NvdCveMonitor do
         []
       end
 
-    case SkillAPI.http_get(__MODULE__, url, headers: headers, receive_timeout: 30_000, retry: false) do
+    case SkillAPI.http_get(__MODULE__, url,
+           headers: headers,
+           receive_timeout: 30_000,
+           retry: false
+         ) do
       {:ok, %{status: 200, body: body}} when is_map(body) ->
         cves =
           (body["vulnerabilities"] || [])
@@ -219,9 +223,12 @@ defmodule AlexClaw.Skills.Dynamic.NvdCveMonitor do
       |> Enum.map(fn sev ->
         items = by_severity[sev]
         header = "**#{sev}** (#{length(items)})"
-        details = Enum.map_join(items, "\n", fn cve ->
-          "- #{cve.id} (#{cve.score}): #{String.slice(cve.description, 0, 150)}"
-        end)
+
+        details =
+          Enum.map_join(items, "\n", fn cve ->
+            "- #{cve.id} (#{cve.score}): #{String.slice(cve.description, 0, 150)}"
+          end)
+
         "#{header}\n#{details}"
       end)
 
@@ -241,11 +248,13 @@ defmodule AlexClaw.Skills.Dynamic.NvdCveMonitor do
 
   defp to_int(nil, default), do: default
   defp to_int(val, _) when is_integer(val), do: val
+
   defp to_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {n, _} -> n
       :error -> default
     end
   end
+
   defp to_int(_, default), do: default
 end

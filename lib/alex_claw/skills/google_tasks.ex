@@ -50,8 +50,18 @@ defmodule AlexClaw.Skills.GoogleTasks do
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
-      "List tasks" => %{"action" => "list", "task_list" => "My Tasks", "max_results" => 20, "show_completed" => false},
-      "Add task" => %{"action" => "add", "task_list" => "My Tasks", "title" => "Task title (step input becomes notes)", "due" => "2026-03-20"},
+      "List tasks" => %{
+        "action" => "list",
+        "task_list" => "My Tasks",
+        "max_results" => 20,
+        "show_completed" => false
+      },
+      "Add task" => %{
+        "action" => "add",
+        "task_list" => "My Tasks",
+        "title" => "Task title (step input becomes notes)",
+        "due" => "2026-03-20"
+      },
       "Add task (input as title)" => %{"action" => "add", "task_list" => "My Tasks"},
       "List task lists" => %{"action" => "lists"}
     }
@@ -124,9 +134,11 @@ defmodule AlexClaw.Skills.GoogleTasks do
   defp list_task_lists(token) do
     case fetch_task_lists(token) do
       {:ok, lists} ->
-        formatted = lists
+        formatted =
+          lists
           |> Enum.map(fn l -> "• #{l["title"]}" end)
           |> Enum.join("\n")
+
         Logger.info("GoogleTasks: fetched #{length(lists)} task lists", skill: :google_tasks)
         {:ok, formatted, :on_tasks}
 
@@ -158,11 +170,15 @@ defmodule AlexClaw.Skills.GoogleTasks do
   defp resolve_task_list(_token, "@default"), do: {:ok, "@default"}
   defp resolve_task_list(_token, nil), do: {:ok, "@default"}
   defp resolve_task_list(_token, ""), do: {:ok, "@default"}
+
   defp resolve_task_list(token, name_or_id) do
     case fetch_task_lists(token) do
       {:ok, lists} ->
-        case Enum.find(lists, fn l -> String.downcase(l["title"]) == String.downcase(name_or_id) end) do
-          nil -> {:ok, name_or_id}  # not a name match, assume it's an ID
+        case Enum.find(lists, fn l ->
+               String.downcase(l["title"]) == String.downcase(name_or_id)
+             end) do
+          # not a name match, assume it's an ID
+          nil -> {:ok, name_or_id}
           list -> {:ok, list["id"]}
         end
 
@@ -177,14 +193,17 @@ defmodule AlexClaw.Skills.GoogleTasks do
 
     # If title is in config, use input as notes (if notes not explicitly set)
     # If no title in config, use input as title
-    {title, notes} = cond do
-      config["title"] && config["title"] != "" ->
-        {config["title"], config["notes"] || input_str}
-      input_str && input_str != "" ->
-        {input_str, config["notes"]}
-      true ->
-        {"", config["notes"]}
-    end
+    {title, notes} =
+      cond do
+        config["title"] && config["title"] != "" ->
+          {config["title"], config["notes"] || input_str}
+
+        input_str && input_str != "" ->
+          {input_str, config["notes"]}
+
+        true ->
+          {"", config["notes"]}
+      end
 
     if title == "" do
       {:error, :no_task_title}
@@ -196,7 +215,11 @@ defmodule AlexClaw.Skills.GoogleTasks do
 
           task = %{"title" => strip_markdown(title)}
           task = if notes, do: Map.put(task, "notes", strip_markdown(notes)), else: task
-          task = if config["due"], do: Map.put(task, "due", "#{config["due"]}T00:00:00.000Z"), else: task
+
+          task =
+            if config["due"],
+              do: Map.put(task, "due", "#{config["due"]}T00:00:00.000Z"),
+              else: task
 
           case Req.post(url, json: task, headers: headers, receive_timeout: 10_000) do
             {:ok, %{status: 200, body: %{"title" => created_title}}} ->
@@ -232,6 +255,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
     |> String.replace(~r/^---+$/m, "")
     |> String.trim()
   end
+
   defp strip_markdown(text), do: text
 
   defp format_tasks([]), do: "No tasks found."
@@ -252,11 +276,11 @@ defmodule AlexClaw.Skills.GoogleTasks do
   end
 
   defp format_due(nil), do: ""
+
   defp format_due(due_string) do
     case Date.from_iso8601(String.slice(due_string, 0, 10)) do
       {:ok, date} -> " (due: #{date})"
       _ -> ""
     end
   end
-
 end

@@ -42,10 +42,10 @@ defmodule AlexClaw.Skills.CircuitBreakerStressTest do
 
       # Each result should be a valid return type
       assert Enum.all?(results, fn
-        {:ok, _, _} -> true
-        {:error, _} -> true
-        {:error, :circuit_open} -> true
-      end)
+               {:ok, _, _} -> true
+               {:error, _} -> true
+               {:error, :circuit_open} -> true
+             end)
 
       # Breaker should be in a valid state
       # state/1 returns {atom, count, last_error} or :unknown
@@ -87,9 +87,9 @@ defmodule AlexClaw.Skills.CircuitBreakerStressTest do
       states = Task.await_many(readers, 5_000)
 
       assert Enum.all?(states, fn
-        {s, _count, _err} -> s in [:closed, :open, :half_open]
-        :unknown -> true
-      end)
+               {s, _count, _err} -> s in [:closed, :open, :half_open]
+               :unknown -> true
+             end)
     end
   end
 end

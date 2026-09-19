@@ -30,7 +30,8 @@ defmodule AlexClawWeb.AdminLive.Policies do
   }
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("rule_type_changed", %{"policy" => params}, socket) do
     rule_type = params["rule_type"]
     previous_type = socket.assigns.form.params["rule_type"]
@@ -184,11 +185,20 @@ defmodule AlexClawWeb.AdminLive.Policies do
 
   defp rule_type_help(rule_type) do
     case rule_type do
-      "rate_limit" -> "Limits how many times a permission can be used within a time window. Applies per-skill."
-      "time_window" -> "Blocks a permission during specific UTC hours. Use for quiet hours or maintenance windows."
-      "chain_restriction" -> "Prevents skills matching a pattern from invoking other skills. Stops recursive chains."
-      "permission_override" -> "Temporarily grants or denies a specific permission. Optional expiry date."
-      _ -> "Select a rule type."
+      "rate_limit" ->
+        "Limits how many times a permission can be used within a time window. Applies per-skill."
+
+      "time_window" ->
+        "Blocks a permission during specific UTC hours. Use for quiet hours or maintenance windows."
+
+      "chain_restriction" ->
+        "Prevents skills matching a pattern from invoking other skills. Stops recursive chains."
+
+      "permission_override" ->
+        "Temporarily grants or denies a specific permission. Optional expiry date."
+
+      _ ->
+        "Select a rule type."
     end
   end
 

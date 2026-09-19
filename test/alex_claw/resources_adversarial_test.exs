@@ -33,21 +33,23 @@ defmodule AlexClaw.ResourcesAdversarialTest do
     end
 
     test "accepts resource with special chars in URL" do
-      {:ok, resource} = Resources.create_resource(%{
-        name: "Special URL",
-        type: "api",
-        url: "https://example.com/path?q=hello+world&lang=en#section"
-      })
+      {:ok, resource} =
+        Resources.create_resource(%{
+          name: "Special URL",
+          type: "api",
+          url: "https://example.com/path?q=hello+world&lang=en#section"
+        })
 
       assert resource.url =~ "hello+world"
     end
 
     test "handles metadata with special values" do
-      {:ok, resource} = Resources.create_resource(%{
-        name: "Meta Test",
-        type: "document",
-        metadata: %{"key" => nil, "nested" => %{"a" => 1}, "list" => [1, 2]}
-      })
+      {:ok, resource} =
+        Resources.create_resource(%{
+          name: "Meta Test",
+          type: "document",
+          metadata: %{"key" => nil, "nested" => %{"a" => 1}, "list" => [1, 2]}
+        })
 
       assert resource.metadata["nested"]["a"] == 1
     end
@@ -69,8 +71,17 @@ defmodule AlexClaw.ResourcesAdversarialTest do
 
   describe "list_resources/1 filtering" do
     test "filter by type returns only matching" do
-      {:ok, _} = Resources.create_resource(%{name: "RSS #{System.unique_integer([:positive])}", type: "rss_feed"})
-      {:ok, _} = Resources.create_resource(%{name: "API #{System.unique_integer([:positive])}", type: "api"})
+      {:ok, _} =
+        Resources.create_resource(%{
+          name: "RSS #{System.unique_integer([:positive])}",
+          type: "rss_feed"
+        })
+
+      {:ok, _} =
+        Resources.create_resource(%{
+          name: "API #{System.unique_integer([:positive])}",
+          type: "api"
+        })
 
       rss_only = Resources.list_resources(%{type: "rss_feed"})
       assert Enum.all?(rss_only, &(&1.type == "rss_feed"))
@@ -82,8 +93,19 @@ defmodule AlexClaw.ResourcesAdversarialTest do
     end
 
     test "filter by enabled returns only enabled" do
-      {:ok, _} = Resources.create_resource(%{name: "Enabled #{System.unique_integer([:positive])}", type: "api", enabled: true})
-      {:ok, _} = Resources.create_resource(%{name: "Disabled #{System.unique_integer([:positive])}", type: "api", enabled: false})
+      {:ok, _} =
+        Resources.create_resource(%{
+          name: "Enabled #{System.unique_integer([:positive])}",
+          type: "api",
+          enabled: true
+        })
+
+      {:ok, _} =
+        Resources.create_resource(%{
+          name: "Disabled #{System.unique_integer([:positive])}",
+          type: "api",
+          enabled: false
+        })
 
       enabled_only = Resources.list_resources(%{enabled: true})
       assert Enum.all?(enabled_only, & &1.enabled)

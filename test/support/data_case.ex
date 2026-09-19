@@ -39,7 +39,11 @@ defmodule AlexClaw.DataCase do
 
   defp seed_identity_config do
     AlexClaw.Config.set("identity.name", "TestAgent", type: "string", category: "identity")
-    AlexClaw.Config.set("identity.base_prompt", "You are {name}, a test assistant.", type: "string", category: "identity")
+
+    AlexClaw.Config.set("identity.base_prompt", "You are {name}, a test assistant.",
+      type: "string",
+      category: "identity"
+    )
   end
 
   @doc "Helper to create or update a config setting."

@@ -38,10 +38,12 @@ defmodule AlexClaw.Skills.TelegramNotifyAdversarialTest do
     end
 
     test "handles string with Telegram markdown special chars" do
-      result = TelegramNotify.run(%{
-        input: "*bold* _italic_ `code` [link](url) ~strike~",
-        config: %{}
-      })
+      result =
+        TelegramNotify.run(%{
+          input: "*bold* _italic_ `code` [link](url) ~strike~",
+          config: %{}
+        })
+
       assert {:ok, _, :on_delivered} = result
     end
   end
@@ -67,12 +69,16 @@ defmodule AlexClaw.Skills.TelegramNotifyAdversarialTest do
     end
 
     test "bot_token with nil chat_id returns error" do
-      result = TelegramNotify.run(%{input: "test", config: %{"bot_token" => "tok", "chat_id" => nil}})
+      result =
+        TelegramNotify.run(%{input: "test", config: %{"bot_token" => "tok", "chat_id" => nil}})
+
       assert {:error, :no_chat_id} = result
     end
 
     test "bot_token with empty chat_id returns error" do
-      result = TelegramNotify.run(%{input: "test", config: %{"bot_token" => "tok", "chat_id" => ""}})
+      result =
+        TelegramNotify.run(%{input: "test", config: %{"bot_token" => "tok", "chat_id" => ""}})
+
       assert {:error, :no_chat_id} = result
     end
   end

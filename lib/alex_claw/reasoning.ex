@@ -112,7 +112,8 @@ defmodule AlexClaw.Reasoning do
     Repo.delete(session)
   end
 
-  @spec mark_completed(Session.t(), String.t(), float()) :: {:ok, Session.t()} | {:error, Ecto.Changeset.t()}
+  @spec mark_completed(Session.t(), String.t(), float()) ::
+          {:ok, Session.t()} | {:error, Ecto.Changeset.t()}
   def mark_completed(%Session{} = session, result, confidence) do
     update_session(session, %{
       status: "completed",

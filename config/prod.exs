@@ -1,7 +1,6 @@
 import Config
 
-config :alex_claw, AlexClaw.Repo,
-  pool_size: 10
+config :alex_claw, AlexClaw.Repo, pool_size: 10
 
 config :alex_claw, AlexClawWeb.Endpoint,
   server: true,

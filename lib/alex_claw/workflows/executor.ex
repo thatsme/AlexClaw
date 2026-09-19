@@ -14,7 +14,9 @@ defmodule AlexClaw.Workflows.Executor do
   alias AlexClaw.ContentSanitizer
 
   @doc "Run a workflow by ID. Creates a run record and walks the step graph."
-  @spec run(integer()) :: {:ok, AlexClaw.Workflows.WorkflowRun.t()} | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
+  @spec run(integer()) ::
+          {:ok, AlexClaw.Workflows.WorkflowRun.t()}
+          | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
   def run(workflow_id) do
     workflow = Workflows.get_workflow!(workflow_id)
 
@@ -27,7 +29,8 @@ defmodule AlexClaw.Workflows.Executor do
 
   @doc "Run a workflow with externally-provided initial input (used by cluster remote triggers)."
   @spec run_with_input(integer(), any(), map()) ::
-          {:ok, AlexClaw.Workflows.WorkflowRun.t()} | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
+          {:ok, AlexClaw.Workflows.WorkflowRun.t()}
+          | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
   def run_with_input(workflow_id, initial_input, extra_config \\ %{}) do
     workflow = Workflows.get_workflow!(workflow_id)
 
@@ -55,7 +58,13 @@ defmodule AlexClaw.Workflows.Executor do
     if gateways != [], do: notify_start(workflow, gateways)
 
     Registry.broadcast(
-      {:workflow_run_started, %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name, started_at: run.started_at}}
+      {:workflow_run_started,
+       %{
+         run_id: run.id,
+         workflow_id: workflow.id,
+         workflow_name: workflow.name,
+         started_at: run.started_at
+       }}
     )
 
     state = %{
@@ -78,8 +87,16 @@ defmodule AlexClaw.Workflows.Executor do
           })
 
         Registry.deregister(run.id)
-        Registry.broadcast({:workflow_run_completed, %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name}})
-        Logger.info("Workflow '#{workflow.name}' completed (run #{run.id})", workflow: workflow.name)
+
+        Registry.broadcast(
+          {:workflow_run_completed,
+           %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name}}
+        )
+
+        Logger.info("Workflow '#{workflow.name}' completed (run #{run.id})",
+          workflow: workflow.name
+        )
+
         {:ok, run}
 
       {:error, step_name, reason, step_results} ->
@@ -92,8 +109,22 @@ defmodule AlexClaw.Workflows.Executor do
           })
 
         Registry.deregister(run.id)
-        Registry.broadcast({:workflow_run_failed, %{run_id: run.id, workflow_id: workflow.id, workflow_name: workflow.name, error: inspect(reason)}})
-        Logger.error("Workflow '#{workflow.name}' failed at step '#{step_name}': #{inspect(reason)}", workflow: workflow.name)
+
+        Registry.broadcast(
+          {:workflow_run_failed,
+           %{
+             run_id: run.id,
+             workflow_id: workflow.id,
+             workflow_name: workflow.name,
+             error: inspect(reason)
+           }}
+        )
+
+        Logger.error(
+          "Workflow '#{workflow.name}' failed at step '#{step_name}': #{inspect(reason)}",
+          workflow: workflow.name
+        )
+
         if gateways != [], do: notify_failure(workflow, step_name, reason, gateways)
         {:error, run}
     end
@@ -118,7 +149,12 @@ defmodule AlexClaw.Workflows.Executor do
       if MapSet.member?(state.visited, pos) do
         {:error, step.name, :loop_detected, state.step_results}
       else
-        state = %{state | visited: MapSet.put(state.visited, pos), max_iterations: state.max_iterations - 1}
+        state = %{
+          state
+          | visited: MapSet.put(state.visited, pos),
+            max_iterations: state.max_iterations - 1
+        }
+
         input = resolve_step_input(step, steps, state.outputs)
 
         # Inject remote data for receive_from_workflow gate
@@ -132,10 +168,20 @@ defmodule AlexClaw.Workflows.Executor do
           end
 
         Registry.update_step(run.id, step.name)
+
         Registry.broadcast(
-          {:workflow_step_started, %{run_id: run.id, workflow_name: workflow.name, step_name: step.name, step_position: step.position}}
+          {:workflow_step_started,
+           %{
+             run_id: run.id,
+             workflow_name: workflow.name,
+             step_name: step.name,
+             step_position: step.position
+           }}
         )
-        Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})", workflow: workflow.name)
+
+        Logger.info("Executing step #{step.position}: #{step.name} (skill: #{step.skill})",
+          workflow: workflow.name
+        )
 
         started_at = System.monotonic_time(:millisecond)
         step_result = execute_step(step, input, workflow, run)
@@ -146,7 +192,14 @@ defmodule AlexClaw.Workflows.Executor do
         case step_result do
           {:ok, result, branch} ->
             Registry.broadcast(
-              {:workflow_step_completed, %{run_id: run.id, workflow_name: workflow.name, step_name: step.name, step_position: step.position, branch: branch}}
+              {:workflow_step_completed,
+               %{
+                 run_id: run.id,
+                 workflow_name: workflow.name,
+                 step_name: step.name,
+                 step_position: step.position,
+                 branch: branch
+               }}
             )
 
             state = record_step_result(state, step, result, branch)
@@ -168,7 +221,11 @@ defmodule AlexClaw.Workflows.Executor do
 
               next_pos ->
                 # Error is routed to another step — store error info in outputs for that step's input
-                state = %{state | outputs: Map.put(state.outputs, step.position, %{error: reason})}
+                state = %{
+                  state
+                  | outputs: Map.put(state.outputs, step.position, %{error: reason})
+                }
+
                 walk(next_pos, steps, workflow, run, state)
             end
         end
@@ -240,7 +297,10 @@ defmodule AlexClaw.Workflows.Executor do
   defp handle_circuit_open(step, args) do
     case get_in(step.config, ["on_circuit_open"]) do
       "skip" ->
-        Logger.warning("[CircuitBreaker] Skipping step #{step.name}, circuit open for #{step.skill}")
+        Logger.warning(
+          "[CircuitBreaker] Skipping step #{step.name}, circuit open for #{step.skill}"
+        )
+
         {:skipped, args.input}
 
       "fallback" ->
@@ -419,7 +479,9 @@ defmodule AlexClaw.Workflows.Executor do
   end
 
   defp notify_failure(workflow, step_name, reason, gateways) do
-    msg = "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`"
+    msg =
+      "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`"
+
     Enum.each(gateways, fn gw -> gw.send_message(msg, []) end)
   end
 

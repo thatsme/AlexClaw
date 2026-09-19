@@ -143,5 +143,4 @@ defmodule AlexClaw.Google.TokenManager do
       not blank?(Config.get("google.oauth.client_secret")) and
       not blank?(Config.get("google.oauth.refresh_token"))
   end
-
 end

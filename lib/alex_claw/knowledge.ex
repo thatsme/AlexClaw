@@ -69,8 +69,11 @@ defmodule AlexClaw.Knowledge do
           }
 
           case %Entry{} |> Entry.changeset(chunk_attrs) |> Repo.insert() do
-            {:ok, chunk_entry} -> async_embed(chunk_entry)
-            {:error, reason} -> Logger.warning("Failed to insert chunk #{idx}: #{inspect(reason)}")
+            {:ok, chunk_entry} ->
+              async_embed(chunk_entry)
+
+            {:error, reason} ->
+              Logger.warning("Failed to insert chunk #{idx}: #{inspect(reason)}")
           end
         end)
 
@@ -140,7 +143,11 @@ defmodule AlexClaw.Knowledge do
 
     entries =
       Entry
-      |> where([e], is_nil(e.embedding) or is_nil(e.embedding_model) or e.embedding_model != ^(current_model || ""))
+      |> where(
+        [e],
+        is_nil(e.embedding) or is_nil(e.embedding_model) or
+          e.embedding_model != ^(current_model || "")
+      )
       |> Repo.all()
 
     count = length(entries)
@@ -278,7 +285,9 @@ defmodule AlexClaw.Knowledge do
       |> String.replace(~r/[?!.,;:()\[\]{}"']/, " ")
       |> String.split(~r/\s+/, trim: true)
       |> Enum.reject(fn t -> String.length(t) < 3 end)
-      |> Enum.reject(fn t -> String.downcase(t) in ~w(the and for how does what which with from that this are was were can) end)
+      |> Enum.reject(fn t ->
+        String.downcase(t) in ~w(the and for how does what which with from that this are was were can)
+      end)
       |> Enum.take(5)
 
     case terms do

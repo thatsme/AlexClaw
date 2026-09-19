@@ -58,15 +58,19 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"timeout_ms": 300000, "delay_between_files_ms": 1000, "max_lines_per_file": 2000}|
+  def config_hint,
+    do: ~s|{"timeout_ms": 300000, "delay_between_files_ms": 1000, "max_lines_per_file": 2000}|
 
   @impl true
   @spec config_scaffold() :: map()
-  def config_scaffold, do: %{"timeout_ms" => 300_000, "delay_between_files_ms" => 1000, "max_lines_per_file" => 2000}
+  def config_scaffold,
+    do: %{"timeout_ms" => 300_000, "delay_between_files_ms" => 1000, "max_lines_per_file" => 2000}
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "timeout_ms: total allowed time (default 300000). delay_between_files_ms: pause between files (default 1000). max_lines_per_file: truncate large files."
+  def config_help,
+    do:
+      "timeout_ms: total allowed time (default 300000). delay_between_files_ms: pause between files (default 1000). max_lines_per_file: truncate large files."
 
   @impl true
   def run(args) do
@@ -104,7 +108,8 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
         {p, :timeout} -> "#{Path.basename(p, ".ex")}: skipped (deadline reached)"
       end)
 
-    report = "Files: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
+    report =
+      "Files: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
 
     if total_stored > 0 do
       {:ok, report, :on_success}
@@ -201,7 +206,10 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
   defp split_into_functions(content) do
     # Split on @doc, def, defp, defmacro boundaries
     content
-    |> String.split(~r/\n(?=\s*(?:@doc\s|@moduledoc\s|def\s|defp\s|defmacro\s|defmacrop\s|defguard))/, trim: true)
+    |> String.split(
+      ~r/\n(?=\s*(?:@doc\s|@moduledoc\s|def\s|defp\s|defmacro\s|defmacrop\s|defguard))/,
+      trim: true
+    )
     |> Enum.reject(fn s -> String.trim(s) == "" end)
   end
 

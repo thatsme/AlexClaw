@@ -92,9 +92,14 @@ defmodule AlexClaw.Auth.PolicyEngine do
           {:deny, "token does not grant :#{permission}"}
         end
 
-      {:error, :invalid_token} -> {:deny, "invalid capability token"}
-      {:error, :token_expired} -> {:deny, "capability token expired"}
-      {:error, :max_depth_exceeded} -> {:deny, "token max depth exceeded"}
+      {:error, :invalid_token} ->
+        {:deny, "invalid capability token"}
+
+      {:error, :token_expired} ->
+        {:deny, "capability token expired"}
+
+      {:error, :max_depth_exceeded} ->
+        {:deny, "token max depth exceeded"}
     end
   end
 
@@ -177,7 +182,9 @@ defmodule AlexClaw.Auth.PolicyEngine do
 
     if permission == to_string(ctx.permission) do
       case config["expires_at"] do
-        nil -> apply_override(action)
+        nil ->
+          apply_override(action)
+
         expires_str ->
           case DateTime.from_iso8601(expires_str) do
             {:ok, expires, _} ->
@@ -196,14 +203,20 @@ defmodule AlexClaw.Auth.PolicyEngine do
     end
   end
 
-  defp evaluate_policy(%Policy{rule_type: "mcp_restriction", config: config}, %AuthContext{caller_type: :mcp} = ctx) do
+  defp evaluate_policy(
+         %Policy{rule_type: "mcp_restriction", config: config},
+         %AuthContext{caller_type: :mcp} = ctx
+       ) do
     tool_pattern = config["tool_pattern"]
     action = config["action"] || "deny"
 
     if tool_pattern && ctx.tool_name && String.contains?(ctx.tool_name, tool_pattern) do
       case action do
-        "deny" -> {:deny, "MCP restriction: tool '#{ctx.tool_name}' blocked by pattern '#{tool_pattern}'"}
-        _ -> :ok
+        "deny" ->
+          {:deny, "MCP restriction: tool '#{ctx.tool_name}' blocked by pattern '#{tool_pattern}'"}
+
+        _ ->
+          :ok
       end
     else
       :ok

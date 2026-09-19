@@ -13,26 +13,72 @@ defmodule AlexClaw.LLM.ProviderSeeder do
 
   @defaults [
     # Cloud providers — priority determines selection order within a tier
-    %{name: "Gemini Flash", type: "gemini", tier: "light", model: "gemini-2.0-flash",
-      config_key: "llm.gemini_api_key", priority: 10},
-    %{name: "Gemini Pro", type: "gemini", tier: "medium", model: "gemini-2.0-pro",
-      config_key: "llm.gemini_api_key", priority: 10},
-    %{name: "Claude Haiku", type: "anthropic", tier: "light", model: "claude-haiku-4-5-20251001",
-      config_key: "llm.anthropic_api_key", priority: 20, daily_limit: 1000},
-    %{name: "Claude Sonnet", type: "anthropic", tier: "medium", model: "claude-sonnet-4-6-20250514",
-      config_key: "llm.anthropic_api_key", priority: 20, daily_limit: 5},
-    %{name: "Claude Opus", type: "anthropic", tier: "heavy", model: "claude-opus-4-6-20250514",
-      config_key: "llm.anthropic_api_key", priority: 10},
+    %{
+      name: "Gemini Flash",
+      type: "gemini",
+      tier: "light",
+      model: "gemini-2.0-flash",
+      config_key: "llm.gemini_api_key",
+      priority: 10
+    },
+    %{
+      name: "Gemini Pro",
+      type: "gemini",
+      tier: "medium",
+      model: "gemini-2.0-pro",
+      config_key: "llm.gemini_api_key",
+      priority: 10
+    },
+    %{
+      name: "Claude Haiku",
+      type: "anthropic",
+      tier: "light",
+      model: "claude-haiku-4-5-20251001",
+      config_key: "llm.anthropic_api_key",
+      priority: 20,
+      daily_limit: 1000
+    },
+    %{
+      name: "Claude Sonnet",
+      type: "anthropic",
+      tier: "medium",
+      model: "claude-sonnet-4-6-20250514",
+      config_key: "llm.anthropic_api_key",
+      priority: 20,
+      daily_limit: 5
+    },
+    %{
+      name: "Claude Opus",
+      type: "anthropic",
+      tier: "heavy",
+      model: "claude-opus-4-6-20250514",
+      config_key: "llm.anthropic_api_key",
+      priority: 10
+    },
     # Local providers
-    %{name: "Ollama", type: "ollama", tier: "local", model_key: "llm.ollama_model",
-      host_key: "llm.ollama_host", enabled_key: "llm.ollama_enabled", priority: 50},
-    %{name: "LM Studio", type: "openai_compatible", tier: "local", model_key: "llm.lmstudio_model",
-      host_key: "llm.lmstudio_host", enabled_key: "llm.lmstudio_enabled", priority: 40}
+    %{
+      name: "Ollama",
+      type: "ollama",
+      tier: "local",
+      model_key: "llm.ollama_model",
+      host_key: "llm.ollama_host",
+      enabled_key: "llm.ollama_enabled",
+      priority: 50
+    },
+    %{
+      name: "LM Studio",
+      type: "openai_compatible",
+      tier: "local",
+      model_key: "llm.lmstudio_model",
+      host_key: "llm.lmstudio_host",
+      enabled_key: "llm.lmstudio_enabled",
+      priority: 40
+    }
   ]
 
   @spec seed() :: :ok
   def seed do
-    existing_names = MapSet.new(Repo.all(from p in Provider, select: p.name))
+    existing_names = MapSet.new(Repo.all(from(p in Provider, select: p.name)))
 
     for default <- @defaults do
       unless MapSet.member?(existing_names, default.name) do

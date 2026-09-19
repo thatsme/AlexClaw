@@ -35,14 +35,13 @@ defmodule AlexClaw.Auth.TOTP do
   # --- Setup ---
 
   @doc "Generate a new TOTP secret and return it with a QR code PNG."
-  @spec setup() :: {:ok, %{secret: binary(), uri: String.t(), qr_png: binary()}} | {:error, atom()}
+  @spec setup() ::
+          {:ok, %{secret: binary(), uri: String.t(), qr_png: binary()}} | {:error, atom()}
   def setup do
     secret = NimbleTOTP.secret()
 
     uri =
-      NimbleTOTP.otpauth_uri("#{issuer()}:#{@account}", secret,
-        issuer: issuer()
-      )
+      NimbleTOTP.otpauth_uri("#{issuer()}:#{@account}", secret, issuer: issuer())
 
     qr_png =
       uri
@@ -183,10 +182,10 @@ defmodule AlexClaw.Auth.TOTP do
   @spec pending_challenge?(String.t() | integer()) :: boolean()
   def pending_challenge?(chat_id) do
     init_tables()
+
     case :ets.lookup(@challenges_table, to_string(chat_id)) do
       [{_, challenge}] -> System.monotonic_time(:second) <= challenge.expires_at
       [] -> false
     end
   end
-
 end

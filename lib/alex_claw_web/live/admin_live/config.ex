@@ -3,7 +3,6 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   use Phoenix.LiveView
 
-
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, _session, socket) do
@@ -29,7 +28,8 @@ defmodule AlexClawWeb.AdminLive.Config do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil)}
   end
@@ -40,10 +40,14 @@ defmodule AlexClawWeb.AdminLive.Config do
     value = params["value"]
 
     # For sensitive fields, empty value keeps current UNLESS explicitly clearing
-    if sensitive_key?(key) && (value == "" || is_nil(value)) && socket.assigns.editing && params["_clear"] != "true" do
+    if sensitive_key?(key) && (value == "" || is_nil(value)) && socket.assigns.editing &&
+         params["_clear"] != "true" do
       {:noreply,
        socket
-       |> put_flash(:info, "Setting '#{key}' unchanged (submit empty to keep current, use Clear to erase)")
+       |> put_flash(
+         :info,
+         "Setting '#{key}' unchanged (submit empty to keep current, use Clear to erase)"
+       )
        |> assign(show_form: false, editing: nil)}
     else
       AlexClaw.Config.set(key, value || "",
@@ -61,7 +65,12 @@ defmodule AlexClawWeb.AdminLive.Config do
       {:noreply,
        socket
        |> put_flash(:info, "Setting '#{key}' saved")
-       |> assign(settings: settings, grouped: group_by_category(settings), show_form: false, editing: nil)}
+       |> assign(
+         settings: settings,
+         grouped: group_by_category(settings),
+         show_form: false,
+         editing: nil
+       )}
     end
   end
 
@@ -89,7 +98,10 @@ defmodule AlexClawWeb.AdminLive.Config do
     {:noreply,
      socket
      |> put_flash(:info, "Setting '#{key}' deleted")
-     |> assign(settings: AlexClaw.Config.list(), grouped: group_by_category(AlexClaw.Config.list()))}
+     |> assign(
+       settings: AlexClaw.Config.list(),
+       grouped: group_by_category(AlexClaw.Config.list())
+     )}
   end
 
   @impl true
@@ -113,7 +125,10 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   defp mask_value(nil), do: ""
   defp mask_value(""), do: ""
-  defp mask_value(value) when byte_size(value) <= 8, do: String.duplicate("*", String.length(value))
+
+  defp mask_value(value) when byte_size(value) <= 8,
+    do: String.duplicate("*", String.length(value))
+
   defp mask_value(value) do
     String.slice(value, 0, 4) <> "********" <> String.slice(value, -4, 4)
   end
@@ -151,7 +166,9 @@ defmodule AlexClawWeb.AdminLive.Config do
     known = Enum.filter(@category_order, &Map.has_key?(groups, &1))
     extra = Map.keys(groups) |> Enum.reject(&(&1 in @category_order)) |> Enum.sort()
 
-    Enum.map(known ++ extra, fn cat -> {cat, Map.get(@category_labels, cat, String.capitalize(cat)), groups[cat]} end)
+    Enum.map(known ++ extra, fn cat ->
+      {cat, Map.get(@category_labels, cat, String.capitalize(cat)), groups[cat]}
+    end)
   end
 
   defp truncate_desc(nil), do: ""

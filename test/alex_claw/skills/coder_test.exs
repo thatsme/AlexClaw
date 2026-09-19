@@ -91,23 +91,28 @@ defmodule AlexClaw.Skills.CoderTest do
 
   describe "path traversal prevention" do
     test "write_skill rejects path traversal" do
-      assert {:error, :invalid_filename} = SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "../etc/passwd", "code")
+      assert {:error, :invalid_filename} =
+               SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "../etc/passwd", "code")
     end
 
     test "write_skill rejects forward slash" do
-      assert {:error, :invalid_filename} = SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "sub/file.ex", "code")
+      assert {:error, :invalid_filename} =
+               SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "sub/file.ex", "code")
     end
 
     test "write_skill rejects backslash" do
-      assert {:error, :invalid_filename} = SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "sub\\file.ex", "code")
+      assert {:error, :invalid_filename} =
+               SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "sub\\file.ex", "code")
     end
 
     test "write_skill rejects non-.ex files" do
-      assert {:error, :invalid_filename} = SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "script.sh", "code")
+      assert {:error, :invalid_filename} =
+               SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "script.sh", "code")
     end
 
     test "read_skill rejects path traversal" do
-      assert {:error, :invalid_filename} = SkillAPI.read_skill(AlexClaw.Skills.RSSCollector, "../../etc/passwd")
+      assert {:error, :invalid_filename} =
+               SkillAPI.read_skill(AlexClaw.Skills.RSSCollector, "../../etc/passwd")
     end
   end
 
@@ -138,9 +143,14 @@ defmodule AlexClaw.Skills.CoderTest do
       """
 
       assert :ok = SkillAPI.write_skill(AlexClaw.Skills.RSSCollector, "integration_test.ex", code)
-      assert {:ok, info} = SkillAPI.load_skill(AlexClaw.Skills.RSSCollector, "integration_test.ex")
+
+      assert {:ok, info} =
+               SkillAPI.load_skill(AlexClaw.Skills.RSSCollector, "integration_test.ex")
+
       assert info.name == "integration_test"
-      assert {:ok, AlexClaw.Skills.Dynamic.IntegrationTest} = SkillRegistry.resolve("integration_test")
+
+      assert {:ok, AlexClaw.Skills.Dynamic.IntegrationTest} =
+               SkillRegistry.resolve("integration_test")
     end
   end
 
@@ -168,7 +178,8 @@ defmodule AlexClaw.Skills.CoderTest do
     @describetag :integration
 
     test "generates and loads a skill from natural language" do
-      result = Coder.run(%{input: "a skill that returns the current Erlang system time as a string"})
+      result =
+        Coder.run(%{input: "a skill that returns the current Erlang system time as a string"})
 
       case result do
         {:ok, _text, branch} ->

@@ -100,9 +100,7 @@ defmodule AlexClaw.LLM.UsageTracker do
   defp parse_model_string(legacy_str) do
     name = legacy_name_to_provider_name(legacy_str)
 
-    case AlexClaw.Repo.one(
-           from(p in AlexClaw.LLM.Provider, where: p.name == ^name, select: p.id)
-         ) do
+    case AlexClaw.Repo.one(from(p in AlexClaw.LLM.Provider, where: p.name == ^name, select: p.id)) do
       nil -> :skip
       id -> {:ok, id}
     end

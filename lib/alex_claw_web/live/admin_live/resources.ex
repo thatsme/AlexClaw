@@ -29,7 +29,8 @@ defmodule AlexClawWeb.AdminLive.Resources do
   end
 
   @impl true
-  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(params, _uri, socket) do
     type_filter = params["type"]
 
@@ -41,7 +42,8 @@ defmodule AlexClawWeb.AdminLive.Resources do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil)}
   end
@@ -62,10 +64,11 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   @impl true
   def handle_event("save", params, socket) do
-    metadata = case Jason.decode(params["metadata"] || "") do
-      {:ok, map} when is_map(map) -> map
-      _ -> nil
-    end
+    metadata =
+      case Jason.decode(params["metadata"] || "") do
+        {:ok, map} when is_map(map) -> map
+        _ -> nil
+      end
 
     attrs = %{
       name: params["name"],
@@ -187,6 +190,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   defp parse_tags(nil), do: []
   defp parse_tags(""), do: []
-  defp parse_tags(tags), do: tags |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
 
+  defp parse_tags(tags),
+    do: tags |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
 end

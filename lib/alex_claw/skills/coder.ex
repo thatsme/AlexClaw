@@ -27,7 +27,9 @@ defmodule AlexClaw.Skills.Coder do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"goal": "describe what the skill should do", "create_workflow": false, "max_retries": 3}|
+  def config_hint,
+    do:
+      ~s|{"goal": "describe what the skill should do", "create_workflow": false, "max_retries": 3}|
 
   @impl true
   @spec config_scaffold() :: map()
@@ -37,14 +39,18 @@ defmodule AlexClaw.Skills.Coder do
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
-      "BEAM stats" => %{"goal" => "a skill that returns the current BEAM process count and memory usage"},
+      "BEAM stats" => %{
+        "goal" => "a skill that returns the current BEAM process count and memory usage"
+      },
       "With workflow" => %{"goal" => "a skill that checks disk space", "create_workflow" => true}
     }
   end
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "goal: natural language description of the skill to generate. create_workflow: if true, creates a workflow with the generated skill. max_retries: number of LLM retries on failure (default 3)."
+  def config_help,
+    do:
+      "goal: natural language description of the skill to generate. create_workflow: if true, creates a workflow with the generated skill. max_retries: number of LLM retries on failure (default 3)."
 
   @default_max_retries 5
 
@@ -106,16 +112,31 @@ defmodule AlexClaw.Skills.Coder do
         {:ok, result}
 
       {:error, reason, _code} ->
-        Logger.warning("Coder: generation failed (#{retries_left - 1} retries left): #{inspect(reason)}", skill: :coder)
+        Logger.warning(
+          "Coder: generation failed (#{retries_left - 1} retries left): #{inspect(reason)}",
+          skill: :coder
+        )
+
         hint = CodeGenerator.error_to_hint(reason)
         generation_loop(goal, skill_name, retries_left - 1, hint)
     end
   end
 
   defp create_skill_workflow(skill_name) do
-    with {:ok, workflow} <- SkillAPI.create_workflow(__MODULE__, %{name: "Auto: #{skill_name}", enabled: false}),
-         {:ok, _step1} <- SkillAPI.add_workflow_step(__MODULE__, workflow.id, %{name: skill_name, skill: skill_name, position: 1}),
-         {:ok, _step2} <- SkillAPI.add_workflow_step(__MODULE__, workflow.id, %{name: "notify", skill: "telegram_notify", position: 2}) do
+    with {:ok, workflow} <-
+           SkillAPI.create_workflow(__MODULE__, %{name: "Auto: #{skill_name}", enabled: false}),
+         {:ok, _step1} <-
+           SkillAPI.add_workflow_step(__MODULE__, workflow.id, %{
+             name: skill_name,
+             skill: skill_name,
+             position: 1
+           }),
+         {:ok, _step2} <-
+           SkillAPI.add_workflow_step(__MODULE__, workflow.id, %{
+             name: "notify",
+             skill: "telegram_notify",
+             position: 2
+           }) do
       {:ok, %{workflow_id: workflow.id, workflow_name: workflow.name}}
     end
   end

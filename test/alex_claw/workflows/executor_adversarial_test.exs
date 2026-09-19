@@ -34,16 +34,18 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
     test "first step failure stops entire chain" do
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Bad Step",
-        skill: "nonexistent_skill"
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Bad Step",
+          skill: "nonexistent_skill"
+        })
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Never Reached",
-        skill: "api_request",
-        config: %{"url" => "http://localhost/unreachable"}
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Never Reached",
+          skill: "api_request",
+          config: %{"url" => "http://localhost/unreachable"}
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
@@ -59,16 +61,18 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
 
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Succeeds",
-        skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/ok"}
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Succeeds",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/ok"}
+        })
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Fails",
-        skill: "nonexistent_skill"
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Fails",
+          skill: "nonexistent_skill"
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
@@ -88,11 +92,12 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
 
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Minimal",
-        skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/test"}
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Minimal",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/test"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -101,10 +106,11 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
     test "step with nil config defaults to empty map" do
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "No Config",
-        skill: "nonexistent_skill"
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "No Config",
+          skill: "nonexistent_skill"
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.error =~ "unknown_skill"
@@ -113,11 +119,12 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
     test "step with empty prompt_template is treated as empty string — uses skill dispatch" do
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Empty Template",
-        skill: "nonexistent_skill",
-        prompt_template: ""
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Empty Template",
+          skill: "nonexistent_skill",
+          prompt_template: ""
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.error =~ "unknown_skill"
@@ -128,12 +135,13 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
     test "template with no placeholders passes through as-is" do
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Static Prompt",
-        skill: "llm_transform",
-        prompt_template: "Tell me a joke",
-        llm_tier: "light"
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Static Prompt",
+          skill: "llm_transform",
+          prompt_template: "Tell me a joke",
+          llm_tier: "light"
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
@@ -142,12 +150,13 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
     test "template with {input} when prev output is nil" do
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "First Step With Template",
-        skill: "llm_transform",
-        prompt_template: "Process this: {input}",
-        llm_tier: "light"
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "First Step With Template",
+          skill: "llm_transform",
+          prompt_template: "Process this: {input}",
+          llm_tier: "light"
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
@@ -167,18 +176,20 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
 
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Fetch JSON",
-        skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/json"}
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Fetch JSON",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/json"}
+        })
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Transform",
-        skill: "llm_transform",
-        prompt_template: "Analyze: {input}",
-        llm_tier: "light"
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Transform",
+          skill: "llm_transform",
+          prompt_template: "Analyze: {input}",
+          llm_tier: "light"
+        })
 
       {:error, run} = Executor.run(wf.id)
       refute run.error =~ "FunctionClauseError"
@@ -196,11 +207,12 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
 
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{
-        name: "Quick Step",
-        skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/data"}
-      })
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Quick Step",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/data"}
+        })
 
       {:ok, run1} = Executor.run(wf.id)
       {:ok, run2} = Executor.run(wf.id)
@@ -222,11 +234,12 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
       wf = create_workflow()
 
       for i <- 1..10 do
-        {:ok, _} = Workflows.add_step(wf, %{
-          name: "Step #{i}",
-          skill: "api_request",
-          config: %{"url" => "http://localhost:#{bypass.port}/step#{i}"}
-        })
+        {:ok, _} =
+          Workflows.add_step(wf, %{
+            name: "Step #{i}",
+            skill: "api_request",
+            config: %{"url" => "http://localhost:#{bypass.port}/step#{i}"}
+          })
       end
 
       {:ok, run} = Executor.run(wf.id)

@@ -72,41 +72,49 @@ defmodule AlexClaw.Skills.ShellTest do
 
   describe "execution" do
     test "successful command returns :on_success" do
-      {:ok, result, :on_success} = Shell.run(%{
-        input: "echo hello",
-        config: %{"whitelist" => ~s(["echo"])}
-      })
+      {:ok, result, :on_success} =
+        Shell.run(%{
+          input: "echo hello",
+          config: %{"whitelist" => ~s(["echo"])}
+        })
+
       assert result =~ "hello"
       assert result =~ "Exit: 0"
     end
 
     test "output follows expected format" do
-      {:ok, result, :on_success} = Shell.run(%{
-        input: "echo format_test",
-        config: %{"whitelist" => ~s(["echo"])}
-      })
+      {:ok, result, :on_success} =
+        Shell.run(%{
+          input: "echo format_test",
+          config: %{"whitelist" => ~s(["echo"])}
+        })
+
       assert result =~ "$ echo format_test"
       assert result =~ ~r/Exit: 0 \| Time: \d+ms/
     end
 
     test "failed command returns :on_error" do
-      {:ok, result, :on_error} = Shell.run(%{
-        input: "ls /nonexistent_path_12345",
-        config: %{"whitelist" => ~s(["ls"])}
-      })
+      {:ok, result, :on_error} =
+        Shell.run(%{
+          input: "ls /nonexistent_path_12345",
+          config: %{"whitelist" => ~s(["ls"])}
+        })
+
       assert result =~ "Exit:"
     end
   end
 
   describe "timeout" do
     test "slow command returns :on_timeout" do
-      {:ok, result, :on_timeout} = Shell.run(%{
-        input: "sleep 10",
-        config: %{
-          "whitelist" => ~s(["sleep"]),
-          "timeout_seconds" => 1
-        }
-      })
+      {:ok, result, :on_timeout} =
+        Shell.run(%{
+          input: "sleep 10",
+          config: %{
+            "whitelist" => ~s(["sleep"]),
+            "timeout_seconds" => 1
+          }
+        })
+
       assert result =~ "Timed out"
     end
   end
@@ -114,34 +122,39 @@ defmodule AlexClaw.Skills.ShellTest do
   describe "output truncation" do
     test "long output is capped with truncated marker" do
       # seq generates plenty of output
-      {:ok, result, :on_success} = Shell.run(%{
-        input: "seq 1 10000",
-        config: %{
-          "whitelist" => ~s(["seq"]),
-          "max_output_chars" => 100
-        }
-      })
+      {:ok, result, :on_success} =
+        Shell.run(%{
+          input: "seq 1 10000",
+          config: %{
+            "whitelist" => ~s(["seq"]),
+            "max_output_chars" => 100
+          }
+        })
+
       assert result =~ "[truncated at 100 chars]"
     end
   end
 
   describe "config override" do
     test "custom whitelist is respected" do
-      {:ok, result, :on_success} = Shell.run(%{
-        input: "echo custom",
-        config: %{"whitelist" => ~s(["echo"])}
-      })
+      {:ok, result, :on_success} =
+        Shell.run(%{
+          input: "echo custom",
+          config: %{"whitelist" => ~s(["echo"])}
+        })
+
       assert result =~ "custom"
     end
 
     test "custom timeout is respected" do
-      {:ok, _result, :on_timeout} = Shell.run(%{
-        input: "sleep 5",
-        config: %{
-          "whitelist" => ~s(["sleep"]),
-          "timeout_seconds" => 1
-        }
-      })
+      {:ok, _result, :on_timeout} =
+        Shell.run(%{
+          input: "sleep 5",
+          config: %{
+            "whitelist" => ~s(["sleep"]),
+            "timeout_seconds" => 1
+          }
+        })
     end
   end
 
@@ -161,13 +174,15 @@ defmodule AlexClaw.Skills.ShellTest do
 
   describe "workflow mode" do
     test "takes command from config" do
-      {:ok, result, :on_success} = Shell.run(%{
-        config: %{
-          "command" => "echo workflow",
-          "whitelist" => ~s(["echo"])
-        },
-        input: "ignored"
-      })
+      {:ok, result, :on_success} =
+        Shell.run(%{
+          config: %{
+            "command" => "echo workflow",
+            "whitelist" => ~s(["echo"])
+          },
+          input: "ignored"
+        })
+
       assert result =~ "workflow"
       refute result =~ "ignored"
     end

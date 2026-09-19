@@ -9,15 +9,15 @@ defmodule AlexClaw.Resources.Resource do
   @allowed_types ~w(rss_feed website document api automation)
 
   schema "resources" do
-    field :name, :string
-    field :type, :string
-    field :url, :string
-    field :content, :string
-    field :metadata, :map, default: %{}
-    field :tags, {:array, :string}, default: []
-    field :enabled, :boolean, default: true
+    field(:name, :string)
+    field(:type, :string)
+    field(:url, :string)
+    field(:content, :string)
+    field(:metadata, :map, default: %{})
+    field(:tags, {:array, :string}, default: [])
+    field(:enabled, :boolean, default: true)
 
-    has_many :workflow_resources, AlexClaw.Workflows.WorkflowResource
+    has_many(:workflow_resources, AlexClaw.Workflows.WorkflowResource)
 
     timestamps(type: :utc_datetime)
   end

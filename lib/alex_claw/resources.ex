@@ -38,7 +38,8 @@ defmodule AlexClaw.Resources do
     result
   end
 
-  @spec update_resource(Resource.t(), map(), keyword()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
+  @spec update_resource(Resource.t(), map(), keyword()) ::
+          {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
   def update_resource(%Resource{} = resource, attrs, opts \\ []) do
     result =
       resource

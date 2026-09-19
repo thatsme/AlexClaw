@@ -5,7 +5,11 @@ defmodule AlexClaw.Gateway.TelegramTest do
   alias AlexClaw.Gateway.Telegram
 
   setup do
-    AlexClaw.Config.set("telegram.poll_interval", "infinity", type: "string", category: "telegram")
+    AlexClaw.Config.set("telegram.poll_interval", "infinity",
+      type: "string",
+      category: "telegram"
+    )
+
     :ok
   end
 
@@ -58,7 +62,12 @@ defmodule AlexClaw.Gateway.TelegramTest do
 
     test "configured? returns true with token and enabled" do
       AlexClaw.Config.set("telegram.enabled", "true", type: "boolean", category: "telegram")
-      AlexClaw.Config.set("telegram.bot_token", "test-token-123", type: "string", category: "telegram")
+
+      AlexClaw.Config.set("telegram.bot_token", "test-token-123",
+        type: "string",
+        category: "telegram"
+      )
+
       assert Telegram.configured?()
     end
   end

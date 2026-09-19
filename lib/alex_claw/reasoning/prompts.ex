@@ -122,7 +122,13 @@ defmodule AlexClaw.Reasoning.Prompts do
   """
 
   @spec planning(map()) :: String.t()
-  def planning(%{goal: goal, skill_list: skill_list, working_memory: wm, prior_knowledge: pk, max_steps: max_steps}) do
+  def planning(%{
+        goal: goal,
+        skill_list: skill_list,
+        working_memory: wm,
+        prior_knowledge: pk,
+        max_steps: max_steps
+      }) do
     template = config_or_default("prompts.reasoning.planning", @default_planning_prompt)
 
     template
@@ -174,16 +180,18 @@ defmodule AlexClaw.Reasoning.Prompts do
   end
 
   @spec decision(map()) :: String.t()
-  def decision(%{
-        goal: goal,
-        plan_summary: plan,
-        completed_steps: completed,
-        iteration: iteration,
-        max_iterations: max_iter,
-        consecutive_failures: failures,
-        working_memory: wm,
-        user_guidance: guidance
-      } = params) do
+  def decision(
+        %{
+          goal: goal,
+          plan_summary: plan,
+          completed_steps: completed,
+          iteration: iteration,
+          max_iterations: max_iter,
+          consecutive_failures: failures,
+          working_memory: wm,
+          user_guidance: guidance
+        } = params
+      ) do
     template = config_or_default("prompts.reasoning.decision", @default_decision_prompt)
     score_trend = Map.get(params, :score_trend)
 
@@ -203,11 +211,13 @@ defmodule AlexClaw.Reasoning.Prompts do
 
   defp score_trend_section(%{scores: scores, trend: trend}) do
     scores_str = scores |> Enum.map(&Float.round(&1, 1)) |> Enum.join(" → ")
-    direction = cond do
-      trend > 0.3 -> "improving"
-      trend < -0.3 -> "DEGRADING — consider adjusting approach"
-      true -> "stable"
-    end
+
+    direction =
+      cond do
+        trend > 0.3 -> "improving"
+        trend < -0.3 -> "DEGRADING — consider adjusting approach"
+        true -> "stable"
+      end
 
     "Evaluation score trend (last #{length(scores)} steps): #{scores_str} (#{direction})"
   end

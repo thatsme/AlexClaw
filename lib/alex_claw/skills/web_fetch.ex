@@ -11,7 +11,8 @@ defmodule AlexClaw.Skills.WebFetch do
   @spec external() :: boolean()
   def external, do: true
   @impl true
-  def description, do: "Fetches a URL and returns the FULL page text content. Input: a URL. No summarization"
+  def description,
+    do: "Fetches a URL and returns the FULL page text content. Input: a URL. No summarization"
 
   @impl true
   @spec routes() :: [atom()]

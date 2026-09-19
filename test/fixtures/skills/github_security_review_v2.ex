@@ -105,16 +105,17 @@ defmodule AlexClaw.Skills.Dynamic.GithubSecurityReviewV2 do
   defp fetch_pr_meta(repo, pr_number, token) do
     case github_get("#{@github_api}/repos/#{repo}/pulls/#{pr_number}", token) do
       {:ok, body} ->
-        {:ok, %{
-          title: body["title"],
-          author: get_in(body, ["user", "login"]),
-          base: get_in(body, ["base", "ref"]),
-          head: get_in(body, ["head", "ref"]),
-          url: body["html_url"],
-          additions: body["additions"],
-          deletions: body["deletions"],
-          changed_files: body["changed_files"]
-        }}
+        {:ok,
+         %{
+           title: body["title"],
+           author: get_in(body, ["user", "login"]),
+           base: get_in(body, ["base", "ref"]),
+           head: get_in(body, ["head", "ref"]),
+           url: body["html_url"],
+           additions: body["additions"],
+           deletions: body["deletions"],
+           changed_files: body["changed_files"]
+         }}
 
       error ->
         error
@@ -132,14 +133,15 @@ defmodule AlexClaw.Skills.Dynamic.GithubSecurityReviewV2 do
   defp fetch_commit_meta(repo, sha, token) do
     case github_get("#{@github_api}/repos/#{repo}/commits/#{sha}", token) do
       {:ok, body} ->
-        {:ok, %{
-          message: get_in(body, ["commit", "message"]),
-          author: get_in(body, ["commit", "author", "name"]),
-          url: body["html_url"],
-          additions: get_in(body, ["stats", "additions"]),
-          deletions: get_in(body, ["stats", "deletions"]),
-          changed_files: length(body["files"] || [])
-        }}
+        {:ok,
+         %{
+           message: get_in(body, ["commit", "message"]),
+           author: get_in(body, ["commit", "author", "name"]),
+           url: body["html_url"],
+           additions: get_in(body, ["stats", "additions"]),
+           deletions: get_in(body, ["stats", "deletions"]),
+           changed_files: length(body["files"] || [])
+         }}
 
       error ->
         error
@@ -165,7 +167,10 @@ defmodule AlexClaw.Skills.Dynamic.GithubSecurityReviewV2 do
   end
 
   defp github_get(url, token) do
-    case SkillAPI.http_get(__MODULE__, url, headers: github_headers(token), receive_timeout: 15_000) do
+    case SkillAPI.http_get(__MODULE__, url,
+           headers: github_headers(token),
+           receive_timeout: 15_000
+         ) do
       {:ok, %{status: 200, body: body}} -> {:ok, body}
       {:ok, %{status: 404}} -> {:error, :not_found}
       {:ok, %{status: 401}} -> {:error, :unauthorized}
@@ -177,7 +182,10 @@ defmodule AlexClaw.Skills.Dynamic.GithubSecurityReviewV2 do
   end
 
   defp github_get_raw(url, extra_headers, token) do
-    case SkillAPI.http_get(__MODULE__, url, headers: github_headers(token) ++ extra_headers, receive_timeout: 15_000) do
+    case SkillAPI.http_get(__MODULE__, url,
+           headers: github_headers(token) ++ extra_headers,
+           receive_timeout: 15_000
+         ) do
       {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
       {:ok, %{status: status, body: body}} -> {:error, {:github_api, status, body}}
       {:error, :permission_denied} -> {:error, :permission_denied}
@@ -314,7 +322,9 @@ defmodule AlexClaw.Skills.Dynamic.GithubSecurityReviewV2 do
     |> String.split("\n")
     |> Enum.drop(-1)
     |> Enum.join("\n")
-    |> Kernel.<>("\n\n[diff truncated — #{byte_size(diff)} bytes total, showing first #{@max_diff_bytes}]")
+    |> Kernel.<>(
+      "\n\n[diff truncated — #{byte_size(diff)} bytes total, showing first #{@max_diff_bytes}]"
+    )
   end
 
   defp truncate_diff(diff), do: diff
@@ -336,12 +346,14 @@ defmodule AlexClaw.Skills.Dynamic.GithubSecurityReviewV2 do
   defp escape_md(text), do: String.replace(text, ~r/[*_`\[\]]/, "")
 
   defp parse_int(v) when is_integer(v), do: v
+
   defp parse_int(v) when is_binary(v) do
     case Integer.parse(v) do
       {i, _} -> i
       :error -> nil
     end
   end
+
   defp parse_int(_), do: nil
 
   # --- Config helper ---

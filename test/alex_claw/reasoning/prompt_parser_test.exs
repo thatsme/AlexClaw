@@ -8,7 +8,9 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
 
   describe "parse_plan/1" do
     test "parses clean JSON plan" do
-      raw = ~s({"steps": [{"step": 1, "skill": "web_search", "input_description": "search for X", "reason": "need data"}], "working_memory": "understood the goal"})
+      raw =
+        ~s({"steps": [{"step": 1, "skill": "web_search", "input_description": "search for X", "reason": "need data"}], "working_memory": "understood the goal"})
+
       assert {:ok, parsed} = PromptParser.parse_plan(raw)
       assert length(parsed["steps"]) == 1
       assert parsed["working_memory"] == "understood the goal"
@@ -37,7 +39,9 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
     end
 
     test "accepts error response from LLM" do
-      raw = ~s({"error": "cannot achieve goal", "reason": "no skills match", "working_memory": "tried"})
+      raw =
+        ~s({"error": "cannot achieve goal", "reason": "no skills match", "working_memory": "tried"})
+
       assert {:ok, parsed} = PromptParser.parse_plan(raw)
       assert parsed["error"] == "cannot achieve goal"
     end
@@ -47,7 +51,8 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
     end
 
     test "returns error for plain text with no JSON" do
-      assert {:error, :parse_failed, _reason} = PromptParser.parse_plan("I don't know how to help with that.")
+      assert {:error, :parse_failed, _reason} =
+               PromptParser.parse_plan("I don't know how to help with that.")
     end
 
     test "normalizes steps even when original keys are non-standard" do
@@ -67,7 +72,9 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
     end
 
     test "handles trailing commas from local models" do
-      raw = ~s({"steps": [{"step": 1, "skill": "research", "input_description": "x",},], "working_memory": "wm",})
+      raw =
+        ~s({"steps": [{"step": 1, "skill": "research", "input_description": "x",},], "working_memory": "wm",})
+
       assert {:ok, parsed} = PromptParser.parse_plan(raw)
       assert length(parsed["steps"]) == 1
     end
@@ -115,27 +122,35 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
 
   describe "parse_evaluation/1" do
     test "parses clean evaluation with all rubric scores" do
-      raw = ~s({"relevance": 4, "completeness": 3, "usability": 5, "goal_progress": 4, "quality": "good", "summary": "found data", "relevant_output": "key info", "working_memory": "wm"})
+      raw =
+        ~s({"relevance": 4, "completeness": 3, "usability": 5, "goal_progress": 4, "quality": "good", "summary": "found data", "relevant_output": "key info", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_evaluation(raw)
       assert parsed["quality"] == "good"
       assert parsed["relevance"] == 4
     end
 
     test "normalizes quality from rubric scores when quality value is invalid" do
-      raw = ~s({"relevance": 4, "completeness": 4, "usability": 4, "goal_progress": 4, "quality": "excellent", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+      raw =
+        ~s({"relevance": 4, "completeness": 4, "usability": 4, "goal_progress": 4, "quality": "excellent", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_evaluation(raw)
       # Average is 4.0 >= 3.5, should normalize to "good"
       assert parsed["quality"] == "good"
     end
 
     test "normalizes to failed when scores are low" do
-      raw = ~s({"relevance": 1, "completeness": 1, "usability": 1, "goal_progress": 1, "quality": "terrible", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+      raw =
+        ~s({"relevance": 1, "completeness": 1, "usability": 1, "goal_progress": 1, "quality": "terrible", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_evaluation(raw)
       assert parsed["quality"] == "failed"
     end
 
     test "normalizes to partial for mid-range scores" do
-      raw = ~s({"relevance": 2, "completeness": 3, "usability": 2, "goal_progress": 2, "quality": "okay", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+      raw =
+        ~s({"relevance": 2, "completeness": 3, "usability": 2, "goal_progress": 2, "quality": "okay", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_evaluation(raw)
       assert parsed["quality"] == "partial"
     end
@@ -155,28 +170,36 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
 
   describe "parse_decision/1" do
     test "parses continue decision" do
-      raw = ~s({"action": "continue", "confidence": 0.6, "reason": "more steps needed", "working_memory": "wm"})
+      raw =
+        ~s({"action": "continue", "confidence": 0.6, "reason": "more steps needed", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "continue"
       assert parsed["confidence"] == 0.6
     end
 
     test "parses done decision with final_answer" do
-      raw = ~s({"action": "done", "confidence": 0.9, "reason": "goal met", "final_answer": "The answer is 42", "working_memory": "wm"})
+      raw =
+        ~s({"action": "done", "confidence": 0.9, "reason": "goal met", "final_answer": "The answer is 42", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "done"
       assert parsed["final_answer"] == "The answer is 42"
     end
 
     test "parses ask_user decision with question" do
-      raw = ~s({"action": "ask_user", "confidence": 0.3, "reason": "unclear", "question": "What time range?", "working_memory": "wm"})
+      raw =
+        ~s({"action": "ask_user", "confidence": 0.3, "reason": "unclear", "question": "What time range?", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "ask_user"
       assert parsed["question"] == "What time range?"
     end
 
     test "parses adjust decision with new_plan" do
-      raw = ~s({"action": "adjust", "reason": "plan failed", "new_plan": [{"step": 1, "skill": "research"}], "working_memory": "wm"})
+      raw =
+        ~s({"action": "adjust", "reason": "plan failed", "new_plan": [{"step": 1, "skill": "research"}], "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "adjust"
       assert is_list(parsed["new_plan"])
@@ -205,7 +228,9 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
     end
 
     test "handles response with trailing text after JSON" do
-      raw = ~s({"action": "done", "confidence": 0.85, "final_answer": "result here", "working_memory": "wm"}\n\nI hope this helps!)
+      raw =
+        ~s({"action": "done", "confidence": 0.85, "final_answer": "result here", "working_memory": "wm"}\n\nI hope this helps!)
+
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "done"
     end
@@ -244,7 +269,9 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
 
   describe "parse_decision/1 with adjusted plan normalization" do
     test "normalizes new_plan tool keys to skill" do
-      raw = ~s({"action": "adjust", "reason": "better plan", "new_plan": [{"tool": "web_search", "query": "test"}, {"tool": "llm_transform", "input": "summarize"}], "working_memory": "wm"})
+      raw =
+        ~s({"action": "adjust", "reason": "better plan", "new_plan": [{"tool": "web_search", "query": "test"}, {"tool": "llm_transform", "input": "summarize"}], "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "adjust"
       [step1, step2] = parsed["new_plan"]
@@ -258,20 +285,26 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
 
   describe "edge cases" do
     test "parse_plan with maximum nesting depth from local model" do
-      raw = ~s({"steps": [{"step": 1, "skill": "a"}, {"step": 2, "skill": "b"}, {"step": 3, "skill": "c"}, {"step": 4, "skill": "d"}, {"step": 5, "skill": "e"}, {"step": 6, "skill": "f"}, {"step": 7, "skill": "g"}, {"step": 8, "skill": "h"}], "working_memory": "big plan"})
+      raw =
+        ~s({"steps": [{"step": 1, "skill": "a"}, {"step": 2, "skill": "b"}, {"step": 3, "skill": "c"}, {"step": 4, "skill": "d"}, {"step": 5, "skill": "e"}, {"step": 6, "skill": "f"}, {"step": 7, "skill": "g"}, {"step": 8, "skill": "h"}], "working_memory": "big plan"})
+
       assert {:ok, parsed} = PromptParser.parse_plan(raw)
       assert length(parsed["steps"]) == 8
     end
 
     test "parse_evaluation with string scores instead of integers" do
-      raw = ~s({"relevance": "4", "completeness": "3", "usability": "4", "goal_progress": "4", "quality": "invalid", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+      raw =
+        ~s({"relevance": "4", "completeness": "3", "usability": "4", "goal_progress": "4", "quality": "invalid", "summary": "s", "relevant_output": "r", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_evaluation(raw)
       # String scores should be parsed and used for normalization
       assert parsed["quality"] in ["good", "partial"]
     end
 
     test "parse_decision with confidence as string" do
-      raw = ~s({"action": "done", "confidence": "0.85", "final_answer": "x", "working_memory": "wm"})
+      raw =
+        ~s({"action": "done", "confidence": "0.85", "final_answer": "x", "working_memory": "wm"})
+
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "done"
     end

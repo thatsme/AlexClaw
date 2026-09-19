@@ -447,14 +447,19 @@ defmodule AlexClaw.LLMTest do
       bypass = Bypass.open()
       vector = List.duplicate(0.1, 768)
 
-      Bypass.expect_once(bypass, "POST", "/v1beta/models/text-embedding-004:embedContent", fn conn ->
-        # Verify the key came from config (present in query string)
-        assert conn.query_string =~ "key=test-config-gemini-key"
+      Bypass.expect_once(
+        bypass,
+        "POST",
+        "/v1beta/models/text-embedding-004:embedContent",
+        fn conn ->
+          # Verify the key came from config (present in query string)
+          assert conn.query_string =~ "key=test-config-gemini-key"
 
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
-      end)
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
+        end
+      )
 
       Application.put_env(:alex_claw, :embedding_base_url, "http://localhost:#{bypass.port}")
 
@@ -480,13 +485,18 @@ defmodule AlexClaw.LLMTest do
       bypass = Bypass.open()
       vector = List.duplicate(0.1, 768)
 
-      Bypass.expect_once(bypass, "POST", "/v1beta/models/text-embedding-004:embedContent", fn conn ->
-        assert conn.query_string =~ "key=provider-level-key"
+      Bypass.expect_once(
+        bypass,
+        "POST",
+        "/v1beta/models/text-embedding-004:embedContent",
+        fn conn ->
+          assert conn.query_string =~ "key=provider-level-key"
 
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
-      end)
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
+        end
+      )
 
       Application.put_env(:alex_claw, :embedding_base_url, "http://localhost:#{bypass.port}")
 

@@ -33,7 +33,8 @@ defmodule AlexClawWeb.AdminLive.Forge do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("send", %{"goal" => goal}, socket) do
     goal = String.trim(goal)
 
@@ -135,7 +136,8 @@ defmodule AlexClawWeb.AdminLive.Forge do
   end
 
   @impl true
-  @spec handle_async(atom(), {:ok, term()} | {:exit, term()}, Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_async(atom(), {:ok, term()} | {:exit, term()}, Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_async(:forge_step, {:ok, {:ok, result}}, socket) do
     Memory.store(:conversation, "Forge: Generated skill '#{result.name}'", source: "forge")
 
@@ -148,7 +150,9 @@ defmodule AlexClawWeb.AdminLive.Forge do
         loading: false,
         error: nil
       )
-      |> add_system_msg("Skill '#{result.name}' loaded. Permissions: #{inspect(result.permissions)}, Routes: #{inspect(result.routes)}")
+      |> add_system_msg(
+        "Skill '#{result.name}' loaded. Permissions: #{inspect(result.permissions)}, Routes: #{inspect(result.routes)}"
+      )
 
     {:noreply, socket}
   end
@@ -184,7 +188,8 @@ defmodule AlexClawWeb.AdminLive.Forge do
     {:noreply, socket}
   end
 
-  @spec start_forge_step(Phoenix.LiveView.Socket.t(), String.t(), String.t(), String.t() | nil) :: Phoenix.LiveView.Socket.t()
+  @spec start_forge_step(Phoenix.LiveView.Socket.t(), String.t(), String.t(), String.t() | nil) ::
+          Phoenix.LiveView.Socket.t()
   defp start_forge_step(socket, goal, skill_name, error_context) do
     provider = socket.assigns.provider
     context_source = socket.assigns.context_source

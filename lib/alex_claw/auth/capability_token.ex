@@ -89,7 +89,10 @@ defmodule AlexClaw.Auth.CapabilityToken do
   defp build_caveats(opts) do
     caveats = []
     caveats = if opts[:max_depth], do: [{:max_depth, opts[:max_depth]} | caveats], else: caveats
-    caveats = if opts[:expires_at], do: [{:expires_at, opts[:expires_at]} | caveats], else: caveats
+
+    caveats =
+      if opts[:expires_at], do: [{:expires_at, opts[:expires_at]} | caveats], else: caveats
+
     caveats
   end
 

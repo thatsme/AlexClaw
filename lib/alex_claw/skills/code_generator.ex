@@ -59,7 +59,11 @@ defmodule AlexClaw.Skills.CodeGenerator do
           {:ok, map()} | {:error, term(), String.t() | nil}
   def generate_step(goal, skill_name, context_source, provider, error_context) do
     kb_context = gather_knowledge(goal, context_source)
-    Logger.info("Forge context: #{String.length(kb_context)} chars for goal '#{String.slice(goal, 0, 60)}'")
+
+    Logger.info(
+      "Forge context: #{String.length(kb_context)} chars for goal '#{String.slice(goal, 0, 60)}'"
+    )
+
     prompt = build_prompt(goal, skill_name, kb_context, error_context)
     Logger.info("Forge prompt: #{String.length(prompt)} chars total")
 
@@ -69,9 +73,14 @@ defmodule AlexClaw.Skills.CodeGenerator do
         name -> [provider: name]
       end
 
-    case SkillAPI.llm_complete(AlexClaw.Skills.Coder, prompt, Keyword.merge(llm_opts, system: @system_prompt)) do
+    case SkillAPI.llm_complete(
+           AlexClaw.Skills.Coder,
+           prompt,
+           Keyword.merge(llm_opts, system: @system_prompt)
+         ) do
       {:ok, response} ->
         Logger.info("Forge raw response (first 500 chars): #{String.slice(response, 0, 500)}")
+
         case extract_code(response) do
           {:ok, code} ->
             try_load(code, skill_name)
@@ -105,7 +114,14 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
             case validation do
               :ok ->
-                {:ok, %{name: info.name, module: info.module, permissions: info.permissions, routes: info.routes, code: code}}
+                {:ok,
+                 %{
+                   name: info.name,
+                   module: info.module,
+                   permissions: info.permissions,
+                   routes: info.routes,
+                   code: code
+                 }}
 
               {:error, runtime_error} ->
                 SkillAPI.unload_skill(AlexClaw.Skills.Coder, info.name)
@@ -229,11 +245,20 @@ defmodule AlexClaw.Skills.CodeGenerator do
   def validate_runtime(module) do
     try do
       case module.run(%{input: "test", config: %{}}) do
-        {:ok, result, _branch} when is_binary(result) -> :ok
-        {:ok, result, _branch} -> {:error, {:runtime_bad_result, "run/1 returned non-string result: #{inspect(result)}"}}
-        {:ok, _} -> {:error, {:runtime_bad_result, "run/1 must return {:ok, string, :branch}, got 2-tuple"}}
-        {:error, reason} -> {:error, {:runtime_error_returned, "run/1 returned {:error, #{inspect(reason)}}"}}
-        other -> {:error, {:runtime_bad_result, "run/1 returned unexpected: #{inspect(other)}"}}
+        {:ok, result, _branch} when is_binary(result) ->
+          :ok
+
+        {:ok, result, _branch} ->
+          {:error, {:runtime_bad_result, "run/1 returned non-string result: #{inspect(result)}"}}
+
+        {:ok, _} ->
+          {:error, {:runtime_bad_result, "run/1 must return {:ok, string, :branch}, got 2-tuple"}}
+
+        {:error, reason} ->
+          {:error, {:runtime_error_returned, "run/1 returned {:error, #{inspect(reason)}}"}}
+
+        other ->
+          {:error, {:runtime_bad_result, "run/1 returned unexpected: #{inspect(other)}"}}
       end
     rescue
       e -> {:error, {:runtime_crash, Exception.message(e)}}
@@ -245,8 +270,13 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @doc "Format an error into a hint string for the next LLM iteration."
   @spec error_to_hint(term()) :: String.t()
   def error_to_hint(:no_code_block), do: "You must wrap the code in ```elixir ... ```. Try again."
-  def error_to_hint({:load_failed, reason}), do: "The previous code had this error: #{inspect(reason)}\nFix the code and try again."
-  def error_to_hint({:runtime_validation, reason}), do: "The code compiled but failed at runtime: #{inspect(reason)}\nFix the code and try again."
+
+  def error_to_hint({:load_failed, reason}),
+    do: "The previous code had this error: #{inspect(reason)}\nFix the code and try again."
+
+  def error_to_hint({:runtime_validation, reason}),
+    do: "The code compiled but failed at runtime: #{inspect(reason)}\nFix the code and try again."
+
   def error_to_hint({:write_failed, reason}), do: "Failed to write skill file: #{inspect(reason)}"
   def error_to_hint({:llm_failed, reason}), do: "LLM call failed: #{inspect(reason)}"
   def error_to_hint(other), do: "Error: #{inspect(other)}"
@@ -269,7 +299,11 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   @spec search_kb(String.t(), non_neg_integer(), keyword()) :: [map()]
   defp search_kb(query, limit, opts \\ []) do
-    case SkillAPI.knowledge_search(AlexClaw.Skills.Coder, query, Keyword.merge([limit: limit], opts)) do
+    case SkillAPI.knowledge_search(
+           AlexClaw.Skills.Coder,
+           query,
+           Keyword.merge([limit: limit], opts)
+         ) do
       {:ok, entries} -> entries
       _ -> []
     end

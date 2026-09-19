@@ -32,18 +32,20 @@ defmodule AlexClaw.Gateway.BehaviourTest do
 
     test "Telegram implements the behaviour" do
       callbacks = Behaviour.behaviour_info(:callbacks)
+
       for {func, arity} <- callbacks do
         assert function_exported?(AlexClaw.Gateway.Telegram, func, arity),
-          "Telegram missing #{func}/#{arity}"
+               "Telegram missing #{func}/#{arity}"
       end
     end
 
     test "Discord implements the behaviour" do
       Code.ensure_loaded!(AlexClaw.Gateway.Discord)
       callbacks = Behaviour.behaviour_info(:callbacks)
+
       for {func, arity} <- callbacks do
         assert function_exported?(AlexClaw.Gateway.Discord, func, arity),
-          "Discord missing #{func}/#{arity}"
+               "Discord missing #{func}/#{arity}"
       end
     end
   end

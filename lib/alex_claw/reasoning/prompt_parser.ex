@@ -71,7 +71,10 @@ defmodule AlexClaw.Reasoning.PromptParser do
         parsed = maybe_normalize_new_plan(parsed)
         {:ok, parsed}
       else
-        Logger.warning("[ReasoningParser] Unknown action #{inspect(action)}, treating as continue")
+        Logger.warning(
+          "[ReasoningParser] Unknown action #{inspect(action)}, treating as continue"
+        )
+
         {:ok, Map.put(parsed, "action", "continue")}
       end
     end
@@ -79,7 +82,8 @@ defmodule AlexClaw.Reasoning.PromptParser do
 
   # --- JSON Extraction ---
 
-  @spec extract_json(String.t(), :object | :array) :: {:ok, map() | list()} | {:error, :parse_failed, String.t()}
+  @spec extract_json(String.t(), :object | :array) ::
+          {:ok, map() | list()} | {:error, :parse_failed, String.t()}
   defp extract_json(raw, expected_type) do
     cleaned = strip_fences(raw)
 
@@ -109,17 +113,29 @@ defmodule AlexClaw.Reasoning.PromptParser do
   defp try_decode(json_str, expected_type) do
     # Try direct decode first
     case Jason.decode(json_str) do
-      {:ok, result} when is_map(result) and expected_type == :object -> {:ok, result}
-      {:ok, result} when is_list(result) and expected_type == :array -> {:ok, result}
-      {:ok, _} -> {:error, :parse_failed, "extracted JSON is not #{expected_type}"}
+      {:ok, result} when is_map(result) and expected_type == :object ->
+        {:ok, result}
+
+      {:ok, result} when is_list(result) and expected_type == :array ->
+        {:ok, result}
+
+      {:ok, _} ->
+        {:error, :parse_failed, "extracted JSON is not #{expected_type}"}
+
       {:error, _} ->
         # Try fixing common local model issues
         fixed = fix_common_issues(json_str)
 
         case Jason.decode(fixed) do
-          {:ok, result} when is_map(result) and expected_type == :object -> {:ok, result}
-          {:ok, result} when is_list(result) and expected_type == :array -> {:ok, result}
-          {:ok, _} -> {:error, :parse_failed, "extracted JSON is not #{expected_type}"}
+          {:ok, result} when is_map(result) and expected_type == :object ->
+            {:ok, result}
+
+          {:ok, result} when is_list(result) and expected_type == :array ->
+            {:ok, result}
+
+          {:ok, _} ->
+            {:error, :parse_failed, "extracted JSON is not #{expected_type}"}
+
           {:error, %Jason.DecodeError{} = err} ->
             {:error, :parse_failed, "JSON decode failed: #{Exception.message(err)}"}
         end
@@ -227,9 +243,12 @@ defmodule AlexClaw.Reasoning.PromptParser do
       |> Enum.reject(&is_nil/1)
 
     case scores do
-      [] -> "failed"
+      [] ->
+        "failed"
+
       scores ->
         avg = Enum.sum(scores) / length(scores)
+
         cond do
           avg >= 3.5 -> "good"
           avg >= 2.0 -> "partial"
@@ -249,7 +268,9 @@ defmodule AlexClaw.Reasoning.PromptParser do
   def extract_answer(raw) do
     case extract_json(raw, :object) do
       {:ok, parsed} ->
-        answer = Map.get(parsed, "answer") || Map.get(parsed, "final_answer") || Map.get(parsed, "result")
+        answer =
+          Map.get(parsed, "answer") || Map.get(parsed, "final_answer") ||
+            Map.get(parsed, "result")
 
         if answer && answer != "" do
           {:ok, answer}
@@ -263,11 +284,13 @@ defmodule AlexClaw.Reasoning.PromptParser do
   end
 
   defp parse_score(val) when is_number(val), do: val
+
   defp parse_score(val) when is_binary(val) do
     case Float.parse(val) do
       {n, _} -> n
       :error -> nil
     end
   end
+
   defp parse_score(_), do: nil
 end

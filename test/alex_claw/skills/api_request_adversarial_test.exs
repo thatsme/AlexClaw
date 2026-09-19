@@ -36,9 +36,10 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/test", "method" => "get"}
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/test", "method" => "get"}
+               })
     end
   end
 
@@ -50,10 +51,11 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/test"},
-               input: nil
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/test"},
+                 input: nil
+               })
     end
 
     test "handles map input — serialized to JSON" do
@@ -63,10 +65,11 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/data"},
-               input: %{"key" => "value"}
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/data"},
+                 input: %{"key" => "value"}
+               })
     end
 
     test "handles integer input" do
@@ -76,10 +79,11 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/data"},
-               input: 42
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/data"},
+                 input: 42
+               })
     end
 
     test "URL-encodes special chars in {input_encoded}" do
@@ -91,10 +95,11 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/search?q={input_encoded}"},
-               input: "hello world & more"
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/search?q={input_encoded}"},
+                 input: "hello world & more"
+               })
     end
 
     test "handles input with shell metacharacters" do
@@ -104,10 +109,11 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/test"},
-               input: "; rm -rf / && echo pwned"
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/test"},
+                 input: "; rm -rf / && echo pwned"
+               })
     end
 
     test "handles input with newlines and control chars" do
@@ -117,14 +123,15 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{
-                 "url" => "http://localhost:#{bypass.port}/data",
-                 "method" => "POST",
-                 "body" => "{input}"
-               },
-               input: "line1\nline2\r\n\ttab\0null"
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{
+                   "url" => "http://localhost:#{bypass.port}/data",
+                   "method" => "POST",
+                   "body" => "{input}"
+                 },
+                 input: "line1\nline2\r\n\ttab\0null"
+               })
     end
   end
 
@@ -136,9 +143,10 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "")
       end)
 
-      assert {:ok, "", _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/empty"}
-             })
+      assert {:ok, "", _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/empty"}
+               })
     end
 
     test "handles very large response body" do
@@ -149,9 +157,10 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, huge)
       end)
 
-      assert {:ok, body, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/huge"}
-             })
+      assert {:ok, body, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/huge"}
+               })
 
       assert String.length(body) == 100_000
     end
@@ -159,10 +168,11 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
     test "handles JSON response with nested structure" do
       bypass = Bypass.open()
 
-      json = Jason.encode!(%{
-        data: %{nested: %{deep: [1, 2, 3]}},
-        meta: %{page: 1}
-      })
+      json =
+        Jason.encode!(%{
+          data: %{nested: %{deep: [1, 2, 3]}},
+          meta: %{page: 1}
+        })
 
       Bypass.expect(bypass, "GET", "/json", fn conn ->
         conn
@@ -170,9 +180,10 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         |> Plug.Conn.resp(200, json)
       end)
 
-      assert {:ok, body, _branch} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/json"}
-             })
+      assert {:ok, body, _branch} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/json"}
+               })
 
       assert is_binary(body)
     end
@@ -184,15 +195,17 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 500, "Internal Server Error")
       end)
 
-      assert {:ok, "Internal Server Error", :on_5xx} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:#{bypass.port}/error"}
-             })
+      assert {:ok, "Internal Server Error", :on_5xx} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:#{bypass.port}/error"}
+               })
     end
 
     test "handles connection refused" do
-      assert {:error, _reason} = ApiRequest.run(%{
-               config: %{"url" => "http://localhost:1/unreachable"}
-             })
+      assert {:error, _reason} =
+               ApiRequest.run(%{
+                 config: %{"url" => "http://localhost:1/unreachable"}
+               })
     end
 
     test "handles malformed headers config" do
@@ -202,12 +215,13 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{
-                 "url" => "http://localhost:#{bypass.port}/test",
-                 "headers" => "not-a-map"
-               }
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{
+                   "url" => "http://localhost:#{bypass.port}/test",
+                   "headers" => "not-a-map"
+                 }
+               })
     end
 
     test "handles malformed body as plain text" do
@@ -219,13 +233,14 @@ defmodule AlexClaw.Skills.ApiRequestAdversarialTest do
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
-      assert {:ok, _, _branch} = ApiRequest.run(%{
-               config: %{
-                 "url" => "http://localhost:#{bypass.port}/data",
-                 "method" => "POST",
-                 "body" => "not json {"
-               }
-             })
+      assert {:ok, _, _branch} =
+               ApiRequest.run(%{
+                 config: %{
+                   "url" => "http://localhost:#{bypass.port}/data",
+                   "method" => "POST",
+                   "body" => "not json {"
+                 }
+               })
     end
   end
 

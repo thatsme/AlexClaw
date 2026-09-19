@@ -5,14 +5,25 @@ defmodule AlexClaw.ResourcesTest do
   alias AlexClaw.Resources
 
   defp create_resource(attrs \\ %{}) do
-    default = %{name: "Resource #{System.unique_integer([:positive])}", type: "rss_feed", url: "https://example.com/feed"}
+    default = %{
+      name: "Resource #{System.unique_integer([:positive])}",
+      type: "rss_feed",
+      url: "https://example.com/feed"
+    }
+
     {:ok, r} = Resources.create_resource(Map.merge(default, attrs))
     r
   end
 
   describe "create_resource/1" do
     test "creates with valid attrs" do
-      {:ok, r} = Resources.create_resource(%{name: "Test Feed", type: "rss_feed", url: "https://example.com"})
+      {:ok, r} =
+        Resources.create_resource(%{
+          name: "Test Feed",
+          type: "rss_feed",
+          url: "https://example.com"
+        })
+
       assert r.name == "Test Feed"
       assert r.type == "rss_feed"
       assert r.enabled == true

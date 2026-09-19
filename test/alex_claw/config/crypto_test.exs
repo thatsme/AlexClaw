@@ -54,7 +54,10 @@ defmodule AlexClaw.Config.CryptoTest do
       {:ok, "enc:" <> payload} = Crypto.encrypt("secret")
       # Decode, flip bytes in the ciphertext portion, re-encode
       raw = Base.decode64!(payload)
-      flipped = :binary.bin_to_list(raw) |> Enum.map(&Bitwise.bxor(&1, 0xFF)) |> :binary.list_to_bin()
+
+      flipped =
+        :binary.bin_to_list(raw) |> Enum.map(&Bitwise.bxor(&1, 0xFF)) |> :binary.list_to_bin()
+
       tampered = "enc:" <> Base.encode64(flipped)
       assert {:error, _} = Crypto.decrypt(tampered)
     end

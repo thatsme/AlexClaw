@@ -11,7 +11,9 @@ defmodule AlexClaw.Skills.WebSearchFetch do
   @spec external() :: boolean()
   def external, do: true
   @impl true
-  def description, do: "Searches DuckDuckGo AND fetches full page content from top results in one step. Returns raw text, no summarization"
+  def description,
+    do:
+      "Searches DuckDuckGo AND fetches full page content from top results in one step. Returns raw text, no summarization"
 
   @impl true
   @spec routes() :: [atom()]

@@ -13,7 +13,11 @@ defmodule AlexClaw.Skills.CircuitBreaker do
 
   @ets_table :circuit_breakers
   @max_failures Application.compile_env(:alex_claw, [:circuit_breaker, :max_failures], 3)
-  @reset_timeout Application.compile_env(:alex_claw, [:circuit_breaker, :reset_timeout], :timer.minutes(5))
+  @reset_timeout Application.compile_env(
+                   :alex_claw,
+                   [:circuit_breaker, :reset_timeout],
+                   :timer.minutes(5)
+                 )
 
   # --- Client API ---
 
@@ -102,7 +106,11 @@ defmodule AlexClaw.Skills.CircuitBreaker do
         transition(state, :open, @max_failures, reason)
 
       _ ->
-        :ets.insert(@ets_table, {state.skill_name, current_state, new_count, reason, DateTime.utc_now()})
+        :ets.insert(
+          @ets_table,
+          {state.skill_name, current_state, new_count, reason, DateTime.utc_now()}
+        )
+
         {:noreply, state}
     end
   end
@@ -204,7 +212,9 @@ defmodule AlexClaw.Skills.CircuitBreaker do
 
   defp notify_closed(skill_name) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Gateway.Router.broadcast("✅ Circuit *CLOSED* for skill `#{skill_name}` — recovered.")
+      AlexClaw.Gateway.Router.broadcast(
+        "✅ Circuit *CLOSED* for skill `#{skill_name}` — recovered."
+      )
     end)
   end
 end

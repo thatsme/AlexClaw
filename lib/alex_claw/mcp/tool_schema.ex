@@ -66,7 +66,8 @@ defmodule AlexClaw.MCP.ToolSchema do
     config_fields = skill_config_schema(name)
 
     base = %{
-      "input" => {:string, description: "Input data passed to the skill (string, or JSON-encoded)"},
+      "input" =>
+        {:string, description: "Input data passed to the skill (string, or JSON-encoded)"},
       "config" => {:map, :any, description: "Skill-specific configuration keys"}
     }
 
@@ -166,7 +167,9 @@ defmodule AlexClaw.MCP.ToolSchema do
       name: "workflow:#{workflow.name}",
       description: description,
       input_schema: %{
-        "input" => {:string, description: "Optional initial input for the workflow. Passed to the first step."}
+        "input" =>
+          {:string,
+           description: "Optional initial input for the workflow. Passed to the first step."}
       }
     }
   end

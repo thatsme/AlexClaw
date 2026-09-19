@@ -6,20 +6,22 @@ defmodule AlexClaw.Workflows.WorkflowResourceTest do
 
   describe "changeset/2" do
     test "valid with required fields" do
-      cs = WorkflowResource.changeset(%WorkflowResource{}, %{
-        workflow_id: 1,
-        resource_id: 1
-      })
+      cs =
+        WorkflowResource.changeset(%WorkflowResource{}, %{
+          workflow_id: 1,
+          resource_id: 1
+        })
 
       assert cs.valid?
     end
 
     test "valid with role" do
-      cs = WorkflowResource.changeset(%WorkflowResource{}, %{
-        workflow_id: 1,
-        resource_id: 1,
-        role: "reference"
-      })
+      cs =
+        WorkflowResource.changeset(%WorkflowResource{}, %{
+          workflow_id: 1,
+          resource_id: 1,
+          role: "reference"
+        })
 
       assert cs.valid?
       assert Ecto.Changeset.get_field(cs, :role) == "reference"
@@ -38,9 +40,12 @@ defmodule AlexClaw.Workflows.WorkflowResourceTest do
     end
 
     test "defaults role to input" do
-      cs = WorkflowResource.changeset(%WorkflowResource{}, %{
-        workflow_id: 1, resource_id: 1
-      })
+      cs =
+        WorkflowResource.changeset(%WorkflowResource{}, %{
+          workflow_id: 1,
+          resource_id: 1
+        })
+
       assert Ecto.Changeset.get_field(cs, :role) == "input"
     end
   end

@@ -13,7 +13,13 @@ defmodule AlexClawWeb.DatabaseController do
     port =
       Port.open(
         {:spawn_executable, System.find_executable("pg_dump")},
-        [:binary, :exit_status, :stderr_to_stdout, args: pg_dump_args(db_config), env: [{~c"PGPASSWORD", String.to_charlist(db_config.password)}]]
+        [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          args: pg_dump_args(db_config),
+          env: [{~c"PGPASSWORD", String.to_charlist(db_config.password)}]
+        ]
       )
 
     conn =
@@ -47,9 +53,12 @@ defmodule AlexClawWeb.DatabaseController do
 
   defp pg_dump_args(config) do
     [
-      "-h", config.hostname,
-      "-U", config.username,
-      "-d", config.database,
+      "-h",
+      config.hostname,
+      "-U",
+      config.username,
+      "-d",
+      config.database,
       "--no-owner",
       "--no-privileges",
       "--clean",

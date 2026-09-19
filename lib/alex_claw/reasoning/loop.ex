@@ -75,7 +75,8 @@ defmodule AlexClaw.Reasoning.Loop do
   def add_context(pid, context), do: GenServer.cast(pid, {:add_context, context})
 
   @spec override_step(pid(), String.t(), String.t()) :: :ok
-  def override_step(pid, skill_name, input), do: GenServer.cast(pid, {:override_step, skill_name, input})
+  def override_step(pid, skill_name, input),
+    do: GenServer.cast(pid, {:override_step, skill_name, input})
 
   @spec status(pid()) :: map()
   def status(pid), do: GenServer.call(pid, :status)
@@ -159,7 +160,9 @@ defmodule AlexClaw.Reasoning.Loop do
         is_nil(step["skill"]) or step["skill"] == "" ->
           # Malformed step — skip and log
           Logger.warning("[ReasoningLoop] Skipping step with nil/empty skill: #{inspect(step)}")
+
           record_error_step(state, "Step has no skill name: #{inspect(step)}", %{phase: "execute"})
+
           state = %{state | current_step_index: state.current_step_index + 1}
           {:noreply, state, {:continue, :execute_step}}
 
@@ -263,7 +266,10 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   def handle_cast(:resume, %{status: :waiting_user} = state) do
-    Logger.info("[ReasoningLoop] Resuming from waiting_user — replanning with accumulated context")
+    Logger.info(
+      "[ReasoningLoop] Resuming from waiting_user — replanning with accumulated context"
+    )
+
     broadcast(:phase_change, phase_data(state, :resuming))
     {:noreply, state, {:continue, :start_planning}}
   end
@@ -280,7 +286,10 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   def handle_cast({:steer, guidance}, %{status: :waiting_user} = state) do
-    Logger.info("[ReasoningLoop] Steer from waiting_user — replanning with guidance: #{String.slice(guidance, 0, 100)}")
+    Logger.info(
+      "[ReasoningLoop] Steer from waiting_user — replanning with guidance: #{String.slice(guidance, 0, 100)}"
+    )
+
     state = %{state | user_guidance: "[USER GUIDANCE] #{guidance}"}
 
     Reasoning.record_step(%{
@@ -332,9 +341,10 @@ defmodule AlexClaw.Reasoning.Loop do
     Logger.info("[ReasoningLoop] User override: #{skill_name}")
     state = %{state | status: :executing}
 
-    task = spawn_llm_task(fn ->
-      run_user_override(state, skill_name, input)
-    end)
+    task =
+      spawn_llm_task(fn ->
+        run_user_override(state, skill_name, input)
+      end)
 
     {:noreply, %{state | task_ref: task.ref}}
   end
@@ -361,7 +371,12 @@ defmodule AlexClaw.Reasoning.Loop do
     state = %{state | consecutive_failures: state.consecutive_failures + 1}
 
     if state.consecutive_failures >= state.config.stuck_threshold do
-      finish_session(state, :stuck, "Task process crashed #{state.consecutive_failures} times consecutively")
+      finish_session(
+        state,
+        :stuck,
+        "Task process crashed #{state.consecutive_failures} times consecutively"
+      )
+
       {:stop, :normal, state}
     else
       record_error_step(state, "Task crashed: #{inspect(reason)}")
@@ -419,6 +434,7 @@ defmodule AlexClaw.Reasoning.Loop do
 
       _ ->
         Logger.warning("[ReasoningLoop] Process terminating: #{inspect(reason)}")
+
         if state.session do
           Reasoning.mark_failed(state.session, "Process terminated: #{inspect(reason)}")
         end
@@ -527,9 +543,9 @@ defmodule AlexClaw.Reasoning.Loop do
     prompt =
       Prompts.evaluation(%{
         goal: state.goal,
-        step_description: latest && latest.skill_name || "unknown",
-        skill_name: latest && latest.skill_name || "unknown",
-        skill_output: latest && latest.skill_output || "(no output)",
+        step_description: (latest && latest.skill_name) || "unknown",
+        skill_name: (latest && latest.skill_name) || "unknown",
+        skill_output: (latest && latest.skill_output) || "(no output)",
         working_memory: state.working_memory
       })
 
@@ -706,7 +722,11 @@ defmodule AlexClaw.Reasoning.Loop do
       true ->
         case validate_plan(steps, state.config.skill_whitelist) do
           {:ok, valid_steps} ->
-            Reasoning.update_session(state.session, %{plan: %{"steps" => valid_steps}, working_memory: wm})
+            Reasoning.update_session(state.session, %{
+              plan: %{"steps" => valid_steps},
+              working_memory: wm
+            })
+
             state = %{state | plan: valid_steps, working_memory: wm, current_step_index: 0}
             state = reset_time_budget(state, length(valid_steps))
             broadcast(:plan_ready, %{session_id: state.session_id, steps: valid_steps})
@@ -715,8 +735,14 @@ defmodule AlexClaw.Reasoning.Loop do
           {:error, errors} ->
             Logger.warning("[ReasoningLoop] Plan validation failed: #{errors}")
             # Inject validation errors into working memory and retry planning
-            wm_with_errors = "#{wm}\n[PLAN VALIDATION FAILED] #{errors}. Fix these issues in the next plan."
-            state = %{state | working_memory: wm_with_errors, consecutive_failures: state.consecutive_failures + 1}
+            wm_with_errors =
+              "#{wm}\n[PLAN VALIDATION FAILED] #{errors}. Fix these issues in the next plan."
+
+            state = %{
+              state
+              | working_memory: wm_with_errors,
+                consecutive_failures: state.consecutive_failures + 1
+            }
 
             if state.consecutive_failures >= state.config.stuck_threshold do
               finish_session(state, :stuck, "Planning repeatedly failed validation: #{errors}")
@@ -741,7 +767,12 @@ defmodule AlexClaw.Reasoning.Loop do
     state = %{state | consecutive_failures: state.consecutive_failures + 1}
 
     if state.consecutive_failures >= state.config.stuck_threshold do
-      finish_session(state, :stuck, "Planning failed #{state.consecutive_failures} times: #{reason}")
+      finish_session(
+        state,
+        :stuck,
+        "Planning failed #{state.consecutive_failures} times: #{reason}"
+      )
+
       {:stop, :normal, state}
     else
       # Retry planning
@@ -749,7 +780,11 @@ defmodule AlexClaw.Reasoning.Loop do
     end
   end
 
-  defp handle_phase_result(:executing, {:ok, skill_name, input, skill_result, wm, prompt, raw, duration}, state) do
+  defp handle_phase_result(
+         :executing,
+         {:ok, skill_name, input, skill_result, wm, prompt, raw, duration},
+         state
+       ) do
     state = increment_llm_calls(state)
     {skill_output, error} = extract_skill_result(skill_result)
 
@@ -783,7 +818,12 @@ defmodule AlexClaw.Reasoning.Loop do
         state = %{state | consecutive_failures: state.consecutive_failures + 1}
 
         if state.consecutive_failures >= state.config.stuck_threshold do
-          finish_session(state, :stuck, "#{state.consecutive_failures} consecutive skill failures")
+          finish_session(
+            state,
+            :stuck,
+            "#{state.consecutive_failures} consecutive skill failures"
+          )
+
           {:stop, :normal, state}
         else
           {:noreply, state, {:continue, :decide}}
@@ -945,7 +985,9 @@ defmodule AlexClaw.Reasoning.Loop do
 
     compressed =
       case PromptParser.extract_answer(raw) do
-        {:ok, text} -> text
+        {:ok, text} ->
+          text
+
         :fallback ->
           # Try extracting "compressed" key
           case Jason.decode(raw) do
@@ -954,7 +996,10 @@ defmodule AlexClaw.Reasoning.Loop do
           end
       end
 
-    Logger.info("[ReasoningLoop] Working memory compressed: #{byte_size(state.working_memory)} → #{byte_size(compressed)} bytes")
+    Logger.info(
+      "[ReasoningLoop] Working memory compressed: #{byte_size(state.working_memory)} → #{byte_size(compressed)} bytes"
+    )
+
     state = %{state | working_memory: compressed}
     persist_working_memory(state)
     {:noreply, state, {:continue, :decide}}
@@ -995,6 +1040,7 @@ defmodule AlexClaw.Reasoning.Loop do
   defp handle_phase_result(:forced_summary, {:error, reason, prompt, duration}, state) do
     # Even the summary failed — deliver working memory as last resort
     record_error_step(state, reason, %{phase: "decide", llm_prompt: prompt, duration_ms: duration})
+
     result = state.working_memory
     confidence = state.config.done_confidence_threshold
     deliver_result(state, result, confidence)
@@ -1014,9 +1060,13 @@ defmodule AlexClaw.Reasoning.Loop do
       {:stop, :normal, state}
     else
       # Confidence too low — keep going
-      Logger.info("[ReasoningLoop] Done declared with low confidence #{confidence} < #{threshold}")
+      Logger.info(
+        "[ReasoningLoop] Done declared with low confidence #{confidence} < #{threshold}"
+      )
 
-      wm = "#{state.working_memory}\n[LOW CONFIDENCE] Previous attempt declared done with confidence #{confidence}, which is below threshold #{threshold}. Keep iterating to improve the answer."
+      wm =
+        "#{state.working_memory}\n[LOW CONFIDENCE] Previous attempt declared done with confidence #{confidence}, which is below threshold #{threshold}. Keep iterating to improve the answer."
+
       state = %{state | working_memory: wm, iteration: state.iteration + 1}
       Reasoning.increment_iteration(state.session)
       {:noreply, state, {:continue, :execute_step}}
@@ -1024,7 +1074,12 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   defp handle_decision("continue", _parsed, _confidence, state) do
-    state = %{state | current_step_index: state.current_step_index + 1, iteration: state.iteration + 1}
+    state = %{
+      state
+      | current_step_index: state.current_step_index + 1,
+        iteration: state.iteration + 1
+    }
+
     Reasoning.increment_iteration(state.session)
     {:noreply, state, {:continue, :execute_step}}
   end
@@ -1037,7 +1092,10 @@ defmodule AlexClaw.Reasoning.Loop do
     prev_adjusts = count_recent_adjusts(state)
 
     if prev_adjusts >= 2 and confidence >= threshold do
-      Logger.info("[ReasoningLoop] Adjust oscillation detected (#{prev_adjusts + 1} adjusts, confidence #{confidence}). Forcing final summary.")
+      Logger.info(
+        "[ReasoningLoop] Adjust oscillation detected (#{prev_adjusts + 1} adjusts, confidence #{confidence}). Forcing final summary."
+      )
+
       task = spawn_llm_task(fn -> run_forced_summary(state) end)
       {:noreply, %{state | task_ref: task.ref}}
     else
@@ -1052,7 +1110,14 @@ defmodule AlexClaw.Reasoning.Loop do
           case validate_plan(new_plan, state.config.skill_whitelist) do
             {:ok, valid_steps} ->
               Reasoning.update_session(state.session, %{plan: %{"steps" => valid_steps}})
-              state = %{state | plan: valid_steps, current_step_index: 0, iteration: state.iteration + 1}
+
+              state = %{
+                state
+                | plan: valid_steps,
+                  current_step_index: 0,
+                  iteration: state.iteration + 1
+              }
+
               state = reset_time_budget(state, length(valid_steps))
               Reasoning.increment_iteration(state.session)
               broadcast(:plan_adjusted, %{session_id: state.session_id, new_plan: valid_steps})
@@ -1080,7 +1145,10 @@ defmodule AlexClaw.Reasoning.Loop do
   end
 
   defp handle_decision(unknown, _parsed, _confidence, state) do
-    Logger.warning("[ReasoningLoop] Unknown decision action: #{inspect(unknown)}, treating as continue")
+    Logger.warning(
+      "[ReasoningLoop] Unknown decision action: #{inspect(unknown)}, treating as continue"
+    )
+
     handle_decision("continue", %{}, nil, state)
   end
 
@@ -1088,15 +1156,35 @@ defmodule AlexClaw.Reasoning.Loop do
 
   defp build_config(opts) do
     %{
-      max_iterations: Keyword.get(opts, :max_iterations, config_int("reasoning.max_iterations", 15)),
+      max_iterations:
+        Keyword.get(opts, :max_iterations, config_int("reasoning.max_iterations", 15)),
       max_llm_calls: Keyword.get(opts, :max_llm_calls, config_int("reasoning.max_llm_calls", 60)),
-      time_budget_ms: Keyword.get(opts, :time_budget_ms, config_int("reasoning.time_budget_seconds", 900) * 1000),
-      skill_whitelist: Keyword.get(opts, :skill_whitelist, config_json("reasoning.skill_whitelist", [])),
-      stuck_threshold: Keyword.get(opts, :stuck_threshold, config_int("reasoning.stuck_threshold", 3)),
-      step_timeout_ms: Keyword.get(opts, :step_timeout_ms, config_int("reasoning.step_timeout_seconds", 120) * 1000),
-      max_plan_steps: Keyword.get(opts, :max_plan_steps, config_int("reasoning.max_plan_steps", 8)),
-      done_confidence_threshold: Keyword.get(opts, :done_confidence_threshold, config_float("reasoning.done_confidence_threshold", 0.7)),
-      delivery: Keyword.get(opts, :delivery, config_json("reasoning.default_delivery", ["memory"])),
+      time_budget_ms:
+        Keyword.get(
+          opts,
+          :time_budget_ms,
+          config_int("reasoning.time_budget_seconds", 900) * 1000
+        ),
+      skill_whitelist:
+        Keyword.get(opts, :skill_whitelist, config_json("reasoning.skill_whitelist", [])),
+      stuck_threshold:
+        Keyword.get(opts, :stuck_threshold, config_int("reasoning.stuck_threshold", 3)),
+      step_timeout_ms:
+        Keyword.get(
+          opts,
+          :step_timeout_ms,
+          config_int("reasoning.step_timeout_seconds", 120) * 1000
+        ),
+      max_plan_steps:
+        Keyword.get(opts, :max_plan_steps, config_int("reasoning.max_plan_steps", 8)),
+      done_confidence_threshold:
+        Keyword.get(
+          opts,
+          :done_confidence_threshold,
+          config_float("reasoning.done_confidence_threshold", 0.7)
+        ),
+      delivery:
+        Keyword.get(opts, :delivery, config_json("reasoning.default_delivery", ["memory"])),
       llm_tier: Keyword.get(opts, :llm_tier, config_atom("reasoning.llm_tier", :local))
     }
   end
@@ -1146,13 +1234,21 @@ defmodule AlexClaw.Reasoning.Loop do
 
   defp finish_session(state, :completed, result, confidence) do
     Reasoning.mark_completed(state.session, result, confidence)
-    broadcast(:session_complete, %{session_id: state.session_id, status: :completed, result: result})
+
+    broadcast(:session_complete, %{
+      session_id: state.session_id,
+      status: :completed,
+      result: result
+    })
+
     cancel_timer(state)
   end
 
   defp finish_session(state, :aborted, reason) do
     Reasoning.mark_aborted(state.session)
+
     broadcast(:session_complete, %{session_id: state.session_id, status: :aborted, reason: reason})
+
     cancel_timer(state)
   end
 
@@ -1255,7 +1351,9 @@ defmodule AlexClaw.Reasoning.Loop do
         results when is_list(results) and results != [] ->
           results
           |> Enum.map_join("\n", fn entry ->
-            content = if is_map(entry), do: Map.get(entry, :content, inspect(entry)), else: inspect(entry)
+            content =
+              if is_map(entry), do: Map.get(entry, :content, inspect(entry)), else: inspect(entry)
+
             "- #{String.slice(content, 0, 200)}"
           end)
 
@@ -1268,7 +1366,9 @@ defmodule AlexClaw.Reasoning.Loop do
         results when is_list(results) and results != [] ->
           results
           |> Enum.map_join("\n", fn entry ->
-            content = if is_map(entry), do: Map.get(entry, :content, inspect(entry)), else: inspect(entry)
+            content =
+              if is_map(entry), do: Map.get(entry, :content, inspect(entry)), else: inspect(entry)
+
             "- #{String.slice(content, 0, 200)}"
           end)
 
@@ -1345,7 +1445,8 @@ defmodule AlexClaw.Reasoning.Loop do
 
       # Still have plan steps remaining and no failures → continue
       not on_last_step and state.consecutive_failures == 0 ->
-        {:decided, :continue, "plan step #{state.current_step_index + 2} of #{length(state.plan)} remaining"}
+        {:decided, :continue,
+         "plan step #{state.current_step_index + 2} of #{length(state.plan)} remaining"}
 
       # Everything else is genuinely ambiguous
       true ->
@@ -1361,6 +1462,7 @@ defmodule AlexClaw.Reasoning.Loop do
       |> Enum.take(-3)
       |> Enum.map(fn step ->
         rubric = step.rubric_scores
+
         vals =
           ["relevance", "completeness", "usability", "goal_progress"]
           |> Enum.map(fn k ->
@@ -1376,8 +1478,12 @@ defmodule AlexClaw.Reasoning.Loop do
       |> Enum.reject(&is_nil/1)
 
     case scores do
-      [] -> nil
-      [_single] -> %{scores: scores, trend: 0.0}
+      [] ->
+        nil
+
+      [_single] ->
+        %{scores: scores, trend: 0.0}
+
       _ ->
         # Simple trend: average difference between consecutive scores
         diffs =
@@ -1396,7 +1502,9 @@ defmodule AlexClaw.Reasoning.Loop do
     |> Enum.filter(&(&1.phase == "evaluate" and &1.rubric_scores))
     |> List.last()
     |> case do
-      nil -> nil
+      nil ->
+        nil
+
       step ->
         rubric = step.rubric_scores
 
@@ -1420,9 +1528,12 @@ defmodule AlexClaw.Reasoning.Loop do
       |> Enum.reject(&is_nil/1)
 
     case scores do
-      [] -> nil
+      [] ->
+        nil
+
       vals ->
         avg = Enum.sum(vals) / length(vals)
+
         cond do
           avg >= 3.5 -> "good"
           avg >= 2.0 -> "partial"
@@ -1504,7 +1615,11 @@ defmodule AlexClaw.Reasoning.Loop do
   defp reset_time_budget(state, step_count) do
     cancel_timer(state)
     budget_ms = step_count * @seconds_per_step * 1000 + 60_000
-    Logger.info("[ReasoningLoop] Time budget set to #{div(budget_ms, 1000)}s for #{step_count} steps")
+
+    Logger.info(
+      "[ReasoningLoop] Time budget set to #{div(budget_ms, 1000)}s for #{step_count} steps"
+    )
+
     ref = Process.send_after(self(), :time_budget_exceeded, budget_ms)
     %{state | time_budget_ref: ref}
   end
@@ -1527,38 +1642,52 @@ defmodule AlexClaw.Reasoning.Loop do
 
   defp config_int(key, default) do
     case Config.get(key) do
-      val when is_integer(val) -> val
+      val when is_integer(val) ->
+        val
+
       val when is_binary(val) ->
         case Integer.parse(val) do
           {n, _} -> n
           :error -> default
         end
-      _ -> default
+
+      _ ->
+        default
     end
   end
 
   defp config_float(key, default) do
     case Config.get(key) do
-      val when is_float(val) -> val
-      val when is_integer(val) -> val / 1.0
+      val when is_float(val) ->
+        val
+
+      val when is_integer(val) ->
+        val / 1.0
+
       val when is_binary(val) ->
         case Float.parse(val) do
           {n, _} -> n
           :error -> default
         end
-      _ -> default
+
+      _ ->
+        default
     end
   end
 
   defp config_json(key, default) do
     case Config.get(key) do
-      val when is_list(val) -> val
+      val when is_list(val) ->
+        val
+
       val when is_binary(val) ->
         case Jason.decode(val) do
           {:ok, decoded} -> decoded
           _ -> default
         end
-      _ -> default
+
+      _ ->
+        default
     end
   end
 
@@ -1571,5 +1700,4 @@ defmodule AlexClaw.Reasoning.Loop do
   rescue
     ArgumentError -> default
   end
-
 end

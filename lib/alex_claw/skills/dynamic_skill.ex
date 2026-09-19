@@ -6,13 +6,13 @@ defmodule AlexClaw.Skills.DynamicSkill do
   @type t :: %__MODULE__{}
 
   schema "dynamic_skills" do
-    field :name, :string
-    field :module_name, :string
-    field :file_path, :string
-    field :permissions, {:array, :string}, default: []
-    field :routes, {:array, :string}, default: []
-    field :checksum, :string
-    field :enabled, :boolean, default: true
+    field(:name, :string)
+    field(:module_name, :string)
+    field(:file_path, :string)
+    field(:permissions, {:array, :string}, default: [])
+    field(:routes, {:array, :string}, default: [])
+    field(:checksum, :string)
+    field(:enabled, :boolean, default: true)
 
     timestamps(type: :utc_datetime)
   end

@@ -36,7 +36,12 @@ defmodule AlexClaw.Skills.RoutesTest do
       test "#{inspect(module)} has no routes/0 — gets default [:on_success, :on_error]" do
         module = unquote(module)
         Code.ensure_loaded!(module)
-        default = if function_exported?(module, :routes, 0), do: module.routes(), else: [:on_success, :on_error]
+
+        default =
+          if function_exported?(module, :routes, 0),
+            do: module.routes(),
+            else: [:on_success, :on_error]
+
         assert default == [:on_success, :on_error]
       end
     end
@@ -48,6 +53,7 @@ defmodule AlexClaw.Skills.RoutesTest do
 
       for module <- all_skills do
         Code.ensure_loaded!(module)
+
         assert function_exported?(module, :run, 1),
                "#{inspect(module)} must export run/1"
       end

@@ -41,13 +41,20 @@ defmodule AlexClawWeb.GitHubWebhookController do
       {:error, :no_secret_configured}
     else
       expected = Base.encode16(:crypto.mac(:hmac, :sha256, secret, body), case: :lower)
-      if Plug.Crypto.secure_compare(expected, hex_sig), do: :ok, else: {:error, :invalid_signature}
+
+      if Plug.Crypto.secure_compare(expected, hex_sig),
+        do: :ok,
+        else: {:error, :invalid_signature}
     end
   end
 
   defp verify_signature(_body, _sig), do: {:error, :invalid_signature}
 
-  defp dispatch_event("pull_request", %{"action" => action, "pull_request" => pr, "repository" => repo})
+  defp dispatch_event("pull_request", %{
+         "action" => action,
+         "pull_request" => pr,
+         "repository" => repo
+       })
        when action in ["opened", "synchronize", "reopened"] do
     repo_name = repo["full_name"]
     pr_number = pr["number"]
@@ -66,7 +73,10 @@ defmodule AlexClawWeb.GitHubWebhookController do
       |> Enum.map(&String.trim/1)
 
     if branch in watched do
-      Logger.info("GitHub push to #{branch} on #{repo_name}: #{String.slice(sha, 0, 8)}", skill: :github)
+      Logger.info("GitHub push to #{branch} on #{repo_name}: #{String.slice(sha, 0, 8)}",
+        skill: :github
+      )
+
       GitHubSecurityReview.review_commit(repo_name, sha)
     else
       Logger.debug("GitHub push to #{branch} — not in watched branches, skipping", skill: :github)

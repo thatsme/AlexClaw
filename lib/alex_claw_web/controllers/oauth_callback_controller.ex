@@ -33,7 +33,12 @@ defmodule AlexClawWeb.OAuthCallbackController do
       {:error, :no_refresh_token} ->
         conn
         |> put_resp_content_type("text/html")
-        |> send_resp(400, error_html("Google did not return a refresh token. Try /connect google again — Google needs to show the consent screen."))
+        |> send_resp(
+          400,
+          error_html(
+            "Google did not return a refresh token. Try /connect google again — Google needs to show the consent screen."
+          )
+        )
 
       {:error, reason} ->
         conn
@@ -49,12 +54,14 @@ defmodule AlexClawWeb.OAuthCallbackController do
   end
 
   defp parse_chat_id(id) when is_integer(id), do: id
+
   defp parse_chat_id(id) when is_binary(id) do
     case Integer.parse(id) do
       {int, _} -> int
       :error -> id
     end
   end
+
   defp parse_chat_id(id), do: id
 
   defp success_html do

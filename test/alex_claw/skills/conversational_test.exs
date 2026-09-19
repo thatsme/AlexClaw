@@ -39,9 +39,12 @@ defmodule AlexClaw.Skills.ConversationalTest do
     Bypass.expect(bypass, "POST", "/v1/chat/completions", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{
-        "choices" => [%{"message" => %{"content" => response_text}}]
-      }))
+      |> Plug.Conn.resp(
+        200,
+        Jason.encode!(%{
+          "choices" => [%{"message" => %{"content" => response_text}}]
+        })
+      )
     end)
   end
 
@@ -117,7 +120,10 @@ defmodule AlexClaw.Skills.ConversationalTest do
   describe "run/1 with missing config" do
     test "returns error when no provider matches the tier" do
       # No provider created — tier resolution finds nothing
-      AlexClaw.Config.set("skill.conversational.tier", "heavy", type: "string", category: "skill.conversational")
+      AlexClaw.Config.set("skill.conversational.tier", "heavy",
+        type: "string",
+        category: "skill.conversational"
+      )
 
       assert {:error, _reason} = Conversational.run(%{input: "Hello"})
     end
@@ -126,7 +132,10 @@ defmodule AlexClaw.Skills.ConversationalTest do
       bypass = setup_llm_bypass()
       mock_llm_success(bypass, "Auto provider response")
 
-      AlexClaw.Config.set("skill.conversational.provider", "auto", type: "string", category: "skill.conversational")
+      AlexClaw.Config.set("skill.conversational.provider", "auto",
+        type: "string",
+        category: "skill.conversational"
+      )
 
       assert {:ok, _, :on_success} = Conversational.run(%{input: "Hello"})
     end

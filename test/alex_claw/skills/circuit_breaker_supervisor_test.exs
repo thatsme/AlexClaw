@@ -27,7 +27,9 @@ defmodule AlexClaw.Skills.CircuitBreakerSupervisorTest do
     end
 
     test "returns error for non-existent breaker" do
-      result = CircuitBreakerSupervisor.stop_breaker("nonexistent_#{System.unique_integer([:positive])}")
+      result =
+        CircuitBreakerSupervisor.stop_breaker("nonexistent_#{System.unique_integer([:positive])}")
+
       assert result == {:error, :not_found} or result == :ok
     end
   end

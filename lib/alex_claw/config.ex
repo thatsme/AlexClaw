@@ -10,7 +10,12 @@ defmodule AlexClaw.Config do
   alias AlexClaw.Config.{Setting, Crypto}
 
   @type config_value :: String.t() | integer() | float() | boolean() | map() | list() | nil
-  @type set_opts :: [type: String.t(), description: String.t() | nil, category: String.t(), sensitive: boolean()]
+  @type set_opts :: [
+          type: String.t(),
+          description: String.t() | nil,
+          category: String.t(),
+          sensitive: boolean()
+        ]
 
   @table :alexclaw_config
   @pubsub AlexClaw.PubSub
@@ -24,6 +29,7 @@ defmodule AlexClaw.Config do
       :undefined -> :ets.new(@table, [:named_table, :public, :set])
       _ -> :ok
     end
+
     load_all_into_ets()
   end
 
@@ -56,7 +62,8 @@ defmodule AlexClaw.Config do
   end
 
   @doc "Set a config value. Persists to DB and updates ETS cache."
-  @spec set(String.t(), config_value(), set_opts()) :: {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
+  @spec set(String.t(), config_value(), set_opts()) ::
+          {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
   def set(key, value, opts \\ []) do
     type = Keyword.get(opts, :type, "string")
     description = Keyword.get(opts, :description)
@@ -144,12 +151,14 @@ defmodule AlexClaw.Config do
       :error -> 0
     end
   end
+
   defp cast_value(%Setting{type: "float", value: v}) do
     case Float.parse(v) do
       {f, _} -> f
       :error -> 0.0
     end
   end
+
   defp cast_value(%Setting{type: "boolean", value: "true"}), do: true
   defp cast_value(%Setting{type: "boolean", value: _}), do: false
   defp cast_value(%Setting{type: "json", value: v}), do: Jason.decode!(v)
@@ -160,7 +169,9 @@ defmodule AlexClaw.Config do
 
   defp decrypt_setting(%Setting{sensitive: true, value: v} = s) when is_binary(v) do
     case Crypto.decrypt(v) do
-      {:ok, plaintext} -> %{s | value: plaintext}
+      {:ok, plaintext} ->
+        %{s | value: plaintext}
+
       {:error, reason} ->
         Logger.error("Failed to decrypt setting #{s.key}: #{inspect(reason)}")
         s

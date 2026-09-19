@@ -189,7 +189,9 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       """
 
       File.write!(Path.join(dir, "bad_perms.ex"), source)
-      assert {:error, {:unknown_permissions, [:nuclear_launch]}} = SkillRegistry.load_skill("bad_perms.ex")
+
+      assert {:error, {:unknown_permissions, [:nuclear_launch]}} =
+               SkillRegistry.load_skill("bad_perms.ex")
     end
 
     test "load_skill rejects path traversal" do
@@ -297,7 +299,10 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
 
       # Check DB record exists
       import Ecto.Query
-      record = AlexClaw.Repo.one(from d in AlexClaw.Skills.DynamicSkill, where: d.name == "persisted")
+
+      record =
+        AlexClaw.Repo.one(from(d in AlexClaw.Skills.DynamicSkill, where: d.name == "persisted"))
+
       assert record != nil
       assert record.name == "persisted"
       assert record.file_path == "persisted.ex"
@@ -323,7 +328,10 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       SkillRegistry.unload_skill("db_remove")
 
       import Ecto.Query
-      record = AlexClaw.Repo.one(from d in AlexClaw.Skills.DynamicSkill, where: d.name == "db_remove")
+
+      record =
+        AlexClaw.Repo.one(from(d in AlexClaw.Skills.DynamicSkill, where: d.name == "db_remove"))
+
       assert record == nil
     end
   end
@@ -331,9 +339,15 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
   describe "get_routes/1" do
     test "returns custom routes for core skills that declare them" do
       assert [:on_items, :on_empty, :on_error] = SkillRegistry.get_routes("rss_collector")
-      assert [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error] = SkillRegistry.get_routes("api_request")
+
+      assert [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error] =
+               SkillRegistry.get_routes("api_request")
+
       assert [:on_delivered, :on_error] = SkillRegistry.get_routes("telegram_notify")
-      assert [:on_results, :on_no_results, :on_timeout, :on_error] = SkillRegistry.get_routes("web_search")
+
+      assert [:on_results, :on_no_results, :on_timeout, :on_error] =
+               SkillRegistry.get_routes("web_search")
+
       assert [:on_diff, :on_empty, :on_error] = SkillRegistry.get_routes("github_security_review")
     end
 
@@ -406,7 +420,10 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       """
 
       File.write!(Path.join(dir, "sneaky_fetcher.ex"), source)
-      assert {:error, {:undeclared_external, [{Req, :get}]}} = SkillRegistry.load_skill("sneaky_fetcher.ex")
+
+      assert {:error, {:undeclared_external, [{Req, :get}]}} =
+               SkillRegistry.load_skill("sneaky_fetcher.ex")
+
       # Module should have been purged
       refute Code.ensure_loaded?(AlexClaw.Skills.Dynamic.SneakyFetcher)
     end
@@ -426,7 +443,9 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       """
 
       File.write!(Path.join(dir, "sneaky_api.ex"), source)
-      assert {:error, {:undeclared_external, [{AlexClaw.Skills.SkillAPI, :http_get}]}} = SkillRegistry.load_skill("sneaky_api.ex")
+
+      assert {:error, {:undeclared_external, [{AlexClaw.Skills.SkillAPI, :http_get}]}} =
+               SkillRegistry.load_skill("sneaky_api.ex")
     end
 
     test "accepts dynamic skill with @external true and HTTP calls", %{skills_dir: dir} do
@@ -446,7 +465,10 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       """
 
       File.write!(Path.join(dir, "honest_fetcher.ex"), source)
-      assert {:ok, %{name: "honest_fetcher", external: true}} = SkillRegistry.load_skill("honest_fetcher.ex")
+
+      assert {:ok, %{name: "honest_fetcher", external: true}} =
+               SkillRegistry.load_skill("honest_fetcher.ex")
+
       assert SkillRegistry.external?("honest_fetcher")
       SkillRegistry.unload_skill("honest_fetcher")
     end
@@ -463,7 +485,10 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       """
 
       File.write!(Path.join(dir, "pure_skill.ex"), source)
-      assert {:ok, %{name: "pure_skill", external: false}} = SkillRegistry.load_skill("pure_skill.ex")
+
+      assert {:ok, %{name: "pure_skill", external: false}} =
+               SkillRegistry.load_skill("pure_skill.ex")
+
       refute SkillRegistry.external?("pure_skill")
       SkillRegistry.unload_skill("pure_skill")
     end
@@ -483,7 +508,9 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
       """
 
       File.write!(Path.join(dir, "tcp_skill.ex"), source)
-      assert {:error, {:undeclared_external, [{:gen_tcp, :connect}]}} = SkillRegistry.load_skill("tcp_skill.ex")
+
+      assert {:error, {:undeclared_external, [{:gen_tcp, :connect}]}} =
+               SkillRegistry.load_skill("tcp_skill.ex")
     end
   end
 end

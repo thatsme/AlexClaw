@@ -11,15 +11,16 @@ defmodule AlexClaw.Resources.ResourceTest do
     end
 
     test "valid with all fields" do
-      cs = Resource.changeset(%Resource{}, %{
-        name: "API Source",
-        type: "api",
-        url: "https://example.com/api",
-        content: "some content",
-        metadata: %{key: "value"},
-        tags: ["financial", "data"],
-        enabled: false
-      })
+      cs =
+        Resource.changeset(%Resource{}, %{
+          name: "API Source",
+          type: "api",
+          url: "https://example.com/api",
+          content: "some content",
+          metadata: %{key: "value"},
+          tags: ["financial", "data"],
+          enabled: false
+        })
 
       assert cs.valid?
     end

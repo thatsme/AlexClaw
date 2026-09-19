@@ -139,7 +139,9 @@ defmodule AlexClaw.Skills.RSSCollector do
   end
 
   defp get_feeds_from_resources do
-    Enum.map(Resources.list_resources(%{type: "rss_feed", enabled: true}), fn r -> {r.name, r.url} end)
+    Enum.map(Resources.list_resources(%{type: "rss_feed", enabled: true}), fn r ->
+      {r.name, r.url}
+    end)
   end
 
   defp fetch_feed({name, url}, recv_timeout) do

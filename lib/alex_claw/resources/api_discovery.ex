@@ -81,7 +81,12 @@ defmodule AlexClaw.Resources.ApiDiscovery do
 
   @spec probe(String.t()) :: map()
   defp probe(url) do
-    case Req.head(url, receive_timeout: @probe_timeout, retry: false, redirect: true, max_redirects: 3) do
+    case Req.head(url,
+           receive_timeout: @probe_timeout,
+           retry: false,
+           redirect: true,
+           max_redirects: 3
+         ) do
       {:ok, %{status: status, headers: headers}} ->
         %{
           "http_status" => status,
@@ -90,7 +95,12 @@ defmodule AlexClaw.Resources.ApiDiscovery do
         }
 
       {:error, _reason} ->
-        case Req.get(url, receive_timeout: @probe_timeout, retry: false, redirect: true, max_redirects: 3) do
+        case Req.get(url,
+               receive_timeout: @probe_timeout,
+               retry: false,
+               redirect: true,
+               max_redirects: 3
+             ) do
           {:ok, %{status: status, headers: headers}} ->
             %{
               "http_status" => status,

@@ -26,10 +26,19 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
 
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{name: "S1", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s1"}})
-      {:ok, _} = Workflows.add_step(wf, %{name: "S2", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s2"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "S1",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s1"}
+        })
+
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "S2",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s2"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -45,8 +54,13 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       end)
 
       wf = create_workflow()
-      {:ok, _} = Workflows.add_step(wf, %{name: "Fetch", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/data"}})
+
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Fetch",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/data"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.step_results["1"]["branch"] == "on_2xx"
@@ -64,17 +78,29 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       wf = create_workflow()
 
       # Step 1: API call → on_2xx routes to step 3 (skips step 2)
-      {:ok, _} = Workflows.add_step(wf, %{name: "Fetch", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/data"},
-        routes: [%{"branch" => "on_2xx", "goto" => 3}, %{"branch" => "on_error", "goto" => 2}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Fetch",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/data"},
+          routes: [%{"branch" => "on_2xx", "goto" => 3}, %{"branch" => "on_error", "goto" => 2}]
+        })
 
       # Step 2: error handler (should be skipped on success)
-      {:ok, _} = Workflows.add_step(wf, %{name: "Error Handler", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/error"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Error Handler",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/error"}
+        })
 
       # Step 3: success handler
-      {:ok, _} = Workflows.add_step(wf, %{name: "Success", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/success"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Success",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/success"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -95,12 +121,20 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
 
       # Step 1: unknown skill → errors out
       # Route on_error → step 2 (recovery)
-      {:ok, _} = Workflows.add_step(wf, %{name: "Will Fail", skill: "nonexistent_skill",
-        routes: [%{"branch" => "on_error", "goto" => 2}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Will Fail",
+          skill: "nonexistent_skill",
+          routes: [%{"branch" => "on_error", "goto" => 2}]
+        })
 
       # Step 2: recovery step
-      {:ok, _} = Workflows.add_step(wf, %{name: "Recover", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/recover"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Recover",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/recover"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -118,13 +152,21 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       wf = create_workflow()
 
       # Step 1 has routes but on_2xx is not listed — no match → workflow ends
-      {:ok, _} = Workflows.add_step(wf, %{name: "Terminal", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/data"},
-        routes: [%{"branch" => "on_4xx", "goto" => 2}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Terminal",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/data"},
+          routes: [%{"branch" => "on_4xx", "goto" => 2}]
+        })
 
       # Step 2 should never be reached
-      {:ok, _} = Workflows.add_step(wf, %{name: "Unreached", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/nope"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Unreached",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/nope"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -141,12 +183,20 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
 
       wf = create_workflow()
 
-      {:ok, _} = Workflows.add_step(wf, %{name: "S1", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s1"},
-        routes: [%{"branch" => "on_2xx", "goto" => "end"}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "S1",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s1"},
+          routes: [%{"branch" => "on_2xx", "goto" => "end"}]
+        })
 
-      {:ok, _} = Workflows.add_step(wf, %{name: "S2", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s2"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "S2",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s2"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -164,16 +214,28 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       wf = create_workflow()
 
       # Step 1: routes on_4xx to step 3, default to step 2
-      {:ok, _} = Workflows.add_step(wf, %{name: "S1", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s1"},
-        routes: [%{"branch" => "on_4xx", "goto" => 3}, %{"branch" => "default", "goto" => 2}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "S1",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s1"},
+          routes: [%{"branch" => "on_4xx", "goto" => 3}, %{"branch" => "default", "goto" => 2}]
+        })
 
-      {:ok, _} = Workflows.add_step(wf, %{name: "Default Path", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s2"},
-        routes: [%{"branch" => "on_2xx", "goto" => "end"}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Default Path",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s2"},
+          routes: [%{"branch" => "on_2xx", "goto" => "end"}]
+        })
 
-      {:ok, _} = Workflows.add_step(wf, %{name: "Error Path", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s3"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Error Path",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s3"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -194,9 +256,13 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       wf = create_workflow()
 
       # Step 1 routes back to step 1 — infinite loop
-      {:ok, _} = Workflows.add_step(wf, %{name: "Loop", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/loop"},
-        routes: [%{"branch" => "on_2xx", "goto" => 1}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Loop",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/loop"},
+          routes: [%{"branch" => "on_2xx", "goto" => 1}]
+        })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
@@ -215,17 +281,29 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       wf = create_workflow()
 
       # Step 1: no routes → falls through to step 2
-      {:ok, _} = Workflows.add_step(wf, %{name: "Linear", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s1"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Linear",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s1"}
+        })
 
       # Step 2: routes on_2xx to step 3
-      {:ok, _} = Workflows.add_step(wf, %{name: "Branching", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s2"},
-        routes: [%{"branch" => "on_2xx", "goto" => 3}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Branching",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s2"},
+          routes: [%{"branch" => "on_2xx", "goto" => 3}]
+        })
 
       # Step 3: no routes → workflow complete
-      {:ok, _} = Workflows.add_step(wf, %{name: "Final", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/s3"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Final",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/s3"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
@@ -245,18 +323,30 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
 
       # Step 1: missing skill with on_missing_skill: skip
       # Has routes that would send to step 3, but skip should go to step 2
-      {:ok, _} = Workflows.add_step(wf, %{name: "Missing", skill: "gone_skill",
-        config: %{"on_missing_skill" => "skip"},
-        routes: [%{"branch" => "on_success", "goto" => 3}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Missing",
+          skill: "gone_skill",
+          config: %{"on_missing_skill" => "skip"},
+          routes: [%{"branch" => "on_success", "goto" => 3}]
+        })
 
       # Step 2: should be reached (skip falls through to next position)
-      {:ok, _} = Workflows.add_step(wf, %{name: "Next", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/next"},
-        routes: [%{"branch" => "on_2xx", "goto" => "end"}]})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Next",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/next"},
+          routes: [%{"branch" => "on_2xx", "goto" => "end"}]
+        })
 
       # Step 3: should NOT be reached (step 1 skipped → step 2 → end)
-      {:ok, _} = Workflows.add_step(wf, %{name: "Routed", skill: "api_request",
-        config: %{"url" => "http://localhost:#{bypass.port}/routed"}})
+      {:ok, _} =
+        Workflows.add_step(wf, %{
+          name: "Routed",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/routed"}
+        })
 
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"

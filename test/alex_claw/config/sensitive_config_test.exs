@@ -40,7 +40,8 @@ defmodule AlexClaw.Config.SensitiveConfigTest do
 
   describe "list/1 decryption" do
     test "list returns decrypted values for sensitive settings" do
-      {:ok, _} = Config.set("test.list_secret", "decrypted-value", sensitive: true, category: "test_cat")
+      {:ok, _} =
+        Config.set("test.list_secret", "decrypted-value", sensitive: true, category: "test_cat")
 
       settings = Config.list("test_cat")
       setting = Enum.find(settings, &(&1.key == "test.list_secret"))

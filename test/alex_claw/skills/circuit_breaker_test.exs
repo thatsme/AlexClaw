@@ -190,6 +190,7 @@ defmodule AlexClaw.Skills.CircuitBreakerTest do
       CircuitBreaker.reset("reset_noop_skill")
       assert {:closed, 0, nil} = CircuitBreaker.state("reset_noop_skill")
     end
+
     test "resets from :open to :closed" do
       # Use a dedicated skill name to avoid test ordering issues
       on_exit(fn -> CircuitBreakerSupervisor.stop_breaker("reset_skill") end)
@@ -240,7 +241,12 @@ defmodule AlexClaw.Skills.CircuitBreakerTest do
       {:ok, _} = CircuitBreakerSupervisor.ensure_started("lifecycle_skill")
       assert {:closed, _, _} = CircuitBreaker.state("lifecycle_skill")
 
-      Phoenix.PubSub.broadcast(AlexClaw.PubSub, "skills:registry", {:skill_unregistered, "lifecycle_skill"})
+      Phoenix.PubSub.broadcast(
+        AlexClaw.PubSub,
+        "skills:registry",
+        {:skill_unregistered, "lifecycle_skill"}
+      )
+
       Process.sleep(50)
 
       assert :unknown = CircuitBreaker.state("lifecycle_skill")
@@ -256,14 +262,24 @@ defmodule AlexClaw.Skills.CircuitBreakerTest do
       assert {:open, _, _} = CircuitBreaker.state("lifecycle_skill")
 
       # Simulate skill reload
-      Phoenix.PubSub.broadcast(AlexClaw.PubSub, "skills:registry", {:skill_registered, "lifecycle_skill"})
+      Phoenix.PubSub.broadcast(
+        AlexClaw.PubSub,
+        "skills:registry",
+        {:skill_registered, "lifecycle_skill"}
+      )
+
       Process.sleep(50)
 
       assert {:closed, 0, nil} = CircuitBreaker.state("lifecycle_skill")
     end
 
     test "skill_registered on nonexistent breaker is a no-op" do
-      Phoenix.PubSub.broadcast(AlexClaw.PubSub, "skills:registry", {:skill_registered, "never_started_skill"})
+      Phoenix.PubSub.broadcast(
+        AlexClaw.PubSub,
+        "skills:registry",
+        {:skill_registered, "never_started_skill"}
+      )
+
       Process.sleep(50)
 
       assert :unknown = CircuitBreaker.state("never_started_skill")

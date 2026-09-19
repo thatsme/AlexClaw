@@ -16,7 +16,10 @@ defmodule AlexClawWeb.GitHubWebhookControllerTest do
     end
 
     test "returns 401 with invalid HMAC signature", %{conn: conn} do
-      AlexClaw.Config.set("github.webhook_secret", "test_secret", type: "string", category: "github")
+      AlexClaw.Config.set("github.webhook_secret", "test_secret",
+        type: "string",
+        category: "github"
+      )
 
       conn =
         conn

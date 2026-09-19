@@ -32,24 +32,40 @@ defmodule AlexClaw.Skills.GoogleCalendar do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"action": "list", "days": 1} or {"action": "create", "title": "Meeting", "date": "2026-03-20", "time": "14:00"}|
+  def config_hint,
+    do:
+      ~s|{"action": "list", "days": 1} or {"action": "create", "title": "Meeting", "date": "2026-03-20", "time": "14:00"}|
 
   @impl true
   @spec config_scaffold() :: map()
-  def config_scaffold, do: %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}
+  def config_scaffold,
+    do: %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}
 
   @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
-      "List events" => %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20},
-      "Create event" => %{"action" => "create", "title" => "Meeting", "date" => "2026-03-20", "time" => "14:00", "duration" => 60}
+      "List events" => %{
+        "action" => "list",
+        "calendar_id" => "primary",
+        "days" => 1,
+        "max_results" => 20
+      },
+      "Create event" => %{
+        "action" => "create",
+        "title" => "Meeting",
+        "date" => "2026-03-20",
+        "time" => "14:00",
+        "duration" => 60
+      }
     }
   end
 
   @impl true
   @spec config_help() :: String.t()
-  def config_help, do: "action: list (fetch events) or create (new event with title, date, time). calendar_id: which calendar (default: primary). days: how many days ahead. max_results: event limit."
+  def config_help,
+    do:
+      "action: list (fetch events) or create (new event with title, date, time). calendar_id: which calendar (default: primary). days: how many days ahead. max_results: event limit."
 
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
@@ -138,5 +154,4 @@ defmodule AlexClaw.Skills.GoogleCalendar do
 
   defp parse_event_time(%{"date" => date}), do: "#{date} (all day)"
   defp parse_event_time(_), do: "?"
-
 end

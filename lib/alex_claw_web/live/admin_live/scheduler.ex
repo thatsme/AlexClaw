@@ -25,13 +25,17 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("run_now", %{"id" => id}, socket) do
     case parse_id(id) do
       {:ok, wf_id} ->
         case Workflows.get_workflow(wf_id) do
           {:ok, workflow} ->
-            Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> AlexClaw.Workflows.Executor.run(workflow.id) end)
+            Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+              AlexClaw.Workflows.Executor.run(workflow.id)
+            end)
+
             {:noreply, put_flash(socket, :info, "Workflow '#{workflow.name}' triggered")}
 
           {:error, :not_found} ->

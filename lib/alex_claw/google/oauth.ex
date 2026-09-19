@@ -176,5 +176,4 @@ defmodule AlexClaw.Google.OAuth do
       end
     end)
   end
-
 end

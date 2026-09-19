@@ -39,7 +39,8 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("toggle_expand", %{"id" => id}, socket) do
     case parse_id(id) do
       {:ok, run_id} ->
@@ -77,8 +78,13 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
 
   @impl true
   def handle_info({event, %{workflow_id: wf_id}}, socket)
-      when event in [:workflow_run_started, :workflow_run_completed, :workflow_run_failed, :workflow_run_cancelled]
-      and wf_id == socket.assigns.workflow.id do
+      when event in [
+             :workflow_run_started,
+             :workflow_run_completed,
+             :workflow_run_failed,
+             :workflow_run_cancelled
+           ] and
+             wf_id == socket.assigns.workflow.id do
     runs = Workflows.list_runs(socket.assigns.workflow.id)
     {:noreply, assign(socket, runs: runs)}
   end
@@ -112,6 +118,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   end
 
   defp truncate_output(nil), do: "-"
+
   defp truncate_output(output) when is_binary(output) do
     if String.length(output) > 2000 do
       String.slice(output, 0, 2000) <> "\n... (truncated)"
@@ -119,6 +126,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
       output
     end
   end
+
   defp truncate_output(output) when is_map(output), do: Jason.encode!(output, pretty: true)
   defp truncate_output(output), do: inspect(output)
 end

@@ -24,7 +24,8 @@ defmodule AlexClawWeb.AdminLive.Database do
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("validate_upload", _params, socket) do
     {:noreply, socket}
   end
@@ -81,11 +82,15 @@ defmodule AlexClawWeb.AdminLive.Database do
     db = db_connection_env()
 
     args = [
-      "-h", db.hostname,
-      "-U", db.username,
-      "-d", db.database,
+      "-h",
+      db.hostname,
+      "-U",
+      db.username,
+      "-d",
+      db.database,
       "--single-transaction",
-      "-f", path
+      "-f",
+      path
     ]
 
     case System.cmd("psql", args, env: [{"PGPASSWORD", db.password}], stderr_to_stdout: true) do

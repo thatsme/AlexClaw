@@ -5,7 +5,14 @@ defmodule AlexClaw.Dispatcher.SkillCommandsTest do
   alias AlexClaw.{Dispatcher, Message}
 
   defp msg(text) do
-    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
+    %Message{
+      text: text,
+      chat_id: "123",
+      from: "Test",
+      timestamp: DateTime.utc_now(),
+      raw: %{},
+      gateway: :test
+    }
   end
 
   describe "skill commands routing" do
@@ -26,7 +33,9 @@ defmodule AlexClaw.Dispatcher.SkillCommandsTest do
 
     test "/skill create dispatches without crash" do
       # create_skill may fail if skills dir doesn't exist, but should not crash
-      result = Dispatcher.dispatch(msg("/skill create test_skill_#{System.unique_integer([:positive])}"))
+      result =
+        Dispatcher.dispatch(msg("/skill create test_skill_#{System.unique_integer([:positive])}"))
+
       assert result != :ignored
     end
 

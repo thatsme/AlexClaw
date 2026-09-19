@@ -38,8 +38,9 @@ defmodule AlexClaw.Dispatcher.CommandParser do
   @doc "Check if a flag was passed without a value (query mode)."
   @spec query_flag?(String.t(), String.t()) :: boolean()
   def query_flag?(text, flag) do
-    text == "--#{flag}" or String.starts_with?(text, "--#{flag} ") and
-      not Regex.match?(~r/--#{flag}\s+\S/, text)
+    text == "--#{flag}" or
+      (String.starts_with?(text, "--#{flag} ") and
+         not Regex.match?(~r/--#{flag}\s+\S/, text))
   end
 
   defp to_tier(val) when is_atom(val), do: val

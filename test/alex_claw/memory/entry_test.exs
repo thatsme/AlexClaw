@@ -11,13 +11,14 @@ defmodule AlexClaw.Memory.EntryTest do
     end
 
     test "valid with all fields" do
-      cs = Entry.changeset(%Entry{}, %{
-        kind: "news",
-        content: "headline",
-        source: "https://example.com",
-        metadata: %{feed: "tech"},
-        expires_at: DateTime.utc_now()
-      })
+      cs =
+        Entry.changeset(%Entry{}, %{
+          kind: "news",
+          content: "headline",
+          source: "https://example.com",
+          metadata: %{feed: "tech"},
+          expires_at: DateTime.utc_now()
+        })
 
       assert cs.valid?
     end

@@ -69,7 +69,10 @@ defmodule AlexClaw.Skills.DynamicSkillTest do
       }
 
       assert {:ok, _} = %DynamicSkill{} |> DynamicSkill.changeset(attrs) |> AlexClaw.Repo.insert()
-      assert {:error, changeset} = %DynamicSkill{} |> DynamicSkill.changeset(attrs) |> AlexClaw.Repo.insert()
+
+      assert {:error, changeset} =
+               %DynamicSkill{} |> DynamicSkill.changeset(attrs) |> AlexClaw.Repo.insert()
+
       assert "has already been taken" in errors_on(changeset).name
     end
   end

@@ -47,11 +47,23 @@ defmodule AlexClaw.Workflows.Registry do
   end
 
   defp row_to_map({run_id, _pid, workflow_id, workflow_name, started_at}) do
-    %{run_id: run_id, workflow_id: workflow_id, workflow_name: workflow_name, started_at: started_at, current_step: nil}
+    %{
+      run_id: run_id,
+      workflow_id: workflow_id,
+      workflow_name: workflow_name,
+      started_at: started_at,
+      current_step: nil
+    }
   end
 
   defp row_to_map({run_id, _pid, workflow_id, workflow_name, started_at, step_name}) do
-    %{run_id: run_id, workflow_id: workflow_id, workflow_name: workflow_name, started_at: started_at, current_step: step_name}
+    %{
+      run_id: run_id,
+      workflow_id: workflow_id,
+      workflow_name: workflow_name,
+      started_at: started_at,
+      current_step: step_name
+    }
   end
 
   @doc "Update the current step name for an active run (used by the executor for live progress)."
@@ -59,7 +71,11 @@ defmodule AlexClaw.Workflows.Registry do
   def update_step(run_id, step_name) do
     case :ets.lookup(@ets_table, run_id) do
       [row] ->
-        :ets.insert(@ets_table, {run_id, elem(row, 1), elem(row, 2), elem(row, 3), elem(row, 4), step_name})
+        :ets.insert(
+          @ets_table,
+          {run_id, elem(row, 1), elem(row, 2), elem(row, 3), elem(row, 4), step_name}
+        )
+
         :ok
 
       _ ->
@@ -125,7 +141,11 @@ defmodule AlexClaw.Workflows.Registry do
 
         Process.exit(pid, :cancelled)
 
-        broadcast({:workflow_run_cancelled, %{run_id: run_id, workflow_id: workflow_id, workflow_name: workflow_name}})
+        broadcast(
+          {:workflow_run_cancelled,
+           %{run_id: run_id, workflow_id: workflow_id, workflow_name: workflow_name}}
+        )
+
         Logger.info("[WorkflowRegistry] Cancelled run #{run_id} (#{workflow_name})")
 
         {:reply, :ok, %{state | monitors: monitors}}

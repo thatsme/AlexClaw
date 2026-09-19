@@ -42,19 +42,27 @@ defmodule AlexClaw.BypassHelper do
     Bypass.expect(bypass, "POST", "/v1/chat/completions", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{
-        "choices" => [%{"message" => %{"content" => text}}]
-      }))
+      |> Plug.Conn.resp(
+        200,
+        Jason.encode!(%{
+          "choices" => [%{"message" => %{"content" => text}}]
+        })
+      )
     end)
   end
 
   @doc "Mock a Gemini embedding endpoint."
   def bypass_gemini_embedding(bypass, vector) do
-    Bypass.expect_once(bypass, "POST", "/v1beta/models/text-embedding-004:embedContent", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
-    end)
+    Bypass.expect_once(
+      bypass,
+      "POST",
+      "/v1beta/models/text-embedding-004:embedContent",
+      fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
+      end
+    )
   end
 
   @doc "Mock a slow endpoint that responds after `delay_ms` milliseconds."

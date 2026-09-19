@@ -5,13 +5,24 @@ defmodule AlexClaw.Dispatcher.AutomationCommandsTest do
   alias AlexClaw.{Dispatcher, Message}
 
   defp msg(text) do
-    %Message{text: text, chat_id: "123", from: "Test", timestamp: DateTime.utc_now(), raw: %{}, gateway: :test}
+    %Message{
+      text: text,
+      chat_id: "123",
+      from: "Test",
+      timestamp: DateTime.utc_now(),
+      raw: %{},
+      gateway: :test
+    }
   end
 
   describe "automation commands routing" do
     test "/record dispatches without crash" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
 
       result = Dispatcher.dispatch(msg("/record https://example.com"))
       assert result != :ignored
@@ -19,7 +30,11 @@ defmodule AlexClaw.Dispatcher.AutomationCommandsTest do
 
     test "/record stop dispatches without crash" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
 
       result = Dispatcher.dispatch(msg("/record stop abc123"))
       assert result != :ignored
@@ -32,7 +47,11 @@ defmodule AlexClaw.Dispatcher.AutomationCommandsTest do
 
     test "/automate dispatches without crash" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
-      insert_setting("web_automator.host", "http://localhost:19999", type: "string", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:19999",
+        type: "string",
+        category: "web_automator"
+      )
 
       result = Dispatcher.dispatch(msg("/automate https://example.com"))
       assert result != :ignored

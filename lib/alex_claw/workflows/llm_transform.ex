@@ -25,23 +25,36 @@ defmodule AlexClaw.Workflows.LLMTransform do
   @spec prompt_presets() :: %{String.t() => String.t()}
   def prompt_presets do
     %{
-      "Summarize" => "Summarize the following content concisely. Focus on key facts and main points.\n\n{input}",
-      "Bullet Points" => "Convert the following content into a clear bullet-point list. Group related items.\n\n{input}",
-      "Security Review" => "You are a security-focused code reviewer. Analyse the following GitHub diff for security issues.\n\nFocus on: injection vulnerabilities, authentication bypass, secrets/credentials in code, insecure dependencies, path traversal, XSS, CSRF, SQL injection, hardcoded credentials, unsafe deserialization, missing input validation, privilege escalation.\n\n{input}\n\nReply in this exact format:\n\nRISK LEVEL: [CRITICAL|HIGH|MEDIUM|LOW|NONE]\n\nFINDINGS:\nList each finding as: [SEVERITY] Description — File:Line (if identifiable)\nIf no issues found, write: No security issues identified.\n\nSUMMARY:\n2-3 sentences on the overall security posture of this change.\n\nRECOMMENDATION:\nAPPROVE / REQUEST CHANGES / NEEDS FURTHER REVIEW — with one-line justification.",
-      "Code Review" => "Review the following code changes. Focus on correctness, readability, and potential bugs. Ignore style.\n\n{input}\n\nFor each issue found:\n- File and line if identifiable\n- What the problem is\n- Suggested fix\n\nIf the code looks good, say so briefly.",
-      "Translate" => "Translate the following text to English. Preserve the original meaning and tone.\n\n{input}",
-      "Classify" => "Classify the following content into one of these categories: [positive, negative, neutral].\nReturn only the category label.\n\n{input}",
-      "Extract JSON" => "Extract structured data from the following text. Return as JSON with relevant fields.\n\n{input}",
-      "Changelog" => "Generate a changelog entry from the following diff or commit information. Group changes by type (added, changed, fixed, removed). Be concise.\n\n{input}",
-      "Explain" => "Explain the following content in simple terms. Assume the reader has basic technical knowledge but is not an expert in this specific area.\n\n{input}",
-      "Filter" => "Review the following content. If it contains relevant information, output it. Otherwise output SKIP.\n\n{input}",
-      "Action Items" => "Extract actionable items from the following content. For each item, state: what needs to be done, who should do it (if mentioned), and priority (high/medium/low).\n\n{input}"
+      "Summarize" =>
+        "Summarize the following content concisely. Focus on key facts and main points.\n\n{input}",
+      "Bullet Points" =>
+        "Convert the following content into a clear bullet-point list. Group related items.\n\n{input}",
+      "Security Review" =>
+        "You are a security-focused code reviewer. Analyse the following GitHub diff for security issues.\n\nFocus on: injection vulnerabilities, authentication bypass, secrets/credentials in code, insecure dependencies, path traversal, XSS, CSRF, SQL injection, hardcoded credentials, unsafe deserialization, missing input validation, privilege escalation.\n\n{input}\n\nReply in this exact format:\n\nRISK LEVEL: [CRITICAL|HIGH|MEDIUM|LOW|NONE]\n\nFINDINGS:\nList each finding as: [SEVERITY] Description — File:Line (if identifiable)\nIf no issues found, write: No security issues identified.\n\nSUMMARY:\n2-3 sentences on the overall security posture of this change.\n\nRECOMMENDATION:\nAPPROVE / REQUEST CHANGES / NEEDS FURTHER REVIEW — with one-line justification.",
+      "Code Review" =>
+        "Review the following code changes. Focus on correctness, readability, and potential bugs. Ignore style.\n\n{input}\n\nFor each issue found:\n- File and line if identifiable\n- What the problem is\n- Suggested fix\n\nIf the code looks good, say so briefly.",
+      "Translate" =>
+        "Translate the following text to English. Preserve the original meaning and tone.\n\n{input}",
+      "Classify" =>
+        "Classify the following content into one of these categories: [positive, negative, neutral].\nReturn only the category label.\n\n{input}",
+      "Extract JSON" =>
+        "Extract structured data from the following text. Return as JSON with relevant fields.\n\n{input}",
+      "Changelog" =>
+        "Generate a changelog entry from the following diff or commit information. Group changes by type (added, changed, fixed, removed). Be concise.\n\n{input}",
+      "Explain" =>
+        "Explain the following content in simple terms. Assume the reader has basic technical knowledge but is not an expert in this specific area.\n\n{input}",
+      "Filter" =>
+        "Review the following content. If it contains relevant information, output it. Otherwise output SKIP.\n\n{input}",
+      "Action Items" =>
+        "Extract actionable items from the following content. For each item, state: what needs to be done, who should do it (if mentioned), and priority (high/medium/low).\n\n{input}"
     }
   end
 
   @impl true
   @spec prompt_help() :: String.t()
-  def prompt_help, do: "Template sent to the LLM. Use {input} for previous step output, {resources} for assigned resources."
+  def prompt_help,
+    do:
+      "Template sent to the LLM. Use {input} for previous step output, {resources} for assigned resources."
 
   @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
@@ -56,7 +69,11 @@ defmodule AlexClaw.Workflows.LLMTransform do
       provider = args[:llm_provider]
 
       llm_opts = [tier: tier]
-      llm_opts = if provider && provider != "", do: Keyword.put(llm_opts, :provider, provider), else: llm_opts
+
+      llm_opts =
+        if provider && provider != "",
+          do: Keyword.put(llm_opts, :provider, provider),
+          else: llm_opts
 
       Logger.info("LLM Transform: #{String.slice(prompt, 0, 100)}...")
 

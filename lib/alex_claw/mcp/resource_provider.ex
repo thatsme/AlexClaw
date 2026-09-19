@@ -240,6 +240,7 @@ defmodule AlexClaw.MCP.ResourceProvider do
           limit: 50
         )
       )
+
     json_reply(Enum.map(runs, &serialize_run/1), frame)
   end
 
@@ -278,7 +279,10 @@ defmodule AlexClaw.MCP.ResourceProvider do
     entries =
       Enum.map(settings, fn s ->
         base = %{key: s.key, type: s.type, category: s.category, description: s.description}
-        if s.sensitive, do: Map.put(base, :value, "[REDACTED]"), else: Map.put(base, :value, s.value)
+
+        if s.sensitive,
+          do: Map.put(base, :value, "[REDACTED]"),
+          else: Map.put(base, :value, s.value)
       end)
 
     json_reply(entries, frame)

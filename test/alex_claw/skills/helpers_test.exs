@@ -97,20 +97,26 @@ defmodule AlexClaw.Skills.HelpersTest do
 
   describe "strip_noise/1" do
     test "removes script tags" do
-      {:ok, doc} = Floki.parse_document("<html><body><p>text</p><script>evil()</script></body></html>")
+      {:ok, doc} =
+        Floki.parse_document("<html><body><p>text</p><script>evil()</script></body></html>")
+
       result = Helpers.strip_noise(doc)
       assert Floki.find(result, "script") == []
       assert Floki.text(result) =~ "text"
     end
 
     test "removes style tags" do
-      {:ok, doc} = Floki.parse_document("<html><body><p>text</p><style>.x{}</style></body></html>")
+      {:ok, doc} =
+        Floki.parse_document("<html><body><p>text</p><style>.x{}</style></body></html>")
+
       result = Helpers.strip_noise(doc)
       assert Floki.find(result, "style") == []
     end
 
     test "preserves content outside noise elements" do
-      {:ok, doc} = Floki.parse_document("<html><body><p>keep this</p><nav>remove</nav></body></html>")
+      {:ok, doc} =
+        Floki.parse_document("<html><body><p>keep this</p><nav>remove</nav></body></html>")
+
       result = Helpers.strip_noise(doc)
       text = Floki.text(result)
       assert text =~ "keep this"

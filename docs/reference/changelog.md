@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.23 — Documentation Accuracy and Budget Wiring (2026-09-19)
+
+Follow-up to 0.3.22. Corrects security documentation that described protections
+the code does not provide, and wires a setting that never took effect.
+
+- **Coder and Forge load generated code without 2FA** — documented plainly in SECURITY.md. `/coder` and the Forge page generate a skill with a local LLM and load it into the running VM immediately, checked only for the `:skill_manage` permission. Every other route to loading a skill is 2FA-gated; these are not. The section names the two lines to remove for deployments where that is unacceptable — there is no runtime toggle
+- **Skill commands are available from the gateway** — SECURITY.md claimed skill management was "Admin UI only" and that `/skill load|unload|reload` were unavailable from Telegram/Discord. All three have always been dispatched there, 2FA-gated. The gateway names a file already in the skills volume; code still cannot be uploaded from a messaging app
+- **`reasoning.time_budget_seconds` now takes effect** — `config.time_budget_ms` was computed and never read, so both timers were hardcoded. The per-step figure still rescales the budget to the plan; the configured value is now the ceiling it may not exceed, matching the documented "maximum wall-clock time"
+- **Removed the unreachable post-2FA execution path** in `Dispatcher.SkillCommands` — roughly 90 lines whose only entry points were three wrappers nothing called. `AuthCommands.execute_2fa_action/2` has always done this work
+
+### Behaviour changes
+
+- **Plans of three or more steps now stop at `reasoning.time_budget_seconds`** (default 900s) where they previously ran to `steps * 300s + 60s`. Raise the setting if longer plans need the time.
+
 ## v0.3.22 — Security Hardening (2026-09-19)
 
 Security release. Several of these change existing behaviour — read the

@@ -42,7 +42,7 @@ RUN apk add --no-cache build-base git
 WORKDIR /app
 ENV MIX_ENV=test
 
-COPY mix.exs mix.lock ./
+COPY mix.exs mix.lock .formatter.exs ./
 RUN mix local.hex --force && \
     mix local.rebar --force && \
     mix deps.get && \

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  elixir:
+    name: Format and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test image pins Elixir and OTP via the Dockerfile's `test` stage, so
+      # CI and `make test-elixir` always run the same toolchain.
+      - name: Build test image
+        run: docker compose -f docker-compose.test.yml build test-elixir
+
+      # --no-deps: a format check needs no database.
+      - name: Check formatting
+        run: >
+          docker compose -f docker-compose.test.yml run --rm --no-deps
+          test-elixir mix format --check-formatted
+
+      # Started explicitly and waited on: after the --no-deps run above, the
+      # test service will not reliably bring its dependency up on its own, and
+      # the suite then fails every case on sandbox checkout.
+      - name: Start test database
+        run: docker compose -f docker-compose.test.yml up -d --wait db-test
+
+      - name: Run test suite
+        run: docker compose -f docker-compose.test.yml run --rm test-elixir
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.test.yml down

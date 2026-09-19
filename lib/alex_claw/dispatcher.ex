@@ -535,18 +535,8 @@ defmodule AlexClaw.Dispatcher do
 
   defp shell_after_2fa(:challenged, _command, _msg), do: :ok
 
-  defp shell_after_2fa(:proceed, command, msg) do
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      send_shell_result(Shell.run(%{input: command}), msg)
-    end)
-  end
-
-  defp send_shell_result({:ok, result, _branch}, msg) do
-    Gateway.send_message(result, gateway: msg.gateway)
-  end
-
-  defp send_shell_result({:error, reason}, msg) do
-    Gateway.send_message("Shell error: #{inspect(reason)}", gateway: msg.gateway)
+  defp shell_after_2fa(:no_2fa, _command, msg) do
+    Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
   end
 
   def dispatch(%Message{text: "/shell" <> _} = msg) do
@@ -594,7 +584,7 @@ defmodule AlexClaw.Dispatcher do
       /connect google — connect Google Calendar/Tasks via OAuth
       /disconnect google — remove Google connection
       /setup 2fa — enable two-factor authentication
-      /disable 2fa — disable two-factor authentication
+      /disable 2fa <code> — disable two-factor authentication (requires a current code)
       /help — this message
       _Anything else → conversation_
       """,
@@ -756,7 +746,10 @@ defmodule AlexClaw.Dispatcher do
   defp launch_workflow(workflow, msg, _requires_2fa), do: start_workflow(workflow, msg)
 
   defp resume_after_2fa(:challenged, _workflow, _msg), do: :ok
-  defp resume_after_2fa(:proceed, workflow, msg), do: start_workflow(workflow, msg)
+
+  defp resume_after_2fa(:no_2fa, _workflow, msg) do
+    Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
+  end
 
   defp start_workflow(workflow, msg) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->

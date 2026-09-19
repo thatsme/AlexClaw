@@ -57,13 +57,12 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end
   end
 
+  def dispatch(%Message{text: "/disable 2fa " <> code} = msg) do
+    disable_2fa(msg, TOTP.enabled?(), String.trim(code))
+  end
+
   def dispatch(%Message{text: "/disable 2fa" <> _} = msg) do
-    if TOTP.enabled?() do
-      TOTP.disable()
-      Gateway.send_message("2FA disabled.", chat_id: msg.chat_id, gateway: msg.gateway)
-    else
-      Gateway.send_message("2FA is not enabled.", chat_id: msg.chat_id, gateway: msg.gateway)
-    end
+    disable_2fa(msg, TOTP.enabled?(), "")
   end
 
   # --- OAuth ---
@@ -103,27 +102,67 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     )
   end
 
+  # Disabling 2FA is itself a sensitive action: without a current code, anyone who
+  # can reach the gateway could turn the second factor off and then act freely.
+  defp disable_2fa(msg, false, _code) do
+    Gateway.send_message("2FA is not enabled.", chat_id: msg.chat_id, gateway: msg.gateway)
+  end
+
+  defp disable_2fa(msg, true, "") do
+    Gateway.send_message(
+      "Disabling 2FA requires your current code:\n/disable 2fa <6-digit code>",
+      chat_id: msg.chat_id,
+      gateway: msg.gateway
+    )
+  end
+
+  defp disable_2fa(msg, true, code) do
+    disable_verified(msg, TOTP.verify(code))
+  end
+
+  defp disable_verified(msg, true) do
+    TOTP.disable()
+    Gateway.send_message("2FA disabled.", chat_id: msg.chat_id, gateway: msg.gateway)
+  end
+
+  defp disable_verified(msg, false) do
+    Logger.warning("Rejected /disable 2fa: invalid code", auth: :denied)
+
+    Gateway.send_message(
+      "Invalid code. 2FA is still enabled.",
+      chat_id: msg.chat_id,
+      gateway: msg.gateway
+    )
+  end
+
   # --- 2FA Helpers ---
 
   @doc """
-  Wraps a sensitive action with 2FA challenge if enabled.
-  If 2FA is not enabled, executes immediately.
+  Wraps a sensitive action with a 2FA challenge.
+
+  Returns `:challenged` once the code has been requested, or `:no_2fa` when TOTP
+  is not configured. Callers must treat `:no_2fa` as a refusal — the action is
+  not performed.
   """
-  @spec require_2fa(Message.t(), map(), String.t()) :: :challenged | :proceed
+  @spec require_2fa(Message.t(), map(), String.t()) :: :challenged | :no_2fa
   def require_2fa(msg, action, description) do
-    if TOTP.enabled?() do
-      TOTP.create_challenge(msg.chat_id, action)
+    challenge_2fa(msg, action, description, TOTP.enabled?())
+  end
 
-      Gateway.send_message(
-        "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:",
-        chat_id: msg.chat_id,
-        gateway: msg.gateway
-      )
+  # Fail closed: an action that asked for a second factor is refused when there is
+  # no second factor to ask for, rather than running unprotected.
+  defp challenge_2fa(_msg, _action, _description, false), do: :no_2fa
 
-      :challenged
-    else
-      :proceed
-    end
+  defp challenge_2fa(msg, action, description, true) do
+    TOTP.create_challenge(msg.chat_id, action)
+
+    Gateway.send_message(
+      "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:",
+      chat_id: msg.chat_id,
+      gateway: msg.gateway
+    )
+
+    :challenged
   end
 
   @spec execute_2fa_action(map(), Message.t()) :: term()

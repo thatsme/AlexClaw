@@ -20,7 +20,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
            "Load skill: `#{String.trim(file_path)}`"
          ) do
       :challenged -> :ok
-      :proceed -> do_load(String.trim(file_path), msg)
+      :no_2fa -> require_2fa_message(msg)
     end
   end
 
@@ -31,7 +31,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
            "Unload skill: *#{String.trim(name)}*"
          ) do
       :challenged -> :ok
-      :proceed -> do_unload(String.trim(name), msg)
+      :no_2fa -> require_2fa_message(msg)
     end
   end
 
@@ -42,7 +42,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
            "Reload skill: *#{String.trim(name)}*"
          ) do
       :challenged -> :ok
-      :proceed -> do_reload(String.trim(name), msg)
+      :no_2fa -> require_2fa_message(msg)
     end
   end
 
@@ -78,6 +78,12 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
       """,
       gateway: msg.gateway
     )
+  end
+
+  # Skill operations load code into the running VM, so they are refused outright
+  # when there is no second factor — the same posture as the Skills admin page.
+  defp require_2fa_message(msg) do
+    Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
   end
 
   # --- Execution (post-2FA) ---

@@ -1,5 +1,7 @@
 # AlexClaw 🦇
 
+[![CI](https://github.com/thatsme/AlexClaw/actions/workflows/ci.yml/badge.svg)](https://github.com/thatsme/AlexClaw/actions/workflows/ci.yml)
+
 A BEAM-native personal autonomous AI agent built on Elixir/OTP.
 
 AlexClaw monitors the world (RSS feeds, web sources, GitHub repositories, APIs), accumulates knowledge, executes workflows autonomously on schedule, and communicates with its owner via Telegram. It routes every task to the cheapest available LLM that satisfies the required reasoning tier — including fully local models.

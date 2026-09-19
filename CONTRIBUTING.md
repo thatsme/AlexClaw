@@ -66,7 +66,13 @@ your right to use your own contributions however you wish.
 2. **Create a branch** — `git checkout -b feature/my-skill` or `fix/router-fallback`
 3. **Write your code** — follow the existing patterns in `lib/alex_claw/`
 4. **Add tests** — skills should have unit tests; use `ExUnit`
-5. **Open a pull request** — describe what you built and why
+5. **Run the suite** — `make down` first, then `make test-elixir`
+6. **Open a pull request** — describe what you built and why
+
+Tests run in the container defined by `docker-compose.test.yml`, against an
+isolated test database. Running `mix test` directly on the host is not
+supported — it connects to the wrong database or none at all. The production
+containers must be stopped first, since the test database binds the same port.
 
 ### Skill Contributions
 
@@ -114,9 +120,19 @@ without `external/0`, the skill is **rejected**.
 
 ---
 
+## Continuous Integration
+
+Every push and pull request runs the format check and the full test suite in
+the same container image used locally, so a green run locally means a green
+run on CI. An unformatted file fails the build, so `mix format` is not
+optional. Run it on the host rather than inside a container, which rewrites
+line endings.
+
+---
+
 ## Code Style
 
-- Standard Elixir formatting — run `mix format` before committing
+- Standard Elixir formatting — run `mix format` before committing; CI rejects unformatted code
 - No unnecessary abstractions
 - Pattern match explicitly — avoid generic catch-alls where possible
 - Log with structured metadata: `Logger.info("event", skill: :my_skill, duration: ms)`

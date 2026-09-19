@@ -20,6 +20,10 @@ defmodule AlexClaw.Reasoning.Loop do
   alias AlexClaw.Reasoning.{PromptParser, Prompts, SkillExecutor}
 
   @rubric_keys ~w(relevance completeness usability goal_progress)
+
+  # Planning gets a generous fixed allowance before the plan size is known; it is
+  # still bounded by the configured session budget.
+  @planning_budget_ms 120_000
   @pubsub AlexClaw.PubSub
   @topic "reasoning:loop"
 
@@ -126,9 +130,11 @@ defmodule AlexClaw.Reasoning.Loop do
           recent_actions: []
         }
 
-        # Initial timer covers planning phase only (2 min generous)
+        # Covers the planning phase only, but never outlives the session budget.
+        planning_budget_ms = min(@planning_budget_ms, config.time_budget_ms)
+
         time_budget_ref =
-          Process.send_after(self(), :time_budget_exceeded, 120_000)
+          Process.send_after(self(), :time_budget_exceeded, planning_budget_ms)
 
         state = %{state | time_budget_ref: time_budget_ref}
 
@@ -1634,9 +1640,14 @@ defmodule AlexClaw.Reasoning.Loop do
   # ~300s per step (execute ~150s + LLM prep ~60s + evaluate ~60s + overhead) + 120s buffer
   @seconds_per_step 300
 
+  # The per-step figure rescales the budget to the size of the plan; the configured
+  # budget is the ceiling it may not exceed. reasoning.time_budget_seconds is
+  # documented as the maximum wall-clock time, so it bounds the rescale.
   defp reset_time_budget(state, step_count) do
     cancel_timer(state)
-    budget_ms = step_count * @seconds_per_step * 1000 + 60_000
+
+    proportional_ms = step_count * @seconds_per_step * 1000 + 60_000
+    budget_ms = min(proportional_ms, state.config.time_budget_ms)
 
     Logger.info(
       "[ReasoningLoop] Time budget set to #{div(budget_ms, 1000)}s for #{step_count} steps"

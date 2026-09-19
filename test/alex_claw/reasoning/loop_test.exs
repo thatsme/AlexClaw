@@ -469,6 +469,68 @@ defmodule AlexClaw.Reasoning.LoopTest do
       await_loop_done(pid, 5_000)
     end
 
+    # reasoning.time_budget_seconds is documented as the maximum wall-clock time,
+    # but nothing read it: the timers were hardcoded, so the setting did nothing.
+    test "a configured budget of 2s expires the session" do
+      goal = unique_goal("budget-expires")
+
+      Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            # Outlives the 2s budget, so the timer fires during planning.
+            Process.sleep(6_000)
+            {:ok, plan_response([echo_step("step1")])}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          _other ->
+            {:ok, decision_response("done", confidence: 0.9, final_answer: "x")}
+        end
+      end)
+
+      {:ok, pid} = Loop.start(goal, Keyword.put(default_opts(), :time_budget_ms, 2_000))
+
+      assert {:ok, :failed} = wait_for_complete(10_000)
+      await_loop_done(pid, 5_000)
+
+      session = find_session_by_goal(goal)
+      assert session.status == "failed"
+      assert session.error =~ "Time budget exceeded"
+    end
+
+    test "the proportional budget is capped by the configured budget" do
+      goal = unique_goal("budget-cap")
+      test_pid = self()
+
+      Mox.stub(LLM.Mock, :complete, fn _prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            {:ok, plan_response(Enum.map(1..5, fn i -> echo_step("step#{i}") end))}
+
+          :execution ->
+            send(test_pid, :execution_started)
+            Process.sleep(200)
+            {:ok, execution_response("payload")}
+
+          :forced_summary ->
+            {:ok, ~s|{"answer": "x", "working_memory": "wm"}|}
+
+          _other ->
+            {:ok, decision_response("done", confidence: 0.9, final_answer: "x")}
+        end
+      end)
+
+      # Five steps would ask for 5 * 300s + 60s = 1560s without the ceiling.
+      {:ok, pid} = Loop.start(goal, Keyword.put(default_opts(), :time_budget_ms, 60_000))
+      assert_receive :execution_started, 10_000
+
+      assert :sys.get_state(pid).config.time_budget_ms == 60_000
+
+      Loop.abort(pid)
+      await_loop_done(pid, 5_000)
+    end
+
     test "pause suspends the time budget and resume re-arms it" do
       goal = unique_goal("pause-budget")
       test_pid = self()

@@ -218,6 +218,18 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     GenServer.call(__MODULE__, {:reload_skill, name})
   end
 
+  @doc """
+  Re-run the boot load of persisted dynamic skills.
+
+  Every skill approved by containment is judged again against the current
+  allowlist, so an allowlist tightened in a release takes effect without waiting
+  for a restart. Skills approved by a TOTP code are not re-judged.
+  """
+  @spec reload_persisted() :: :ok
+  def reload_persisted do
+    GenServer.call(__MODULE__, :reload_persisted, 30_000)
+  end
+
   @doc "Create a template skill file in the skills directory."
   @spec create_skill(String.t()) :: {:ok, String.t()} | {:error, atom()}
   def create_skill(name) do
@@ -247,6 +259,11 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   def handle_call({:load_skill, file_path, provenance}, _from, state) do
     result = do_load_skill(file_path, provenance)
     {:reply, result, state}
+  end
+
+  def handle_call(:reload_persisted, _from, state) do
+    load_dynamic_skills_from_db()
+    {:reply, :ok, state}
   end
 
   def handle_call({:unload_skill, name}, _from, state) do
@@ -342,9 +359,34 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   defp checksum_matched(true, skill, full_path) do
+    containment_checked(recheck_containment(skill, full_path), skill, full_path)
+  end
+
+  # A skill approved by containment was never seen by a human. The allowlist it was
+  # judged against can change between releases, so the judgement is made again on
+  # every boot rather than trusted from the database.
+  defp recheck_containment(%{approval: "containment"}, full_path) do
+    with {:ok, source} <- File.read(full_path),
+         {:ok, ast} <- parse_source(source) do
+      CallPolicy.contained?(ast)
+    end
+  end
+
+  defp recheck_containment(_skill, _full_path), do: :ok
+
+  defp containment_checked(:ok, skill, full_path) do
     full_path
     |> compile_and_validate()
     |> register_compiled(skill)
+  end
+
+  defp containment_checked({:error, violations}, skill, _full_path) do
+    Logger.warning(
+      "Dynamic skill #{skill.name} was approved by containment but no longer qualifies: " <>
+        "#{inspect(violations)}"
+    )
+
+    notify_load_failure(skill.name, {:not_contained, violations})
   end
 
   defp register_compiled({:error, reason}, skill) do

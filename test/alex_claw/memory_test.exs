@@ -254,11 +254,17 @@ defmodule AlexClaw.MemoryTest do
       assert count >= 2
     end
 
-    test "returns zero when all entries have embeddings" do
+    test "returns zero when all entries are embedded with the current model" do
+      AlexClaw.Config.set("embedding.model", "test-embedding-model")
       vector = List.duplicate(0.1, 768)
 
       %Entry{}
-      |> Entry.changeset(%{kind: "test", content: "already embedded", embedding: vector})
+      |> Entry.changeset(%{
+        kind: "test",
+        content: "already embedded",
+        embedding: vector,
+        embedding_model: "test-embedding-model"
+      })
       |> AlexClaw.Repo.insert!()
 
       assert {:ok, 0} = Memory.reembed_all()

@@ -164,8 +164,18 @@ defmodule AlexClaw.Skills.RSSCollector do
     end
   end
 
-  defp parse_rss(feed_name, xml) when is_binary(xml) do
+  # Feed bodies are untrusted, so entity expansion matters here. The xmerl in the
+  # OTP this ships with refuses entity declarations outright — measured, not
+  # assumed: a DOCTYPE with an internal or external entity exits with
+  # :entities_not_allowed whether :dtd is :all, :none, or unset. dtd: :none is
+  # passed anyway so the behaviour is stated rather than inherited, and the tests
+  # pin it so a future OTP or sweet_xml that relaxes the default is caught here
+  # rather than in production.
+  @doc false
+  @spec parse_rss(String.t(), binary()) :: [map()]
+  def parse_rss(feed_name, xml) when is_binary(xml) do
     xml
+    |> parse(dtd: :none)
     |> xpath(~x"//item"l,
       title: ~x"./title/text()"s,
       link: ~x"./link/text()"s,

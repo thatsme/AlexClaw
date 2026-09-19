@@ -7,8 +7,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   use GenServer
   require Logger
 
-  alias AlexClaw.Skills.DynamicSkill
+  alias AlexClaw.Gateway.Router
   alias AlexClaw.Repo
+  alias AlexClaw.Skills.{DynamicSkill, SkillAPI}
 
   @ets_table :skill_registry
   @dynamic_namespace "AlexClaw.Skills.Dynamic."
@@ -268,39 +269,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     import Ecto.Query
     skills = Repo.all(from(d in DynamicSkill, where: d.enabled == true))
 
-    for skill <- skills do
-      full_path = Path.join(skills_dir(), skill.file_path)
-
-      if File.exists?(full_path) do
-        current_checksum = file_checksum(full_path)
-
-        if current_checksum == skill.checksum do
-          case compile_and_validate(full_path) do
-            {:ok, module, permissions} ->
-              routes = extract_routes(module)
-              external = extract_external(module)
-
-              :ets.insert(
-                @ets_table,
-                {skill.name, module, :dynamic, permissions, routes, external}
-              )
-
-              Logger.info("Dynamic skill loaded: #{skill.name}")
-
-            {:error, reason} ->
-              Logger.warning("Failed to load dynamic skill #{skill.name}: #{inspect(reason)}")
-          end
-        else
-          Logger.warning(
-            "Checksum mismatch for skill #{skill.name} — file changed since last load. Skipping."
-          )
-
-          notify_checksum_mismatch(skill.name)
-        end
-      else
-        Logger.warning("Dynamic skill file missing: #{skill.file_path}")
-      end
-    end
+    for skill <- skills, do: load_persisted_skill(skill, Path.join(skills_dir(), skill.file_path))
   rescue
     e in Postgrex.Error ->
       Logger.warning("Dynamic skills skipped (DB not ready): #{Exception.message(e)}")
@@ -344,31 +313,73 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  defp load_persisted_skill(skill, full_path) do
+    verify_and_load(File.exists?(full_path), skill, full_path)
+  end
+
+  defp verify_and_load(false, skill, _full_path) do
+    Logger.warning("Dynamic skill file missing: #{skill.file_path}")
+  end
+
+  defp verify_and_load(true, skill, full_path) do
+    checksum_matched(file_checksum(full_path) == skill.checksum, skill, full_path)
+  end
+
+  # The file changed since it was registered, so its recorded permissions can no
+  # longer be trusted — refuse to load it rather than run unreviewed code.
+  defp checksum_matched(false, skill, _full_path) do
+    Logger.warning(
+      "Checksum mismatch for skill #{skill.name} — file changed since last load. Skipping."
+    )
+
+    notify_checksum_mismatch(skill.name)
+  end
+
+  defp checksum_matched(true, skill, full_path) do
+    full_path
+    |> compile_and_validate()
+    |> register_compiled(skill)
+  end
+
+  defp register_compiled({:error, reason}, skill) do
+    Logger.warning("Failed to load dynamic skill #{skill.name}: #{inspect(reason)}")
+  end
+
+  defp register_compiled({:ok, module, permissions}, skill) do
+    :ets.insert(
+      @ets_table,
+      {skill.name, module, :dynamic, permissions, extract_routes(module),
+       extract_external(module)}
+    )
+
+    Logger.info("Dynamic skill loaded: #{skill.name}")
+  end
+
   defp check_version_bump(module, skill_name) do
     case :ets.lookup(@ets_table, skill_name) do
       [{^skill_name, old_module, :dynamic, _, _, _}] ->
-        old_version =
-          if function_exported?(old_module, :version, 0), do: old_module.version(), else: nil
-
-        new_version = if function_exported?(module, :version, 0), do: module.version(), else: nil
-
-        cond do
-          old_version == nil and new_version == nil ->
-            {:error, {:same_version, nil, "Add a version/0 callback to track skill versions"}}
-
-          old_version == new_version ->
-            {:error,
-             {:same_version, old_version,
-              "Bump the version before reloading. Use /skill reload to force."}}
-
-          true ->
-            :ok
-        end
+        compare_versions(version_of(old_module), version_of(module))
 
       _ ->
         :ok
     end
   end
+
+  defp version_of(module) do
+    if function_exported?(module, :version, 0), do: module.version(), else: nil
+  end
+
+  # Neither side declares a version, so a bump cannot be detected at all.
+  defp compare_versions(nil, nil) do
+    {:error, {:same_version, nil, "Add a version/0 callback to track skill versions"}}
+  end
+
+  defp compare_versions(same, same) do
+    {:error,
+     {:same_version, same, "Bump the version before reloading. Use /skill reload to force."}}
+  end
+
+  defp compare_versions(_old_version, _new_version), do: :ok
 
   defp do_unload_skill(name) do
     case :ets.lookup(@ets_table, name) do
@@ -505,41 +516,41 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp compile_and_validate(full_path) do
     case Code.compile_file(full_path) do
-      [{module, _bytecode} | _] ->
-        module_str = String.replace_leading(to_string(module), "Elixir.", "")
-
-        cond do
-          not String.starts_with?(module_str, @dynamic_namespace) ->
-            :code.purge(module)
-            :code.delete(module)
-            {:error, {:invalid_namespace, module_str}}
-
-          not function_exported?(module, :run, 1) ->
-            :code.purge(module)
-            :code.delete(module)
-            {:error, :missing_run_callback}
-
-          true ->
-            permissions = extract_permissions(module)
-
-            case validate_permissions(permissions) do
-              :ok ->
-                case validate_external_declaration(module, full_path) do
-                  :ok -> {:ok, module, permissions}
-                  error -> error
-                end
-
-              error ->
-                error
-            end
-        end
-
-      [] ->
-        {:error, :no_module_defined}
+      [{module, _bytecode} | _] -> validate_compiled(module, full_path)
+      [] -> {:error, :no_module_defined}
     end
   rescue
     e ->
       {:error, {:compilation_error, Exception.message(e)}}
+  end
+
+  defp validate_compiled(module, full_path) do
+    module_str = String.replace_leading(to_string(module), "Elixir.", "")
+
+    cond do
+      not String.starts_with?(module_str, @dynamic_namespace) ->
+        reject_module(module, {:invalid_namespace, module_str})
+
+      not function_exported?(module, :run, 1) ->
+        reject_module(module, :missing_run_callback)
+
+      true ->
+        validate_contract(module, full_path, extract_permissions(module))
+    end
+  end
+
+  # A module that fails validation must not stay resident in the VM.
+  defp reject_module(module, reason) do
+    :code.purge(module)
+    :code.delete(module)
+    {:error, reason}
+  end
+
+  defp validate_contract(module, full_path, permissions) do
+    with :ok <- validate_permissions(permissions),
+         :ok <- validate_external_declaration(module, full_path) do
+      {:ok, module, permissions}
+    end
   end
 
   defp extract_external(module) do
@@ -638,7 +649,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   defp validate_permissions(permissions) do
-    known = AlexClaw.Skills.SkillAPI.known_permissions()
+    known = SkillAPI.known_permissions()
     invalid = Enum.reject(permissions, &(&1 in known))
 
     if invalid == [] do
@@ -699,7 +710,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp notify_checksum_mismatch(skill_name) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Gateway.Router.broadcast(
+      Router.broadcast(
         "Warning: Dynamic skill '#{skill_name}' file changed since last load. " <>
           "Use /skill reload #{skill_name} to update, or /skill unload #{skill_name} to remove."
       )

@@ -10,6 +10,8 @@ defmodule AlexClaw.Knowledge do
   alias AlexClaw.Repo
   alias AlexClaw.Knowledge.Entry
 
+  @default_embedding_model "text-embedding-004"
+
   @type store_opts :: [source: String.t() | nil, metadata: map(), expires_at: DateTime.t() | nil]
 
   @spec store(atom() | String.t(), String.t(), store_opts()) ::
@@ -139,14 +141,14 @@ defmodule AlexClaw.Knowledge do
   def reembed_all(opts \\ []) do
     batch_size = Keyword.get(opts, :batch_size, 20)
     max_concurrency = Keyword.get(opts, :max_concurrency, 2)
-    current_model = AlexClaw.Config.get("embedding.model")
+    current_model = current_embedding_model()
 
     entries =
       Entry
       |> where(
         [e],
         is_nil(e.embedding) or is_nil(e.embedding_model) or
-          e.embedding_model != ^(current_model || "")
+          e.embedding_model != ^current_model
       )
       |> Repo.all()
 
@@ -230,6 +232,14 @@ defmodule AlexClaw.Knowledge do
     Repo.exists?(from(p in AlexClaw.LLM.Provider, where: p.enabled == true))
   end
 
+  # Both the write path and the staleness check must resolve the model name the
+  # same way. When they disagreed — the write falling back to a default and the
+  # check comparing against "" — every entry was stale the moment it was
+  # embedded, and reembed_all/1 re-embedded the whole table on every run.
+  defp current_embedding_model do
+    AlexClaw.Config.get("embedding.model") || @default_embedding_model
+  end
+
   defp sandbox_allow(caller) do
     if Application.get_env(:alex_claw, AlexClaw.Repo)[:pool] == Ecto.Adapters.SQL.Sandbox do
       Ecto.Adapters.SQL.Sandbox.allow(AlexClaw.Repo, caller, self())
@@ -237,7 +247,7 @@ defmodule AlexClaw.Knowledge do
   end
 
   defp embed_entry(%Entry{id: id, content: content}) do
-    model = AlexClaw.Config.get("embedding.model") || "text-embedding-004"
+    model = current_embedding_model()
 
     case AlexClaw.LLM.embed(content) do
       {:ok, vector} when is_list(vector) ->

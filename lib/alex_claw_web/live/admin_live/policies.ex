@@ -3,7 +3,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
 
   use Phoenix.LiveView
 
-  alias AlexClaw.Auth.{Policy, AuditLog, PolicyEngine}
+  alias AlexClaw.Auth.{AuditLog, Policy, PolicyEngine}
   alias AlexClaw.Repo
 
   import Ecto.Query

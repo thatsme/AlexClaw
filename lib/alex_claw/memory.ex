@@ -6,8 +6,11 @@ defmodule AlexClaw.Memory do
   """
   require Logger
   import Ecto.Query
-  alias AlexClaw.Repo
   alias AlexClaw.Memory.Entry
+  alias AlexClaw.RAG.Chunker
+  alias AlexClaw.RAG.QueryRewriter
+  alias AlexClaw.Repo
+  alias Ecto.Adapters.SQL.Sandbox
 
   @default_embedding_model "text-embedding-004"
 
@@ -34,7 +37,7 @@ defmodule AlexClaw.Memory do
       expires_at: expires_at
     }
 
-    if AlexClaw.RAG.Chunker.should_chunk?(content) do
+    if Chunker.should_chunk?(content) do
       store_with_chunks(base_attrs)
     else
       store_single(base_attrs)
@@ -60,7 +63,7 @@ defmodule AlexClaw.Memory do
 
     case parent_result do
       {:ok, parent} ->
-        chunks = AlexClaw.RAG.Chunker.chunk(attrs.content)
+        chunks = Chunker.chunk(attrs.content)
 
         Enum.each(chunks, fn %{text: text, index: idx} ->
           chunk_attrs = %{
@@ -102,7 +105,7 @@ defmodule AlexClaw.Memory do
     min_score = Keyword.get(opts, :min_score)
     rewrite = Keyword.get(opts, :rewrite, false)
 
-    queries = if rewrite, do: AlexClaw.RAG.QueryRewriter.rewrite(query), else: [query]
+    queries = if rewrite, do: QueryRewriter.rewrite(query), else: [query]
 
     vector_results =
       queries
@@ -260,7 +263,7 @@ defmodule AlexClaw.Memory do
 
   defp sandbox_allow(caller) do
     if Application.get_env(:alex_claw, AlexClaw.Repo)[:pool] == Ecto.Adapters.SQL.Sandbox do
-      Ecto.Adapters.SQL.Sandbox.allow(AlexClaw.Repo, caller, self())
+      Sandbox.allow(AlexClaw.Repo, caller, self())
     end
   end
 

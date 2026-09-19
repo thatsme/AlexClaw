@@ -4,7 +4,7 @@ defmodule AlexClaw.Workflows do
   """
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Workflows.{Workflow, WorkflowStep, WorkflowResource, WorkflowRun, SkillOutcome}
+  alias AlexClaw.Workflows.{SkillOutcome, Workflow, WorkflowResource, WorkflowRun, WorkflowStep}
 
   # --- Workflows ---
 

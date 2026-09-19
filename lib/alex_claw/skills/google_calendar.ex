@@ -69,6 +69,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
 
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
+  alias AlexClaw.Google.TokenManager
 
   @calendar_api "https://www.googleapis.com/calendar/v3"
 
@@ -80,7 +81,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
     days = parse_int(config["days"], 1)
     max_results = parse_int(config["max_results"], 20)
 
-    case AlexClaw.Google.TokenManager.get_token() do
+    case TokenManager.get_token() do
       {:ok, token} ->
         fetch_events(token, calendar_id, days, max_results)
 

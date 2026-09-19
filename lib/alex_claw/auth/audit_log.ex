@@ -10,7 +10,7 @@ defmodule AlexClaw.Auth.AuditLog do
 
   import Ecto.Query
 
-  alias AlexClaw.Auth.{AuthContext, AuditEntry}
+  alias AlexClaw.Auth.{AuditEntry, AuthContext}
   alias AlexClaw.Repo
 
   @retention_days 30

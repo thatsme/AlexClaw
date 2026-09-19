@@ -2,8 +2,8 @@ defmodule AlexClaw.Reasoning do
   @moduledoc "Context for managing reasoning loop sessions and steps."
 
   import Ecto.Query
-  alias AlexClaw.Repo
   alias AlexClaw.Reasoning.{Loop, Session, Step}
+  alias AlexClaw.Repo
 
   # --- Loop control (delegates to Reasoning.Loop) ---
 

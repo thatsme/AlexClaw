@@ -7,9 +7,9 @@ defmodule AlexClaw.MCP.ResourceProvider do
   resolves `resources/read` requests to the appropriate context module.
   """
 
+  alias Anubis.MCP.Error
   alias Anubis.Server.Frame
   alias Anubis.Server.Response
-  alias Anubis.MCP.Error
 
   @type read_result ::
           {:reply, Response.t(), Frame.t()}

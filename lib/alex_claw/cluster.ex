@@ -2,8 +2,8 @@ defmodule AlexClaw.Cluster do
   @moduledoc "Context for managing cluster node registration and connectivity."
 
   import Ecto.Query
-  alias AlexClaw.Repo
   alias AlexClaw.Cluster.ClusterNode
+  alias AlexClaw.Repo
 
   @spec list_nodes() :: [ClusterNode.t()]
   def list_nodes do

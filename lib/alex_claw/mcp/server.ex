@@ -22,15 +22,14 @@ defmodule AlexClaw.MCP.Server do
 
   require Logger
 
-  alias AlexClaw.Auth.{AuthContext, PolicyEngine}
+  alias AlexClaw.Auth.{AuthContext, CapabilityToken, PolicyEngine}
   alias AlexClaw.MCP.{ResourceProvider, ToolSchema}
-  alias Anubis.MCP.Error
-  alias Anubis.Server.Response
-  alias AlexClaw.Auth.CapabilityToken
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.Executor
   alias AlexClaw.Workflows.SkillRegistry
+  alias Anubis.MCP.Error
   alias Anubis.Server.Frame
+  alias Anubis.Server.Response
 
   @skills_topic "skills:registry"
 

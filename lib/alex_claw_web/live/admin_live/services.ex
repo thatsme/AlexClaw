@@ -4,7 +4,13 @@ defmodule AlexClawWeb.AdminLive.Services do
   use Phoenix.LiveView
   require Logger
 
+  alias AlexClaw.Auth.TOTP
   alias AlexClaw.Config
+  alias AlexClaw.Gateway.Discord
+  alias AlexClaw.Gateway.Telegram
+  alias AlexClaw.Google.TokenManager
+  alias Ecto.Adapters.SQL
+  alias Nostrum.Api.Message
 
   @telegram_api "https://api.telegram.org/bot"
 
@@ -173,24 +179,24 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp initial_status("database") do
-    case Ecto.Adapters.SQL.query(AlexClaw.Repo, "SELECT 1") do
+    case SQL.query(AlexClaw.Repo, "SELECT 1") do
       {:ok, _} -> :connected
       {:error, _} -> :error
     end
   end
 
-  defp initial_status("google"), do: AlexClaw.Google.TokenManager.status()
+  defp initial_status("google"), do: TokenManager.status()
 
   defp initial_status("telegram") do
-    if AlexClaw.Gateway.Telegram.configured?(), do: :configured, else: :not_configured
+    if Telegram.configured?(), do: :configured, else: :not_configured
   end
 
   defp initial_status("discord") do
-    if AlexClaw.Gateway.Discord.configured?(), do: :configured, else: :not_configured
+    if Discord.configured?(), do: :configured, else: :not_configured
   end
 
   defp initial_status("totp") do
-    if AlexClaw.Auth.TOTP.enabled?(), do: :configured, else: :not_configured
+    if TOTP.enabled?(), do: :configured, else: :not_configured
   end
 
   defp initial_status("ollama") do
@@ -223,14 +229,14 @@ defmodule AlexClawWeb.AdminLive.Services do
   # --- Live checks (real connectivity tests) ---
 
   defp live_check("database") do
-    case Ecto.Adapters.SQL.query(AlexClaw.Repo, "SELECT 1") do
+    case SQL.query(AlexClaw.Repo, "SELECT 1") do
       {:ok, _} -> %{status: :connected, detail: "Query OK"}
       {:error, reason} -> %{status: :error, detail: inspect(reason)}
     end
   end
 
   defp live_check("google") do
-    status = AlexClaw.Google.TokenManager.status()
+    status = TokenManager.status()
 
     detail =
       case status do
@@ -296,7 +302,7 @@ defmodule AlexClawWeb.AdminLive.Services do
             :error -> channel_id
           end
 
-        case Nostrum.Api.Message.create(channel_int, content: "🦇 AlexClaw connectivity check") do
+        case Message.create(channel_int, content: "🦇 AlexClaw connectivity check") do
           {:ok, _msg} ->
             %{status: :connected, detail: "Message delivered"}
 
@@ -307,14 +313,14 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check("totp") do
-    if AlexClaw.Auth.TOTP.enabled?() do
+    if TOTP.enabled?() do
       chat_id = Config.get("telegram.chat_id")
 
       if chat_id && chat_id != "" do
         action = %{type: :service_check, description: "2FA connectivity check from Services page"}
-        AlexClaw.Auth.TOTP.create_challenge(chat_id, action)
+        TOTP.create_challenge(chat_id, action)
 
-        AlexClaw.Gateway.Telegram.send_message(
+        Telegram.send_message(
           "2FA check from Services page.\n\nEnter your 6-digit authenticator code:"
         )
 

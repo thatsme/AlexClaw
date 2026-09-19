@@ -6,8 +6,8 @@ defmodule AlexClaw.Config do
   """
   require Logger
   import Ecto.Query
+  alias AlexClaw.Config.{Crypto, Setting}
   alias AlexClaw.Repo
-  alias AlexClaw.Config.{Setting, Crypto}
 
   @type config_value :: String.t() | integer() | float() | boolean() | map() | list() | nil
   @type set_opts :: [

@@ -4,8 +4,8 @@ defmodule AlexClaw.Resources do
   """
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Resources.Resource
   alias AlexClaw.Resources.ApiDiscovery
+  alias AlexClaw.Resources.Resource
 
   @spec list_resources(map()) :: [Resource.t()]
   def list_resources(filters \\ %{}) do

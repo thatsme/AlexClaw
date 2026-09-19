@@ -4,8 +4,8 @@ defmodule AlexClawWeb.OAuthCallbackController do
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
 
-  alias AlexClaw.Google.OAuth
   alias AlexClaw.Gateway
+  alias AlexClaw.Google.OAuth
 
   @spec google(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def google(conn, %{"code" => code, "state" => state}) do

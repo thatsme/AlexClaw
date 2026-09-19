@@ -10,7 +10,7 @@ defmodule AlexClaw.Auth.PolicyEngine do
   5. Flat permission list → deny if permission not declared
   """
 
-  alias AlexClaw.Auth.{AuthContext, AuditLog, CapabilityToken, Policy, SkillRateLimiter}
+  alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken, Policy, SkillRateLimiter}
   alias AlexClaw.Repo
 
   import Ecto.Query, only: [from: 2]

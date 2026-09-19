@@ -3,8 +3,8 @@ defmodule AlexClaw.Skills.ConversationalTest do
   @moduletag :integration
   @moduletag :adversarial
 
-  alias AlexClaw.Skills.Conversational
   alias AlexClaw.LLM
+  alias AlexClaw.Skills.Conversational
 
   defp create_test_provider(attrs) do
     defaults = %{

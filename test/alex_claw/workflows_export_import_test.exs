@@ -2,8 +2,8 @@ defmodule AlexClaw.WorkflowsExportImportTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Workflows
   alias AlexClaw.Resources
+  alias AlexClaw.Workflows
 
   defp create_workflow(attrs \\ %{}) do
     default = %{name: "Test Workflow #{System.unique_integer([:positive])}", enabled: true}

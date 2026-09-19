@@ -6,10 +6,10 @@ defmodule AlexClaw.Reasoning.SkillExecutor do
 
   require Logger
 
-  alias AlexClaw.Workflows.SkillRegistry
   alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
-  alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.ContentSanitizer
+  alias AlexClaw.Skills.CircuitBreaker
+  alias AlexClaw.Workflows.SkillRegistry
 
   @spec execute(String.t(), map(), [String.t()], keyword()) ::
           {:ok, String.t()} | {:error, atom() | String.t()}

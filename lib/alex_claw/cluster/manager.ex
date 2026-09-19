@@ -12,6 +12,7 @@ defmodule AlexClaw.Cluster.Manager do
   require Logger
 
   import Ecto.Query
+  alias AlexClaw.Workflows.Executor
 
   # --- Client API ---
 
@@ -145,7 +146,7 @@ defmodule AlexClaw.Cluster.Manager do
           Logger.info("Remote trigger accepted: '#{workflow_name}' from #{source_node}")
 
           Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-            AlexClaw.Workflows.Executor.run_with_input(workflow.id, data, %{
+            Executor.run_with_input(workflow.id, data, %{
               "_source_node" => source_node
             })
           end)

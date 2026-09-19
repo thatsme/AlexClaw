@@ -14,6 +14,7 @@ defmodule AlexClaw.ContentSanitizer do
   7. Skill name mentions — flag external content referencing internal skill names
   """
   require Logger
+  alias AlexClaw.Workflows.SkillRegistry
 
   @default_max_size 10_240
   @patterns_file "/app/config/injection_patterns.json"
@@ -388,7 +389,7 @@ defmodule AlexClaw.ContentSanitizer do
   # --- Helpers ---
 
   defp skill_name_list do
-    AlexClaw.Workflows.SkillRegistry.list_skills()
+    SkillRegistry.list_skills()
   rescue
     _ -> []
   end

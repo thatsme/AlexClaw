@@ -7,8 +7,10 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
   in the system — no exceptions, no config toggle.
   """
 
-  alias AlexClaw.{Gateway, Message}
   alias AlexClaw.Dispatcher.AuthCommands
+  alias AlexClaw.Gateway
+  alias AlexClaw.Message
+  alias AlexClaw.Workflows.SkillRegistry
 
   @spec dispatch(Message.t()) :: :ok | term()
   def dispatch(%Message{text: "/skill load " <> file_path} = msg) do
@@ -45,7 +47,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
   end
 
   def dispatch(%Message{text: "/skill create " <> name} = msg) do
-    case AlexClaw.Workflows.SkillRegistry.create_skill(String.trim(name)) do
+    case SkillRegistry.create_skill(String.trim(name)) do
       {:ok, file_name} ->
         Gateway.send_message(
           "Template created: `#{file_name}`\n" <>
@@ -94,7 +96,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
   def do_reload_after_2fa(name, msg), do: do_reload(name, msg)
 
   defp do_load(file_path, msg) do
-    case AlexClaw.Workflows.SkillRegistry.load_skill(file_path) do
+    case SkillRegistry.load_skill(file_path) do
       {:ok, %{name: name, permissions: perms}} ->
         perm_list = Enum.map_join(perms, ", ", &to_string/1)
 
@@ -150,7 +152,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
   end
 
   defp do_unload(name, msg) do
-    case AlexClaw.Workflows.SkillRegistry.unload_skill(name) do
+    case SkillRegistry.unload_skill(name) do
       :ok ->
         Gateway.send_message("Skill *#{name}* unloaded.", gateway: msg.gateway)
 
@@ -163,7 +165,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
   end
 
   defp do_reload(name, msg) do
-    case AlexClaw.Workflows.SkillRegistry.reload_skill(name) do
+    case SkillRegistry.reload_skill(name) do
       {:ok, %{name: n, permissions: perms}} ->
         perm_list = Enum.map_join(perms, ", ", &to_string/1)
 

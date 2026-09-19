@@ -3,7 +3,7 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
   @moduletag :integration
   @moduletag :adversarial
 
-  alias AlexClaw.{Workflows, Resources}
+  alias AlexClaw.{Resources, Workflows}
 
   defp create_workflow(attrs \\ %{}) do
     default = %{name: "WF #{System.unique_integer([:positive])}", enabled: true}

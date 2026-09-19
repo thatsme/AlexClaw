@@ -7,6 +7,7 @@ defmodule AlexClaw.Skills.Coder do
   @behaviour AlexClaw.Skill
   require Logger
 
+  alias AlexClaw.Gateway.Router
   alias AlexClaw.Skills.{CodeGenerator, SkillAPI}
 
   @impl true
@@ -73,11 +74,11 @@ defmodule AlexClaw.Skills.Coder do
   def handle(goal, opts \\ []) do
     case run(%{input: goal}) do
       {:ok, result, _branch} ->
-        AlexClaw.Gateway.Router.send_message(result, opts)
+        Router.send_message(result, opts)
 
       {:error, reason} ->
         Logger.warning("Coder failed: #{inspect(reason)}", skill: :coder)
-        AlexClaw.Gateway.Router.send_message("Coder failed: #{inspect(reason)}", opts)
+        Router.send_message("Coder failed: #{inspect(reason)}", opts)
     end
   end
 

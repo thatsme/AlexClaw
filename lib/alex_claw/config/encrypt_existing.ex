@@ -6,8 +6,8 @@ defmodule AlexClaw.Config.EncryptExisting do
   """
   require Logger
   import Ecto.Query
+  alias AlexClaw.Config.{Crypto, Setting}
   alias AlexClaw.Repo
-  alias AlexClaw.Config.{Setting, Crypto}
 
   @spec run() :: :ok
   def run do

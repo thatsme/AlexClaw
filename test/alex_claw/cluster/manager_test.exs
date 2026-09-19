@@ -4,9 +4,10 @@ defmodule AlexClaw.Cluster.ManagerTest do
 
   alias AlexClaw.Cluster.Manager
   alias AlexClaw.Workflows
+  alias Ecto.Adapters.SQL.Sandbox
 
   setup do
-    Ecto.Adapters.SQL.Sandbox.mode(AlexClaw.Repo, {:shared, self()})
+    Sandbox.mode(AlexClaw.Repo, {:shared, self()})
     :ok
   end
 

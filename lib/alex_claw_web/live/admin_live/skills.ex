@@ -3,6 +3,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   use Phoenix.LiveView
 
+  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Gateway.Router
   alias AlexClaw.Workflows.SkillRegistry
 
   @max_upload_size 1_000_000
@@ -170,7 +172,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
   end
 
   defp request_2fa(action, description) do
-    if AlexClaw.Auth.TOTP.enabled?() do
+    if TOTP.enabled?() do
       chat_ids =
         Enum.filter(
           [
@@ -181,9 +183,9 @@ defmodule AlexClawWeb.AdminLive.Skills do
         )
 
       if chat_ids != [] do
-        for id <- chat_ids, do: AlexClaw.Auth.TOTP.create_challenge(id, action)
+        for id <- chat_ids, do: TOTP.create_challenge(id, action)
 
-        AlexClaw.Gateway.Router.broadcast(
+        Router.broadcast(
           "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:"
         )
 

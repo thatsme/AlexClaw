@@ -2,7 +2,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
   @moduledoc """
   Google Tasks skill. Lists and creates tasks via the Google Tasks API.
 
-  Shares OAuth credentials with Google Calendar via AlexClaw.Google.TokenManager.
+  Shares OAuth credentials with Google Calendar via TokenManager.
 
   Configurable via step config:
   - "action" — "list" (default), "add", or "lists"
@@ -31,6 +31,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
   def routes, do: [:on_tasks, :on_empty, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
+  alias AlexClaw.Google.TokenManager
 
   @tasks_api "https://tasks.googleapis.com/tasks/v1"
 
@@ -79,7 +80,7 @@ defmodule AlexClaw.Skills.GoogleTasks do
     config = args[:config] || %{}
     action = config["action"] || "list"
 
-    case AlexClaw.Google.TokenManager.get_token() do
+    case TokenManager.get_token() do
       {:ok, token} ->
         case action do
           "list" -> list_tasks(token, config)

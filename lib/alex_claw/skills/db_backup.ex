@@ -14,6 +14,11 @@ defmodule AlexClaw.Skills.DbBackup do
 
   alias AlexClaw.Config
 
+  # Bind-mounted from the host in docker-compose.yml (${BACKUP_DIR:-./backups}).
+  # This was referenced four times but never defined, so it evaluated to nil and
+  # every call would have failed had the enabled check above ever passed.
+  @backup_dir "/app/backups"
+
   @impl true
   @spec description() :: String.t()
   def description, do: "Database backup with rotation (host-mounted)"
@@ -29,7 +34,7 @@ defmodule AlexClaw.Skills.DbBackup do
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(_args) do
-    if Config.get("backup.enabled") == true do
+    if Config.enabled?("backup.enabled") do
       max_files = Config.get("backup.max_files") || 7
 
       with :ok <- verify_mount(@backup_dir),

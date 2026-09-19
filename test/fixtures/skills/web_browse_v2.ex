@@ -22,26 +22,27 @@ defmodule AlexClaw.Skills.Dynamic.WebBrowseV2 do
   @impl true
   def run(args) do
     config = args[:config] || %{}
-    url = config["url"] || to_string(args[:input] || "")
-    question = config["question"]
-    llm_opts = build_llm_opts(args)
 
-    if url == "" do
-      {:error, :no_url}
-    else
-      case fetch_and_extract(url) do
-        {:ok, content} ->
-          if question && question != "" do
-            run_qa(url, content, question, llm_opts)
-          else
-            run_summarize(url, content, llm_opts)
-          end
+    browse(
+      config["url"] || to_string(args[:input] || ""),
+      config["question"],
+      build_llm_opts(args)
+    )
+  end
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+  defp browse("", _question, _llm_opts), do: {:error, :no_url}
+
+  defp browse(url, question, llm_opts) do
+    case fetch_and_extract(url) do
+      {:ok, content} -> answer(content, url, question, llm_opts)
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp answer(content, url, question, llm_opts) when question in [nil, ""],
+    do: run_summarize(url, content, llm_opts)
+
+  defp answer(content, url, question, llm_opts), do: run_qa(url, content, question, llm_opts)
 
   # --- Summarize mode ---
 

@@ -55,31 +55,30 @@ defmodule AlexClaw.Skills.Dynamic.WebSearchV2 do
            headers: headers,
            receive_timeout: 10_000
          ) do
-      {:ok, %{status: 200, body: body}} ->
-        results =
-          body
-          |> Floki.parse_document!()
-          |> Floki.find(".result__a")
-          |> Enum.take(@max_results)
-          |> Enum.flat_map(fn element ->
-            href = Floki.attribute(element, "href") |> List.first()
-            title = Floki.text(element)
-
-            case extract_url(href) do
-              {:ok, url} -> [%{title: title, url: url}]
-              :skip -> []
-            end
-          end)
-
-        {:ok, results}
-
-      {:ok, %{status: status}} ->
-        {:error, {:ddg, status}}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, %{status: 200, body: body}} -> {:ok, parse_results(body)}
+      {:ok, %{status: status}} -> {:error, {:ddg, status}}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp parse_results(body) do
+    body
+    |> Floki.parse_document!()
+    |> Floki.find(".result__a")
+    |> Enum.take(@max_results)
+    |> Enum.flat_map(&result_entry/1)
+  end
+
+  defp result_entry(element) do
+    element
+    |> Floki.attribute("href")
+    |> List.first()
+    |> extract_url()
+    |> result_entry(Floki.text(element))
+  end
+
+  defp result_entry({:ok, url}, title), do: [%{title: title, url: url}]
+  defp result_entry(:skip, _title), do: []
 
   defp extract_url(nil), do: :skip
 

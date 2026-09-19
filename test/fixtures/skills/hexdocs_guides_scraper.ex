@@ -71,46 +71,54 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
     config = args[:config] || %{}
     packages = Enum.uniq(config["packages"] || @default_packages)
     delay_ms = to_int(config["delay_between_packages_ms"], 2000)
-    timeout_ms = to_int(config["timeout_ms"], 300_000)
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    deadline = System.monotonic_time(:millisecond) + to_int(config["timeout_ms"], 300_000)
 
-    results =
-      Enum.reduce_while(packages, [], fn pkg, acc ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          Logger.warning("hexdocs_guides: deadline reached at #{pkg}")
-          {:halt, [{pkg, :timeout} | acc]}
-        else
-          result = scrape_package_guides(pkg)
-          if delay_ms > 0, do: Process.sleep(delay_ms)
-          {:cont, [{pkg, result} | acc]}
-        end
-      end)
-      |> Enum.reverse()
-
-    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
-    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
-    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
-    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
-
-    summary =
-      Enum.map_join(results, "\n", fn
-        {pkg, {:stored, n}} -> "#{pkg}: #{n} new guide chunks"
-        {pkg, :skipped} -> "#{pkg}: skipped (all guides already indexed)"
-        {pkg, {:failed, reason}} -> "#{pkg}: failed (#{reason})"
-        {pkg, :timeout} -> "#{pkg}: skipped (deadline reached)"
-      end)
-
-    report =
-      "Packages: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
-
-    if total_stored > 0 do
-      {:ok, report, :on_success}
-    else
-      {:ok, report, :on_empty}
-    end
+    packages
+    |> scrape_all(delay_ms, deadline)
+    |> report()
   rescue
     e -> {:error, "HexDocs guides scraper failed: #{Exception.message(e)}"}
   end
+
+  defp scrape_all(packages, delay_ms, deadline) do
+    packages
+    |> Enum.reduce_while([], &scrape_step(&1, &2, delay_ms, deadline))
+    |> Enum.reverse()
+  end
+
+  defp scrape_step(pkg, acc, delay_ms, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      Logger.warning("hexdocs_guides: deadline reached at #{pkg}")
+      {:halt, [{pkg, :timeout} | acc]}
+    else
+      result = scrape_package_guides(pkg)
+      if delay_ms > 0, do: Process.sleep(delay_ms)
+      {:cont, [{pkg, result} | acc]}
+    end
+  end
+
+  defp report(results) do
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+
+    counts = [
+      "Packages: #{length(results)}",
+      "Stored: #{total_stored}",
+      "Skipped: #{Enum.count(results, &match?({_, :skipped}, &1))}",
+      "Failed: #{Enum.count(results, &match?({_, {:failed, _}}, &1))}",
+      "Timeout: #{Enum.count(results, &match?({_, :timeout}, &1))}"
+    ]
+
+    text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &package_line/1)
+    {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp stored_branch(0), do: :on_empty
+  defp stored_branch(_total_stored), do: :on_success
+
+  defp package_line({pkg, {:stored, n}}), do: "#{pkg}: #{n} new guide chunks"
+  defp package_line({pkg, :skipped}), do: "#{pkg}: skipped (all guides already indexed)"
+  defp package_line({pkg, {:failed, reason}}), do: "#{pkg}: failed (#{reason})"
+  defp package_line({pkg, :timeout}), do: "#{pkg}: skipped (deadline reached)"
 
   defp scrape_package_guides(package) do
     case fetch_guide_ids(package) do
@@ -156,58 +164,55 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
 
   defp fetch_and_parse_guides(js_url) do
     case SkillAPI.http_get(__MODULE__, js_url, receive_timeout: @recv_timeout, retry: false) do
-      {:ok, %{status: 200, body: body}} when is_binary(body) ->
-        case Regex.run(~r/sidebarNodes=(\{.+\})/, body) do
-          [_, json_str] ->
-            case Jason.decode(json_str) do
-              {:ok, data} ->
-                guide_ids =
-                  (data["extras"] || [])
-                  |> Enum.map(fn e -> e["id"] end)
-                  |> Enum.reject(&is_nil/1)
-                  |> Enum.reject(fn id -> id in ["api-reference", "changelog", "license"] end)
-
-                {:ok, guide_ids}
-
-              _ ->
-                {:error, :json_parse_failed}
-            end
-
-          _ ->
-            {:error, :no_sidebar_data}
-        end
-
-      _ ->
-        {:error, :sidebar_fetch_failed}
+      {:ok, %{status: 200, body: body}} when is_binary(body) -> parse_sidebar_js(body)
+      _ -> {:error, :sidebar_fetch_failed}
     end
   end
 
+  defp parse_sidebar_js(body) do
+    case Regex.run(~r/sidebarNodes=(\{.+\})/, body) do
+      [_, json_str] -> decode_guides(Jason.decode(json_str))
+      _ -> {:error, :no_sidebar_data}
+    end
+  end
+
+  defp decode_guides({:ok, data}) do
+    guide_ids =
+      (data["extras"] || [])
+      |> Enum.map(& &1["id"])
+      |> Enum.reject(&(is_nil(&1) or &1 in ["api-reference", "changelog", "license"]))
+
+    {:ok, guide_ids}
+  end
+
+  defp decode_guides(_decoded), do: {:error, :json_parse_failed}
+
   defp scrape_guide(package, guide_id) do
     source_url = "hexdocs_guide:#{package}/#{guide_id}"
+    fetch_guide(already_stored?(source_url), package, guide_id, source_url)
+  end
 
-    case already_stored?(source_url) do
-      true ->
+  defp fetch_guide(true, _package, _guide_id, _source_url), do: 0
+
+  defp fetch_guide(false, package, guide_id, source_url) do
+    url = "https://hexdocs.pm/#{package}/#{guide_id}.html"
+
+    case SkillAPI.http_get(__MODULE__, url, receive_timeout: @recv_timeout, retry: false) do
+      {:ok, %{status: 200, body: html}} when is_binary(html) ->
+        store_guide(extract_text(html), package, guide_id, source_url)
+
+      _ ->
         0
+    end
+  end
 
-      false ->
-        url = "https://hexdocs.pm/#{package}/#{guide_id}.html"
-
-        case SkillAPI.http_get(__MODULE__, url, receive_timeout: @recv_timeout, retry: false) do
-          {:ok, %{status: 200, body: html}} when is_binary(html) ->
-            text = extract_text(html)
-
-            if String.length(text) > 100 do
-              chunks =
-                chunk_text("HexDocs Guide — #{package}/#{guide_id}\n\n#{text}", @max_chunk_chars)
-
-              store_chunks(package, guide_id, chunks, source_url)
-            else
-              0
-            end
-
-          _ ->
-            0
-        end
+  defp store_guide(text, package, guide_id, source_url) do
+    if String.length(text) > 100 do
+      "HexDocs Guide — #{package}/#{guide_id}\n\n#{text}"
+      |> chunk_text(@max_chunk_chars)
+      |> then(&store_chunks(package, guide_id, &1, source_url))
+    else
+      0
     end
   end
 
@@ -223,21 +228,16 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
 
     doc
     |> Floki.find("section#content, article, .content, #content")
-    |> case do
-      [] -> Floki.find(doc, "body")
-      sections -> sections
-    end
-    |> Enum.map(fn section ->
-      section
-      |> remove_noise()
-      |> Floki.text(sep: " ")
-    end)
-    |> Enum.join("\n\n")
+    |> content_sections(doc)
+    |> Enum.map_join("\n\n", &(&1 |> remove_noise() |> Floki.text(sep: " ")))
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
   rescue
     _ -> ""
   end
+
+  defp content_sections([], doc), do: Floki.find(doc, "body")
+  defp content_sections(sections, _doc), do: sections
 
   defp remove_noise(node) when is_list(node), do: Enum.map(node, &remove_noise/1)
   defp remove_noise({"script", _, _}), do: {"span", [], []}

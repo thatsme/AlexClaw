@@ -89,27 +89,26 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
 
   defp index_skill_file(skills_dir, file_name) do
     source_key = "skill_source:#{file_name}"
+    indexed(already_stored?(source_key), skills_dir, file_name, source_key)
+  end
 
-    case already_stored?(source_key) do
-      true ->
-        case check_freshness(skills_dir, file_name, source_key) do
-          :fresh ->
-            :fresh
+  defp indexed(false, skills_dir, file_name, source_key) do
+    tagged(reindex_file(skills_dir, file_name, source_key), :stored, "index returned 0")
+  end
 
-          :stale ->
-            case reindex_file(skills_dir, file_name, source_key) do
-              n when is_integer(n) and n > 0 -> {:updated, n}
-              _ -> {:failed, "re-index returned 0"}
-            end
-        end
-
-      false ->
-        case reindex_file(skills_dir, file_name, source_key) do
-          n when is_integer(n) and n > 0 -> {:stored, n}
-          _ -> {:failed, "index returned 0"}
-        end
+  defp indexed(true, skills_dir, file_name, source_key) do
+    case check_freshness(skills_dir, file_name, source_key) do
+      :fresh -> :fresh
+      :stale -> refresh(skills_dir, file_name, source_key)
     end
   end
+
+  defp refresh(skills_dir, file_name, source_key) do
+    tagged(reindex_file(skills_dir, file_name, source_key), :updated, "re-index returned 0")
+  end
+
+  defp tagged(n, tag, _message) when is_integer(n) and n > 0, do: {tag, n}
+  defp tagged(_result, _tag, message), do: {:failed, message}
 
   defp reindex_file(skills_dir, file_name, source_key) do
     path = Path.join(skills_dir, file_name)

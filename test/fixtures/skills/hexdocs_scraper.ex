@@ -69,59 +69,68 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   @impl true
   def run(args) do
     config = args[:config] || %{}
-    packages = config["packages"] || @default_packages
+    packages = Enum.uniq(config["packages"] || @default_packages)
     max_modules = to_int(config["max_modules_per_package"], 50)
     delay_ms = to_int(config["delay_between_packages_ms"], 2000)
-    timeout_ms = to_int(config["timeout_ms"], 300_000)
-    force = config["force"] == true
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    deadline = System.monotonic_time(:millisecond) + to_int(config["timeout_ms"], 300_000)
 
-    if force do
-      Enum.each(Enum.uniq(packages), fn pkg ->
-        delete_package_entries(pkg)
-        Logger.info("hexdocs: force mode — deleted existing entries for #{pkg}")
-      end)
-    end
+    maybe_purge(packages, config["force"] == true)
 
-    results =
-      packages
-      |> Enum.uniq()
-      |> Enum.reduce_while([], fn pkg, acc ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          Logger.warning("hexdocs: deadline reached, stopping at #{pkg}")
-          {:halt, [{pkg, :timeout} | acc]}
-        else
-          result = scrape_package(pkg, max_modules)
-          if delay_ms > 0, do: Process.sleep(delay_ms)
-          {:cont, [{pkg, result} | acc]}
-        end
-      end)
-      |> Enum.reverse()
-
-    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
-    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
-    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
-    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
-
-    summary =
-      Enum.map_join(results, "\n", fn
-        {pkg, {:stored, n}} -> "#{pkg}: #{n} new chunks"
-        {pkg, :skipped} -> "#{pkg}: skipped (all modules already indexed)"
-        {pkg, {:failed, reason}} -> "#{pkg}: failed (#{reason})"
-        {pkg, :timeout} -> "#{pkg}: skipped (deadline reached)"
-      end)
-
-    report =
-      "Packages: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
-
-    if total_stored > 0 do
-      {:ok, report, :on_success}
-    else
-      {:ok, report, :on_empty}
-    end
+    packages
+    |> scrape_all(max_modules, delay_ms, deadline)
+    |> report()
   rescue
     e -> {:error, "HexDocs scraper failed: #{Exception.message(e)}"}
   end
+
+  defp maybe_purge(_packages, false), do: :ok
+
+  defp maybe_purge(packages, true) do
+    Enum.each(packages, fn pkg ->
+      delete_package_entries(pkg)
+      Logger.info("hexdocs: force mode — deleted existing entries for #{pkg}")
+    end)
+  end
+
+  defp scrape_all(packages, max_modules, delay_ms, deadline) do
+    packages
+    |> Enum.reduce_while([], &scrape_step(&1, &2, max_modules, delay_ms, deadline))
+    |> Enum.reverse()
+  end
+
+  defp scrape_step(pkg, acc, max_modules, delay_ms, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      Logger.warning("hexdocs: deadline reached, stopping at #{pkg}")
+      {:halt, [{pkg, :timeout} | acc]}
+    else
+      result = scrape_package(pkg, max_modules)
+      if delay_ms > 0, do: Process.sleep(delay_ms)
+      {:cont, [{pkg, result} | acc]}
+    end
+  end
+
+  defp report(results) do
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+
+    counts = [
+      "Packages: #{length(results)}",
+      "Stored: #{total_stored}",
+      "Skipped: #{Enum.count(results, &match?({_, :skipped}, &1))}",
+      "Failed: #{Enum.count(results, &match?({_, {:failed, _}}, &1))}",
+      "Timeout: #{Enum.count(results, &match?({_, :timeout}, &1))}"
+    ]
+
+    text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &package_line/1)
+    {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp stored_branch(0), do: :on_empty
+  defp stored_branch(_total_stored), do: :on_success
+
+  defp package_line({pkg, {:stored, n}}), do: "#{pkg}: #{n} new chunks"
+  defp package_line({pkg, :skipped}), do: "#{pkg}: skipped (all modules already indexed)"
+  defp package_line({pkg, {:failed, reason}}), do: "#{pkg}: failed (#{reason})"
+  defp package_line({pkg, :timeout}), do: "#{pkg}: skipped (deadline reached)"
 
   # --- Package scraping ---
 
@@ -191,29 +200,24 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
 
   defp parse_sidebar_js(js_body) do
     case Regex.run(~r/sidebarNodes=(\{.+\})/, js_body) do
-      [_, json_str] ->
-        case Jason.decode(json_str) do
-          {:ok, data} ->
-            module_ids =
-              (data["modules"] || [])
-              |> Enum.map(fn m -> m["id"] end)
-              |> Enum.reject(&is_nil/1)
-
-            guide_ids =
-              (data["extras"] || [])
-              |> Enum.map(fn e -> e["id"] end)
-              |> Enum.reject(&is_nil/1)
-              |> Enum.reject(fn id -> id == "api-reference" end)
-
-            {:ok, module_ids ++ guide_ids}
-
-          _ ->
-            {:error, :json_parse_failed}
-        end
-
-      _ ->
-        {:error, :no_sidebar_data}
+      [_, json_str] -> decode_sidebar(Jason.decode(json_str))
+      _ -> {:error, :no_sidebar_data}
     end
+  end
+
+  defp decode_sidebar({:ok, data}) do
+    module_ids = ids(data["modules"])
+    guide_ids = Enum.reject(ids(data["extras"]), &(&1 == "api-reference"))
+
+    {:ok, module_ids ++ guide_ids}
+  end
+
+  defp decode_sidebar(_decoded), do: {:error, :json_parse_failed}
+
+  defp ids(entries) do
+    (entries || [])
+    |> Enum.map(& &1["id"])
+    |> Enum.reject(&is_nil/1)
   end
 
   defp parse_modules_from_html(html) do
@@ -278,49 +282,53 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
 
   defp extract_moduledoc(doc, package, module_id, source_url) do
     case Floki.find(doc, "section#moduledoc") do
-      [] ->
-        []
+      [section | _] -> moduledoc_chunks(clean_text(section), package, module_id, source_url)
+      [] -> []
+    end
+  end
 
-      [section | _] ->
-        text = section |> clean_text()
+  defp moduledoc_chunks(text, package, module_id, source_url) do
+    if String.length(text) > 50 do
+      text
+      |> chunk_text(@max_chunk_chars)
+      |> Enum.with_index(1)
+      |> Enum.flat_map(&store_moduledoc_chunk(&1, package, module_id, source_url))
+    else
+      []
+    end
+  end
 
-        if String.length(text) > 50 do
-          chunks = chunk_text(text, @max_chunk_chars)
+  defp store_moduledoc_chunk({chunk, idx}, package, module_id, source_url) do
+    chunk_source = if idx == 1, do: source_url, else: "#{source_url}#moduledoc-#{idx}"
 
-          Enum.with_index(chunks, 1)
-          |> Enum.flat_map(fn {chunk, idx} ->
-            chunk_source = if idx == 1, do: source_url, else: "#{source_url}#moduledoc-#{idx}"
-
-            case store_chunk(package, module_id, "moduledoc", chunk, chunk_source) do
-              {:ok, _} -> [chunk]
-              _ -> []
-            end
-          end)
-        else
-          []
-        end
+    case store_chunk(package, module_id, "moduledoc", chunk, chunk_source) do
+      {:ok, _} -> [chunk]
+      _ -> []
     end
   end
 
   defp extract_function_docs(doc, package, module_id, source_url) do
     doc
     |> Floki.find("section.detail")
-    |> Enum.flat_map(fn section ->
-      func_id = Floki.attribute(section, "id") |> List.first() || "unknown"
-      text = clean_text(section)
-
-      if String.length(text) > 30 do
-        chunk_source = "#{source_url}##{func_id}"
-
-        case store_chunk(package, module_id, func_id, text, chunk_source) do
-          {:ok, _} -> [text]
-          _ -> []
-        end
-      else
-        []
-      end
-    end)
+    |> Enum.flat_map(&store_function_doc(&1, package, module_id, source_url))
   end
+
+  defp store_function_doc(section, package, module_id, source_url) do
+    func_id = section |> Floki.attribute("id") |> List.first() || "unknown"
+    text = clean_text(section)
+
+    if String.length(text) > 30 do
+      stored_text(
+        store_chunk(package, module_id, func_id, text, "#{source_url}##{func_id}"),
+        text
+      )
+    else
+      []
+    end
+  end
+
+  defp stored_text({:ok, _entry}, text), do: [text]
+  defp stored_text(_result, _text), do: []
 
   defp store_chunk(package, module_id, section, content, source_url) do
     prefixed_content = "#{module_id} — #{section}\n\n#{content}"

@@ -51,6 +51,10 @@
 # ==============================================================================
 
 defmodule AlexClaw.Skills.Dynamic.SkillTemplate do
+  @moduledoc """
+  Starting point for a dynamic skill. Copy this file, rename the module under
+  `AlexClaw.Skills.Dynamic.*`, and replace the callbacks below.
+  """
   @behaviour AlexClaw.Skill
 
   alias AlexClaw.Skills.SkillAPI

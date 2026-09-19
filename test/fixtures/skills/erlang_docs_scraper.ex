@@ -101,47 +101,54 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     config = args[:config] || %{}
     modules = resolve_modules(config)
     delay_ms = to_int(config["delay_between_modules_ms"], 1000)
-    timeout_ms = to_int(config["timeout_ms"], 300_000)
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    deadline = System.monotonic_time(:millisecond) + to_int(config["timeout_ms"], 300_000)
 
-    results =
-      modules
-      |> Enum.reduce_while([], fn {mod, app}, acc ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          Logger.warning("erlang_docs: deadline reached, stopping")
-          {:halt, [{mod, :timeout} | acc]}
-        else
-          result = scrape_module(mod, app)
-          if delay_ms > 0, do: Process.sleep(delay_ms)
-          {:cont, [{mod, result} | acc]}
-        end
-      end)
-      |> Enum.reverse()
-
-    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
-    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
-    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
-    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
-
-    summary =
-      Enum.map_join(results, "\n", fn
-        {mod, {:stored, n}} -> "#{mod}: #{n} chunks stored"
-        {mod, :skipped} -> "#{mod}: skipped (already indexed)"
-        {mod, {:failed, reason}} -> "#{mod}: failed (#{reason})"
-        {mod, :timeout} -> "#{mod}: skipped (deadline reached)"
-      end)
-
-    report =
-      "Modules: #{length(modules)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
-
-    if total_stored > 0 do
-      {:ok, report, :on_success}
-    else
-      {:ok, report, :on_empty}
-    end
+    modules
+    |> scrape_all(delay_ms, deadline)
+    |> report(length(modules))
   rescue
     e -> {:error, "Erlang docs scraper failed: #{Exception.message(e)}"}
   end
+
+  defp scrape_all(modules, delay_ms, deadline) do
+    modules
+    |> Enum.reduce_while([], &scrape_step(&1, &2, delay_ms, deadline))
+    |> Enum.reverse()
+  end
+
+  defp scrape_step({mod, app}, acc, delay_ms, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      Logger.warning("erlang_docs: deadline reached, stopping")
+      {:halt, [{mod, :timeout} | acc]}
+    else
+      result = scrape_module(mod, app)
+      if delay_ms > 0, do: Process.sleep(delay_ms)
+      {:cont, [{mod, result} | acc]}
+    end
+  end
+
+  defp report(results, module_count) do
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+
+    counts = [
+      "Modules: #{module_count}",
+      "Stored: #{total_stored}",
+      "Skipped: #{Enum.count(results, &match?({_, :skipped}, &1))}",
+      "Failed: #{Enum.count(results, &match?({_, {:failed, _}}, &1))}",
+      "Timeout: #{Enum.count(results, &match?({_, :timeout}, &1))}"
+    ]
+
+    text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &module_line/1)
+    {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp stored_branch(0), do: :on_empty
+  defp stored_branch(_total_stored), do: :on_success
+
+  defp module_line({mod, {:stored, n}}), do: "#{mod}: #{n} chunks stored"
+  defp module_line({mod, :skipped}), do: "#{mod}: skipped (already indexed)"
+  defp module_line({mod, {:failed, reason}}), do: "#{mod}: failed (#{reason})"
+  defp module_line({mod, :timeout}), do: "#{mod}: skipped (deadline reached)"
 
   # --- Module resolution ---
 
@@ -203,36 +210,36 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
   # --- EEP-48 extraction ---
 
   defp try_eep48(mod_name) do
-    module = String.to_atom(mod_name)
-
-    case :code.get_doc(module) do
+    case :code.get_doc(String.to_atom(mod_name)) do
       {:docs_v1, _anno, _lang, format, moduledoc, _meta, func_docs} ->
         mod_text = extract_doc_text(moduledoc, format)
+        funcs = documented_functions(func_docs, mod_name, format)
 
-        funcs =
-          func_docs
-          |> Enum.filter(fn
-            {{kind, _, _}, _, _, doc, _} ->
-              kind in [:function, :macro] and doc != :hidden and doc != :none
-
-            _ ->
-              false
-          end)
-          |> Enum.map(fn {{_kind, name, arity}, _anno, signatures, doc, _meta} ->
-            sig = Enum.join(signatures, ", ")
-            desc = extract_doc_text(doc, format)
-            header = ":#{mod_name}.#{name}/#{arity}"
-            sig_line = if sig != "", do: "\nSignature: #{sig}", else: ""
-            desc_line = if desc, do: "\n#{desc}", else: ""
-            "#{header}#{sig_line}#{desc_line}"
-          end)
-
-        chunks = build_chunks(mod_name, mod_text, funcs)
-        {:ok, chunks}
+        {:ok, build_chunks(mod_name, mod_text, funcs)}
 
       _ ->
         :unavailable
     end
+  end
+
+  defp documented_functions(func_docs, mod_name, format) do
+    func_docs
+    |> Enum.filter(&documented?/1)
+    |> Enum.map(&function_entry(&1, mod_name, format))
+  end
+
+  defp documented?({{kind, _, _}, _, _, doc, _}),
+    do: kind in [:function, :macro] and doc != :hidden and doc != :none
+
+  defp documented?(_entry), do: false
+
+  defp function_entry({{_kind, name, arity}, _anno, signatures, doc, _meta}, mod_name, format) do
+    sig = Enum.join(signatures, ", ")
+    desc = extract_doc_text(doc, format)
+    sig_line = if sig != "", do: "\nSignature: #{sig}", else: ""
+    desc_line = if desc, do: "\n#{desc}", else: ""
+
+    ":#{mod_name}.#{name}/#{arity}#{sig_line}#{desc_line}"
   end
 
   defp extract_doc_text(:none, _), do: nil

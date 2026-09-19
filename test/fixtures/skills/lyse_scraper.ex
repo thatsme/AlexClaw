@@ -67,77 +67,84 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
   @impl true
   def run(args) do
     config = args[:config] || %{}
-    chapters = config["chapters"] || @default_chapters
-    discover? = config["discover_chapters"] == true
     delay_ms = to_int(config["delay_between_chapters_ms"], 2000)
-    timeout_ms = to_int(config["timeout_ms"], 300_000)
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    deadline = System.monotonic_time(:millisecond) + to_int(config["timeout_ms"], 300_000)
 
-    chapters =
-      if discover? do
-        case discover_chapters() do
-          {:ok, discovered} -> discovered
-          {:error, _} -> chapters
-        end
-      else
-        chapters
-      end
-
-    results =
-      chapters
-      |> Enum.reduce_while([], fn chapter, acc ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          {:halt, [{chapter, :timeout} | acc]}
-        else
-          result = scrape_chapter(chapter)
-          if delay_ms > 0, do: Process.sleep(delay_ms)
-          {:cont, [{chapter, result} | acc]}
-        end
-      end)
-      |> Enum.reverse()
-
-    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
-    total_skipped = Enum.count(results, fn {_, r} -> r == :skipped end)
-    total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
-    total_timeout = Enum.count(results, fn {_, r} -> r == :timeout end)
-
-    summary =
-      Enum.map_join(results, "\n", fn
-        {ch, {:stored, n}} -> "#{ch}: #{n} new chunks"
-        {ch, :skipped} -> "#{ch}: skipped (already indexed)"
-        {ch, {:failed, reason}} -> "#{ch}: failed (#{reason})"
-        {ch, :timeout} -> "#{ch}: skipped (deadline reached)"
-      end)
-
-    report =
-      "Chapters: #{length(results)} | Stored: #{total_stored} | Skipped: #{total_skipped} | Failed: #{total_failed} | Timeout: #{total_timeout}\n\n#{summary}"
-
-    if total_stored > 0 do
-      {:ok, report, :on_success}
-    else
-      {:ok, report, :on_empty}
-    end
+    config["chapters"]
+    |> chapter_list(config["discover_chapters"] == true)
+    |> scrape_all(delay_ms, deadline)
+    |> report()
   rescue
     e -> {:error, "LYSE scraper failed: #{Exception.message(e)}"}
   end
+
+  defp chapter_list(chapters, false), do: chapters || @default_chapters
+
+  defp chapter_list(chapters, true) do
+    case discover_chapters() do
+      {:ok, discovered} -> discovered
+      {:error, _} -> chapters || @default_chapters
+    end
+  end
+
+  defp scrape_all(chapters, delay_ms, deadline) do
+    chapters
+    |> Enum.reduce_while([], &scrape_step(&1, &2, delay_ms, deadline))
+    |> Enum.reverse()
+  end
+
+  defp scrape_step(chapter, acc, delay_ms, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      {:halt, [{chapter, :timeout} | acc]}
+    else
+      result = scrape_chapter(chapter)
+      if delay_ms > 0, do: Process.sleep(delay_ms)
+      {:cont, [{chapter, result} | acc]}
+    end
+  end
+
+  defp report(results) do
+    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+
+    counts = [
+      "Chapters: #{length(results)}",
+      "Stored: #{total_stored}",
+      "Skipped: #{Enum.count(results, &match?({_, :skipped}, &1))}",
+      "Failed: #{Enum.count(results, &match?({_, {:failed, _}}, &1))}",
+      "Timeout: #{Enum.count(results, &match?({_, :timeout}, &1))}"
+    ]
+
+    text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &chapter_line/1)
+    {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp stored_branch(0), do: :on_empty
+  defp stored_branch(_total_stored), do: :on_success
+
+  defp chapter_line({ch, {:stored, n}}), do: "#{ch}: #{n} new chunks"
+  defp chapter_line({ch, :skipped}), do: "#{ch}: skipped (already indexed)"
+  defp chapter_line({ch, {:failed, reason}}), do: "#{ch}: failed (#{reason})"
+  defp chapter_line({ch, :timeout}), do: "#{ch}: skipped (deadline reached)"
 
   # --- Chapter discovery ---
 
   defp discover_chapters do
     case SkillAPI.http_get(__MODULE__, "#{@base_url}/contents", receive_timeout: @recv_timeout) do
-      {:ok, %{status: 200, body: html}} when is_binary(html) ->
-        chapters =
-          Regex.scan(~r{href="/([a-z0-9-]+)"}, html)
-          |> Enum.map(fn [_, slug] -> slug end)
-          |> Enum.reject(fn slug -> slug in ~w(contents faq community) end)
-          |> Enum.uniq()
-
-        if chapters == [], do: {:error, :no_chapters}, else: {:ok, chapters}
-
-      _ ->
-        {:error, :fetch_failed}
+      {:ok, %{status: 200, body: html}} when is_binary(html) -> discovered(chapter_slugs(html))
+      _ -> {:error, :fetch_failed}
     end
   end
+
+  defp chapter_slugs(html) do
+    ~r{href="/([a-z0-9-]+)"}
+    |> Regex.scan(html)
+    |> Enum.map(fn [_, slug] -> slug end)
+    |> Enum.reject(&(&1 in ~w(contents faq community)))
+    |> Enum.uniq()
+  end
+
+  defp discovered([]), do: {:error, :no_chapters}
+  defp discovered(chapters), do: {:ok, chapters}
 
   # --- Chapter scraping ---
 

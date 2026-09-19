@@ -25,34 +25,33 @@ defmodule AlexClaw.Skills.Dynamic.GithubSecurityReviewV2 do
   @impl true
   def run(args) do
     config = args[:config] || %{}
+    analyse(resolve_repo(config["repo"]), config, args)
+  end
 
-    repo =
-      case config["repo"] do
-        r when r in [nil, ""] -> config_get("github.default_repo", "")
-        r -> r
-      end
+  defp resolve_repo(repo) when repo in [nil, ""], do: config_get("github.default_repo", "")
+  defp resolve_repo(repo), do: repo
 
-    if repo == "" do
-      {:error, :no_repo_configured}
-    else
-      llm_opts = build_llm_opts(args)
-      token = config["token"] || config_get("github.token", "")
-      focus = config["focus"] || config_get("github.security_focus", default_focus())
+  defp analyse("", _config, _args), do: {:error, :no_repo_configured}
 
-      cond do
-        config["commit_sha"] && config["commit_sha"] != "" ->
-          analyse_commit(repo, config["commit_sha"], focus, llm_opts, token)
+  defp analyse(repo, config, args) do
+    llm_opts = build_llm_opts(args)
+    token = config["token"] || config_get("github.token", "")
+    focus = config["focus"] || config_get("github.security_focus", default_focus())
 
-        config["pr_number"] && config["pr_number"] != "" ->
-          analyse_pr(repo, parse_int(config["pr_number"]), focus, llm_opts, token)
+    analyse_target(repo, config["commit_sha"], config["pr_number"], focus, llm_opts, token)
+  end
 
-        true ->
-          case latest_open_pr(repo, token) do
-            {:ok, pr_number} -> analyse_pr(repo, pr_number, focus, llm_opts, token)
-            {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}."}
-            {:error, reason} -> {:error, reason}
-          end
-      end
+  defp analyse_target(repo, sha, _pr, focus, llm_opts, token) when sha not in [nil, ""],
+    do: analyse_commit(repo, sha, focus, llm_opts, token)
+
+  defp analyse_target(repo, _sha, pr, focus, llm_opts, token) when pr not in [nil, ""],
+    do: analyse_pr(repo, parse_int(pr), focus, llm_opts, token)
+
+  defp analyse_target(repo, _sha, _pr, focus, llm_opts, token) do
+    case latest_open_pr(repo, token) do
+      {:ok, pr_number} -> analyse_pr(repo, pr_number, focus, llm_opts, token)
+      {:error, :no_open_prs} -> {:ok, "No open PRs found for #{repo}."}
+      {:error, reason} -> {:error, reason}
     end
   end
 

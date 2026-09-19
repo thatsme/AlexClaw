@@ -111,7 +111,7 @@ defmodule AlexClaw.Auth.TOTP do
   @doc "Check if 2FA is enabled."
   @spec enabled?() :: boolean()
   def enabled? do
-    Config.get("auth.totp.enabled") == true or Config.get("auth.totp.enabled") == "true"
+    Config.enabled?("auth.totp.enabled")
   end
 
   @doc "Verify a 6-digit TOTP code."

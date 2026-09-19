@@ -155,7 +155,7 @@ defmodule AlexClaw.Skills.WebAutomation do
   # --- Helpers ---
 
   defp enabled? do
-    Config.get("web_automator.enabled") in [true, "true"]
+    Config.enabled?("web_automator.enabled")
   end
 
   defp base_url do

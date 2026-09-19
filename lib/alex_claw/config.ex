@@ -61,6 +61,18 @@ defmodule AlexClaw.Config do
     end
   end
 
+  @doc """
+  Whether a boolean setting is on.
+
+  Settings are persisted as strings, so `get/2` returns `"true"` rather than
+  `true` for a setting the seeder types as boolean. Comparing the result against
+  `true` is therefore always false — a mistake that silently disabled the backup
+  skill and the reverse-proxy header setting. Use this instead of reading the
+  value and comparing it.
+  """
+  @spec enabled?(String.t()) :: boolean()
+  def enabled?(key), do: get(key) in [true, "true"]
+
   @doc "Set a config value. Persists to DB and updates ETS cache."
   @spec set(String.t(), config_value(), set_opts()) ::
           {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}

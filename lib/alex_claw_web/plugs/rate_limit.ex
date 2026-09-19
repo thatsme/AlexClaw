@@ -33,7 +33,7 @@ defmodule AlexClawWeb.Plugs.RateLimit do
   """
   @spec get_client_ip(Plug.Conn.t()) :: String.t()
   def get_client_ip(conn) do
-    if AlexClaw.Config.get("auth.trust_proxy_headers") == true do
+    if AlexClaw.Config.enabled?("auth.trust_proxy_headers") do
       forwarded = List.first(get_req_header(conn, "x-forwarded-for"))
 
       if forwarded && forwarded != "" do

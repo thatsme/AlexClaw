@@ -65,7 +65,7 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
 
       warnings =
         if AlexClaw.Config.get("telegram.node") in [nil, ""] and
-             AlexClaw.Config.get("telegram.enabled") in [true, "true"] and
+             AlexClaw.Config.enabled?("telegram.enabled") and
              AlexClaw.Config.get("telegram.bot_token") not in [nil, ""] do
           [
             "Telegram gateway paused — assign a node in Config > Telegram > telegram.node"
@@ -77,7 +77,7 @@ defmodule AlexClawWeb.AdminLive.Dashboard do
 
       warnings =
         if AlexClaw.Config.get("discord.node") in [nil, ""] and
-             AlexClaw.Config.get("discord.enabled") in [true, "true"] do
+             AlexClaw.Config.enabled?("discord.enabled") do
           ["Discord gateway paused — assign a node in Config > Discord > discord.node" | warnings]
         else
           warnings

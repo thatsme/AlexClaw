@@ -148,6 +148,20 @@ The allowlist, exact-command list and blocklist are read from Config or the
 compiled defaults **only**. A workflow step supplies a command, never the rules
 it is checked against.
 
+**A configured list wins over the compiled default**, which is why the seeded
+copy matters. Until 0.3.26 the seeder carried its own literal allowlist, so the
+narrowing in 0.3.22 changed the compiled default while every seeded database
+kept granting `curl`, `git`, `ping`, `nslookup`, `cat /proc`, `bin/alex_claw`
+and bare `ps`. The seeder now seeds `Shell.default_whitelist/0` itself rather
+than a second copy, and a test fails the build if a literal returns.
+
+For databases already seeded, 0.3.26 rewrites `shell.whitelist` where it still
+holds exactly the originally seeded set. A list that has been edited is left
+alone — the allowlist decides what runs in the container, and that is the
+operator's call, not a migration's. When a list is left alone and still grants
+a withdrawn prefix, `Config.Loader` logs a warning at boot and sends one
+gateway notification naming the entries.
+
 Additional protections:
 - **Timeout** — commands are killed after 30 seconds (configurable via `shell.timeout_seconds`)
 - **Output truncation** — output is capped at 4000 characters (configurable via `shell.max_output_chars`)

@@ -8,7 +8,7 @@ defmodule AlexClaw.Config.Loader do
   alias AlexClaw.Config.EncryptExisting
   alias AlexClaw.Config.Seeder
   alias AlexClaw.Gateway
-  alias AlexClaw.Gateway.Credentials
+  alias AlexClaw.Gateway.Router
   alias AlexClaw.Knowledge.SelfAwareness
   alias AlexClaw.LLM.ProviderSeeder
   alias AlexClaw.RAG.QueryRewriter
@@ -96,17 +96,20 @@ defmodule AlexClaw.Config.Loader do
   defp report_second_factor(false) do
     Logger.warning(
       "2FA is not configured: the admin control plane is read-only. " <>
-        "Configure a gateway via environment variables and run /setup 2fa.",
+        "Set it up under Services → Two-factor authentication.",
       auth: :config
     )
 
-    notify_read_only(Credentials.reachable?())
+    notify_read_only(Router.active_gateways())
   end
 
-  defp notify_read_only(false), do: :ok
+  defp notify_read_only([]), do: :ok
 
-  defp notify_read_only(true) do
-    Gateway.send_message("Admin config is read-only until 2FA is configured: /setup 2fa")
+  defp notify_read_only(_gateways) do
+    Gateway.send_message(
+      "Admin config is read-only until 2FA is configured: " <>
+        "Services → Two-factor authentication, or /setup 2fa here"
+    )
 
     :ok
   end

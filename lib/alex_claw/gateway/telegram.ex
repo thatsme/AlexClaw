@@ -9,7 +9,6 @@ defmodule AlexClaw.Gateway.Telegram do
   require Logger
 
   alias AlexClaw.{Config, Message}
-  alias AlexClaw.Gateway.Credentials
 
   @telegram_api "https://api.telegram.org/bot"
 
@@ -22,7 +21,7 @@ defmodule AlexClaw.Gateway.Telegram do
   @spec configured?() :: boolean()
   def configured? do
     enabled = Config.get("telegram.enabled")
-    token = Credentials.telegram_token()
+    token = Config.get("telegram.bot_token")
     enabled in [true, "true"] and token != nil and token != ""
   end
 
@@ -142,7 +141,7 @@ defmodule AlexClaw.Gateway.Telegram do
   defp token_for(false, _peers), do: nil
 
   # Single node: always poll, ignore node assignment
-  defp token_for(true, []), do: Credentials.telegram_token()
+  defp token_for(true, []), do: Config.get("telegram.bot_token")
 
   # Cluster: must be assigned to this node
   defp token_for(true, _peers), do: token_for_node(Config.get("telegram.node"))
@@ -150,10 +149,12 @@ defmodule AlexClaw.Gateway.Telegram do
   defp token_for_node(node_name) when node_name in [nil, ""], do: nil
 
   defp token_for_node(node_name) do
-    if node_name == to_string(node()), do: Credentials.telegram_token()
+    if node_name == to_string(node()), do: Config.get("telegram.bot_token")
   end
 
-  defp get_chat_id, do: Credentials.telegram_chat_id()
+  defp get_chat_id do
+    Config.get("telegram.chat_id")
+  end
 
   defp get_poll_interval do
     Config.get("telegram.poll_interval") || 1_000

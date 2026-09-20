@@ -13,7 +13,7 @@ defmodule AlexClaw.Auth.Gate do
   """
 
   alias AlexClaw.Auth.TOTP
-  alias AlexClaw.Gateway.Credentials
+  alias AlexClaw.Config
   alias AlexClaw.Gateway.Router
 
   @type result :: :challenged | :no_2fa
@@ -39,10 +39,12 @@ defmodule AlexClaw.Auth.Gate do
   @spec notify_targets() :: [String.t()]
   def notify_targets, do: notify_chat_ids()
 
-  # The destinations come from Credentials, not straight from the settings: a
-  # blank setting falls back to the environment, which is the only way a fresh
-  # instance can be asked for a code at all.
-  defp notify_chat_ids, do: Credentials.notify_targets()
+  defp notify_chat_ids do
+    Enum.filter(
+      [Config.get("telegram.chat_id"), Config.get("discord.channel_id")],
+      &(&1 && &1 != "")
+    )
+  end
 
   defp challenge(chat_ids, _action, _description) when chat_ids in [false, []], do: :no_2fa
 

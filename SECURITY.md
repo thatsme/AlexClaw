@@ -89,22 +89,13 @@ With no TOTP configured, nothing can elevate — so the control plane is
 change, cluster change, workflow edit and database restore is refused, recorded
 in the audit log as `no_second_factor`, and answered with what to do about it.
 There is no state in which a control-plane write proceeds on the admin password
-alone, and no variable that disables the gate.
+alone, and no environment variable that disables the gate.
 
-The way in is the environment. A gateway's token and destination are read from
-`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` or `DISCORD_BOT_TOKEN` /
-`DISCORD_CHANNEL_ID` whenever the matching setting is empty, which makes a
-fresh instance reachable before anything has been configured on it. Running
-`/setup 2fa` there, then `/confirm 2fa <code>`, configures the second factor,
-and the control plane opens to elevation from that point.
-
-A setting wins over its variable as soon as it holds a value: the environment
-is a bootstrap, not an override.
-
-**Recovery.** An instance whose gateway has stopped working cannot be edited
-back into shape from the UI — that is the same rule, seen from the other side.
-Set the variables in the environment, restart, and the gateway becomes
-reachable again; the settings can then be corrected under an elevation.
+Setting 2FA up is the one thing the admin password alone can do, because adding
+protection is not a privileged act and because requiring a second factor to
+configure the second factor would be a locked door with the key inside. It is
+configured under **Services → Two-factor authentication**, or with `/setup 2fa`
+on a gateway; both write the same settings.
 
 ---
 

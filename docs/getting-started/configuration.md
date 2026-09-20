@@ -32,26 +32,6 @@ These must be set in `.env` before first boot:
 | `TELEGRAM_BOT_TOKEN` | From @BotFather |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 
-At least one gateway must be reachable. Discord can be used instead of
-Telegram:
-
-| Variable | Description |
-|---|---|
-| `DISCORD_BOT_TOKEN` | Bot token from the Discord Developer Portal |
-| `DISCORD_CHANNEL_ID` | Channel the bot posts to and reads commands from |
-
-### Why a gateway is required
-
-The admin control plane is read-only until two-factor authentication is
-configured, and it is configured by running `/setup 2fa` on a gateway. An
-instance with no reachable gateway cannot complete that step, and therefore
-cannot be configured at all.
-
-These variables are the bootstrap path, so they are read whenever the matching
-setting is empty. Once the setting holds a value — set during first boot, or
-edited later in Admin > Config — the setting is what is used and the variable
-is ignored.
-
 ## LLM Providers
 
 At least one LLM provider is required:

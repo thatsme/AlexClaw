@@ -6,8 +6,6 @@ defmodule AlexClaw.Gateway.DiscordStarter do
   No .env required — configure entirely from Admin > Config.
   """
   use GenServer
-
-  alias AlexClaw.Gateway.Credentials
   require Logger
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -24,7 +22,7 @@ defmodule AlexClaw.Gateway.DiscordStarter do
 
   @impl true
   def handle_info(:start_discord, state) do
-    token = Credentials.discord_token()
+    token = AlexClaw.Config.get("discord.bot_token")
 
     start_discord(state, token, startable?(token))
   end

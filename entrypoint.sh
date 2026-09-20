@@ -34,4 +34,4 @@ echo "Checking for first-boot seeding..."
 bin/alex_claw eval "AlexClaw.Release.seed_examples()"
 
 echo "Starting AlexClaw..."
-bin/alex_claw start
+exec bin/alex_claw start

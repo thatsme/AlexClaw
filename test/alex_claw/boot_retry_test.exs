@@ -80,8 +80,13 @@ defmodule AlexClaw.BootRetryTest do
     end
   end
 
-  # The first backoff is 1s, so this has to outlast it.
-  defp eventually(check, remaining_ms \\ 4_000)
+  # Long enough for the whole ladder, not just its first rung. SkillRegistry
+  # holds its attempt count in state — it loads one thing, so there is nothing
+  # for two names to contend over — but the tests in this module share that
+  # process, and each failed load here advances the backoff for the next one.
+  # By the third test the wait can be 5s or 10s. A 4s window passed alone and
+  # failed in a full run.
+  defp eventually(check, remaining_ms \\ 20_000)
   defp eventually(_check, remaining_ms) when remaining_ms <= 0, do: false
 
   defp eventually(check, remaining_ms) do

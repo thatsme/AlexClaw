@@ -22,6 +22,76 @@ the login page will show an error and no access is granted.
 
 ---
 
+## Control-Plane Elevation
+
+The admin password authenticates a session. It does not, on its own, authorise
+a change to what the agent does unattended.
+
+Changing the control plane — configuration, authorization policies, LLM
+providers, API resources, cluster membership, workflows and their steps —
+requires an **elevation** on top of the session: one TOTP code, verified once,
+granting fifteen minutes of write authority to that session alone.
+
+**The window is fixed.** It does not slide with activity. Fifteen minutes after
+the code was accepted the session is read-only again, whether it was idle or in
+use, so an open tab is never a standing grant.
+
+**Elevation is per session.** It is keyed by a random identifier placed in the
+session at login and dropped at logout. One browser's unlock says nothing about
+another's. Only a fingerprint of that identifier reaches the audit log or a
+PubSub topic; the identifier itself is a live credential and is never written
+anywhere durable.
+
+**Checks are server-side.** A control-plane event is refused in its handler, not
+by hiding a button, and a refused event leaves the database untouched. Both the
+write and the refusal are recorded in the authorization audit log, naming the
+session by fingerprint, the key or record touched, and its old and new values —
+with sensitive values masked, because the record worth keeping is that a secret
+changed and who changed it.
+
+### What elevation does not cover
+
+**Database restore is challenged every time.** Restoring an uploaded SQL file
+runs arbitrary SQL against the live database as the application's own user,
+which reaches the settings and policy tables without passing through either. It
+therefore asks for a code per restore and is never covered by an existing
+elevation: authority earned for editing a setting is not authority to replace
+the database. The upload is staged on disk while the code is outstanding, and
+discarded whether the restore runs or not.
+
+**Running a workflow follows the workflow's own rule.** A workflow marked
+`requires_2fa` is challenged when it is run, from the Workflows page and the
+Scheduler page alike. Editing a workflow is a control-plane change and needs an
+elevation; running it is governed by the flag.
+
+**Scheduled runs are not challenged.** A schedule is authorised when it is
+saved, under elevation. The run that follows is the schedule doing what it was
+told to do.
+
+### auth.totp.* is managed from a gateway
+
+The `auth.totp.*` settings are not editable from the Config page at any
+elevation, and deleting them is refused for the same reason as changing them.
+They are written by `/setup 2fa` and `/disable 2fa` on a gateway, and nowhere
+else.
+
+This is load-bearing rather than tidy. Whether elevation is enforced at all is
+decided by `auth.totp.enabled`; if that setting were editable from behind the
+gate it protects, a session could switch the gate off and then change anything.
+
+### Without a second factor
+
+With no TOTP configured there is nothing to verify, so elevation is not
+enforced: writes proceed under the admin password alone, and every gated page
+carries a banner saying exactly that. Those writes are still audited, and marked
+as having had no second factor.
+
+This is the bootstrap case — an instance has to be configurable before 2FA can
+be set up on it. It is also the weakest state the admin UI can be in, and the
+banner exists so that state is never mistaken for a guarded one.
+
+---
+
 ## Two-Factor Authentication
 
 TOTP-based 2FA protects all sensitive operations. Setup via `/setup 2fa`
@@ -533,6 +603,12 @@ at the API boundary, not a sandbox. Only load skills from trusted sources.
 Workflow steps send data to external LLM providers (Anthropic, Google Gemini).
 Review which providers are enabled and their data retention policies before
 processing sensitive information.
+
+**An elevation is bounded by time, not by action.**
+Within its fifteen minutes, an elevated session may make any control-plane
+change the pages expose, not only the one the code was requested for. The
+per-action exceptions are the two named above: a database restore, and running
+a workflow marked `requires_2fa`.
 
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures

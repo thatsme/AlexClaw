@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.3.27 — Control-Plane Elevation (2026-09-20)
+
+The admin password authenticated a session and authorised everything that
+session could reach. `config.ex` and `policies.ex` called no gate at all, so a
+password-only session could edit `shell.whitelist`, the `mcp.*` and `auth.*`
+settings, and delete authorization policies — which is to say it could undo the
+shell narrowing, the MCP denials and the 2FA settings shipped in 0.3.22 through
+0.3.26 from an ungated page.
+
+- **Control-plane changes need an elevation** — one TOTP code, verified once,
+  granting fifteen minutes of write authority to one session. Configuration,
+  authorization policies, LLM providers, API resources, cluster membership, and
+  workflows and their steps are all gated
+  - The window is fixed rather than sliding: fifteen minutes after the code was
+    accepted the session is read-only again, busy or idle
+  - Elevation is keyed by a random session identifier minted at login and
+    revoked at logout. Only a fingerprint of it reaches the audit log or a
+    PubSub topic
+  - Checks run in the event handler, not in the template. A refused event leaves
+    the database untouched, and both writes and refusals are audited with the
+    key or record touched and its old and new values, secrets masked
+  - `AlexClaw.Auth.Elevation` owns a `:protected` ETS table: a process that
+    could insert a row could elevate itself, so writes happen in the owner
+  - Granting reuses the existing gate, so the attempt limit and replay guard
+    from 0.3.26 apply to elevation without being reimplemented
+- **`auth.totp.*` is no longer editable from the Config page**, at any
+  elevation, and deleting those keys is refused for the same reason. They are
+  written by `/setup 2fa` and `/disable 2fa` on a gateway. Whether elevation is
+  enforced is decided by `auth.totp.enabled`; editable from behind the gate it
+  protects, it would be the way to switch that gate off
+- **A database restore is challenged every time** and is never covered by an
+  elevation. It runs arbitrary SQL against the live database as the
+  application's own user, reaching the settings and policy tables without
+  passing through either. The upload is staged while the code is outstanding and
+  discarded whether the restore runs or not
+- **Running a workflow follows one rule from both pages** — the `requires_2fa`
+  check moved into `AlexClaw.Workflows.Launch`, which the Workflows and
+  Scheduler pages both call. The Scheduler page previously called
+  `Executor.run/1` directly, so a workflow challenged on one page ran unchallenged
+  from the other
+- **Instances without a second factor keep working, and say so** — elevation is
+  not enforced when no TOTP is configured, and every gated page carries a banner
+  stating that changes are protected by the password alone. Those writes are
+  audited as having had no second factor
+- **The app gets 30 seconds to shut down** (`stop_grace_period`) — Docker's
+  default 10 seconds was shorter than the supervision tree takes to unwind, so
+  every stop ended in SIGKILL and in-flight workflow runs stayed recorded as
+  executing. This is the whole of the exit-137 question; there was no memory
+  problem
+- **New invariant** — a test reads each gated LiveView's source and follows
+  every `handle_event` clause through the functions it calls, failing the build
+  when a clause can reach a write without reaching a gate. A new write event has
+  to be gated or allow-listed with a reason
+- **CI runs Credo** against the merge base, so issues a branch introduces fail
+  the build while the 26 that predate the gate do not. The strict configuration
+  is now tracked rather than gitignored, which is what the diff baseline reads
+
 ## v0.3.26 — Secrets, Privileged Invocation, and Settings That Lie (2026-09-20)
 
 Closes two routes a skill could take to something it was never granted, and

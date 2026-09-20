@@ -18,6 +18,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.RateLimiter.Server        # Login rate limiting (ETS + periodic purge)
   ├── AlexClaw.Auth.SkillRateLimiter     # Per-skill call rate limiting
   ├── AlexClaw.Auth.ChallengeStore       # Owns the pending-2FA table
+  ├── AlexClaw.Auth.Elevation            # Owns the admin elevation table
   ├── Registry (AlexClaw.CircuitBreakerRegistry)  # Per-skill breaker registry
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor
   ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
@@ -50,8 +51,8 @@ a registered process name, not a module.
 skill, per circuit breaker, and per reasoning session.
 
 **Every ETS table has a supervised owner.** `Config.Loader`, `SkillRegistry`,
-`UsageTracker`, `RateLimiter.Server`, `LogBuffer`, `ChallengeStore` and
-`TokenManager` each create theirs in `init/1`, directly or through an
+`UsageTracker`, `RateLimiter.Server`, `LogBuffer`, `ChallengeStore`,
+`Elevation` and `TokenManager` each create theirs in `init/1`, directly or through an
 initialiser they call. A table dies with its owner and is rebuilt on restart,
 so no state outlives the process responsible for it — and none is owned by a
 process nobody chose.

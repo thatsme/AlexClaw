@@ -42,6 +42,28 @@ defmodule AlexClaw.Auth.AuditLog do
     )
   end
 
+  @doc """
+  Record a change to one admin session's elevation.
+
+  The session is named by fingerprint, never by its sid: this row is durable
+  and the sid is a live session credential.
+  """
+  @spec log_elevation(:granted | :revoked | :expired, String.t(), String.t() | nil) :: :ok
+  def log_elevation(event, session_fingerprint, detail \\ nil) do
+    Logger.info("Admin elevation #{event} for session #{session_fingerprint}",
+      auth: :elevation,
+      elevation: event
+    )
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.elevation",
+      decision: to_string(event),
+      reason: detail
+    })
+  end
+
   @doc "Prune audit entries older than retention period."
   @spec prune() :: {non_neg_integer(), nil}
   def prune do
@@ -70,16 +92,23 @@ defmodule AlexClaw.Auth.AuditLog do
   # --- Internals ---
 
   defp persist(%AuthContext{} = ctx, decision, reason) do
-    %AuditEntry{
+    insert_entry(%{
       caller: inspect(ctx.caller),
       caller_type: to_string(ctx.caller_type),
       permission: to_string(ctx.permission),
       decision: decision,
       reason: reason,
       workflow_run_id: ctx.workflow_run_id,
-      chain_depth: ctx.chain_depth,
-      inserted_at: DateTime.utc_now()
-    }
+      chain_depth: ctx.chain_depth
+    })
+  end
+
+  # Best effort by design: the action being audited has already happened, and
+  # failing it now because its record could not be written would trade a lost
+  # row for a lost action.
+  defp insert_entry(attrs) do
+    %AuditEntry{}
+    |> AuditEntry.changeset(Map.put(attrs, :inserted_at, DateTime.utc_now()))
     |> Repo.insert()
     |> case do
       {:ok, _} -> :ok

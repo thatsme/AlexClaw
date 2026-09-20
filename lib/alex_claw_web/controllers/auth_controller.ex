@@ -3,6 +3,7 @@ defmodule AlexClawWeb.AuthController do
 
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
+  alias AlexClaw.Auth.Elevation
   alias AlexClawWeb.Plugs.RateLimit
 
   plug(:put_root_layout, html: {AlexClawWeb.Layouts, :root})
@@ -40,6 +41,7 @@ defmodule AlexClawWeb.AuthController do
         |> configure_session(renew: true)
         |> put_session(:authenticated, true)
         |> put_session(:authenticated_at, System.system_time(:second))
+        |> put_session(:elevation_sid, Elevation.new_sid())
         |> redirect(to: "/")
 
       true ->
@@ -53,6 +55,8 @@ defmodule AlexClawWeb.AuthController do
 
   @spec logout(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def logout(conn, _params) do
+    Elevation.revoke(get_session(conn, :elevation_sid))
+
     conn
     |> clear_session()
     |> redirect(to: "/login")

@@ -2,7 +2,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.{Elevation, TOTP}
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Google.OAuth
@@ -197,8 +197,15 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end
   end
 
-  defp load_opts(%{origin: :generated}), do: [origin: "generated", approval: "totp"]
-  defp load_opts(_action), do: [origin: "upload", approval: "totp"]
+  # The window starts when the code is accepted, not when it was requested.
+  def execute_2fa_action(%{type: :elevate, sid: sid}, _msg) do
+    {:ok, expires_at} = Elevation.grant(sid)
+    minutes = div(Elevation.window_seconds(), 60)
+
+    Gateway.send_message(
+      "Admin editing unlocked for #{minutes} minutes (until #{format_time(expires_at)} UTC)."
+    )
+  end
 
   def execute_2fa_action(%{type: :skill_unload, name: name}, _msg) do
     case SkillRegistry.unload_skill(name) do
@@ -232,5 +239,14 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
 
   defp report_load({:error, reason}) do
     Gateway.send_message("Skill load failed: #{SkillRegistry.describe_error(reason)}")
+  end
+
+  defp load_opts(%{origin: :generated}), do: [origin: "generated", approval: "totp"]
+  defp load_opts(_action), do: [origin: "upload", approval: "totp"]
+
+  defp format_time(unix_seconds) do
+    unix_seconds
+    |> DateTime.from_unix!()
+    |> Calendar.strftime("%H:%M")
   end
 end

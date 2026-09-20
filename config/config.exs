@@ -43,7 +43,8 @@ config :logger, :console,
     :caller_type,
     :permission,
     :chain_depth,
-    :resource_id
+    :resource_id,
+    :elevation
   ]
 
 import_config "#{config_env()}.exs"

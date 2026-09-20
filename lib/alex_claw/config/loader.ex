@@ -9,6 +9,7 @@ defmodule AlexClaw.Config.Loader do
   alias AlexClaw.Gateway
   alias AlexClaw.Knowledge.SelfAwareness
   alias AlexClaw.LLM.ProviderSeeder
+  alias AlexClaw.RAG.QueryRewriter
   alias AlexClaw.Skills.Shell
 
   # Long enough for the gateways to have started, since the report goes out over
@@ -26,8 +27,10 @@ defmodule AlexClaw.Config.Loader do
     skills_dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
     File.mkdir_p!(skills_dir)
 
-    # 1. Create ETS table and load raw DB values
+    # 1. Create ETS tables and load raw DB values. The rewriter cache is created
+    # here so a supervised process owns it, rather than the first query to want it.
     AlexClaw.Config.init()
+    QueryRewriter.init_cache()
     # 2. Seed defaults (marks sensitive keys, encrypts new values)
     Seeder.seed()
     # 3. Encrypt any remaining plaintext sensitive values

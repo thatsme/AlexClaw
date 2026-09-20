@@ -49,4 +49,11 @@ config :logger, :console,
     :recovery_codes
   ]
 
+# Timezone data ships with the release and is refreshed by rebuilding it. The
+# updater polls for a newer copy and records the result inside its own priv/
+# directory, which the container's read-only root filesystem refuses — thirteen
+# crashes of :tzdata_release_updater in the first twenty seconds of a boot. It
+# also means the app no longer calls out to iana.org at runtime.
+config :tzdata, :autoupdate, :disabled
+
 import_config "#{config_env()}.exs"

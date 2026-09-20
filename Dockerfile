@@ -17,6 +17,9 @@ RUN mix local.hex --force && \
 COPY config config/
 COPY lib lib/
 COPY priv priv/
+# rel/env.sh.eex becomes releases/<vsn>/env.sh, which bin/alex_claw sources for
+# every command. Without it here, `rpc` and `remote` start with no node name.
+COPY rel rel/
 
 # Copy Phoenix and LiveView JS assets from deps into priv/static/assets
 RUN mkdir -p priv/static/assets && \
@@ -56,6 +59,10 @@ COPY test test/
 # the source. Without them the checks would pass by finding nothing.
 COPY docs docs/
 COPY mkdocs.yml .env.example ./
+# The compose files are scanned by cluster_cookie_test: a deployment secret
+# must not ship with a default. Without them the scan would find nothing and
+# pass.
+COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml ./
 COPY ALEXCLAW_ARCHITECTURE.md CLA.md CODE_OF_CONDUCT.md CODING_CONVENTIONS.md ./
 COPY CONTRIBUTING.md INSTALLATION.md README.md ROADMAP.md SECURITY.md SELF_AWARENESS.md ./
 
@@ -67,13 +74,24 @@ FROM alpine:3.22 AS runtime
 
 RUN apk add --no-cache libstdc++ openssl ncurses-libs postgresql-client git
 
+# The app has no reason to be root, and with no-new-privileges it could not
+# regain it anyway. A numeric uid/gid rather than only a name, because what a
+# bind-mounted host directory checks is the number.
+RUN addgroup -g 1000 -S alexclaw && adduser -u 1000 -S -G alexclaw alexclaw
+
 WORKDIR /app
 
-COPY --from=build /app/_build/prod/rel/alex_claw ./
+COPY --from=build --chown=alexclaw:alexclaw /app/_build/prod/rel/alex_claw ./
 
 # EPMD is needed for BEAM long-name distribution (clustering)
 COPY --from=build /usr/local/lib/erlang/erts-*/bin/epmd /usr/local/bin/epmd
-COPY entrypoint.sh ./
+COPY --chown=alexclaw:alexclaw entrypoint.sh ./
 RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
+
+# Created in the image so that a fresh named volume inherits this ownership.
+# An existing volume keeps whatever it already has — see INSTALLATION.md.
+RUN mkdir -p /app/skills /app/backups && chown -R alexclaw:alexclaw /app
+
+USER alexclaw
 
 CMD ["./entrypoint.sh"]

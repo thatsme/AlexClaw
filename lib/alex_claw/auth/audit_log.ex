@@ -228,10 +228,12 @@ defmodule AlexClaw.Auth.AuditLog do
   # failing it now because its record could not be written would trade a lost
   # row for a lost action.
   #
-  # The catch matters as much as the rescue. Some of these run inside the
-  # Elevation owner, and a database that has gone away exits rather than
-  # raising — which would kill that process, take its :protected table with it,
-  # and silently revoke every live elevation because a log line failed.
+  # The catch matters as much as the rescue. A database that has gone away exits
+  # rather than raising, and an unguarded exit propagates to whoever called.
+  # The callers that own a :protected security table keep these writes off
+  # their own process for that reason — Elevation and CodeAttempts each start a
+  # supervised task rather than insert inline. This is the defence in depth
+  # behind that, and the whole of it for every other caller.
   defp insert_entry(attrs) do
     %AuditEntry{}
     |> AuditEntry.changeset(

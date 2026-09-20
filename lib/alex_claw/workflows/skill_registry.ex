@@ -7,6 +7,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   use GenServer
   require Logger
 
+  alias AlexClaw.BootRetry
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Repo
   alias AlexClaw.Skills.{CallPolicy, DynamicSkill, SkillAPI}
@@ -303,11 +304,22 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       :ets.insert(table, {name, module, :core, :all, routes, external})
     end
 
-    # Load dynamic skills from DB
-    load_dynamic_skills_from_db()
-
-    {:ok, %{table: table}}
+    # The dynamic skills come from the database, and this process is child 7 of
+    # 25: querying here makes every child after it wait on that query, and a
+    # database that is a few seconds behind the app turns a delay into a crash
+    # loop. handle_continue/2 runs before any other message, so a caller that
+    # goes through this process still sees a complete registry.
+    #
+    # The core skills stay here on purpose. They are compiled in, need no
+    # database, and a lookup for one must never race the boot.
+    {:ok, %{table: table, attempts: 0}, {:continue, :load_dynamic_skills}}
   end
+
+  @impl true
+  def handle_continue(:load_dynamic_skills, state), do: {:noreply, load_or_retry(state)}
+
+  @impl true
+  def handle_info(:load_dynamic_skills, state), do: {:noreply, load_or_retry(state)}
 
   @impl true
   def handle_call({:load_skill, file_path, provenance}, _from, state) do
@@ -316,7 +328,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   def handle_call(:reload_persisted, _from, state) do
-    load_dynamic_skills_from_db()
+    log_if_failed(load_dynamic_skills_from_db())
     {:reply, :ok, state}
   end
 
@@ -342,13 +354,44 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   defp load_dynamic_skills_from_db do
-    import Ecto.Query
-    skills = Repo.all(from(d in DynamicSkill, where: d.enabled == true))
+    with {:ok, skills} <- enabled_skills() do
+      for skill <- skills,
+          do: load_persisted_skill(skill, Path.join(skills_dir(), skill.file_path))
 
-    for skill <- skills, do: load_persisted_skill(skill, Path.join(skills_dir(), skill.file_path))
+      :ok
+    end
+  end
+
+  # Only the query is guarded, and deliberately so. A skill that fails to load
+  # is a problem with that skill, and load_persisted_skill/2 owns it; a failure
+  # here is the database, which at boot is a matter of timing.
+  #
+  # Broad on purpose: an unreachable server raises DBConnection.ConnectionError
+  # and a missing table raises Postgrex.Error. The rescue that used to be here
+  # named only the second, so a database that was not there yet went straight
+  # past it and killed the process.
+  defp enabled_skills do
+    import Ecto.Query
+    {:ok, Repo.all(from(d in DynamicSkill, where: d.enabled == true))}
   rescue
-    e in Postgrex.Error ->
-      Logger.warning("Dynamic skills skipped (DB not ready): #{Exception.message(e)}")
+    e -> {:error, Exception.message(e)}
+  catch
+    :exit, reason -> {:error, inspect(reason)}
+  end
+
+  defp load_or_retry(state), do: settle(load_dynamic_skills_from_db(), state)
+
+  defp settle(:ok, state), do: %{state | attempts: 0}
+
+  defp settle({:error, reason}, state) do
+    attempts = BootRetry.schedule(:load_dynamic_skills, state.attempts, "Dynamic skills", reason)
+    %{state | attempts: attempts}
+  end
+
+  defp log_if_failed(:ok), do: :ok
+
+  defp log_if_failed({:error, reason}) do
+    Logger.warning("Dynamic skills not reloaded: #{reason}")
   end
 
   defp do_load_skill(file_path, provenance) do

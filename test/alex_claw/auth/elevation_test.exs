@@ -2,7 +2,7 @@ defmodule AlexClaw.Auth.ElevationTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.Elevation
+  alias AlexClaw.Auth.{AuditLog, Elevation}
 
   # Every test uses its own sid, because the table is process-wide and outlives
   # any one test.
@@ -192,19 +192,17 @@ defmodule AlexClaw.Auth.ElevationTest do
     end
   end
 
-  # Elevation is always required. What varies is whether the instance can
-  # answer a challenge yet, which is what decides how a refusal reads.
-  # The audit row is written inside this process. A database that has gone away
-  # exits rather than raising, and an unguarded exit here would take the owner
-  # down, drop its :protected table, and revoke every live elevation because a
-  # log line failed. That is a bad trade for a lost row.
-  describe "the owner survives an audit failure" do
-    test "a grant still holds when the audit row cannot be written" do
+  # The owner holds the :protected table that is the elevation boundary, so
+  # nothing it does may take it down. It does no database work at all now:
+  # grants and revokes are audited by their caller, expiries by a task. The
+  # structural half is asserted in test/alex_claw/ets_ownership_test.exs; these
+  # two hold the outcome, which is that the same process is still there
+  # afterwards and the table with it.
+  describe "the owner outlives its traffic" do
+    test "a grant holds and the owner is not restarted" do
       s = sid()
       owner = Process.whereis(Elevation)
 
-      # Ownership is checked out per test, so a process that is not this one
-      # writing to the Repo is exactly the failure being guarded against.
       {:ok, _expires_at} = Elevation.grant(s)
 
       assert Elevation.elevated?(s)
@@ -238,5 +236,39 @@ defmodule AlexClaw.Auth.ElevationTest do
 
       assert Elevation.configured?()
     end
+  end
+
+  # A revoke that found nothing ended nothing. A log carrying elevations that
+  # never existed is a log that has to be read twice.
+  #
+  # Where these rows are written — the caller, not the owner, and not a task —
+  # is asserted structurally in test/alex_claw/ets_ownership_test.exs. It
+  # cannot be asserted from the timing: a deferred write lands before a test
+  # can look.
+  describe "what a revoke records" do
+    test "revoking a session that holds nothing records nothing" do
+      s = sid()
+
+      :ok = Elevation.revoke(s)
+
+      assert revoked_rows(s) == []
+    end
+
+    test "revoking a live elevation records it against that session" do
+      s = sid()
+      {:ok, _expires_at} = Elevation.grant(s)
+
+      :ok = Elevation.revoke(s)
+
+      assert [_row] = revoked_rows(s)
+    end
+  end
+
+  defp revoked_rows(sid) do
+    caller = "admin:" <> Elevation.fingerprint(sid)
+
+    [limit: 50, decision: "revoked"]
+    |> AuditLog.recent()
+    |> Enum.filter(&(&1.caller == caller))
   end
 end

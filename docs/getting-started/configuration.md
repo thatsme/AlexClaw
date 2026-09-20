@@ -29,6 +29,7 @@ These must be set in `.env` before first boot:
 | `DATABASE_PASSWORD` | PostgreSQL password |
 | `SECRET_KEY_BASE` | Phoenix session secret (`openssl rand -base64 64`) |
 | `ADMIN_PASSWORD` | Web interface login password |
+| `CLUSTER_COOKIE` | Erlang distribution cookie (`openssl rand -base64 32`) |
 | `TELEGRAM_BOT_TOKEN` | From @BotFather |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 

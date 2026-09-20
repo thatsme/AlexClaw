@@ -168,8 +168,16 @@ defmodule AlexClaw.Auth.CodeAttempts do
       auth: :denied
     )
 
-    AuditLog.log_code_lockout(@instance_limit, until)
-    notify(Router.active_gateways())
+    # Off the owner, deliberately. Both of these are I/O, and this process owns
+    # the :protected table both brute-force limits are counted in. A database
+    # that has gone away exits rather than raising, and a gateway can simply
+    # hang — either one, run here, would block or kill the process counting
+    # wrong codes at the exact moment an attack is in progress.
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      AuditLog.log_code_lockout(@instance_limit, until)
+      notify(Router.active_gateways())
+    end)
+
     lock
   end
 

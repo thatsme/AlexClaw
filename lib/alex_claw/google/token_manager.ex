@@ -3,6 +3,12 @@ defmodule AlexClaw.Google.TokenManager do
   Manages Google OAuth2 access tokens. Caches the current access token
   in ETS and refreshes it automatically before expiry.
 
+  The cache is `:private`. Its rows are bearer credentials, so no process other
+  than this one can read them — `:protected` would stop writes and still leave
+  the tokens readable by anything running in the VM, a dynamic skill included.
+  Every read is therefore a call, which is the right trade: reads are
+  per-request on the Google skills, not a hot path.
+
   Usage:
     case AlexClaw.Google.TokenManager.get_token() do
       {:ok, token} -> # use token
@@ -22,6 +28,11 @@ defmodule AlexClaw.Google.TokenManager do
   @token_url "https://oauth2.googleapis.com/token"
   @refresh_margin_seconds 300
 
+  # Longer than the refresh request it may have to wait behind. The default 5s
+  # would have every caller give up while the owner was still talking to
+  # Google, which is the one moment the call is not quick.
+  @call_timeout 15_000
+
   # --- Client API ---
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -29,21 +40,15 @@ defmodule AlexClaw.Google.TokenManager do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
-  @doc "Get a valid access token. Returns cached token or refreshes if expired."
-  @spec get_token() :: {:ok, String.t()} | {:error, atom()}
-  def get_token do
-    case :ets.lookup(@table, :access_token) do
-      [{:access_token, token, expires_at}] ->
-        if System.monotonic_time(:second) < expires_at do
-          {:ok, token}
-        else
-          GenServer.call(__MODULE__, :refresh)
-        end
+  @doc """
+  Get a valid access token, refreshing it first if the cached one has expired.
 
-      [] ->
-        GenServer.call(__MODULE__, :refresh)
-    end
-  end
+  Goes through the owner because the cache is `:private`: the contents are
+  bearer credentials, and a table any process could read is a table a dynamic
+  skill could read.
+  """
+  @spec get_token() :: {:ok, String.t()} | {:error, atom()}
+  def get_token, do: GenServer.call(__MODULE__, :get_token, @call_timeout)
 
   @doc "Check if Google OAuth is configured and token is valid."
   @spec status() :: :connected | :expired | :not_configured | :error
@@ -52,22 +57,18 @@ defmodule AlexClaw.Google.TokenManager do
   end
 
   defp cached_status(false), do: :not_configured
+  defp cached_status(true), do: GenServer.call(__MODULE__, :status, @call_timeout)
 
-  defp cached_status(true) do
-    case :ets.lookup(@table, :access_token) do
-      [{:access_token, _token, expires_at}] -> expiry_status(expires_at)
-      [] -> :expired
-    end
+  defp expiry_status([{:access_token, _token, expires_at}], now) when now < expires_at do
+    :connected
   end
 
-  defp expiry_status(expires_at) do
-    if System.monotonic_time(:second) < expires_at, do: :connected, else: :expired
-  end
+  defp expiry_status(_cached, _now), do: :expired
 
   @doc "Force a token refresh."
   @spec refresh() :: {:ok, String.t()} | {:error, any()}
   def refresh do
-    GenServer.call(__MODULE__, :refresh)
+    GenServer.call(__MODULE__, :refresh, @call_timeout)
   end
 
   @doc """
@@ -98,7 +99,10 @@ defmodule AlexClaw.Google.TokenManager do
   @impl true
   @spec init(keyword()) :: {:ok, map()}
   def init(_opts) do
-    :ets.new(@table, [:named_table, :public, :set])
+    # :private, not :protected. The rows are bearer credentials, and :protected
+    # would still let any process in the VM read them — a dynamic skill runs in
+    # this VM. Reads go through this process instead; see get_token/0.
+    :ets.new(@table, [:named_table, :private, :set])
     # The OAuth CSRF states live here too, owned by this process rather than by
     # whichever request happened to start a flow first.
     :ets.new(@state_table, [:named_table, :protected, :set])
@@ -142,6 +146,41 @@ defmodule AlexClaw.Google.TokenManager do
     {:reply, taken(:ets.lookup(@state_table, oauth_state), now), state}
   end
 
+  def handle_call(:get_token, _from, state) do
+    {:reply, token_or_refresh(cached_token(), System.monotonic_time(:second)), state}
+  end
+
+  def handle_call(:status, _from, state) do
+    {:reply, expiry_status(cached_token(), System.monotonic_time(:second)), state}
+  end
+
+  # Test seam, compiled only under MIX_ENV=test. A :private cache cannot be
+  # seeded from outside the owner, and that is the property, not an
+  # inconvenience to route around — so the way in exists in the test build and
+  # nowhere else. A running instance has no function that writes a bearer token
+  # into the cache.
+  if Mix.env() == :test do
+    def handle_call({:seed_token, token, expires_at}, _from, state) do
+      :ets.insert(@table, {:access_token, token, expires_at})
+      {:reply, :ok, state}
+    end
+
+    def handle_call(:clear_token, _from, state) do
+      :ets.delete(@table, :access_token)
+      {:reply, :ok, state}
+    end
+
+    @doc false
+    @spec seed_token(String.t(), integer()) :: :ok
+    def seed_token(token, expires_at) do
+      GenServer.call(__MODULE__, {:seed_token, token, expires_at})
+    end
+
+    @doc false
+    @spec clear_token() :: :ok
+    def clear_token, do: GenServer.call(__MODULE__, :clear_token)
+  end
+
   defp purge_expired_states(now) do
     @state_table
     |> :ets.tab2list()
@@ -161,6 +200,15 @@ defmodule AlexClaw.Google.TokenManager do
   defp fresh(chat_id, false), do: {:ok, chat_id}
 
   # --- Internal ---
+
+  # Read from inside the owner, which is the only process that can.
+  defp cached_token, do: :ets.lookup(@table, :access_token)
+
+  defp token_or_refresh([{:access_token, token, expires_at}], now) when now < expires_at do
+    {:ok, token}
+  end
+
+  defp token_or_refresh(_cached, _now), do: do_refresh()
 
   defp do_refresh do
     client_id = Config.get("google.oauth.client_id")

@@ -22,6 +22,19 @@ services:
     # stop was reaching SIGKILL, so Reasoning.Loop's terminate/2 never ran and
     # in-flight workflow runs stayed recorded as executing.
     stop_grace_period: 30s
+    # Nothing writes to the image. The three places that do write are mounted:
+    # the skills directory, the backup directory, and a tmpfs for /tmp — which
+    # is also where the release puts its generated runtime config and where a
+    # crash dump goes.
+    read_only: true
+    tmpfs:
+      - /tmp
+    # The app opens a listening socket above 1024 and talks to postgres. It
+    # needs nothing the kernel gates behind a capability.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     build:
       context: .
       args:
@@ -32,7 +45,14 @@ services:
       db-prod:
         condition: service_healthy
     ports:
-      - "${ADMIN_PORT:-5001}:5001"
+      # Loopback by default. The admin UI carries session cookies and the MCP
+      # endpoint carries bearer tokens, both in clear over HTTP, so the
+      # supported way to reach it from anywhere else is a reverse proxy
+      # terminating TLS — which is what docs/deployment/reverse-proxy.md
+      # already assumes when it proxies to 127.0.0.1:5001.
+      #
+      # ADMIN_BIND=0.0.0.0 opens it to the network for anyone who means to.
+      - "${ADMIN_BIND:-127.0.0.1}:${ADMIN_PORT:-5001}:5001"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -67,10 +87,17 @@ services:
 
       # Clustering
       NODE_NAME: ${NODE_NAME:-alexclaw@node1.local}
-      CLUSTER_COOKIE: ${CLUSTER_COOKIE:-alexclaw_default}
+      CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
 
       # Dynamic skills
       SKILLS_DIR: /app/skills
+
+      # The release's scratch directory defaults to /app/tmp, which is on the
+      # read-only filesystem. Nothing writes there on an ordinary boot — that
+      # was checked — but the daemon and remote subcommands do, and a default
+      # pointing at an unwritable path is a trap rather than a decision.
+      RELEASE_TMP: /tmp
+      ERL_CRASH_DUMP: /tmp/erl_crash.dump
     volumes:
       - skills_data:/app/skills
       - ${BACKUP_DIR:-./backups}:/app/backups

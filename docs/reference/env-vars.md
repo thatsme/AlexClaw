@@ -54,7 +54,7 @@ The database name is set by the compose file, not by an environment variable.
 | Variable | Default | Description |
 |---|---|---|
 | `NODE_NAME` | `alexclaw@node1.local` | BEAM node name |
-| `CLUSTER_COOKIE` | — | Shared cluster authentication cookie |
+| `CLUSTER_COOKIE` | — | Shared cluster authentication cookie (required; the node refuses to start without it) |
 
 ## Backups
 

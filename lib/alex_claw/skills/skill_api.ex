@@ -220,9 +220,15 @@ defmodule AlexClaw.Skills.SkillAPI do
           {:ok, term()} | {:error, :permission_denied}
   def config_get(skill_module, key, default \\ nil) do
     with :ok <- check_permission(skill_module, :config_read) do
-      {:ok, AlexClaw.Config.get(key, default)}
+      read_setting(AlexClaw.Config.sensitive?(key), key, default)
     end
   end
+
+  # A skill may read configuration, never credentials. Core skills that need a
+  # token read Config directly — they are trusted code compiled into the release.
+  # An unknown key is refused too: absence is not proof that it is safe.
+  defp read_setting(true, _key, _default), do: {:error, :sensitive}
+  defp read_setting(false, key, default), do: {:ok, AlexClaw.Config.get(key, default)}
 
   # --- Resources ---
 
@@ -230,17 +236,37 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec list_resources(skill_mod(), map()) :: {:ok, [map()]} | {:error, :permission_denied}
   def list_resources(skill_module, filters \\ %{}) do
     with :ok <- check_permission(skill_module, :resources_read) do
-      {:ok, AlexClaw.Resources.list_resources(filters)}
+      {:ok, Enum.map(AlexClaw.Resources.list_resources(filters), &redact_resource/1)}
     end
   end
 
   @doc "Get a single resource by ID."
   @spec get_resource(skill_mod(), integer()) :: {:ok, map()} | {:error, term()}
   def get_resource(skill_module, id) do
-    with :ok <- check_permission(skill_module, :resources_read) do
-      AlexClaw.Resources.get_resource(id)
+    with :ok <- check_permission(skill_module, :resources_read),
+         {:ok, resource} <- AlexClaw.Resources.get_resource(id) do
+      {:ok, redact_resource(resource)}
     end
   end
+
+  # A resource carries credentials in two places: metadata["auth"], which
+  # api_request/3 turns into an auth header, and userinfo embedded in the URL.
+  # Core skills read Resources directly and still see both; a skill reading
+  # through here does not.
+  defp redact_resource(%{metadata: metadata, url: url} = resource) do
+    %{resource | metadata: Map.drop(metadata || %{}, ["auth"]), url: redact_userinfo(url)}
+  end
+
+  defp redact_resource(resource), do: resource
+
+  defp redact_userinfo(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{userinfo: nil} -> url
+      uri -> URI.to_string(%{uri | userinfo: "REDACTED"})
+    end
+  end
+
+  defp redact_userinfo(url), do: url
 
   # --- Cross-skill invocation ---
 

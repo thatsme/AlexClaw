@@ -17,6 +17,9 @@ defmodule AlexClaw.Auth.TOTP do
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
   alias AlexClaw.Config
+  alias AlexClaw.Config.Crypto
+  alias AlexClaw.Config.Setting
+  alias AlexClaw.Repo
 
   @account "admin"
 
@@ -117,14 +120,40 @@ defmodule AlexClaw.Auth.TOTP do
   @doc "Verify a 6-digit TOTP code."
   @spec verify(String.t()) :: boolean()
   def verify(code) do
-    secret_b32 = Config.get("auth.totp.secret")
-
-    if blank?(secret_b32) do
-      false
-    else
-      secret = Base.decode32!(secret_b32, padding: false)
-      NimbleTOTP.valid?(secret, code)
+    case secret() do
+      nil -> false
+      secret_b32 -> NimbleTOTP.valid?(Base.decode32!(secret_b32, padding: false), code)
     end
+  end
+
+  @doc """
+  Read the TOTP secret.
+
+  The secret is deliberately not in the config cache: `Config.get/2` cannot serve
+  it and `SkillAPI.config_get/3` cannot reach it. This reads the row and decrypts
+  it each time, so the plaintext exists only for the length of a verification.
+  """
+  @spec secret() :: String.t() | nil
+  def secret do
+    case Repo.get_by(Setting, key: "auth.totp.secret") do
+      nil -> nil
+      %Setting{value: value} -> decoded_secret(value)
+    end
+  end
+
+  defp decoded_secret(value) do
+    case Crypto.decrypt(value) do
+      {:ok, plaintext} -> presence(plaintext)
+      {:error, reason} -> log_undecryptable(reason)
+    end
+  end
+
+  defp presence(value) when is_binary(value), do: if(blank?(value), do: nil, else: value)
+  defp presence(_value), do: nil
+
+  defp log_undecryptable(reason) do
+    Logger.error("Could not decrypt the TOTP secret: #{inspect(reason)}")
+    nil
   end
 
   # --- Challenge system ---

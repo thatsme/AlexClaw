@@ -127,7 +127,7 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
       {_view, html} = open(conn, sid)
 
       assert html =~ "Read-only — 2FA is not configured"
-      assert html =~ "/setup 2fa"
+      assert html =~ "Two-factor authentication"
     end
 
     test "a restore is refused rather than performed", ctx do

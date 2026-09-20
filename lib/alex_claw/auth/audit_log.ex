@@ -106,6 +106,38 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
+  @doc """
+  Record one second-factor code attempt.
+
+  `method` says where the code came from — typed into the admin UI, or sent to
+  a gateway — because a burst of refusals from one of them and a burst from the
+  other are different events.
+  """
+  @spec log_code_attempt(:accepted | :refused, String.t(), :web | :gateway) :: :ok
+  def log_code_attempt(outcome, session_fingerprint, method) do
+    Logger.info("2FA code #{outcome} (#{method}) for #{session_fingerprint}", auth: :code_attempt)
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.second_factor",
+      decision: to_string(outcome),
+      reason: "method: #{method}"
+    })
+  end
+
+  @doc "Record that wrong codes have locked web code entry for the whole instance."
+  @spec log_code_lockout(pos_integer(), integer()) :: :ok
+  def log_code_lockout(failures, until) do
+    insert_entry(%{
+      caller: "admin:instance",
+      caller_type: "admin",
+      permission: "admin.second_factor",
+      decision: "deny",
+      reason: "web code entry locked after #{failures} wrong codes, until #{until}"
+    })
+  end
+
   @doc "Prune audit entries older than retention period."
   @spec prune() :: {non_neg_integer(), nil}
   def prune do

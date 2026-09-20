@@ -91,6 +91,18 @@ defmodule AlexClawWeb.AdminLive.LLM do
   end
 
   def handle_event("unlock_editing", _params, socket) do
+    Elevation.open_entry(socket)
+  end
+
+  def handle_event("submit_code", %{"code" => code}, socket) do
+    Elevation.submit_code(socket, code)
+  end
+
+  def handle_event("cancel_code", _params, socket) do
+    Elevation.close_entry(socket)
+  end
+
+  def handle_event("request_gateway_code", _params, socket) do
     Elevation.unlock(socket)
   end
 

@@ -382,7 +382,8 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
         assert html =~ "Read-only — 2FA is not configured",
                "#{page} does not say that changes are refused"
 
-        assert html =~ "/setup 2fa", "#{page} does not say how to make changes possible"
+        assert html =~ "Two-factor authentication",
+               "#{page} does not say how to make changes possible"
       end
     end
   end

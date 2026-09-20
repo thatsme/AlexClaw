@@ -19,7 +19,7 @@ defmodule AlexClawWeb.Live.Elevation do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1, put_flash: 3]
 
-  alias AlexClaw.Auth.{AuditLog, Elevation, Gate}
+  alias AlexClaw.Auth.{AuditLog, CodeAttempts, CodeEntry, Elevation, Gate}
   alias Phoenix.LiveView.Socket
 
   @refusal "Unlock editing first"
@@ -53,6 +53,33 @@ defmodule AlexClawWeb.Live.Elevation do
     decide(elevated?(socket), socket, detail, write)
   end
 
+  @doc """
+  Open the code field.
+
+  The authenticator is the second factor, so the default way to give a code is
+  to type it where you are. The gateway challenge stays available beside it for
+  operators who would rather answer on another device.
+  """
+  @spec open_entry(Socket.t()) :: {:noreply, Socket.t()}
+  def open_entry(socket), do: {:noreply, refresh(socket, true, nil)}
+
+  @doc "Close the code field without submitting anything."
+  @spec close_entry(Socket.t()) :: {:noreply, Socket.t()}
+  def close_entry(socket), do: {:noreply, refresh(socket, false, nil)}
+
+  @doc """
+  Check a typed code and, if it holds, elevate this session.
+
+  Wrong codes are counted against the session and the instance; the reply says
+  which limit has been reached rather than repeating "invalid code" while the
+  door is already bolted.
+  """
+  @spec submit_code(Socket.t(), String.t()) :: {:noreply, Socket.t()}
+  def submit_code(socket, code) do
+    sid = sid(socket)
+    granted(CodeEntry.verify(sid, code, :web), sid, socket)
+  end
+
   @doc "Raise a 2FA challenge that will unlock this session when answered."
   @spec unlock(Socket.t()) :: {:noreply, Socket.t()}
   def unlock(socket), do: request_unlock(sid(socket), socket)
@@ -73,7 +100,12 @@ defmodule AlexClawWeb.Live.Elevation do
 
   @doc "Recompute the elevation assign — after a grant, a refusal, or an expiry."
   @spec refresh(Socket.t()) :: Socket.t()
-  def refresh(socket), do: assign(socket, :elevation, state(sid(socket)))
+  def refresh(socket), do: refresh(socket, false, nil)
+
+  @spec refresh(Socket.t(), boolean(), String.t() | nil) :: Socket.t()
+  def refresh(socket, entry_open?, message) do
+    assign(socket, :elevation, state(sid(socket), entry_open?, message))
+  end
 
   @doc """
   Describe a configuration change for the audit log, masking sensitive values.
@@ -98,6 +130,30 @@ defmodule AlexClawWeb.Live.Elevation do
   end
 
   # --- Internals ---
+
+  defp granted(:ok, sid, socket) do
+    {:ok, _expires_at} = Elevation.grant(sid)
+
+    {:noreply,
+     socket
+     |> refresh(false, nil)
+     |> put_flash(:info, "Editing unlocked for #{minutes()} minutes")}
+  end
+
+  defp granted({:error, reason}, _sid, socket) do
+    {:noreply, refresh(socket, true, refusal_message(reason))}
+  end
+
+  defp refusal_message(:invalid_code), do: "That code is not valid. Try the next one."
+
+  defp refusal_message(:locked_session),
+    do: "Too many wrong codes. This session cannot try again for five minutes."
+
+  defp refusal_message(:locked_instance),
+    do: "Too many wrong codes across sessions. Code entry is locked for fifteen minutes."
+
+  defp refusal_message(:not_configured),
+    do: "No second factor is configured yet."
 
   defp decide(true, socket, detail, write) do
     AuditLog.log_admin_write(fingerprint(socket), detail)
@@ -149,11 +205,16 @@ defmodule AlexClawWeb.Live.Elevation do
      put_flash(socket, :error, "No gateway is configured to receive the code — cannot unlock")}
   end
 
-  defp state(sid) do
+  defp state(sid), do: state(sid, false, nil)
+
+  defp state(sid, entry_open?, message) do
     %{
       configured?: Elevation.configured?(),
       elevated?: Elevation.elevated?(sid),
-      expires_at: Elevation.expires_at(sid)
+      expires_at: Elevation.expires_at(sid),
+      entry_open?: entry_open?,
+      lock: CodeAttempts.status(sid),
+      message: message
     }
   end
 

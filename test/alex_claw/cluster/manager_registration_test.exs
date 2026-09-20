@@ -40,6 +40,31 @@ defmodule AlexClaw.Cluster.ManagerRegistrationTest do
     assert Cluster.get_by_name(@probe) == nil, "the row was written without a database"
   end
 
+  # Registration is not the only database call this process makes. These two
+  # were left unguarded when it was fixed, reported as out of scope, and then
+  # killed the process in CI: :connect_known_nodes fires five seconds after
+  # boot, which is when a database is least likely to be there.
+  describe "the manager's other database work" do
+    test "a node going down does not take it with it", %{manager: manager} do
+      ref = Process.monitor(manager)
+
+      send(manager, {:nodedown, :"gone@nowhere.invalid"})
+
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 300
+      assert Process.alive?(manager)
+    end
+
+    test "connecting to known nodes does not either", %{manager: manager} do
+      ref = Process.monitor(manager)
+
+      send(manager, :connect_known_nodes)
+
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 300
+      assert Process.alive?(manager)
+      assert Process.whereis(Manager) == manager, "the manager was restarted"
+    end
+  end
+
   # The point of the retry: the row is owed, not abandoned.
   test "the node is registered on the retry once the database answers", ctx do
     owner = self()

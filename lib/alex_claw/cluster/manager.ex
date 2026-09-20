@@ -85,23 +85,13 @@ defmodule AlexClaw.Cluster.Manager do
   def handle_info({:nodedown, remote_node}, state) do
     name = to_string(remote_node)
     Logger.info("Node disconnected: #{name}")
-
-    case AlexClaw.Cluster.get_by_name(name) do
-      nil -> :ok
-      node -> AlexClaw.Cluster.update_node(node, %{status: "disconnected"})
-    end
-
+    guarded("marking #{name} disconnected", fn -> mark_disconnected(name) end)
     {:noreply, state}
   end
 
   @impl true
   def handle_info(:connect_known_nodes, state) do
-    self_name = to_string(node())
-
-    AlexClaw.Cluster.list_nodes()
-    |> Enum.reject(fn n -> n.name == self_name end)
-    |> Enum.each(fn n -> AlexClaw.Cluster.node_ping(n.name) end)
-
+    guarded("connecting to known nodes", &connect_known_nodes/0)
     {:noreply, state}
   end
 
@@ -115,6 +105,44 @@ defmodule AlexClaw.Cluster.Manager do
   end
 
   # --- Internal ---
+
+  defp mark_disconnected(name) do
+    case AlexClaw.Cluster.get_by_name(name) do
+      nil -> :ok
+      node -> AlexClaw.Cluster.update_node(node, %{status: "disconnected"})
+    end
+  end
+
+  defp connect_known_nodes do
+    self_name = to_string(node())
+
+    AlexClaw.Cluster.list_nodes()
+    |> Enum.reject(fn n -> n.name == self_name end)
+    |> Enum.each(fn n -> AlexClaw.Cluster.node_ping(n.name) end)
+  end
+
+  # This process answers RPC from other nodes and monitors the cluster, so a
+  # database that has gone away must not take it down. Registration is retried
+  # because the row is owed; these two are not, because the sixty-second
+  # refresh writes the same statuses again shortly.
+  #
+  # Both of these were left unguarded when registration was fixed, reported as
+  # out of scope, and then killed the process in CI — :connect_known_nodes
+  # fires five seconds after boot, which is exactly when a database is least
+  # likely to be there.
+  defp guarded(what, fun) do
+    fun.()
+    :ok
+  rescue
+    e -> skipped(what, Exception.message(e))
+  catch
+    :exit, reason -> skipped(what, inspect(reason))
+  end
+
+  defp skipped(what, reason) do
+    Logger.warning("Cluster manager skipped #{what}: #{reason}")
+    :ok
+  end
 
   # A node with no name has nothing to register: the VM is not distributed.
   defp register("nonode@nohost", _attempts), do: :ok

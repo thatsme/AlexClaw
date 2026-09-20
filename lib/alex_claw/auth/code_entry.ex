@@ -51,7 +51,7 @@ defmodule AlexClaw.Auth.CodeEntry do
     totp_or_recovery(TOTP.verify(code), code, sid, method)
   end
 
-  defp totp_or_recovery(true, _code, sid, method), do: accept(sid, method)
+  defp totp_or_recovery(true, _code, sid, method), do: accept(sid, method, :totp)
 
   # Recovery codes are accepted in the browser and nowhere else. They are never
   # sent over a gateway, for the same reason they must not be typed into one: a
@@ -64,12 +64,12 @@ defmodule AlexClaw.Auth.CodeEntry do
 
   defp totp_or_recovery(false, _code, sid, :gateway), do: reject(sid, :gateway)
 
-  defp spent({:ok, _remaining}, sid, method), do: accept(sid, method)
+  defp spent({:ok, _remaining}, sid, method), do: accept(sid, method, :recovery_code)
   defp spent({:error, :invalid_code}, sid, method), do: reject(sid, method)
 
-  defp accept(sid, method) do
+  defp accept(sid, method, factor) do
     CodeAttempts.record_success(sid)
-    AuditLog.log_code_attempt(:accepted, fingerprint(sid), method)
+    AuditLog.log_code_attempt(:accepted, fingerprint(sid), method, factor)
     :ok
   end
 
@@ -79,7 +79,7 @@ defmodule AlexClaw.Auth.CodeEntry do
   # the two would mean a caller could not tell "you guessed wrong" from "the
   # attempt never reached the verifier".
   defp reject(sid, method) do
-    AuditLog.log_code_attempt(:refused, fingerprint(sid), method)
+    AuditLog.log_code_attempt(:refused, fingerprint(sid), method, :unknown)
     CodeAttempts.record_failure(sid)
     {:error, :invalid_code}
   end

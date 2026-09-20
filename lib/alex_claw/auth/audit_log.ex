@@ -107,22 +107,35 @@ defmodule AlexClaw.Auth.AuditLog do
   end
 
   @doc """
-  Record one second-factor code attempt.
+  Record one second-factor attempt.
 
   `method` says where the code came from — typed into the admin UI, or sent to
-  a gateway — because a burst of refusals from one of them and a burst from the
-  other are different events.
+  a gateway. `factor` says what was presented: the authenticator, or one of the
+  recovery codes. They answer different questions, and the second is the one
+  that matters after the fact — a recovery code being spent means the
+  authenticator is gone, which is either an operator having a bad day or
+  someone else having a good one.
+
+  A refused attempt carries `:unknown`, because a code that matched nothing is
+  not evidence of which kind it was meant to be.
   """
-  @spec log_code_attempt(:accepted | :refused, String.t(), :web | :gateway) :: :ok
-  def log_code_attempt(outcome, session_fingerprint, method) do
-    Logger.info("2FA code #{outcome} (#{method}) for #{session_fingerprint}", auth: :code_attempt)
+  @spec log_code_attempt(
+          :accepted | :refused,
+          String.t(),
+          :web | :gateway,
+          :totp | :recovery_code | :unknown
+        ) :: :ok
+  def log_code_attempt(outcome, session_fingerprint, method, factor) do
+    Logger.info("2FA #{factor} #{outcome} (#{method}) for #{session_fingerprint}",
+      auth: :code_attempt
+    )
 
     insert_entry(%{
       caller: "admin:" <> session_fingerprint,
       caller_type: "admin",
       permission: "admin.second_factor",
       decision: to_string(outcome),
-      reason: "method: #{method}"
+      reason: "method: #{method}, factor: #{factor}"
     })
   end
 

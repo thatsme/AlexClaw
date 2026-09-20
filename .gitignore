@@ -24,6 +24,9 @@ alex_claw-*.tar
 
 # Environment variables (contains secrets)
 .env
+# Copies taken before an upgrade hold the same secrets the original does.
+.env.bak*
+.env.*.bak
 
 # Giulia cache
 .giulia/

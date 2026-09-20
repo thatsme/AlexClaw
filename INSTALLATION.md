@@ -715,6 +715,38 @@ ADMIN_BIND=0.0.0.0
 ADMIN_BIND=192.168.1.10
 ```
 
+### The page loads but nothing on it responds
+
+Buttons do nothing, forms do not submit, and the page is otherwise drawn
+correctly. That is the LiveView socket being rejected: the page arrives over
+plain HTTP and then never connects, so nothing interactive works.
+
+The cause is the origin. The browser sends the address it was given, and the
+endpoint only accepts origins it has been told about. Behind a reverse proxy
+that means the public address, which the container never sees.
+
+The log says so, once, and nowhere else:
+
+```
+Could not check origin for Phoenix.Socket transport.
+Origin of the request: http://example.com
+```
+
+Set the public origin in `.env` and recreate the container:
+
+```bash
+PHX_HOST=alexclaw.example.com
+```
+
+`CHECK_ORIGIN` takes a comma-separated list and replaces the default outright,
+for anything that does not fit — several hostnames, or a proxy on plain HTTP:
+
+```bash
+CHECK_ORIGIN=https://alexclaw.example.com,http://192.168.1.10:5001
+```
+
+Unset, both `http://localhost:5001` and `http://127.0.0.1:5001` are accepted.
+
 ### Skill uploads or generated skills fail to save
 
 The container runs as uid 1000 with a read-only root filesystem. Only the

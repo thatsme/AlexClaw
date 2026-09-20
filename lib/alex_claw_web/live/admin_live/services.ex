@@ -304,7 +304,10 @@ defmodule AlexClawWeb.AdminLive.Services do
       totp_message: nil,
       recovery_codes: RecoveryCodes.generate(),
       recovery: RecoveryCodes.status(),
-      services: build_services()
+      services: build_services(),
+      # The badge and the setup button both read this. Without refreshing it the
+      # page keeps claiming 2FA is off directly after turning it on.
+      elevation: %{socket.assigns.elevation | configured?: AlexClaw.Auth.Elevation.configured?()}
     )
     |> put_flash(:info, "Two-factor authentication is on. Save your recovery codes.")
   end

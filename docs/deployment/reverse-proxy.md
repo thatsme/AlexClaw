@@ -4,8 +4,9 @@ In production, AlexClaw should sit behind a reverse proxy with TLS termination.
 
 The container publishes the admin UI on `127.0.0.1` only, so the examples below
 reach it over loopback on the Docker host and nothing outside that host reaches
-it directly. `ADMIN_BIND=0.0.0.0` in `.env` publishes it on every interface
-instead, which forgoes the TLS this page exists to describe.
+it directly. `ADMIN_BIND` in `.env` publishes it elsewhere — `0.0.0.0` for
+every interface, or one machine's IP for that interface only — which forgoes
+the TLS this page exists to describe unless a proxy is doing it.
 
 !!! danger "HTTPS is mandatory"
     The Admin UI uses session cookies and the MCP endpoint uses Bearer tokens. Both are transmitted in plain text over HTTP. Always use HTTPS in production.

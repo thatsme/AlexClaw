@@ -707,11 +707,12 @@ TLS in front of it — see [Reverse Proxy & TLS](docs/deployment/reverse-proxy.m
 Its nginx example proxies to `127.0.0.1:5001`, which is exactly what this bind
 leaves in place.
 
-To publish it on every interface anyway, unencrypted, set this in `.env` and
-recreate the container:
+To publish it elsewhere, set this in `.env` and recreate the container —
+either every interface, or one machine's IP to publish on that one only:
 
 ```bash
 ADMIN_BIND=0.0.0.0
+ADMIN_BIND=192.168.1.10
 ```
 
 ### Skill uploads or generated skills fail to save

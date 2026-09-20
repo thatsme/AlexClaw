@@ -67,7 +67,7 @@ services:
 
       # Clustering
       NODE_NAME: ${NODE_NAME:-alexclaw@node1.local}
-      CLUSTER_COOKIE: ${CLUSTER_COOKIE:-alexclaw_default}
+      CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
 
       # Dynamic skills
       SKILLS_DIR: /app/skills

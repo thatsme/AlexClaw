@@ -51,7 +51,7 @@ services:
       LMSTUDIO_HOST: ${LMSTUDIO_HOST:-http://host.docker.internal:1234}
       LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-}
       NODE_NAME: alexclaw@node1.local
-      CLUSTER_COOKIE: alexclaw_swarm
+      CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
       SKILLS_DIR: /app/skills
     volumes:
       - skills_data:/app/skills
@@ -92,7 +92,7 @@ services:
       LMSTUDIO_HOST: ${LMSTUDIO_HOST:-http://host.docker.internal:1234}
       LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-}
       NODE_NAME: alexclaw@node2.local
-      CLUSTER_COOKIE: alexclaw_swarm
+      CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
       SKILLS_DIR: /app/skills
     volumes:
       - skills_data:/app/skills

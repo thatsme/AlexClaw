@@ -56,6 +56,10 @@ COPY test test/
 # the source. Without them the checks would pass by finding nothing.
 COPY docs docs/
 COPY mkdocs.yml .env.example ./
+# The compose files are scanned by cluster_cookie_test: a deployment secret
+# must not ship with a default. Without them the scan would find nothing and
+# pass.
+COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml ./
 COPY ALEXCLAW_ARCHITECTURE.md CLA.md CODE_OF_CONDUCT.md CODING_CONVENTIONS.md ./
 COPY CONTRIBUTING.md INSTALLATION.md README.md ROADMAP.md SECURITY.md SELF_AWARENESS.md ./
 

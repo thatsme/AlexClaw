@@ -35,6 +35,13 @@ from Telegram or Discord — compatible with any TOTP authenticator
 - **Shell commands** — `/shell` via Telegram/Discord
 - **Workflows marked `Requires 2FA`** — configurable per workflow
 
+**Not every privileged route is a 2FA prompt.** The four privileged core skills
+— `shell`, `coder`, `db_backup`, `web_automation` — are gated by 2FA when they
+are dispatched from a gateway command. Invoked from inside another skill through
+`SkillAPI.run_skill/3` they were not passing that gate, so that call is refused
+outright rather than challenged: there is no interactive user to prompt on a
+workflow step or a reasoning-loop iteration.
+
 **Cross-channel verification:** When a skill operation is triggered from the
 Admin UI, the 2FA challenge is sent to ALL active gateways (Telegram and
 Discord). The user can respond with their 6-digit code from either channel.
@@ -179,8 +186,10 @@ at the application level using **AES-256-GCM** before being stored in PostgreSQL
 - Encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256
 - Each value gets a unique 12-byte random IV — identical plaintext produces different ciphertext
 - Encrypted values are stored with an `enc:` prefix (base64-encoded IV + ciphertext + GCM tag)
-- Decryption happens transparently on boot (ETS cache holds plaintext for runtime use)
+- Decryption happens transparently on boot (the ETS cache holds plaintext for runtime use)
 - The admin UI displays masked values — never raw ciphertext or full plaintext
+- The TOTP secret is excluded from the cache: `auth.totp.secret` is read from the row and decrypted per verification, so `Config.get/2` never serves it and its plaintext exists only for the length of a check
+- Every cached row carries its `sensitive` flag alongside its value, and `SkillAPI.config_get/3` refuses any key marked sensitive rather than returning the plaintext. A key the cache does not know is treated as sensitive
 
 **Sensitive keys** (automatically marked and encrypted):
 `telegram.bot_token`, `llm.gemini_api_key`, `llm.anthropic_api_key`,
@@ -209,6 +218,8 @@ module runs its body. The following protections are in place:
 - **Restricted compile-time dependencies** — `import` and `require` are limited to `Logger`, `AlexClaw.Skills.Helpers` and `SweetXml`, anywhere in the file. Both bring macros into scope, and a macro expands at compile time wherever it is called, including inside a function body
 - **Behaviour validation** — module must export `run/1`
 - **Permission sandbox** — skills declare permissions; `SkillAPI` enforces them at runtime. Undeclared permissions return `{:error, :permission_denied}`
+- **Privileged skills are unreachable from another skill** — `SkillAPI.run_skill/3` refuses `shell`, `coder`, `db_backup` and `web_automation` for every caller, dynamic or core, and logs the attempt as a denial. Those four are 2FA-gated at the dispatcher; called skill-to-skill they were not passing that gate, so the route is closed rather than gated
+- **Secrets do not reach skills** — `SkillAPI.config_get/3` returns `{:error, :sensitive}` for any setting marked sensitive, and for any key the config cache does not know. `SkillAPI.list_resources/2` and `get_resource/2` drop `metadata["auth"]` and strip userinfo from the resource URL
 - **Integrity checksums** — SHA256 of source file stored on load, verified on boot. Mismatched files are skipped
 - **Core protection** — core skills cannot be unloaded or overwritten by dynamic skills
 - **No NIF compilation** — the Alpine runtime image has no build tools, preventing native code loading
@@ -251,17 +262,31 @@ and the permissions were written by the same model that wrote the code. An
 unattended load may hold only `:llm`, `:web_read`, `:memory_read`,
 `:knowledge_read`, `:resources_read` and `:gateway_send`.
 
-Two exclusions are worth spelling out. `:skill_invoke` reaches core skills:
-`SkillAPI.run_skill/3` resolves through the registry, which resolves core skills,
-and calls `run/1` directly — so it is a route to `shell`, `coder`, `db_backup`
-and `web_automation`, none of which check 2FA inside `run/1`. `:config_read`
-reads secrets: settings are decrypted into the ETS cache, so `config_get/3`
-returns plaintext API keys and the TOTP secret.
+Two exclusions are worth spelling out, and both are now defended twice.
+`:skill_invoke` reached core skills: `SkillAPI.run_skill/3` resolves through the
+registry, which resolves core skills, and calls `run/1` directly — a route to
+`shell`, `coder`, `db_backup` and `web_automation`, none of which check 2FA
+inside `run/1`. `run_skill/3` now refuses those four by name for any caller and
+records the attempt as a denial, so the ceiling is no longer the only thing
+standing between a generated skill and a shell. `:config_read` read secrets:
+settings are decrypted into the ETS cache, so `config_get/3` returned plaintext
+API keys. It now refuses any key marked sensitive, and the TOTP secret is not
+cached at all.
+
+The ceiling keeps both exclusions regardless. A permission that is only safe
+because of a second check is not a permission an unattended load should hold.
 
 `:web_read` together with any of the private reads is refused as a pair even
 though each is allowed alone — read and then post is an exfiltration path.
 `:gateway_send` with a private read stays allowed, because that output goes to
 the configured chat rather than anywhere the skill chooses.
+
+`:resources_read` is inside the ceiling, and a resource row carries the
+credential its requests are made with: `api_request` reads
+`metadata["auth"]["value"]`, and a feed URL may embed userinfo. `SkillAPI`
+therefore drops the `auth` key from resource metadata and strips userinfo from
+resource URLs before returning either. A skill can still name a resource and ask
+for a request against it; it cannot read the credential out.
 
 Contained code within the ceiling is promoted out of `pending/` and loaded with
 approval `containment`.

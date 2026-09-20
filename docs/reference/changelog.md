@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.3.26 — Secrets, Privileged Invocation, and Settings That Lie (2026-09-20)
+
+Closes two routes a skill could take to something it was never granted, and
+removes eleven settings that promised an effect the code never had.
+
+- **Secrets do not reach skills** — `SkillAPI.config_get/3` returned whatever the config cache held, and the cache holds decrypted plaintext. It now returns `{:error, :sensitive}` for any setting marked sensitive, and for any key the cache does not know
+  - The ETS cache carries each row's `sensitive` flag beside its value, so the check needs no database round-trip
+  - `auth.totp.secret` is out of the cache entirely: `AlexClaw.Auth.TOTP.secret/0` reads the row and decrypts per verification, so `Config.get/2` cannot serve it at all
+  - `SkillAPI.list_resources/2` and `get_resource/2` drop `metadata["auth"]` and strip userinfo from the resource URL. `:resources_read` is inside the auto-load ceiling and a resource row carries the credential `api_request` authenticates with
+- **Cross-skill invocation cannot reach privileged core skills** — `SkillAPI.run_skill/3` resolved through the registry, which resolves core skills, and called `run/1` directly. `shell`, `coder`, `db_backup` and `web_automation` are 2FA-gated at the dispatcher and were not passing that gate here. They are now refused by name for every caller and the attempt is recorded as a denial
+- **Settings that lie** — eleven seeded settings had no reader, and three skills advertised step fields `run/1` discarded
+  - `auth.rate_limit.window_seconds` is wired: the limiter tracked `{ip, attempts, blocked_until}` with no timestamp, so failures never decayed and an IP that failed four times months ago was one attempt from a block. Records now carry the first attempt in their window; failures outside it start a fresh count, and stale records are dropped on check and on purge
+  - `rss_collector`, `conversational` and `research` now read the `llm_tier`, `llm_model` and `prompt_template` the executor has always passed them. The step's tier and provider win over the skill-wide default; an unset or unknown value still falls back. RSS scoring keeps `:light` unless the step chooses otherwise
+  - Removed, with a migration for existing databases: `llm.limit.{haiku,sonnet,gemini_pro,gemini_flash}` (superseded by `llm_providers.daily_limit`, which is what is enforced), `skill.github_review.{tier,provider}` and `github.security_focus` (that skill fetches diffs and calls no LLM), `discord.guild_id`, `cluster.enabled` (clustering follows registered nodes; the flag defaulted to `false` while clustering worked), and `prompts.rss.scoring` (a per-item template from before scoring became one batched call)
+  - `prompts.rss.interests` and `skills.rss.max_items` are now seeded. Both were read with a hardcoded fallback and had no UI entry
+  - Two source-scan tests fail the build when a key is seeded with no reader, or read with no seed
+
+### Behaviour changes
+
+- **`config_get/3` no longer returns sensitive settings to a skill.** A skill that read an API key out of config must be given the value another way, or granted the capability rather than the credential.
+- **`run_skill/3` refuses the four privileged skills.** A workflow that chained into `shell` through another skill must call `shell` as its own step.
+- **Login failures now expire.** With the default 300-second window, five failures block an IP only if they land inside five minutes. Raise `auth.rate_limit.window_seconds` to restore accumulating behaviour.
+- **Workflow steps on `rss_collector`, `conversational` and `research` now honour their tier and provider fields**, which previously had no effect. A step left on a non-default tier will change which model it uses.
+
 ## v0.3.25 — Tightening the Containment Envelope (2026-09-19)
 
 Follow-up to 0.3.24, closing gaps in what "contained" actually guaranteed.

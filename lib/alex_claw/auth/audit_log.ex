@@ -138,6 +138,40 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
+  @doc "Record that a fresh set of recovery codes was generated."
+  @spec log_recovery_codes(:generated, pos_integer()) :: :ok
+  def log_recovery_codes(:generated, count) do
+    Logger.info("#{count} recovery codes generated", auth: :recovery_codes)
+
+    insert_entry(%{
+      caller: "admin:recovery",
+      caller_type: "admin",
+      permission: "admin.recovery_codes",
+      decision: "generated",
+      reason: "#{count} codes, replacing any earlier set"
+    })
+  end
+
+  @doc """
+  Record that a recovery code was spent.
+
+  Worth its own row rather than an ordinary code attempt: a recovery code being
+  used means the authenticator is gone, which is either an operator having a
+  bad day or someone else having a good one.
+  """
+  @spec log_recovery_code_used(non_neg_integer()) :: :ok
+  def log_recovery_code_used(remaining) do
+    Logger.warning("A recovery code was used — #{remaining} remaining", auth: :recovery_codes)
+
+    insert_entry(%{
+      caller: "admin:recovery",
+      caller_type: "admin",
+      permission: "admin.recovery_codes",
+      decision: "accepted",
+      reason: "recovery code used, #{remaining} remaining"
+    })
+  end
+
   @doc "Prune audit entries older than retention period."
   @spec prune() :: {non_neg_integer(), nil}
   def prune do

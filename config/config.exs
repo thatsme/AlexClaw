@@ -45,7 +45,8 @@ config :logger, :console,
     :chain_depth,
     :resource_id,
     :elevation,
-    :code_attempt
+    :code_attempt,
+    :recovery_codes
   ]
 
 import_config "#{config_env()}.exs"

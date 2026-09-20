@@ -12,13 +12,17 @@ defmodule AlexClaw.Auth.CodeEntry do
   answer.
   """
 
-  alias AlexClaw.Auth.{AuditLog, CodeAttempts, Elevation, TOTP}
+  alias AlexClaw.Auth.{AuditLog, CodeAttempts, Elevation, RecoveryCodes, TOTP}
 
   @type method :: :web | :gateway
   @type failure :: :locked_session | :locked_instance | :invalid_code | :not_configured
 
   @doc """
   Check `code` for `sid`, counting the attempt.
+
+  The code may be from the authenticator or one of the recovery codes; the
+  caller does not choose, because the operator reaching for a recovery code has
+  already lost the thing that would have told them which field to use.
 
   Returns `:ok`, or the reason it was refused. A refusal that is a lock names
   the lock, because "wrong code" and "stop typing for fifteen minutes" are
@@ -28,7 +32,7 @@ defmodule AlexClaw.Auth.CodeEntry do
   def verify(sid, code, method \\ :web) do
     with :ok <- configured(TOTP.enabled?()),
          :ok <- allowed(CodeAttempts.status(sid)) do
-      judge(TOTP.verify(normalize(code)), sid, method)
+      check(normalize(code), sid, method)
     end
   end
 
@@ -53,13 +57,28 @@ defmodule AlexClaw.Auth.CodeEntry do
   defp allowed({:locked, :session, _until}), do: {:error, :locked_session}
   defp allowed({:locked, :instance, _until}), do: {:error, :locked_instance}
 
-  defp judge(true, sid, method) do
+  # A code is a TOTP code or a recovery code, and the field does not ask which:
+  # an operator whose phone is gone types what they have, in the same box.
+  defp check(code, sid, method) do
+    totp_or_recovery(TOTP.verify(code), code, sid, method)
+  end
+
+  defp totp_or_recovery(true, _code, sid, method), do: accept(sid, method)
+
+  defp totp_or_recovery(false, code, sid, method) do
+    spent(RecoveryCodes.redeem(code), sid, method)
+  end
+
+  defp spent({:ok, _remaining}, sid, method), do: accept(sid, method)
+  defp spent({:error, :invalid_code}, sid, method), do: reject(sid, method)
+
+  defp accept(sid, method) do
     CodeAttempts.record_success(sid)
     AuditLog.log_code_attempt(:accepted, fingerprint(sid), method)
     :ok
   end
 
-  defp judge(false, sid, method) do
+  defp reject(sid, method) do
     AuditLog.log_code_attempt(:refused, fingerprint(sid), method)
     refusal(CodeAttempts.record_failure(sid))
   end

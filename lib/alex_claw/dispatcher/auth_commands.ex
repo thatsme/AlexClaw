@@ -38,8 +38,12 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   def dispatch(%Message{text: "/confirm 2fa " <> code} = msg) do
     case TOTP.confirm_setup(String.trim(code)) do
       :ok ->
+        # The codes themselves never travel this way: a chat log is not where
+        # the way back in belongs. The operator is sent to the one place that
+        # shows them once.
         Gateway.send_message(
-          "2FA enabled! Sensitive actions will now require a code from your authenticator app.",
+          "2FA enabled! Sensitive actions will now require a code from your authenticator app.\n\n" <>
+            "Generate your recovery codes in the admin UI: Services → Two-factor authentication.",
           chat_id: msg.chat_id,
           gateway: msg.gateway
         )

@@ -4,7 +4,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.{CodeEntry, TOTP}
+  alias AlexClaw.Auth.{CodeEntry, RecoveryCodes, TOTP}
   alias AlexClaw.Config
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
@@ -29,7 +29,9 @@ defmodule AlexClawWeb.AdminLive.Services do
        page_title: "Services",
        services: build_services(),
        totp_setup: nil,
-       totp_message: nil
+       totp_message: nil,
+       recovery_codes: nil,
+       recovery: RecoveryCodes.status()
      )}
   end
 
@@ -105,6 +107,19 @@ defmodule AlexClawWeb.AdminLive.Services do
       end)
 
     {:noreply, assign(socket, services: services)}
+  end
+
+  # Shown once, and only here. Acknowledging clears them from the page; there
+  # is no second chance to read them, which is what makes "save these" a real
+  # instruction rather than a suggestion.
+  def handle_event("saved_recovery_codes", _params, socket) do
+    {:noreply, assign(socket, recovery_codes: nil)}
+  end
+
+  # A fresh set invalidates the old one, so it answers to a code like any other
+  # change to the second factor.
+  def handle_event("regenerate_recovery_codes", %{"code" => code}, socket) do
+    {:noreply, regenerated(CodeEntry.verify(sid(socket), code, :web), socket)}
   end
 
   defp reembed_detail(0), do: "Nothing to re-embed"
@@ -280,10 +295,18 @@ defmodule AlexClawWeb.AdminLive.Services do
   defp sid(%{assigns: %{elevation_sid: sid}}), do: sid
   defp sid(_socket), do: nil
 
+  # The codes exist in readable form for exactly this render. They are shown
+  # once, and the operator confirms they have them before the page lets go.
   defp confirmed(:ok, socket) do
     socket
-    |> assign(totp_setup: nil, totp_message: nil, services: build_services())
-    |> put_flash(:info, "Two-factor authentication is on.")
+    |> assign(
+      totp_setup: nil,
+      totp_message: nil,
+      recovery_codes: RecoveryCodes.generate(),
+      recovery: RecoveryCodes.status(),
+      services: build_services()
+    )
+    |> put_flash(:info, "Two-factor authentication is on. Save your recovery codes.")
   end
 
   defp confirmed({:error, :invalid_code}, socket) do
@@ -294,11 +317,23 @@ defmodule AlexClawWeb.AdminLive.Services do
     assign(socket, totp_setup: nil, totp_message: "That setup expired. Start again.")
   end
 
+  defp regenerated(:ok, socket) do
+    socket
+    |> assign(recovery_codes: RecoveryCodes.generate(), totp_message: nil)
+    |> assign(recovery: RecoveryCodes.status())
+    |> put_flash(:info, "New recovery codes. The old ones no longer work.")
+  end
+
+  defp regenerated({:error, _reason}, socket) do
+    assign(socket, totp_message: "That code is not valid. The codes are unchanged.")
+  end
+
   defp disabled(:ok, socket) do
     TOTP.disable()
+    RecoveryCodes.discard()
 
     socket
-    |> assign(services: build_services(), totp_message: nil)
+    |> assign(services: build_services(), totp_message: nil, recovery: RecoveryCodes.status())
     |> put_flash(:info, "Two-factor authentication is off. The control plane is read-only.")
   end
 

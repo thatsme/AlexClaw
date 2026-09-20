@@ -84,6 +84,54 @@
       </form>
     </div>
 
+
+    <div :if={@recovery_codes} class="bg-amber-950 border border-amber-800 rounded-lg p-4 space-y-3">
+      <p class="text-amber-100 text-sm font-semibold">
+        Save these recovery codes now — they are shown once.
+      </p>
+      <p class="text-amber-200 text-xs">
+        Each one works a single time, in any code field, if your authenticator is gone.
+      </p>
+      <ul class="grid grid-cols-2 gap-2 font-mono text-sm text-amber-50">
+        <li :for={code <- @recovery_codes} class="bg-amber-900/40 rounded px-2 py-1">{code}</li>
+      </ul>
+      <button
+        phx-click="saved_recovery_codes"
+        class="px-3 py-1.5 bg-amber-800 hover:bg-amber-700 text-amber-50 text-xs rounded transition"
+      >
+        I have saved these
+      </button>
+    </div>
+
+    <div :if={@elevation.configured? && !@recovery_codes} class="space-y-2 border-t border-gray-800 pt-4">
+      <p :if={!@recovery.generated?} class="text-amber-300 text-sm">
+        No recovery codes exist. Without them, a lost authenticator means restoring from backup.
+      </p>
+      <p :if={@recovery.generated? && @recovery.remaining <= 2} class="text-amber-300 text-sm">
+        Only {@recovery.remaining} recovery codes left. Generate a new set.
+      </p>
+      <p :if={@recovery.last_used_at} class="text-gray-400 text-xs">
+        A recovery code was used on {Calendar.strftime(@recovery.last_used_at, "%Y-%m-%d %H:%M")} UTC.
+        {@recovery.remaining} remaining.
+      </p>
+      <form phx-submit="regenerate_recovery_codes" class="flex items-center gap-3 flex-wrap">
+        <input
+          type="text"
+          name="code"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          placeholder="123456"
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm w-40 tracking-widest"
+        />
+        <button
+          type="submit"
+          class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs rounded transition"
+        >
+          {if @recovery.generated?, do: "Replace recovery codes", else: "Generate recovery codes"}
+        </button>
+      </form>
+    </div>
+
     <p :if={@totp_message} class="text-red-300 text-xs">{@totp_message}</p>
   </div>
   <div class="flex justify-between items-center">

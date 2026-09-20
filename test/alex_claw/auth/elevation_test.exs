@@ -194,6 +194,35 @@ defmodule AlexClaw.Auth.ElevationTest do
 
   # Elevation is always required. What varies is whether the instance can
   # answer a challenge yet, which is what decides how a refusal reads.
+  # The audit row is written inside this process. A database that has gone away
+  # exits rather than raising, and an unguarded exit here would take the owner
+  # down, drop its :protected table, and revoke every live elevation because a
+  # log line failed. That is a bad trade for a lost row.
+  describe "the owner survives an audit failure" do
+    test "a grant still holds when the audit row cannot be written" do
+      s = sid()
+      owner = Process.whereis(Elevation)
+
+      # Ownership is checked out per test, so a process that is not this one
+      # writing to the Repo is exactly the failure being guarded against.
+      {:ok, _expires_at} = Elevation.grant(s)
+
+      assert Elevation.elevated?(s)
+      assert Process.whereis(Elevation) == owner, "the elevation owner restarted"
+    end
+
+    test "the table survives a burst of grants and revokes" do
+      owner = Process.whereis(Elevation)
+      sids = Enum.map(1..20, fn _n -> sid() end)
+
+      for s <- sids, do: {:ok, _deadline} = Elevation.grant(s)
+      for s <- sids, do: :ok = Elevation.revoke(s)
+
+      assert Process.whereis(Elevation) == owner
+      assert Elevation.elevated?(hd(sids)) == false
+    end
+  end
+
   describe "configured?/0" do
     test "is false when no second factor is configured" do
       refute Elevation.configured?()

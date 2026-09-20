@@ -20,7 +20,7 @@ defmodule AlexClawWeb.Live.ActionCode do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [put_flash: 3]
 
-  alias AlexClaw.Auth.{Challenge, CodeEntry, Gate}
+  alias AlexClaw.Auth.{Challenge, CodeEntry, Gate, Principal}
   alias AlexClaw.Dispatcher.AuthCommands
   alias AlexClaw.Message
   alias Phoenix.LiveView.Socket
@@ -34,7 +34,7 @@ defmodule AlexClawWeb.Live.ActionCode do
   @spec request(Socket.t(), map(), String.t()) :: {:noreply, Socket.t()}
   def request(socket, action, description) do
     sid = sid(socket)
-    Challenge.create_for_session(sid, action)
+    Challenge.create_for_session(sid, Map.put(action, :requested_by, Principal.requested_by()))
     Gate.request(action, description)
 
     {:noreply,

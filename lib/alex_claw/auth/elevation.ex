@@ -29,7 +29,7 @@ defmodule AlexClaw.Auth.Elevation do
   """
   use GenServer
 
-  alias AlexClaw.Auth.{AuditLog, SecondFactor}
+  alias AlexClaw.Auth.{AuditLog, Principal, SecondFactor}
 
   @table :admin_elevations
   @window_seconds 15 * 60
@@ -126,7 +126,13 @@ defmodule AlexClaw.Auth.Elevation do
   def handle_call({:grant, sid}, _from, state) do
     deadline = now() + @window_seconds
     :ets.insert(@table, {sid, deadline})
-    AuditLog.log_elevation(:granted, fingerprint(sid), "window #{@window_seconds}s")
+
+    AuditLog.log_elevation(
+      :granted,
+      fingerprint(sid),
+      "window #{@window_seconds}s, principal: #{Principal.current()}"
+    )
+
     broadcast(sid, {:elevation, :granted, deadline})
     {:reply, {:ok, deadline}, state}
   end

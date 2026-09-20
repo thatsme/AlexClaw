@@ -12,7 +12,7 @@ defmodule AlexClaw.Auth.Gate do
   one that function understands.
   """
 
-  alias AlexClaw.Auth.{Challenge, SecondFactor}
+  alias AlexClaw.Auth.{Challenge, Principal, SecondFactor}
   alias AlexClaw.Config
   alias AlexClaw.Gateway.Router
 
@@ -46,10 +46,17 @@ defmodule AlexClaw.Auth.Gate do
     )
   end
 
+  # The action carries who asked for it. Whoever answers the code approves it,
+  # and today that is the same principal — the fields are separate because the
+  # case worth recording is the one where they are not.
+  defp with_principal(action) do
+    Map.merge(action, %{requested_by: Principal.requested_by()})
+  end
+
   defp challenge(chat_ids, _action, _description) when chat_ids in [false, []], do: :no_2fa
 
   defp challenge(chat_ids, action, description) do
-    for id <- chat_ids, do: Challenge.create(id, action)
+    for id <- chat_ids, do: Challenge.create(id, with_principal(action))
 
     Router.broadcast(
       "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:"

@@ -10,7 +10,7 @@ defmodule AlexClaw.Auth.AuditLog do
 
   import Ecto.Query
 
-  alias AlexClaw.Auth.{AuditEntry, AuthContext}
+  alias AlexClaw.Auth.{AuditEntry, AuthContext, Principal}
   alias AlexClaw.Repo
 
   @retention_days 30
@@ -227,16 +227,31 @@ defmodule AlexClaw.Auth.AuditLog do
   # Best effort by design: the action being audited has already happened, and
   # failing it now because its record could not be written would trade a lost
   # row for a lost action.
+  #
+  # The catch matters as much as the rescue. Some of these run inside the
+  # Elevation owner, and a database that has gone away exits rather than
+  # raising — which would kill that process, take its :protected table with it,
+  # and silently revoke every live elevation because a log line failed.
   defp insert_entry(attrs) do
     %AuditEntry{}
-    |> AuditEntry.changeset(Map.put(attrs, :inserted_at, DateTime.utc_now()))
+    |> AuditEntry.changeset(
+      attrs
+      |> Map.merge(Principal.audit_fields())
+      |> Map.put(:inserted_at, DateTime.utc_now())
+    )
     |> Repo.insert()
     |> case do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
+      {:ok, _entry} -> :ok
+      {:error, _changeset} -> :ok
     end
   rescue
-    _ -> :ok
+    error ->
+      Logger.warning("Audit row not written: #{Exception.message(error)}")
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("Audit row not written: #{inspect(reason)}")
+      :ok
   end
 
   defp maybe_filter_decision(query, nil), do: query

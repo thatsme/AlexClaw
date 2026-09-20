@@ -10,9 +10,16 @@ defmodule AlexClaw.Skills.SkillAPI do
   """
   require Logger
 
-  alias AlexClaw.Auth.{AuthContext, CapabilityToken, PolicyEngine}
+  alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken, PolicyEngine}
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Workflows.{Executor, SkillRegistry}
+
+  # Skills that reach the host, the filesystem, the network, or the skill loader
+  # itself, and do not check 2FA inside run/1 — that gate is in the Dispatcher,
+  # which cross-skill invocation goes around. Same set the MCP transport denies.
+  #
+  # Interim: a capability-aware Invoke would decide this per caller, not by name.
+  @privileged_skills ~w(shell coder db_backup web_automation)
 
   @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke skill_write skill_manage workflow_manage)a
 
@@ -274,10 +281,22 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec run_skill(skill_mod(), String.t(), map()) ::
           {:ok, term()} | {:ok, term(), atom()} | {:error, term()}
   def run_skill(skill_module, skill_name, args) do
-    with :ok <- check_permission(skill_module, :skill_invoke) do
+    with :ok <- check_permission(skill_module, :skill_invoke),
+         :ok <- check_not_privileged(skill_module, skill_name) do
       invoke_resolved(SkillRegistry.resolve(skill_name), skill_name, args)
     end
   end
+
+  defp check_not_privileged(skill_module, skill_name) when skill_name in @privileged_skills do
+    AuditLog.log_deny(
+      AuthContext.build(skill_module, :skill_invoke, SkillRegistry.get_permissions(skill_module)),
+      "cross-skill invocation of privileged skill '#{skill_name}'"
+    )
+
+    {:error, :privileged_skill}
+  end
+
+  defp check_not_privileged(_skill_module, _skill_name), do: :ok
 
   defp invoke_resolved({:error, :unknown_skill}, skill_name, _args) do
     {:error, {:unknown_skill, skill_name}}

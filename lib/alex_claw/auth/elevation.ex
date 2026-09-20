@@ -127,7 +127,7 @@ defmodule AlexClaw.Auth.Elevation do
     deadline = now() + @window_seconds
     :ets.insert(@table, {sid, deadline})
 
-    AuditLog.log_elevation(
+    audit(
       :granted,
       fingerprint(sid),
       "window #{@window_seconds}s, principal: #{Principal.current()}"
@@ -164,8 +164,24 @@ defmodule AlexClaw.Auth.Elevation do
 
   defp drop([_row], reason, sid) do
     :ets.delete(@table, sid)
-    AuditLog.log_elevation(reason, fingerprint(sid), nil)
+    audit(reason, fingerprint(sid), nil)
     broadcast(sid, {:elevation, :ended, reason})
+    :ok
+  end
+
+  # Off the owner, deliberately. This process owns the :protected table that is
+  # the elevation boundary, and an audit insert here would run inside it: a
+  # database that has gone away exits rather than raising, and an exit would
+  # take the table — and every live elevation — with it. The rescue in AuditLog
+  # stays as defence in depth; this is the structural half of the same fix.
+  #
+  # Only the fingerprint crosses into the task. The sid is a live session
+  # credential and has no business on another process's heap.
+  defp audit(event, fingerprint, detail) do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      AuditLog.log_elevation(event, fingerprint, detail)
+    end)
+
     :ok
   end
 

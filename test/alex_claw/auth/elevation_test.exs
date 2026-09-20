@@ -194,17 +194,22 @@ defmodule AlexClaw.Auth.ElevationTest do
 
   # Elevation is always required. What varies is whether the instance can
   # answer a challenge yet, which is what decides how a refusal reads.
-  # The audit row is written inside this process. A database that has gone away
-  # exits rather than raising, and an unguarded exit here would take the owner
-  # down, drop its :protected table, and revoke every live elevation because a
-  # log line failed. That is a bad trade for a lost row.
+  #
+  # The audit row is written off this process, by a task under
+  # AlexClaw.TaskSupervisor. A database that has gone away exits rather than
+  # raising, and an exit inside the owner would drop its :protected table and
+  # revoke every live elevation because a log line failed.
+  #
+  # These two hold the outcome, not the mechanism: ownership is checked out per
+  # test, so any Repo write from the owner is exactly the failure being guarded
+  # against, and the owner must be the same process afterwards. The structural
+  # half — that no database call sits in the owner at all — is asserted in
+  # test/alex_claw/ets_ownership_test.exs.
   describe "the owner survives an audit failure" do
     test "a grant still holds when the audit row cannot be written" do
       s = sid()
       owner = Process.whereis(Elevation)
 
-      # Ownership is checked out per test, so a process that is not this one
-      # writing to the Repo is exactly the failure being guarded against.
       {:ok, _expires_at} = Elevation.grant(s)
 
       assert Elevation.elevated?(s)

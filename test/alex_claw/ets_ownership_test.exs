@@ -38,12 +38,12 @@ defmodule AlexClaw.ETSOwnershipTest do
 
   defp indent_of(line), do: byte_size(line) - byte_size(String.trim_leading(line))
 
-  defp end_of_block(lines, start, indent) do
+  defp end_of_block(lines, start, indent, closer \\ "end") do
     lines
     |> Enum.drop(start)
     |> Enum.with_index(start + 1)
     |> Enum.find_value(length(lines), fn {line, n} ->
-      if line == String.duplicate(" ", indent) <> "end", do: n
+      if line == String.duplicate(" ", indent) <> closer, do: n
     end)
   end
 
@@ -140,5 +140,83 @@ defmodule AlexClaw.ETSOwnershipTest do
              "#{path} owns security state, so its table must be :protected — a write " <>
                "from outside the owner should raise rather than succeed"
     end
+  end
+
+  # A :protected table is a boundary only while the process holding it is alive
+  # and answering. I/O inside that process threatens both. A database that has
+  # gone away exits rather than raising, and an exit takes the table with it —
+  # which for elevations means every live one silently revoked because an audit
+  # row could not be written. A gateway that hangs does the slower version of
+  # the same damage, with the owner blocked at the moment it matters most.
+  #
+  # So the auth table owners hand their database and gateway work to a task
+  # under AlexClaw.TaskSupervisor, and this fails the build when one of them
+  # does it inline again. Found in 0.3.27 the hard way, as one intermittent
+  # failure in a full suite run that passed alone under every seed.
+  #
+  # TokenManager is deliberately not here: talking to Google is its whole job,
+  # and what it owns is a cache rather than a boundary.
+  @auth_owners ~w(
+    lib/alex_claw/auth/challenge_store.ex
+    lib/alex_claw/auth/code_attempts.ex
+    lib/alex_claw/auth/elevation.ex
+  )
+
+  @io_call ~r/\b(AuditLog|Repo|Router)\./
+
+  defp comment?(line), do: String.starts_with?(String.trim_leading(line), "#")
+
+  # The line range of every `Task.Supervisor.start_child(` block, which is the
+  # one place in these modules where an I/O call is allowed to appear.
+  defp off_owner_ranges(body) do
+    lines = lines_of(body)
+
+    lines
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {line, _n} ->
+      Regex.match?(~r/Task\.Supervisor\.start_child\(/, line)
+    end)
+    |> Enum.map(fn {line, n} -> {n, end_of_block(lines, n, indent_of(line), "end)")} end)
+  end
+
+  # Every function name called from inside an off-owner block in this file.
+  # Same reasoning as `called_from_init/0`: a module is allowed to keep its own
+  # helper — `notify/1` in CodeAttempts — as long as the task is what reaches
+  # it. One level deep, checked rather than allow-listed, because a list of
+  # exceptions would rot and what it would hide is the bug.
+  defp called_off_owner(body) do
+    lines = lines_of(body)
+
+    for {from, to} <- off_owner_ranges(body),
+        line <- Enum.slice(lines, from - 1, to - from + 1),
+        [_, name] <- Regex.scan(~r/\b([a-z_][a-zA-Z0-9_]*)\(/, line),
+        into: MapSet.new(),
+        do: name
+  end
+
+  test "the auth table owners do no database or gateway work in the owner process" do
+    offenders =
+      for path <- @auth_owners,
+          body = File.read!(path),
+          lines = lines_of(body),
+          allowed = off_owner_ranges(body),
+          reachable = called_off_owner(body),
+          {line, n} <- Enum.with_index(lines, 1),
+          not comment?(line),
+          Regex.match?(@io_call, line),
+          not Enum.any?(allowed, fn {from, to} -> n >= from and n <= to end),
+          not MapSet.member?(reachable, enclosing_function(lines, n)),
+          do: "#{path}:#{n} #{String.trim(line)}"
+
+    assert offenders == [],
+           """
+           I/O in a process that owns a :protected auth table:
+             #{Enum.join(offenders, "\n  ")}
+
+           These calls belong in a Task.Supervisor.start_child/2 block. The
+           owner must not be the process that waits on a database or a gateway:
+           a slow one blocks every grant, revoke and code attempt behind it, and
+           a dead one exits rather than raising, taking the table with it.
+           """
   end
 end

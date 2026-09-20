@@ -21,7 +21,13 @@ defmodule AlexClawWeb.ConnCase do
 
   setup tags do
     pid = Sandbox.start_owner!(AlexClaw.Repo, shared: not tags[:async])
-    on_exit(fn -> Sandbox.stop_owner(pid) end)
+
+    # Drained first: a supervised audit task still holding the connection when
+    # the owner is stopped fails whichever test runs next.
+    on_exit(fn ->
+      AlexClaw.TaskDrain.drain()
+      Sandbox.stop_owner(pid)
+    end)
 
     ensure_ets_table(:alexclaw_config)
     ensure_ets_table(:alexclaw_llm_usage)

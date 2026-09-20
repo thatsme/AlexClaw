@@ -153,6 +153,10 @@ defmodule AlexClawWeb.AdminLive.WebCodeEntryTest do
 
       for n <- 1..CodeAttempts.instance_limit(), do: CodeAttempts.record_failure("sid-#{n}")
 
+      # The notice is sent off the owner process — the table counting wrong
+      # codes must not be held by whatever is waiting on Telegram. Wait for it
+      # rather than read a queue the task has not reached yet.
+      AlexClaw.TaskDrain.drain()
       messages = AlexClaw.RecordingGateway.sent()
 
       assert Enum.count(messages, &(&1 =~ "code entry")) == 1,
@@ -160,6 +164,7 @@ defmodule AlexClawWeb.AdminLive.WebCodeEntryTest do
 
       # And going on guessing does not turn the notice into the flood.
       CodeAttempts.record_failure("sid-again")
+      AlexClaw.TaskDrain.drain()
       assert Enum.count(AlexClaw.RecordingGateway.sent(), &(&1 =~ "code entry")) == 1
       assert ctx.sid
     end

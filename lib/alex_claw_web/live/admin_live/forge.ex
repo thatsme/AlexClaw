@@ -3,8 +3,9 @@ defmodule AlexClawWeb.AdminLive.Forge do
 
   use Phoenix.LiveView
 
-  alias AlexClaw.{LLM, Memory}
   alias AlexClaw.Auth.Gate
+  alias AlexClaw.LLM
+  alias AlexClaw.Memory
   alias AlexClaw.Skills.CodeGenerator
 
   @default_max_retries 5

@@ -117,7 +117,7 @@ defmodule AlexClaw.Skills.CallPolicyTest do
     end
 
     test "alias with :as is refused" do
-      source = skill("F.write!(\"/tmp/x\", \"y\")", "alias File, as: F")
+      source = skill(~S|F.write!("/tmp/x", "y")|, "alias File, as: F")
       assert {:error, violations} = check(source)
       assert Enum.any?(violations, &String.contains?(&1, "as:"))
     end
@@ -131,7 +131,7 @@ defmodule AlexClaw.Skills.CallPolicyTest do
 
   describe "dynamic dispatch" do
     test "apply/3 is rejected" do
-      assert {:error, violations} = check(skill("apply(File, :write!, [\"/tmp/x\", \"y\"])"))
+      assert {:error, violations} = check(skill(~S|apply(File, :write!, ["/tmp/x", "y"])|))
       assert Enum.any?(violations, &String.contains?(&1, "apply"))
     end
 
@@ -151,7 +151,10 @@ defmodule AlexClaw.Skills.CallPolicyTest do
     end
 
     test "a call on a variable module is rejected" do
-      assert {:error, violations} = check(skill("mod = File\n    mod.write!(\"/tmp/x\", \"y\")"))
+      assert {:error, violations} =
+               check(skill(~S|mod = File
+    mod.write!("/tmp/x", "y")|))
+
       assert Enum.any?(violations, &String.contains?(&1, "dynamic dispatch"))
     end
   end

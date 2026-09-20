@@ -83,7 +83,8 @@ defmodule AlexClaw.Skills.GenerationReplaceTest do
       # Refused before any promotion: the live file and the loaded module stand.
       assert File.read!(live) =~ "uploaded"
       assert {:ok, AlexClaw.Skills.Dynamic.Weather} = SkillRegistry.resolve("weather")
-      assert {:ok, "uploaded", :on_success} = AlexClaw.Skills.Dynamic.Weather.run(%{})
+      {:ok, module} = SkillRegistry.resolve("weather")
+      assert {:ok, "uploaded", :on_success} = module.run(%{})
     end
   end
 end

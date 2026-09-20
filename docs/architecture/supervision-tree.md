@@ -17,6 +17,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Google.TokenManager       # OAuth2 token lifecycle (cache + refresh)
   ├── AlexClaw.RateLimiter.Server        # Login rate limiting (ETS + periodic purge)
   ├── AlexClaw.Auth.SkillRateLimiter     # Per-skill call rate limiting
+  ├── AlexClaw.Auth.ChallengeStore       # Owns the pending-2FA table
   ├── Registry (AlexClaw.CircuitBreakerRegistry)  # Per-skill breaker registry
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor
   ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
@@ -48,18 +49,24 @@ a registered process name, not a module.
 `Reasoning.Supervisor` manage a variable number of children: one per running
 skill, per circuit breaker, and per reasoning session.
 
-**Some ETS owners are supervised processes** — `Config.Loader`, `SkillRegistry`,
-`UsageTracker`, `RateLimiter.Server` and `LogBuffer` each create their table in
-`init/1`. The table dies with its owner and is rebuilt on restart, which is the
-property you want: no cache outlives the process responsible for it.
+**Every ETS table has a supervised owner.** `Config.Loader`, `SkillRegistry`,
+`UsageTracker`, `RateLimiter.Server`, `LogBuffer`, `ChallengeStore` and
+`TokenManager` each create theirs in `init/1`, directly or through an
+initialiser they call. A table dies with its owner and is rebuilt on restart,
+so no state outlives the process responsible for it — and none is owned by a
+process nobody chose.
 
-**Three tables do not work this way.** `:totp_challenges`,
-`:google_oauth_state` and the query-rewriter cache are created lazily by
-whichever process calls them first, which can be a LiveView or a short-lived
-task. Such a table dies when that process does, taking its contents with it.
-For the rewriter cache that costs a cold start; for the other two it loses
-pending 2FA challenges and in-flight OAuth state. This is a known defect, not a
-design — see the batch 2d plan.
+That last part was not always true. Three tables were created on first use, by
+whichever caller reached them first: a LiveView that raised a 2FA challenge
+owned `:totp_challenges` until the tab closed. A test now fails the build if
+an `:ets.new` appears that no supervised `init/1` reaches.
+
+The two tables holding security state — `:totp_challenges` and
+`:google_oauth_states` — are `:protected` rather than `:public`. Their owner
+writes and everything else reads, so a write from elsewhere raises instead of
+quietly succeeding. Read-modify-writes on them happen inside the owner as a
+single call: counting a failed 2FA attempt, and redeeming a one-shot OAuth
+CSRF state.
 
 ## Conditional children
 

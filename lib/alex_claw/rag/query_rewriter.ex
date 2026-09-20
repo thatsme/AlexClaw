@@ -9,13 +9,18 @@ defmodule AlexClaw.RAG.QueryRewriter do
   @cache_table :rag_query_rewrite_cache
   @cache_ttl_ms 300_000
 
-  @doc "Initialize the ETS cache table. Called from Application.start/2."
+  @doc """
+  Create the ETS cache table. Called from `AlexClaw.Config.Loader.init/1`, and
+  from nowhere else — the table is owned by that supervised process rather than
+  by whichever query happened to be rewritten first.
+
+  It stays `:public` on purpose. This is a cache, not a security store, and
+  routing every write through the owner would serialise a hot path to buy a
+  guarantee nothing here needs.
+  """
   @spec init_cache() :: :ok
   def init_cache do
-    if :ets.whereis(@cache_table) == :undefined do
-      :ets.new(@cache_table, [:named_table, :public, :set])
-    end
-
+    :ets.new(@cache_table, [:named_table, :public, :set])
     :ok
   end
 
@@ -93,8 +98,6 @@ defmodule AlexClaw.RAG.QueryRewriter do
   # --- ETS Cache ---
 
   defp cache_get(query) do
-    init_cache()
-
     case :ets.lookup(@cache_table, query) do
       [{^query, variants, inserted_at}] ->
         if System.monotonic_time(:millisecond) - inserted_at < @cache_ttl_ms do
@@ -110,7 +113,6 @@ defmodule AlexClaw.RAG.QueryRewriter do
   end
 
   defp cache_put(query, variants) do
-    init_cache()
     :ets.insert(@cache_table, {query, variants, System.monotonic_time(:millisecond)})
   end
 end

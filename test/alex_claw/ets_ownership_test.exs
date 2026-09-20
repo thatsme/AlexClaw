@@ -12,29 +12,17 @@ defmodule AlexClaw.ETSOwnershipTest do
   #
   # `:ets.new` is allowed inside an `init/1` callback, where a supervised
   # process takes ownership for its whole lifetime. It is also allowed in a
-  # function that an `init/1` calls, so a module can keep its own table name —
+  # function that an `init/1` reaches, so a module can keep its own table name —
   # `Config.init/0`, `RateLimiter.init_table/0`. That second case is checked
-  # rather than allow-listed: the enclosing function must actually be called
-  # from inside some `def init(` body in lib/. A hand-maintained exception list
-  # would rot, and what it would hide is the bug.
+  # rather than allow-listed: the enclosing function must actually be reachable
+  # from some supervised `init/1`, across modules and to a fixpoint. A
+  # hand-maintained exception list would rot, and what it would hide is the bug.
 
   @lib "lib/**/*.ex"
 
   defp sources, do: Path.wildcard(@lib)
 
   defp lines_of(body), do: String.split(body, "\n")
-
-  # The line range of every `def init(...)` body in a file. Indentation-based
-  # by design: a heuristic that over-approximated the safe region would hide
-  # exactly what this test looks for.
-  defp init_ranges(body) do
-    lines = lines_of(body)
-
-    lines
-    |> Enum.with_index(1)
-    |> Enum.filter(fn {line, _n} -> Regex.match?(~r/^\s*def init\(/, line) end)
-    |> Enum.map(fn {line, n} -> {n, end_of_block(lines, n, indent_of(line))} end)
-  end
 
   defp indent_of(line), do: byte_size(line) - byte_size(String.trim_leading(line))
 
@@ -47,15 +35,10 @@ defmodule AlexClaw.ETSOwnershipTest do
     end)
   end
 
-  # Every function name called from inside an `init/1` body anywhere in lib/.
-  defp called_from_init do
-    for path <- sources(),
-        body = File.read!(path),
-        {from, to} <- init_ranges(body),
-        line <- Enum.slice(lines_of(body), from - 1, to - from + 1),
-        [_, name] <- Regex.scan(~r/\b([a-z_][a-zA-Z0-9_]*)\(/, line),
-        into: MapSet.new(),
-        do: name
+  # Everything any supervised init/1 reaches, across modules, to a fixpoint.
+  defp reachable_from_init do
+    files = files()
+    expand(init_seeds(files), index(files), files)
   end
 
   # The name of the function enclosing a line, found by looking upwards.
@@ -71,19 +54,22 @@ defmodule AlexClaw.ETSOwnershipTest do
     end)
   end
 
+  # Reachability is module-aware and follows calls to a fixpoint, which is what
+  # `reachable_from_init/0` below does. It used to collect the names called
+  # inside `def init(` bodies, one level and project-wide, and that stopped
+  # working the moment Config.Loader.init/1 delegated its body to boot/1: the
+  # tables boot/1 creates are owned by the same supervised process as before,
+  # and a one-level scan could no longer see it.
   test "every :ets.new is reachable only from a supervised init/1" do
-    reachable = called_from_init()
+    reachable = reachable_from_init()
 
     offenders =
-      for path <- sources(),
-          body = File.read!(path),
-          lines = lines_of(body),
-          ranges = init_ranges(body),
-          {line, n} <- Enum.with_index(lines, 1),
+      for {path, file} <- files(),
+          {line, n} <- Enum.with_index(file.lines, 1),
           String.contains?(line, ":ets.new("),
-          not Enum.any?(ranges, fn {from, to} -> n >= from and n <= to end),
-          not MapSet.member?(reachable, enclosing_function(lines, n)),
-          do: "#{path}:#{n} (in #{enclosing_function(lines, n)})"
+          not comment?(line),
+          not MapSet.member?(reachable, {file.module, enclosing_function(file.lines, n)}),
+          do: "#{path}:#{n} (in #{enclosing_function(file.lines, n)})"
 
     assert offenders == [],
            """
@@ -355,30 +341,218 @@ defmodule AlexClaw.ETSOwnershipTest do
   # so a caller going through the process still sees a finished load, and the
   # supervisor is no longer holding the rest of the tree behind it.
   #
-  # Reachability again, and per file rather than project-wide: neither of the
-  # two reads this was written for was in an init body. Both were one call
-  # below, in load_today_from_db/0 and load_dynamic_skills_from_db/0.
+  # Reachability, and across modules. Neither of the two reads this was written
+  # for was in an init body — both were a call below, in load_today_from_db/0
+  # and load_dynamic_skills_from_db/0 — and the first version of this check
+  # walked calls per file, which is why it passed while Config.Loader.init/1
+  # sat there reaching AlexClaw.Config.load_all_into_ets/0 in another module
+  # and failing the boot before either of them ran.
+  #
+  # Entry points are `def init(` of arity one only: AlexClaw.Config.init/0 and
+  # MCP.Server.init/2 are ordinary functions that happen to share the name.
+  @blocking_by_design %{
+    "AlexClaw.Config.Loader" => """
+    Intentional, and the only one that should be. Configuration is a hard
+    dependency of everything else, so this waits for the database — 1s, 2s, 5s,
+    then every 5s, up to a minute — and stops the boot rather than starting an
+    agent on defaults nobody chose.
+    """,
+    "AlexClaw.Cluster.Manager" => """
+    Found by this check, not yet decided. auto_register_self/0 writes this
+    node's row from init/1, so the same crash loop applies, and the plan for
+    batch 2d never listed it.
+    """,
+    "AlexClaw.Reasoning.Loop" => """
+    Found by this check, not yet decided. Not a boot dependency: a
+    DynamicSupervisor starts one per reasoning run (loop.ex:63), so its init/1
+    blocks whoever asked for the run rather than the supervision tree. Refusing
+    to start a run when the database is down may well be correct.
+    """
+  }
+
   test "no supervised init/1 waits on the database" do
     offenders =
-      for path <- sources(),
-          body = File.read!(path),
-          String.contains?(body, "def init("),
-          lines = lines_of(body),
-          booting = reachable_from(body, ["init"]),
-          {line, n} <- Enum.with_index(lines, 1),
-          not comment?(line),
-          Regex.match?(~r/\bRepo\./, line),
-          MapSet.member?(booting, enclosing_function(lines, n)),
-          do: "#{path}:#{n} #{String.trim(line)}"
+      for {module, where} <- repo_calls_reachable_from_init(),
+          not Map.has_key?(@blocking_by_design, module),
+          do: "#{where}  (reached from #{module}.init/1)"
 
     assert offenders == [],
            """
            A database call reachable from init/1:
-             #{Enum.join(offenders, "\n  ")}
+             #{offenders |> Enum.sort() |> Enum.join("\n  ")}
 
            Move it to handle_continue/2 and return {:ok, state, {:continue, _}}
            from init/1. The process stays correct — a continue runs before any
            other message — and stops holding up every child started after it.
+
+           If the boot genuinely cannot proceed without it, add the module to
+           @blocking_by_design with the reason.
            """
+  end
+
+  # Every allow-list entry has to still be true, or the list is a place where
+  # findings go to be forgotten.
+  test "every module allowed to block the boot still does" do
+    blocking = repo_calls_reachable_from_init() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+
+    stale =
+      for module <- Map.keys(@blocking_by_design),
+          not MapSet.member?(blocking, module),
+          do: module
+
+    assert stale == [],
+           "no longer reaches the database from init/1, so the entry can go: " <>
+             Enum.join(stale, ", ")
+  end
+
+  # --- cross-module reachability ---
+
+  defp files do
+    for path <- sources(), into: %{} do
+      body = File.read!(path)
+
+      {path,
+       %{body: body, lines: lines_of(body), module: module_of(body), aliases: aliases_of(body)}}
+    end
+  end
+
+  defp module_of(body) do
+    case Regex.run(~r/^defmodule\s+([A-Za-z0-9_.]+)\s+do/m, body) do
+      [_, name] -> name
+      nil -> nil
+    end
+  end
+
+  # `alias A.B.C`, `alias A.B.{C, D}` and `alias A.B.C, as: D`, short name to full.
+  defp aliases_of(body) do
+    plain =
+      for [_, full] <- Regex.scan(~r/^\s*alias\s+([A-Za-z0-9_.]+)\s*$/m, body),
+          into: %{},
+          do: {full |> String.split(".") |> List.last(), full}
+
+    grouped =
+      for [_, prefix, inner] <- Regex.scan(~r/^\s*alias\s+([A-Za-z0-9_.]+)\.\{([^}]+)\}/m, body),
+          part <- String.split(inner, ","),
+          short = String.trim(part),
+          short != "",
+          into: %{},
+          do: {short, prefix <> "." <> short}
+
+    renamed =
+      for [_, full, short] <-
+            Regex.scan(~r/^\s*alias\s+([A-Za-z0-9_.]+),\s*as:\s*([A-Za-z0-9_]+)/m, body),
+          into: %{},
+          do: {short, full}
+
+    plain |> Map.merge(grouped) |> Map.merge(renamed)
+  end
+
+  defp index(files) do
+    for {path, file} <- files,
+        file.module != nil,
+        {name, span} <- def_spans(file.body),
+        reduce: %{} do
+      acc -> Map.update(acc, {file.module, name}, [{path, span}], &[{path, span} | &1])
+    end
+  end
+
+  defp init_seeds(files) do
+    for {_path, file} <- files,
+        file.module != nil,
+        {line, _n} <- Enum.with_index(file.lines, 1),
+        Regex.match?(~r/^\s*def init\(/, line),
+        arity_of(line) == 1,
+        into: MapSet.new(),
+        do: {file.module, "init"}
+  end
+
+  # Top-level commas in the head's argument list, which is enough to tell
+  # init/0, init/1 and init/2 apart.
+  defp arity_of(line) do
+    case Regex.run(~r/^\s*defp?\s+[a-z_][a-zA-Z0-9_]*\((.*)$/, line) do
+      nil -> 0
+      [_, rest] -> rest |> args_of() |> count_args()
+    end
+  end
+
+  defp args_of(rest), do: args_of(String.graphemes(rest), 0, [])
+
+  defp args_of([], _depth, taken), do: taken |> Enum.reverse() |> Enum.join()
+  defp args_of([")" | _rest], 0, taken), do: taken |> Enum.reverse() |> Enum.join()
+
+  defp args_of([c | rest], depth, taken) when c in ["(", "{", "["] do
+    args_of(rest, depth + 1, [c | taken])
+  end
+
+  defp args_of([c | rest], depth, taken) when c in [")", "}", "]"] do
+    args_of(rest, depth - 1, [c | taken])
+  end
+
+  defp args_of([c | rest], depth, taken), do: args_of(rest, depth, [c | taken])
+
+  defp count_args(""), do: 0
+
+  defp count_args(args) do
+    args
+    |> String.graphemes()
+    |> Enum.reduce({1, 0}, fn
+      c, {n, depth} when c in ["(", "{", "["] -> {n, depth + 1}
+      c, {n, depth} when c in [")", "}", "]"] -> {n, depth - 1}
+      ",", {n, 0} -> {n + 1, 0}
+      _c, acc -> acc
+    end)
+    |> elem(0)
+  end
+
+  defp calls_from({module, _name}, path, {from, to}, files) do
+    file = files[path]
+    body_lines = Enum.slice(file.lines, from - 1, to - from + 1)
+
+    qualified =
+      for line <- body_lines,
+          not comment?(line),
+          [_, prefix, called] <-
+            Regex.scan(~r/([A-Z][A-Za-z0-9_.]*)\.([a-z_][a-zA-Z0-9_]*)\(/, line),
+          do: {Map.get(file.aliases, prefix, prefix), called}
+
+    local =
+      for line <- body_lines,
+          not comment?(line),
+          [_, called] <- Regex.scan(~r/(?<![.\w:])([a-z_][a-zA-Z0-9_]*)\(/, line),
+          do: {module, called}
+
+    qualified ++ local
+  end
+
+  # Named apart from grow/3 above, which is the per-file walk. Two functions of
+  # the same name and arity in one module are clauses of one function, and the
+  # first one written wins — which is how this returned the seed and nothing
+  # else, and how the check passed by finding nothing.
+  defp expand(frontier, index, files) do
+    next =
+      for key <- frontier,
+          {path, span} <- Map.get(index, key, []),
+          call <- calls_from(key, path, span, files),
+          Map.has_key?(index, call),
+          into: frontier,
+          do: call
+
+    if MapSet.equal?(next, frontier), do: frontier, else: expand(next, index, files)
+  end
+
+  # {module whose init/1 reaches it, "path:line  source"} for every Repo call.
+  defp repo_calls_reachable_from_init do
+    files = files()
+    index = index(files)
+
+    for {module, "init"} = seed <- init_seeds(files),
+        key <- expand(MapSet.new([seed]), index, files),
+        {path, {from, to}} <- Map.get(index, key, []),
+        {line, n} <- Enum.with_index(files[path].lines, 1),
+        n >= from and n <= to,
+        not comment?(line),
+        Regex.match?(~r/\bRepo\./, line),
+        uniq: true,
+        do: {module, "#{path}:#{n}  #{String.trim(line)}"}
   end
 end

@@ -12,11 +12,17 @@ defmodule AlexClaw.Config.Loader do
   alias AlexClaw.Knowledge.SelfAwareness
   alias AlexClaw.LLM.ProviderSeeder
   alias AlexClaw.RAG.QueryRewriter
+  alias AlexClaw.Repo
   alias AlexClaw.Skills.Shell
+  alias Ecto.Adapters.SQL
 
   # Long enough for the gateways to have started, since the report goes out over
   # one of them.
   @audit_delay_ms :timer.seconds(15)
+
+  @probe_backoff_ms [1_000, 2_000, 5_000]
+  @probe_interval_ms 5_000
+  @probe_budget_ms :timer.seconds(60)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
@@ -24,11 +30,15 @@ defmodule AlexClaw.Config.Loader do
   end
 
   @impl true
-  def init(_) do
+  def init(opts) do
     # 0. Ensure skills directory exists
     skills_dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
     File.mkdir_p!(skills_dir)
 
+    boot(await_database(0, 0, budget_ms(opts)))
+  end
+
+  defp boot(:ok) do
     # 1. Create ETS tables and load raw DB values. The rewriter cache is created
     # here so a supervised process owns it, rather than the first query to want it.
     AlexClaw.Config.init()
@@ -60,6 +70,73 @@ defmodule AlexClaw.Config.Loader do
     :error, %Postgrex.Error{} = e ->
       Logger.warning("Config seeder skipped (DB not ready): #{Exception.message(e)}")
       {:ok, %{}}
+  end
+
+  defp boot({:error, :database_unavailable}) do
+    Logger.error(
+      "The database did not answer. AlexClaw does not start without its configuration — " <>
+        "an agent running on defaults nobody chose is worse than one that does not run. " <>
+        "Check DATABASE_HOSTNAME, DATABASE_USERNAME, DATABASE_PASSWORD and DATABASE_NAME, " <>
+        "and that the database is reachable from this container."
+    )
+
+    {:stop, :database_unavailable}
+  end
+
+  # Blocking, and deliberately so. The configuration is a hard dependency of
+  # everything else — an agent running on defaults nobody chose is worse than
+  # one that does not run — so this waits here rather than retrying in the
+  # background the way SkillRegistry and UsageTracker do. Those can work
+  # without what they were going to load. This cannot.
+  #
+  # Bounded, and deliberately so. An unbounded wait is a container that never
+  # reports unhealthy and never restarts, which is harder to diagnose than a
+  # clear stop. 1s, 2s, 5s, then every 5s, up to a minute.
+  #
+  # The compose files also make the app wait on a healthy database, so in an
+  # ordinary deployment this never has to wait at all. It is here for the
+  # deployments that do not — swarm ignores depends_on, and an external
+  # database has no healthcheck to depend on.
+  defp await_database(attempt, waited, budget) do
+    probe(database_answered?(), attempt, waited, budget)
+  end
+
+  defp probe(true, _attempt, _waited, _budget), do: :ok
+
+  defp probe(false, _attempt, waited, budget) when waited >= budget do
+    {:error, :database_unavailable}
+  end
+
+  defp probe(false, attempt, waited, budget) do
+    delay = probe_delay(attempt)
+    announce_wait(attempt)
+    Process.sleep(delay)
+    await_database(attempt + 1, waited + delay, budget)
+  end
+
+  # Said once. A line per attempt would bury the error that follows it.
+  defp announce_wait(0), do: Logger.info("Waiting for the database before loading configuration")
+  defp announce_wait(_attempt), do: :ok
+
+  defp probe_delay(attempt) when attempt < length(@probe_backoff_ms) do
+    Enum.at(@probe_backoff_ms, attempt)
+  end
+
+  defp probe_delay(_attempt), do: @probe_interval_ms
+
+  defp budget_ms(opts) when is_list(opts),
+    do: Keyword.get(opts, :database_wait_ms, @probe_budget_ms)
+
+  defp budget_ms(_opts), do: @probe_budget_ms
+
+  # Any failure is the same answer — no. The reason is not lost: waiting is
+  # announced once and a wait that runs out is logged with what to check.
+  defp database_answered? do
+    match?({:ok, _result}, SQL.query(Repo, "SELECT 1", []))
+  rescue
+    _error -> false
+  catch
+    :exit, _reason -> false
   end
 
   @impl true

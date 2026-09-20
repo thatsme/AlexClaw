@@ -35,6 +35,19 @@ from Telegram or Discord — compatible with any TOTP authenticator
 - **Shell commands** — `/shell` via Telegram/Discord
 - **Workflows marked `Requires 2FA`** — configurable per workflow
 
+**Attempt limit.** A challenge lives for two minutes and accepts any six digits
+in that time. Without a bound those two minutes are a guessing window, and the
+gateway will deliver as many messages as it is sent. The challenge carries its
+attempt count: the third wrong code deletes it, and the action must be
+triggered again, which mints a fresh challenge.
+
+**Replay protection.** A code stays valid for its whole 30-second period, so one
+observed in transit could be presented a second time inside that window.
+`verify/1` passes the time of the last accepted code to `NimbleTOTP.valid?/3`
+as `since:`, which refuses any code from a period already used. The marker is a
+settings row rather than an ETS entry, so it survives a restart, and it is kept
+out of the config cache with the secret.
+
 **Not every privileged route is a 2FA prompt.** The four privileged core skills
 — `shell`, `coder`, `db_backup`, `web_automation` — are gated by 2FA when they
 are dispatched from a gateway command. Invoked from inside another skill through

@@ -23,7 +23,20 @@ defmodule AlexClaw.Config do
 
   # The second factor is not configuration. It is never cached and never served
   # through get/2, so the only way to it is AlexClaw.Auth.TOTP's own accessor.
+  #
+  # get/2 raises for these rather than answering nil. Answering nil made the
+  # guard indistinguishable from absence, and the seeder — which asked get/2
+  # whether a key was already set — concluded the secret was missing and wrote
+  # its empty default over it. Every restart erased the enrolment, and the
+  # instance was then left claiming a second factor it no longer had.
+  #
+  # A caller that reaches for one of these has made a mistake that nil would
+  # hide, so it is raised and not returned.
   @uncached_keys ["auth.totp.secret", "auth.totp.last_used_at"]
+
+  @doc "Keys that get/2 refuses and the seeder must never write a default over."
+  @spec uncached_keys() :: [String.t()]
+  def uncached_keys, do: @uncached_keys
 
   # --- ETS lifecycle ---
 
@@ -58,9 +71,30 @@ defmodule AlexClaw.Config do
 
   # --- Public API ---
 
-  @doc "Get a config value. Returns default if not set."
+  @doc """
+  Get a config value. Returns default if not set.
+
+  Raises for a key the cache deliberately does not hold — see `@uncached_keys`.
+  Those have an owner with its own accessor, and answering nil here would say
+  "not set" about a value that is very much set.
+  """
   @spec get(String.t(), config_value()) :: config_value()
-  def get(key, default \\ nil) do
+  def get(key, default \\ nil)
+
+  def get(key, _default) when key in @uncached_keys do
+    raise ArgumentError, """
+    #{key} is not served through Config.get/2.
+
+    It is deliberately kept out of the config cache, so this would answer nil
+    whether the value is absent or merely hidden — and a caller that cannot
+    tell those apart will eventually overwrite one with the other.
+
+    Use the accessor belonging to whatever owns the key. The owner is the module
+    that writes it.
+    """
+  end
+
+  def get(key, default) do
     case :ets.lookup(@table, key) do
       [{_key, value, _sensitive}] -> value
       # Tolerated rather than matched-or-crash: a config read should degrade, not

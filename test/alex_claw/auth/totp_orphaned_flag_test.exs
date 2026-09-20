@@ -129,34 +129,43 @@ defmodule AlexClaw.Auth.TotpOrphanedFlagTest do
   # state that appears afterwards — a secret deleted, or one that stops
   # decrypting — and it runs fifteen seconds into every boot.
   describe "the boot check" do
-    test "clears a flag with no secret behind it, and says so" do
+    test "says an enabled factor has no secret behind it" do
       orphan_the_flag()
-      assert AlexClaw.Config.enabled?("auth.totp.enabled")
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           send(Process.whereis(AlexClaw.Config.Loader), :report_second_factor)
-          # The repair is a Config.set from inside the loader; give it a moment
-          # to land rather than racing the message.
           Process.sleep(200)
         end)
-
-      refute AlexClaw.Config.enabled?("auth.totp.enabled"),
-             "the flag was left on with nothing behind it"
 
       assert log =~ "2FA is enabled but no secret is stored"
       assert log =~ "set it up again"
     end
 
-    test "leaves a properly configured instance alone" do
-      enrol()
+    # Withdrawing the flag automatically was written and then removed. "No
+    # secret" and "no secret this code can see" are not the same state, nothing
+    # here can tell them apart, and something that answered the first question
+    # by acting on the second is what erased the secret to begin with.
+    test "changes nothing while saying it" do
+      orphan_the_flag()
 
       send(Process.whereis(AlexClaw.Config.Loader), :report_second_factor)
       Process.sleep(200)
 
       assert AlexClaw.Config.enabled?("auth.totp.enabled"),
-             "a real second factor was switched off"
+             "the boot check withdrew the flag; reporting must not repair"
+    end
 
+    test "is silent for a properly configured instance" do
+      enrol()
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          send(Process.whereis(AlexClaw.Config.Loader), :report_second_factor)
+          Process.sleep(200)
+        end)
+
+      refute log =~ "no secret is stored"
       assert TOTP.configured?()
     end
   end

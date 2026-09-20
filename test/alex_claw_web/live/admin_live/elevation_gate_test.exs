@@ -421,7 +421,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
     test "nor the secret behind it", ctx do
       enable_totp()
       {:ok, _} = Elevation.grant(ctx.sid)
-      secret = AlexClaw.Config.get("auth.totp.secret")
+      secret = AlexClaw.Auth.TOTP.secret()
 
       {view, _html} = open(ctx.conn, ctx.sid, "/config")
 
@@ -431,7 +431,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
         "type" => "string"
       })
 
-      assert AlexClaw.Config.get("auth.totp.secret") == secret
+      assert AlexClaw.Auth.TOTP.secret() == secret
     end
 
     test "ordinary auth keys are still editable under an elevation", ctx do

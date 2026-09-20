@@ -175,23 +175,24 @@ defmodule AlexClaw.Config.Loader do
   # so "set it up" means enrol again, and the flag is repaired so the setup
   # screen is reachable at all.
   defp report_second_factor(false) do
-    report_absent(SecondFactor.impl().repair())
+    report_absent(SecondFactor.impl().misconfigured?())
   end
 
-  # The instance was claiming a factor it could not supply. What that claim was
-  # made of belongs to the implementation; all that is known here is that it has
-  # been withdrawn, and that the setup screen is reachable again as a result.
-  defp report_absent(:repaired) do
+  # The instance is claiming a factor it cannot supply. Reported and not
+  # repaired: withdrawing the flag here would be acting on "no secret" when
+  # what is known is "no secret this code can see", and that distinction is
+  # exactly what went wrong the first time.
+  defp report_absent(true) do
     Logger.warning(
       "2FA is enabled but no secret is stored; set it up again under Services. " <>
-        "The claim has been withdrawn so the setup screen is reachable.",
+        "The control plane stays read-only until a second factor can answer.",
       auth: :config
     )
 
     notify_read_only(Router.active_gateways())
   end
 
-  defp report_absent(:ok) do
+  defp report_absent(false) do
     Logger.warning(
       "2FA is not configured: the admin control plane is read-only. " <>
         "Set it up under Services → Two-factor authentication.",

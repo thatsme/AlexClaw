@@ -69,8 +69,14 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
       :ok
     end
 
-    test "Config.get cannot serve it" do
-      refute Config.get("auth.totp.secret")
+    # It used to answer nil, which reads as "not set" — and the seeder believed
+    # exactly that and wrote its empty default over the secret on every boot.
+    # Refusing is the stronger guarantee: a caller cannot mistake the guard for
+    # an absent value if it never gets an answer at all.
+    test "Config.get refuses it rather than answering nil" do
+      assert_raise ArgumentError, ~r/not served through Config.get/, fn ->
+        Config.get("auth.totp.secret")
+      end
     end
 
     test "TOTP's own accessor can" do

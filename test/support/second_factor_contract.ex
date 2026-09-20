@@ -38,7 +38,7 @@ defmodule AlexClaw.SecondFactorContract do
         test "every callback is exported" do
           Code.ensure_loaded!(@impl_module)
 
-          for {name, arity} <- [verify: 2, configured?: 0, name: 0, repair: 0] do
+          for {name, arity} <- [verify: 2, configured?: 0, name: 0, misconfigured?: 0] do
             assert function_exported?(@impl_module, name, arity),
                    "#{inspect(@impl_module)} does not export #{name}/#{arity}"
           end
@@ -66,22 +66,23 @@ defmodule AlexClaw.SecondFactorContract do
         end
       end
 
-      describe "repair/0" do
-        # The interesting half — a claim with nothing behind it — is specific to
+      describe "misconfigured?/0" do
+        # The interesting half — a claim with nothing behind it — depends on
         # what each implementation's claim is made of, so it is tested beside
         # the implementation. What every implementation owes is the other half:
-        # a working factor must survive the repair untouched. An instance that
-        # switched off a second factor it could perfectly well have used would
-        # be a worse failure than the one this callback exists to fix.
-        test "leaves a factor that works alone", %{secrets: _secrets} do
-          assert @impl_module.repair() == :ok
-          assert @impl_module.configured?(), "repair/0 disabled a usable second factor"
+        # a factor that works must never be called misconfigured. Something
+        # that answered this wrongly and then acted on the answer is what
+        # erased the secret.
+        test "is false for a factor that works", %{secrets: _secrets} do
+          refute @impl_module.misconfigured?()
+          assert @impl_module.configured?()
         end
 
-        test "is idempotent", %{secrets: _secrets} do
-          assert @impl_module.repair() == :ok
-          assert @impl_module.repair() == :ok
-          assert @impl_module.configured?()
+        test "reports without changing anything", %{secrets: _secrets} do
+          @impl_module.misconfigured?()
+          @impl_module.misconfigured?()
+
+          assert @impl_module.configured?(), "asking the question changed the answer"
         end
       end
 

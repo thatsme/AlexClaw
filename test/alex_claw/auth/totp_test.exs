@@ -177,7 +177,15 @@ defmodule AlexClaw.Auth.TOTPTest do
       assert TOTP.verify(NimbleTOTP.verification_code(secret))
 
       assert AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
-      assert AlexClaw.Config.get("auth.totp.last_used_at") == nil
+
+      # Outside the cache, and now refused rather than answered with nil — a
+      # caller that could not tell the guard from an absent value wrote an empty
+      # default over the secret on every boot.
+      assert :ets.lookup(:alexclaw_config, "auth.totp.last_used_at") == []
+
+      assert_raise ArgumentError, ~r/not served through Config.get/, fn ->
+        AlexClaw.Config.get("auth.totp.last_used_at")
+      end
     end
 
     test "a skill cannot read the marker" do

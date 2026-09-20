@@ -16,7 +16,6 @@ defmodule AlexClaw.Auth.SecondFactor.Totp do
   @behaviour AlexClaw.Auth.SecondFactor
 
   alias AlexClaw.Auth.{RecoveryCodes, TOTP}
-  alias AlexClaw.Config
 
   @impl true
   def verify(secret, method) do
@@ -34,14 +33,7 @@ defmodule AlexClaw.Auth.SecondFactor.Totp do
 
   # The flag is the claim; the secret is the ability to make good on it.
   @impl true
-  def repair, do: disclaim(TOTP.enabled?() and TOTP.secret() == nil)
-
-  defp disclaim(false), do: :ok
-
-  defp disclaim(true) do
-    Config.set("auth.totp.enabled", "false", type: "boolean", category: "auth")
-    :repaired
-  end
+  def misconfigured?, do: TOTP.enabled?() and TOTP.secret() == nil
 
   defp accepted(true, _secret, _method), do: {:ok, :totp}
 

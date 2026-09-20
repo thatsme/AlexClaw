@@ -9,6 +9,11 @@ defmodule AlexClaw.Config.SeederTest do
     test "creates expected default settings" do
       assert :ok = Seeder.seed()
 
+      # Seeding writes rows; it does not warm the cache, and for a key that is
+      # already present it now does nothing at all. Config.init/0 is what loads
+      # the rows into ETS, and Loader calls it on either side of the seed.
+      Config.init()
+
       # Spot-check key defaults across categories
       assert Config.get("telegram.enabled") != nil
       assert Config.get("discord.enabled") != nil

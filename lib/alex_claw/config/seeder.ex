@@ -257,7 +257,7 @@ defmodule AlexClaw.Config.Seeder do
   def seed do
     for {key, value_or_fn, type, category, description, sensitive} <- @defaults do
       opts = [type: type, category: category, description: description, sensitive: sensitive]
-      seed_key(key, Config.get(key), resolve_value(value_or_fn, key), opts, sensitive)
+      seed_key(key, existing_row(key), resolve_value(value_or_fn, key), opts, sensitive)
     end
 
     :ok
@@ -265,6 +265,13 @@ defmodule AlexClaw.Config.Seeder do
 
   defp resolve_value(value_or_fn, key) when is_function(value_or_fn, 1), do: value_or_fn.(key)
   defp resolve_value(value, _key), do: value
+
+  # The row, not Config.get/2. The cache deliberately does not hold every key —
+  # the TOTP secret is kept out of it — so asking the cache whether a key is
+  # already set answers "no" about values that are very much set, and the
+  # default then lands on top of them. That erased the second factor on every
+  # boot: enrol, restart, and the secret was an empty string again.
+  defp existing_row(key), do: AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: key)
 
   defp seed_key(key, nil, value, opts, _sensitive), do: Config.set(key, value, opts)
 

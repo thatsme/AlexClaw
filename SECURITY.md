@@ -353,7 +353,7 @@ behaviour, permission checks). Other safety measures:
 - Writes are confined to `<skills_dir>/pending/` until the skill is approved
 - Generated workflows are created in disabled state
 - All generated code is logged via `Logger.info` for audit
-- Always uses `tier: :local` — zero cloud API cost
+- `/coder` always requests `tier: :local` — zero cloud API cost. **Forge does not**: its provider selector lists every configured provider, so generation can be routed to a cloud model. The default is local. Choosing otherwise puts a third party in the loop for code that will be compiled into the running VM, and widens the trust boundary described above beyond the local model
 - Retry bound prevents infinite loops (configurable, default 3)
 - `run/1` is exercised through `SafeExecutor` with a timeout during validation, never called directly, and only for contained code
 

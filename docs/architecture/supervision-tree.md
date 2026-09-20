@@ -48,10 +48,18 @@ a registered process name, not a module.
 `Reasoning.Supervisor` manage a variable number of children: one per running
 skill, per circuit breaker, and per reasoning session.
 
-**ETS owners are supervised processes** — `Config.Loader`, `SkillRegistry`,
-`UsageTracker`, `RateLimiter.Server` and `LogBuffer` each own a table. The table
-dies with its owner and is rebuilt on restart, so no cache outlives the process
-responsible for it.
+**Some ETS owners are supervised processes** — `Config.Loader`, `SkillRegistry`,
+`UsageTracker`, `RateLimiter.Server` and `LogBuffer` each create their table in
+`init/1`. The table dies with its owner and is rebuilt on restart, which is the
+property you want: no cache outlives the process responsible for it.
+
+**Three tables do not work this way.** `:totp_challenges`,
+`:google_oauth_state` and the query-rewriter cache are created lazily by
+whichever process calls them first, which can be a LiveView or a short-lived
+task. Such a table dies when that process does, taking its contents with it.
+For the rewriter cache that costs a cold start; for the other two it loses
+pending 2FA challenges and in-flight OAuth state. This is a known defect, not a
+design — see the batch 2d plan.
 
 ## Conditional children
 

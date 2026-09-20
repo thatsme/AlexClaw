@@ -32,10 +32,16 @@ editor renders and the skill discards is a control that does nothing.
 
 ## What a skill may do
 
-Every side effect goes through `AlexClaw.Skills.SkillAPI`, which checks the
-calling module's declared permissions first. The full function list, what each
-permission grants, and which calls redact or refuse data is in the
-[Skill API Reference](../skills/skill-api.md).
+Skills are **expected** to reach the outside through
+`AlexClaw.Skills.SkillAPI`, which checks the calling module's declared
+permissions first. Whether they *must* is a different question, and
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md)
+answers it — a hand-written skill runs in the same VM with full privileges and
+can call `File`, `Repo` or `System` without going through the API at all. The
+declared permissions are a contract, not a sandbox.
+
+The full function list, what each permission grants, and which calls redact or
+refuse data is in the [Skill API Reference](../skills/skill-api.md).
 
 Two properties are worth knowing here because they shape how skills are
 composed: secrets are not readable through the config call, and four privileged
@@ -46,11 +52,14 @@ core skills cannot be invoked from inside another skill. Both are stated in
 
 A skill fetching data from outside declares `def external, do: true`. The
 executor then passes its output through `AlexClaw.ContentSanitizer` before the
-result reaches the next step, so injected instructions are stripped structurally
-rather than by remembering to add a sanitise step.
+result reaches the next step, so the filtering happens by structure rather than
+by remembering to add a sanitise step.
 
-Dynamic skills are AST-scanned at load: an HTTP or socket call without the
-declaration is rejected.
+The sanitizer is heuristic: it filters known injection shapes, it does not
+guarantee their absence. Its layers and its known limitations are listed in
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md), which
+also covers what the load-time scan does and does not catch about undeclared
+external calls.
 
 ## Catalogue
 
@@ -76,7 +85,7 @@ declaration is rejected.
 | `shell` | `Shell` | Whitelisted OS commands for container introspection |
 | `coder` | `Coder` | Generate a new skill from a goal |
 
-The last four are privileged: they reach the host, the filesystem or the
+The last four are privileged: they reach the container, its filesystem or the
 database, and are treated differently from everywhere else in the system.
 
 The composable pattern is worth noting: `rss_fetch → llm_score` does what
@@ -110,8 +119,13 @@ guarantee are stated in
 
 ## Generated skills
 
-`/coder` and the Forge page generate a skill from a natural-language goal using
-the local model, at no cloud cost.
+`/coder` and the Forge page generate a skill from a natural-language goal.
+
+The two paths differ in which model they use. `/coder` always requests the
+local tier. **Forge offers a provider selector** listing every configured
+provider, so generation there can be routed to a cloud model — the default is
+local, but it is a choice, and choosing a cloud provider puts a third party in
+the loop for code that will be compiled into the running VM.
 
 `AlexClaw.Skills.CodeGenerator` runs the loop: build a prompt with retrieved
 context, ask the model, extract the code block, and stage it — **into a pending

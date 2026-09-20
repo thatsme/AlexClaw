@@ -6,7 +6,20 @@ defmodule AlexClaw.Config.SeededKeysTest do
   # source tree and fail when a key is seeded with no reader, or read with no
   # seed — the two directions the same bug has already appeared in.
 
+  alias AlexClaw.Config.Seeder
+  alias AlexClaw.Skills.Shell
+
   @seeder "lib/alex_claw/config/seeder.ex"
+
+  # The shell skill enforces these three lists; the seeder seeds them. Before
+  # 0.3.26 it seeded a second literal copy, and the copy kept granting `curl`,
+  # `cat /proc` and `bin/alex_claw` for four releases after the compiled default
+  # dropped them. The seeded value must now come from the module that enforces it.
+  @shell_lists %{
+    "shell.whitelist" => {Shell, :default_whitelist},
+    "shell.blocklist" => {Shell, :default_blocklist},
+    "shell.exact_commands" => {Shell, :default_exact_commands}
+  }
 
   # Built at runtime from the skill name: Config.get("prompts.context.#{skill}").
   @dynamically_read ~w(
@@ -60,6 +73,29 @@ defmodule AlexClaw.Config.SeededKeysTest do
 
     assert unread == [],
            "seeded but never read: #{inspect(unread)} — wire each one or remove key, seed and UI entry"
+  end
+
+  describe "shell defaults have one source" do
+    test "the seeded default equals the compiled default" do
+      for {key, {module, fun}} <- @shell_lists do
+        seeded = key |> Seeder.shell_default() |> Jason.decode!() |> MapSet.new()
+        compiled = MapSet.new(apply(module, fun, []))
+
+        assert seeded == compiled,
+               "#{key}: seeded #{inspect(MapSet.to_list(seeded))} but #{inspect(module)} enforces #{inspect(MapSet.to_list(compiled))}"
+      end
+    end
+
+    test "the seeder holds no second literal for them" do
+      source = File.read!(@seeder)
+
+      for key <- Map.keys(@shell_lists) do
+        [entry] = Regex.run(~r/\{"#{Regex.escape(key)}",[^\n]*\n?[^\n]*/, source)
+
+        assert entry =~ "shell_default",
+               "#{key} is seeded from a literal again — seed it from Shell instead"
+      end
+    end
   end
 
   test "every key read in lib/ is seeded" do

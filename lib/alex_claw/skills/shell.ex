@@ -26,6 +26,45 @@ defmodule AlexClaw.Skills.Shell do
   @default_timeout_seconds 30
   @default_max_output_chars 4000
 
+  # Prefixes the default allowlist carried until 0.3.22. Each reached well past
+  # container introspection: `cat /proc` reads /proc/self/environ, `ps` as a
+  # prefix allows `ps eww`, `bin/alex_claw eval` runs arbitrary Elixir, and
+  # curl/git/ping/nslookup reach the network.
+  @withdrawn_prefixes ["ps", "cat /proc", "ping", "nslookup", "curl", "bin/alex_claw", "git"]
+
+  @doc """
+  Command prefixes allowed by default.
+
+  This is the single source of the default — the seeder seeds it rather than
+  carrying a second copy, which is how the two came to disagree before 0.3.26.
+  """
+  @spec default_whitelist() :: [String.t()]
+  def default_whitelist, do: @default_whitelist
+
+  @doc "Commands allowed by default only as an exact match, with no arguments."
+  @spec default_exact_commands() :: [String.t()]
+  def default_exact_commands, do: @default_exact_commands
+
+  @doc "Shell metacharacters rejected by default wherever they appear."
+  @spec default_blocklist() :: [String.t()]
+  def default_blocklist, do: @default_blocklist
+
+  @doc "Prefixes the default allowlist dropped in 0.3.22."
+  @spec withdrawn_prefixes() :: [String.t()]
+  def withdrawn_prefixes, do: @withdrawn_prefixes
+
+  @doc """
+  Withdrawn prefixes still present in the configured allowlist.
+
+  A configured list is never overwritten, so a database seeded before 0.3.26 can
+  keep granting what the default dropped. Empty when nothing withdrawn is in use.
+  """
+  @spec withdrawn_in_use() :: [String.t()]
+  def withdrawn_in_use do
+    configured = configured_list("shell.whitelist", @default_whitelist)
+    Enum.filter(@withdrawn_prefixes, &(&1 in configured))
+  end
+
   @impl true
   @spec description() :: String.t()
   def description, do: "Execute whitelisted OS commands for container introspection"

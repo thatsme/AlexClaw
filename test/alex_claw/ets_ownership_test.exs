@@ -357,16 +357,11 @@ defmodule AlexClaw.ETSOwnershipTest do
     then every 5s, up to a minute — and stops the boot rather than starting an
     agent on defaults nobody chose.
     """,
-    "AlexClaw.Cluster.Manager" => """
-    Found by this check, not yet decided. auto_register_self/0 writes this
-    node's row from init/1, so the same crash loop applies, and the plan for
-    batch 2d never listed it.
-    """,
     "AlexClaw.Reasoning.Loop" => """
-    Found by this check, not yet decided. Not a boot dependency: a
-    DynamicSupervisor starts one per reasoning run (loop.ex:63), so its init/1
-    blocks whoever asked for the run rather than the supervision tree. Refusing
-    to start a run when the database is down may well be correct.
+    Decided: a run that cannot record its session must not start, and the
+    failure goes to the caller rather than the tree. A DynamicSupervisor starts
+    one per reasoning run (loop.ex:63), so this init/1 blocks whoever asked for
+    the run and nothing else.
     """
   }
 

@@ -12,6 +12,8 @@ defmodule AlexClaw.Cluster.Manager do
   require Logger
 
   import Ecto.Query
+
+  alias AlexClaw.BootRetry
   alias AlexClaw.Workflows.Executor
 
   # --- Client API ---
@@ -38,9 +40,22 @@ defmodule AlexClaw.Cluster.Manager do
     Logger.info("ClusterManager started on #{node()}")
     :net_kernel.monitor_nodes(true)
     :timer.send_interval(60_000, :refresh_statuses)
-    auto_register_self()
     Process.send_after(self(), :connect_known_nodes, 5_000)
-    {:ok, %{}}
+
+    # This node's own row is a database write. Made here it would hold up every
+    # child started after this one, and an unreachable server raises rather
+    # than returning, so a database a few seconds behind the app would take the
+    # boot with it.
+    #
+    # Non-blocking, unlike Config.Loader: a node can run for a moment without
+    # its row. The row says "this node is up", and it says so just as well a
+    # second later.
+    {:ok, %{attempts: 0}, {:continue, :register_self}}
+  end
+
+  @impl true
+  def handle_continue(:register_self, state) do
+    {:noreply, register(to_string(node()), state)}
   end
 
   @impl true
@@ -53,9 +68,12 @@ defmodule AlexClaw.Cluster.Manager do
   def handle_info({:nodeup, remote_node}, state) do
     name = to_string(remote_node)
     Logger.info("Node connected: #{name}")
-    auto_register_node(name)
-    {:noreply, state}
+    {:noreply, register(name, state)}
   end
+
+  # A retry owed from either path. The database is what failed, not the name,
+  # so one attempt count covers both.
+  def handle_info({:register, name}, state), do: {:noreply, register(name, state)}
 
   @impl true
   def handle_info({:nodedown, remote_node}, state) do
@@ -92,35 +110,69 @@ defmodule AlexClaw.Cluster.Manager do
 
   # --- Internal ---
 
-  defp auto_register_self do
-    self_name = to_string(node())
+  # A node with no name has nothing to register: the VM is not distributed.
+  defp register("nonode@nohost", state), do: state
+  defp register(name, state), do: settle(auto_register_node(name), name, state)
 
-    if self_name != "nonode@nohost" do
-      auto_register_node(self_name)
-    end
+  defp settle(:ok, _name, state), do: %{state | attempts: 0}
+
+  defp settle({:error, reason}, name, state) do
+    attempts =
+      BootRetry.schedule({:register, name}, state.attempts, "Cluster node #{name}", reason)
+
+    %{state | attempts: attempts}
   end
 
+  # `:ok` means nothing more is owed — the row is there, or the attempt failed
+  # in a way that trying again will not mend. `{:error, reason}` is the database
+  # being unreachable, which is worth another go.
+  #
+  # Broad on purpose: every call in here is a database call, an unreachable
+  # server raises DBConnection.ConnectionError, and a connection that goes away
+  # exits rather than raising.
   defp auto_register_node(name) do
     case AlexClaw.Cluster.get_by_name(name) do
-      nil ->
-        label = name |> String.split("@") |> List.last()
-
-        case AlexClaw.Cluster.create_node(%{
-               name: name,
-               label: label,
-               status: "connected",
-               last_seen_at: DateTime.utc_now()
-             }) do
-          {:ok, _} -> Logger.info("Auto-registered cluster node: #{name}")
-          {:error, _} -> Logger.warning("Failed to auto-register node: #{name}")
-        end
-
-      existing ->
-        AlexClaw.Cluster.update_node(existing, %{
-          status: "connected",
-          last_seen_at: DateTime.utc_now()
-        })
+      nil -> create_node(name)
+      existing -> touch_node(existing)
     end
+  rescue
+    e -> {:error, Exception.message(e)}
+  catch
+    :exit, reason -> {:error, inspect(reason)}
+  end
+
+  defp create_node(name) do
+    label = name |> String.split("@") |> List.last()
+
+    AlexClaw.Cluster.create_node(%{
+      name: name,
+      label: label,
+      status: "connected",
+      last_seen_at: DateTime.utc_now()
+    })
+    |> registered(name)
+  end
+
+  # A node that was already known is a heartbeat, not news, so it is not logged.
+  defp touch_node(existing) do
+    AlexClaw.Cluster.update_node(existing, %{
+      status: "connected",
+      last_seen_at: DateTime.utc_now()
+    })
+
+    :ok
+  end
+
+  defp registered({:ok, _node}, name) do
+    Logger.info("Auto-registered cluster node: #{name}")
+    :ok
+  end
+
+  # A changeset that will not validate is not a database that will be back in a
+  # second, so this is not retried.
+  defp registered({:error, _changeset}, name) do
+    Logger.warning("Failed to auto-register node: #{name}")
+    :ok
   end
 
   defp do_receive(workflow_name, data, source_node) do

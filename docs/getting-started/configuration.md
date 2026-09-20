@@ -25,6 +25,7 @@ These must be set in `.env` before first boot:
 
 | Variable | Description |
 |---|---|
+| `DATABASE_USERNAME` | PostgreSQL role the app connects as |
 | `DATABASE_PASSWORD` | PostgreSQL password |
 | `SECRET_KEY_BASE` | Phoenix session secret (`openssl rand -base64 64`) |
 | `ADMIN_PASSWORD` | Web interface login password |

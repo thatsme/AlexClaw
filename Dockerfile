@@ -52,7 +52,12 @@ COPY config config/
 COPY lib lib/
 COPY priv priv/
 COPY test test/
-COPY ALEXCLAW_ARCHITECTURE.md SECURITY.md ./
+# The docs are in the image because documentation_test.exs checks them against
+# the source. Without them the checks would pass by finding nothing.
+COPY docs docs/
+COPY mkdocs.yml .env.example ./
+COPY ALEXCLAW_ARCHITECTURE.md CLA.md CODE_OF_CONDUCT.md CODING_CONVENTIONS.md ./
+COPY CONTRIBUTING.md INSTALLATION.md README.md ROADMAP.md SECURITY.md SELF_AWARENESS.md ./
 
 RUN mix compile
 CMD ["sh", "-c", "mix ecto.create && mix ecto.migrate && mix test"]

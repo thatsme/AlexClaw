@@ -92,7 +92,7 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
 
       refute TOTP.enabled?()
       assert AlexClaw.Config.get("auth.totp.pending_secret")
-      refute AlexClaw.Auth.TOTP.secret()
+      refute TOTP.secret()
     end
   end
 

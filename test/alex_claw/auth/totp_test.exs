@@ -3,6 +3,7 @@ defmodule AlexClaw.Auth.TOTPTest do
   @moduletag :integration
 
   alias AlexClaw.Auth.{Challenge, CodeAttempts, TOTP}
+  alias AlexClaw.Config
   alias AlexClaw.Config.Crypto
 
   describe "setup/0" do
@@ -25,7 +26,7 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "pending secret is encrypted at rest in database" do
       {:ok, _} = TOTP.setup()
-      record = AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.pending_secret")
+      record = Repo.get_by(Config.Setting, key: "auth.totp.pending_secret")
       assert record.sensitive == true
       assert Crypto.encrypted?(record.value)
     end
@@ -54,7 +55,7 @@ defmodule AlexClaw.Auth.TOTPTest do
       code = NimbleTOTP.verification_code(secret)
       :ok = TOTP.confirm_setup(code)
 
-      record = AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.secret")
+      record = Repo.get_by(Config.Setting, key: "auth.totp.secret")
       assert record.sensitive == true
       assert Crypto.encrypted?(record.value)
     end
@@ -176,7 +177,7 @@ defmodule AlexClaw.Auth.TOTPTest do
 
       assert TOTP.verify(NimbleTOTP.verification_code(secret))
 
-      assert AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
+      assert Repo.get_by(Config.Setting, key: "auth.totp.last_used_at")
 
       # Outside the cache, and now refused rather than answered with nil — a
       # caller that could not tell the guard from an absent value wrote an empty
@@ -184,7 +185,7 @@ defmodule AlexClaw.Auth.TOTPTest do
       assert :ets.lookup(:alexclaw_config, "auth.totp.last_used_at") == []
 
       assert_raise ArgumentError, ~r/not served through Config.get/, fn ->
-        AlexClaw.Config.get("auth.totp.last_used_at")
+        Config.get("auth.totp.last_used_at")
       end
     end
 

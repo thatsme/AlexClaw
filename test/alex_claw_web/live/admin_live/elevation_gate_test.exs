@@ -9,7 +9,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
   use AlexClawWeb.ConnCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{AuditLog, Elevation, Policy}
+  alias AlexClaw.Auth.{AuditLog, Elevation, Policy, TOTP}
   alias AlexClaw.{Cluster, LLM, Repo, Resources, Workflows}
 
   setup do
@@ -421,7 +421,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
     test "nor the secret behind it", ctx do
       enable_totp()
       {:ok, _} = Elevation.grant(ctx.sid)
-      secret = AlexClaw.Auth.TOTP.secret()
+      secret = TOTP.secret()
 
       {view, _html} = open(ctx.conn, ctx.sid, "/config")
 
@@ -431,7 +431,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
         "type" => "string"
       })
 
-      assert AlexClaw.Auth.TOTP.secret() == secret
+      assert TOTP.secret() == secret
     end
 
     test "ordinary auth keys are still editable under an elevation", ctx do

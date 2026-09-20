@@ -1,12 +1,14 @@
 defmodule AlexClawWeb.AdminLive.Cluster do
   @moduledoc "LiveView page for managing BEAM cluster nodes."
   use Phoenix.LiveView
+  alias AlexClawWeb.Live.Elevation
 
   alias AlexClaw.Cluster
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket = Elevation.assign_elevation(socket, session)
     if connected?(socket), do: :timer.send_interval(30_000, :refresh)
 
     self_name = Cluster.self_name()
@@ -18,6 +20,11 @@ defmodule AlexClawWeb.AdminLive.Cluster do
        self_node: self_name,
        show_form: false
      )}
+  end
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
   end
 
   @impl true
@@ -41,6 +48,26 @@ defmodule AlexClawWeb.AdminLive.Cluster do
 
   @impl true
   def handle_event("add_node", %{"name" => name, "label" => label}, socket) do
+    Elevation.gate(socket, "cluster node added: #{name}", fn ->
+      add_node_write(name, label, socket)
+    end)
+  end
+
+  @impl true
+  def handle_event("connect", %{"id" => id}, socket) do
+    Elevation.gate(socket, "cluster node connect: id #{id}", fn -> connect_write(id, socket) end)
+  end
+
+  @impl true
+  def handle_event("delete", %{"id" => id}, socket) do
+    Elevation.gate(socket, "cluster node deleted: id #{id}", fn -> delete_write(id, socket) end)
+  end
+
+  def handle_event("unlock_editing", _params, socket) do
+    Elevation.unlock(socket)
+  end
+
+  defp add_node_write(name, label, socket) do
     case Cluster.create_node(%{name: String.trim(name), label: String.trim(label)}) do
       {:ok, _} ->
         {:noreply,
@@ -60,16 +87,14 @@ defmodule AlexClawWeb.AdminLive.Cluster do
     end
   end
 
-  @impl true
-  def handle_event("connect", %{"id" => id}, socket) do
+  defp connect_write(id, socket) do
     node = Cluster.get_node!(String.to_integer(id))
     status = if Cluster.node_ping(node.name) == :pong, do: "connected", else: "disconnected"
     Cluster.update_node(node, %{status: status, last_seen_at: DateTime.utc_now()})
     {:noreply, assign(socket, nodes: remote_nodes(socket.assigns.self_node))}
   end
 
-  @impl true
-  def handle_event("delete", %{"id" => id}, socket) do
+  defp delete_write(id, socket) do
     node = Cluster.get_node!(String.to_integer(id))
     Cluster.node_ping(node.name)
     Cluster.delete_node(node)

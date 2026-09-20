@@ -4,7 +4,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
   use Phoenix.LiveView
 
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.Executor
+  alias AlexClaw.Workflows.Launch
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -28,30 +28,25 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
   @impl true
   @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
+  # Running a workflow from here is the same capability as running it from the
+  # Workflows page, so it answers to the same rule rather than to a copy of it.
   def handle_event("run_now", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, wf_id} ->
-        case Workflows.get_workflow(wf_id) do
-          {:ok, workflow} ->
-            Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-              Executor.run(workflow.id)
-            end)
-
-            {:noreply, put_flash(socket, :info, "Workflow '#{workflow.name}' triggered")}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Workflow not found")}
-        end
-
-      :error ->
-        {:noreply, put_flash(socket, :error, "Invalid workflow ID")}
-    end
+    {:noreply, trigger(parse_id(id), socket)}
   end
 
-  @impl true
   def handle_event("refresh", _, socket) do
     {:noreply, assign(socket, jobs: list_jobs())}
   end
+
+  defp trigger({:ok, workflow_id}, socket), do: found(Workflows.get_workflow(workflow_id), socket)
+  defp trigger(:error, socket), do: put_flash(socket, :error, "Invalid workflow ID")
+
+  defp found({:ok, workflow}, socket) do
+    {kind, message} = Launch.describe(Launch.start(workflow), workflow)
+    put_flash(socket, kind, message)
+  end
+
+  defp found({:error, :not_found}, socket), do: put_flash(socket, :error, "Workflow not found")
 
   defp list_jobs do
     quantum_jobs =

@@ -2,10 +2,12 @@ defmodule AlexClawWeb.AdminLive.Config do
   @moduledoc "LiveView page for viewing and editing key-value configuration settings."
 
   use Phoenix.LiveView
+  alias AlexClawWeb.Live.Elevation
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket = Elevation.assign_elevation(socket, session)
     if connected?(socket), do: AlexClaw.Config.subscribe()
     settings = AlexClaw.Config.list()
 
@@ -19,6 +21,11 @@ defmodule AlexClawWeb.AdminLive.Config do
        editing: nil,
        cluster_nodes: cluster_node_names()
      )}
+  end
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
   end
 
   @impl true
@@ -36,42 +43,7 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   @impl true
   def handle_event("save", params, socket) do
-    key = params["key"]
-    value = params["value"]
-
-    # For sensitive fields, empty value keeps current UNLESS explicitly clearing
-    if sensitive_key?(key) && (value == "" || is_nil(value)) && socket.assigns.editing &&
-         params["_clear"] != "true" do
-      {:noreply,
-       socket
-       |> put_flash(
-         :info,
-         "Setting '#{key}' unchanged (submit empty to keep current, use Clear to erase)"
-       )
-       |> assign(show_form: false, editing: nil)}
-    else
-      AlexClaw.Config.set(key, value || "",
-        type: params["type"],
-        description: params["description"],
-        category: params["category"] |> to_string() |> String.trim() |> String.downcase(),
-        sensitive: sensitive_key?(key)
-      )
-
-      # When enabling a gateway, auto-assign it to the current node
-      auto_assign_gateway_node(key, value)
-
-      settings = AlexClaw.Config.list()
-
-      {:noreply,
-       socket
-       |> put_flash(:info, "Setting '#{key}' saved")
-       |> assign(
-         settings: settings,
-         grouped: group_by_category(settings),
-         show_form: false,
-         editing: nil
-       )}
-    end
+    save_setting(gateway_managed?(params["key"]), params, socket)
   end
 
   @impl true
@@ -93,15 +65,7 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   @impl true
   def handle_event("delete", %{"key" => key}, socket) do
-    AlexClaw.Config.delete(key)
-
-    {:noreply,
-     socket
-     |> put_flash(:info, "Setting '#{key}' deleted")
-     |> assign(
-       settings: AlexClaw.Config.list(),
-       grouped: group_by_category(AlexClaw.Config.list())
-     )}
+    delete_setting(gateway_managed?(key), key, socket)
   end
 
   @impl true
@@ -116,7 +80,91 @@ defmodule AlexClawWeb.AdminLive.Config do
     {:noreply, assign(socket, collapsed: collapsed)}
   end
 
+  def handle_event("unlock_editing", _params, socket) do
+    Elevation.unlock(socket)
+  end
+
   @sensitive_patterns ~w(api_key token password secret)
+
+  # auth.totp.* is written by /setup 2fa and /disable 2fa on a gateway and
+  # nowhere else. Elevation does not open it: the setting that decides whether
+  # elevation is required at all must not be editable from behind that gate,
+  # or the gate can be switched off through the page it protects.
+  defp save_setting(true, params, socket) do
+    {:noreply, put_flash(socket, :error, managed_message(params["key"]))}
+  end
+
+  defp save_setting(false, params, socket) do
+    Elevation.gate(socket, setting_change(params), fn ->
+      key = params["key"]
+      value = params["value"]
+
+      # For sensitive fields, empty value keeps current UNLESS explicitly clearing
+      if sensitive_key?(key) && (value == "" || is_nil(value)) && socket.assigns.editing &&
+           params["_clear"] != "true" do
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           "Setting '#{key}' unchanged (submit empty to keep current, use Clear to erase)"
+         )
+         |> assign(show_form: false, editing: nil)}
+      else
+        AlexClaw.Config.set(key, value || "",
+          type: params["type"],
+          description: params["description"],
+          category: params["category"] |> to_string() |> String.trim() |> String.downcase(),
+          sensitive: sensitive_key?(key)
+        )
+
+        # When enabling a gateway, auto-assign it to the current node
+        auto_assign_gateway_node(key, value)
+
+        settings = AlexClaw.Config.list()
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Setting '#{key}' saved")
+         |> assign(
+           settings: settings,
+           grouped: group_by_category(settings),
+           show_form: false,
+           editing: nil
+         )}
+      end
+    end)
+  end
+
+  defp gateway_managed?(key) when is_binary(key), do: String.starts_with?(key, "auth.totp.")
+  defp gateway_managed?(_key), do: false
+
+  defp managed_message(key) do
+    "#{key} is managed from a gateway — use /setup 2fa or /disable 2fa"
+  end
+
+  defp setting_change(params) do
+    key = params["key"]
+    Elevation.describe_setting(key, AlexClaw.Config.get(key), params["value"])
+  end
+
+  defp delete_setting(true, key, socket) do
+    {:noreply, put_flash(socket, :error, managed_message(key))}
+  end
+
+  # Deleting auth.totp.enabled disables 2FA exactly as setting it to false does.
+  defp delete_setting(false, key, socket) do
+    Elevation.gate(socket, "#{key}: deleted", fn ->
+      AlexClaw.Config.delete(key)
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "Setting '#{key}' deleted")
+       |> assign(
+         settings: AlexClaw.Config.list(),
+         grouped: group_by_category(AlexClaw.Config.list())
+       )}
+    end)
+  end
 
   defp sensitive_key?(key) do
     key_down = String.downcase(key)

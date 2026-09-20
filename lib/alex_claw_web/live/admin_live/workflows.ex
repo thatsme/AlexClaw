@@ -1,15 +1,17 @@
 defmodule AlexClawWeb.AdminLive.Workflows do
   @moduledoc "LiveView page for creating, editing, and managing workflows and their steps."
   use Phoenix.LiveView
+  alias AlexClawWeb.Live.Elevation
 
-  alias AlexClaw.Auth.Gate
   alias AlexClaw.Resources
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.{Executor, SkillRegistry}
+  alias AlexClaw.Workflows.{Launch, SkillRegistry}
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket = Elevation.assign_elevation(socket, session)
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, "skills:registry")
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, AlexClaw.Workflows.Registry.topic())
@@ -95,34 +97,18 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("save_workflow", params, socket) do
-    editing = socket.assigns.editing
+    Elevation.gate(socket, "workflow saved: #{params["name"]}", fn ->
+      editing = socket.assigns.editing
 
-    editing
-    |> persist_workflow(workflow_attrs(params, editing))
-    |> saved_socket(socket)
+      editing
+      |> persist_workflow(workflow_attrs(params, editing))
+      |> saved_socket(socket)
+    end)
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, wf_id} ->
-        case Workflows.get_workflow(wf_id) do
-          {:ok, workflow} ->
-            {:ok, _} = Workflows.delete_workflow(workflow)
-            Workflows.SchedulerSync.sync()
-
-            {:noreply,
-             socket
-             |> put_flash(:info, "Workflow deleted")
-             |> assign(workflows: Workflows.list_workflows())}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Workflow not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
+    Elevation.gate(socket, "workflow deleted: id #{id}", fn -> delete_write(id, socket) end)
   end
 
   @impl true
@@ -135,7 +121,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("duplicate", %{"id" => id}, socket) do
-    id |> parse_id() |> duplicate_parsed(socket)
+    Elevation.gate(socket, "workflow duplicated: id #{id}", fn ->
+      id |> parse_id() |> duplicate_parsed(socket)
+    end)
   end
 
   @impl true
@@ -155,11 +143,13 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("import_workflow", _params, socket) do
-    socket
-    |> consume_uploaded_entries(:workflow_file, fn %{path: tmp_path}, _entry ->
-      {:ok, read_upload(File.read(tmp_path))}
+    Elevation.gate(socket, "workflow imported", fn ->
+      socket
+      |> consume_uploaded_entries(:workflow_file, fn %{path: tmp_path}, _entry ->
+        {:ok, read_upload(File.read(tmp_path))}
+      end)
+      |> apply_import(socket)
     end)
-    |> apply_import(socket)
   end
 
   @impl true
@@ -169,44 +159,9 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("save_step", params, socket) do
-    step = AlexClaw.Repo.get!(AlexClaw.Workflows.WorkflowStep, socket.assigns.editing_step.id)
-
-    case parse_config_json(params["step_config"]) do
-      {:ok, config} ->
-        config = merge_resilience_config(config, params)
-        routes = parse_routes_from_params(params, params["step_skill"] || step.skill)
-
-        skill = params["step_skill"] || step.skill
-
-        attrs =
-          %{
-            name: params["step_name"],
-            skill: skill,
-            config: config,
-            input_from: parse_input_from(params["step_input_from"]),
-            routes: routes
-          }
-          |> maybe_put(:llm_tier, blank_to_nil(params["step_llm_tier"]))
-          |> maybe_put(:llm_model, blank_to_nil(params["step_llm_model"]))
-          |> maybe_put(:prompt_template, blank_to_nil(params["step_prompt_template"]))
-
-        case Workflows.update_step(step, attrs) do
-          {:ok, updated_step} ->
-            workflow = Workflows.get_workflow!(socket.assigns.editing.id)
-            fresh_step = Enum.find(workflow.steps, &(&1.id == updated_step.id))
-
-            {:noreply,
-             socket
-             |> put_flash(:info, "Step saved")
-             |> assign(editing: workflow, editing_step: fresh_step)}
-
-          {:error, changeset} ->
-            {:noreply, put_flash(socket, :error, "Step error: #{inspect(changeset.errors)}")}
-        end
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Invalid config JSON: #{reason}")}
-    end
+    Elevation.gate(socket, "workflow step saved: #{params["step_name"]}", fn ->
+      save_step_write(params, socket)
+    end)
   end
 
   @impl true
@@ -323,6 +278,138 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("add_step", params, socket) do
+    Elevation.gate(socket, "workflow step added: #{params["step_skill"]}", fn ->
+      add_step_write(params, socket)
+    end)
+  end
+
+  @impl true
+  def handle_event("remove_step", %{"id" => id}, socket) do
+    Elevation.gate(socket, "workflow step removed: id #{id}", fn ->
+      remove_step_write(id, socket)
+    end)
+  end
+
+  @impl true
+  def handle_event("move_step_up", %{"id" => id}, socket) do
+    Elevation.gate(socket, "workflow step moved up: id #{id}", fn ->
+      move_step_up_write(id, socket)
+    end)
+  end
+
+  @impl true
+  def handle_event("move_step_down", %{"id" => id}, socket) do
+    Elevation.gate(socket, "workflow step moved down: id #{id}", fn ->
+      move_step_down_write(id, socket)
+    end)
+  end
+
+  @impl true
+  def handle_event("assign_resource", %{"resource_id" => resource_id}, socket) do
+    Elevation.gate(socket, "workflow resource assigned: id #{resource_id}", fn ->
+      case parse_id(resource_id) do
+        {:ok, rid} ->
+          workflow = socket.assigns.editing
+          Workflows.assign_resource(workflow, rid)
+          workflow = Workflows.get_workflow!(workflow.id)
+
+          {:noreply,
+           assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
+
+        :error ->
+          {:noreply, socket}
+      end
+    end)
+  end
+
+  @impl true
+  def handle_event("unassign_resource", %{"resource_id" => resource_id}, socket) do
+    Elevation.gate(socket, "workflow resource unassigned: id #{resource_id}", fn ->
+      case parse_id(resource_id) do
+        {:ok, rid} ->
+          workflow = socket.assigns.editing
+          Workflows.unassign_resource(workflow, rid)
+          workflow = Workflows.get_workflow!(workflow.id)
+
+          {:noreply,
+           assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
+
+        :error ->
+          {:noreply, socket}
+      end
+    end)
+  end
+
+  defp delete_write(id, socket) do
+    case parse_id(id) do
+      {:ok, wf_id} ->
+        case Workflows.get_workflow(wf_id) do
+          {:ok, workflow} ->
+            {:ok, _} = Workflows.delete_workflow(workflow)
+            Workflows.SchedulerSync.sync()
+
+            {:noreply,
+             socket
+             |> put_flash(:info, "Workflow deleted")
+             |> assign(workflows: Workflows.list_workflows())}
+
+          {:error, :not_found} ->
+            {:noreply, put_flash(socket, :error, "Workflow not found")}
+        end
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
+  defp save_step_write(params, socket) do
+    step = AlexClaw.Repo.get!(AlexClaw.Workflows.WorkflowStep, socket.assigns.editing_step.id)
+
+    params["step_config"]
+    |> parse_config_json()
+    |> save_step_config(step, params, socket)
+  end
+
+  defp save_step_config({:error, reason}, _step, _params, socket) do
+    {:noreply, put_flash(socket, :error, "Invalid config JSON: #{reason}")}
+  end
+
+  defp save_step_config({:ok, config}, step, params, socket) do
+    step
+    |> Workflows.update_step(step_attrs(config, step, params))
+    |> step_saved(socket)
+  end
+
+  defp step_attrs(config, step, params) do
+    skill = params["step_skill"] || step.skill
+
+    %{
+      name: params["step_name"],
+      skill: skill,
+      config: merge_resilience_config(config, params),
+      input_from: parse_input_from(params["step_input_from"]),
+      routes: parse_routes_from_params(params, skill)
+    }
+    |> maybe_put(:llm_tier, blank_to_nil(params["step_llm_tier"]))
+    |> maybe_put(:llm_model, blank_to_nil(params["step_llm_model"]))
+    |> maybe_put(:prompt_template, blank_to_nil(params["step_prompt_template"]))
+  end
+
+  defp step_saved({:ok, updated_step}, socket) do
+    workflow = Workflows.get_workflow!(socket.assigns.editing.id)
+    fresh_step = Enum.find(workflow.steps, &(&1.id == updated_step.id))
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Step saved")
+     |> assign(editing: workflow, editing_step: fresh_step)}
+  end
+
+  defp step_saved({:error, changeset}, socket) do
+    {:noreply, put_flash(socket, :error, "Step error: #{inspect(changeset.errors)}")}
+  end
+
+  defp add_step_write(params, socket) do
     workflow = socket.assigns.editing
 
     case parse_config_json(params["step_config"]) do
@@ -355,8 +442,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
   end
 
-  @impl true
-  def handle_event("remove_step", %{"id" => id}, socket) do
+  defp remove_step_write(id, socket) do
     case parse_id(id) do
       {:ok, step_id} ->
         case AlexClaw.Repo.get(AlexClaw.Workflows.WorkflowStep, step_id) do
@@ -374,51 +460,17 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
   end
 
-  @impl true
-  def handle_event("move_step_up", %{"id" => id}, socket) do
+  defp move_step_up_write(id, socket) do
     case parse_id(id) do
       {:ok, step_id} -> reorder_step(socket, step_id, :up)
       :error -> {:noreply, socket}
     end
   end
 
-  @impl true
-  def handle_event("move_step_down", %{"id" => id}, socket) do
+  defp move_step_down_write(id, socket) do
     case parse_id(id) do
       {:ok, step_id} -> reorder_step(socket, step_id, :down)
       :error -> {:noreply, socket}
-    end
-  end
-
-  @impl true
-  def handle_event("assign_resource", %{"resource_id" => resource_id}, socket) do
-    case parse_id(resource_id) do
-      {:ok, rid} ->
-        workflow = socket.assigns.editing
-        Workflows.assign_resource(workflow, rid)
-        workflow = Workflows.get_workflow!(workflow.id)
-
-        {:noreply,
-         assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
-
-      :error ->
-        {:noreply, socket}
-    end
-  end
-
-  @impl true
-  def handle_event("unassign_resource", %{"resource_id" => resource_id}, socket) do
-    case parse_id(resource_id) do
-      {:ok, rid} ->
-        workflow = socket.assigns.editing
-        Workflows.unassign_resource(workflow, rid)
-        workflow = Workflows.get_workflow!(workflow.id)
-
-        {:noreply,
-         assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
-
-      :error ->
-        {:noreply, socket}
     end
   end
 
@@ -542,38 +594,25 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     end
   end
 
-  # A workflow marked requires_2fa is gated here exactly as it is on the gateway.
-  # Running it from the admin page used to skip the check entirely.
+  def handle_event("unlock_editing", _params, socket) do
+    Elevation.unlock(socket)
+  end
+
+  # The requires_2fa rule lives in Workflows.Launch, because the Scheduler page
+  # starts the same runs and used to do it without asking.
   defp run_workflow(socket, wf_id) do
-    case Workflows.get_workflow(wf_id) do
-      {:ok, workflow} -> run_gated(socket, workflow, workflow.metadata["requires_2fa"])
-      {:error, :not_found} -> {:noreply, put_flash(socket, :error, "Workflow not found")}
-    end
+    socket
+    |> launched(Workflows.get_workflow(wf_id))
+    |> then(&{:noreply, &1})
   end
 
-  defp run_gated(socket, workflow, requires_2fa) when requires_2fa in [nil, false] do
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> Executor.run(workflow.id) end)
-
-    {:noreply, put_flash(socket, :info, "Workflow execution started")}
+  defp launched(socket, {:error, :not_found}) do
+    put_flash(socket, :error, "Workflow not found")
   end
 
-  defp run_gated(socket, workflow, _requires_2fa) do
-    %{type: :run_workflow, workflow_id: workflow.id}
-    |> Gate.request("Run workflow: *#{workflow.name}*")
-    |> run_challenged(socket)
-  end
-
-  defp run_challenged(:challenged, socket) do
-    {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
-  end
-
-  defp run_challenged(:no_2fa, socket) do
-    {:noreply,
-     put_flash(
-       socket,
-       :error,
-       "This workflow requires 2FA. Enable 2FA and configure a gateway first."
-     )}
+  defp launched(socket, {:ok, workflow}) do
+    {kind, message} = Launch.describe(Launch.start(workflow), workflow)
+    put_flash(socket, kind, message)
   end
 
   defp workflow_attrs(params, editing) do
@@ -611,6 +650,11 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   defp saved_socket({:error, changeset}, socket) do
     {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
+  end
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
   end
 
   @impl true

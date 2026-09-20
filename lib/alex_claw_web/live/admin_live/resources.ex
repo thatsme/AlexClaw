@@ -2,6 +2,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   @moduledoc "LiveView page for CRUD management of resources with type filtering."
 
   use Phoenix.LiveView
+  alias AlexClawWeb.Live.Elevation
 
   alias AlexClaw.Resources
   alias AlexClaw.Resources.ApiDiscovery
@@ -10,7 +11,9 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(params, _session, socket) do
+  def mount(params, session, socket) do
+    socket = Elevation.assign_elevation(socket, session)
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, ApiDiscovery.topic())
     end
@@ -64,51 +67,25 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   @impl true
   def handle_event("save", params, socket) do
-    editing = socket.assigns.editing
+    Elevation.gate(socket, "resource saved: #{params["name"]}", fn ->
+      editing = socket.assigns.editing
 
-    editing
-    |> persist_resource(resource_attrs(params))
-    |> saved_resource(socket, editing)
+      editing
+      |> persist_resource(resource_attrs(params))
+      |> saved_resource(socket, editing)
+    end)
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, rid} ->
-        case Resources.get_resource(rid) do
-          {:ok, resource} ->
-            {:ok, _} = Resources.delete_resource(resource)
-
-            {:noreply,
-             socket
-             |> put_flash(:info, "Resource deleted")
-             |> assign(resources: list_resources(socket.assigns.type_filter))}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Resource not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
+    Elevation.gate(socket, "resource deleted: id #{id}", fn -> delete_write(id, socket) end)
   end
 
   @impl true
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, rid} ->
-        case Resources.get_resource(rid) do
-          {:ok, resource} ->
-            {:ok, _} = Resources.update_resource(resource, %{enabled: !resource.enabled})
-            {:noreply, assign(socket, resources: list_resources(socket.assigns.type_filter))}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Resource not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
+    Elevation.gate(socket, "resource enabled toggled: id #{id}", fn ->
+      toggle_enabled_write(id, socket)
+    end)
   end
 
   @impl true
@@ -129,6 +106,48 @@ defmodule AlexClawWeb.AdminLive.Resources do
           {:ok, resource} ->
             ApiDiscovery.run_async(resource)
             {:noreply, put_flash(socket, :info, "API discovery started for #{resource.name}")}
+
+          {:error, :not_found} ->
+            {:noreply, put_flash(socket, :error, "Resource not found")}
+        end
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("unlock_editing", _params, socket) do
+    Elevation.unlock(socket)
+  end
+
+  defp delete_write(id, socket) do
+    case parse_id(id) do
+      {:ok, rid} ->
+        case Resources.get_resource(rid) do
+          {:ok, resource} ->
+            {:ok, _} = Resources.delete_resource(resource)
+
+            {:noreply,
+             socket
+             |> put_flash(:info, "Resource deleted")
+             |> assign(resources: list_resources(socket.assigns.type_filter))}
+
+          {:error, :not_found} ->
+            {:noreply, put_flash(socket, :error, "Resource not found")}
+        end
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
+  defp toggle_enabled_write(id, socket) do
+    case parse_id(id) do
+      {:ok, rid} ->
+        case Resources.get_resource(rid) do
+          {:ok, resource} ->
+            {:ok, _} = Resources.update_resource(resource, %{enabled: !resource.enabled})
+            {:noreply, assign(socket, resources: list_resources(socket.assigns.type_filter))}
 
           {:error, :not_found} ->
             {:noreply, put_flash(socket, :error, "Resource not found")}
@@ -172,6 +191,11 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   defp saved_resource({:error, changeset}, socket, _editing) do
     {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
+  end
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
   end
 
   @impl true

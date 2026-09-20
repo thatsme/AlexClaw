@@ -2,6 +2,7 @@ defmodule AlexClawWeb.AdminLive.LLM do
   @moduledoc "LiveView page for configuring LLM providers (all stored in DB)."
 
   use Phoenix.LiveView
+  alias AlexClawWeb.Live.Elevation
 
   alias AlexClaw.LLM
 
@@ -10,10 +11,16 @@ defmodule AlexClawWeb.AdminLive.LLM do
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket = Elevation.assign_elevation(socket, session)
     if connected?(socket), do: :timer.send_interval(10_000, :refresh_usage)
 
     {:ok, assign_data(socket)}
+  end
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
   end
 
   @impl true
@@ -58,6 +65,36 @@ defmodule AlexClawWeb.AdminLive.LLM do
 
   @impl true
   def handle_event("save_provider", params, socket) do
+    Elevation.gate(socket, "llm provider saved: #{params["name"]}", fn ->
+      save_provider_write(params, socket)
+    end)
+  end
+
+  @impl true
+  def handle_event("delete_provider", %{"id" => id}, socket) do
+    Elevation.gate(socket, "llm provider deleted: id #{id}", fn ->
+      delete_provider_write(id, socket)
+    end)
+  end
+
+  @impl true
+  def handle_event("cancel_form", _, socket) do
+    {:noreply, assign(socket, show_form: false, editing: nil)}
+  end
+
+  @impl true
+  def handle_event("test_provider", %{"id" => id}, socket) do
+    case parse_id(id) do
+      {:ok, provider_id} -> test_provider(LLM.get_provider(provider_id), socket)
+      :error -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("unlock_editing", _params, socket) do
+    Elevation.unlock(socket)
+  end
+
+  defp save_provider_write(params, socket) do
     attrs = %{
       name: params["name"],
       type: params["type"],
@@ -92,8 +129,7 @@ defmodule AlexClawWeb.AdminLive.LLM do
     end
   end
 
-  @impl true
-  def handle_event("delete_provider", %{"id" => id}, socket) do
+  defp delete_provider_write(id, socket) do
     case parse_id(id) do
       {:ok, provider_id} ->
         case LLM.get_provider(provider_id) do
@@ -111,19 +147,6 @@ defmodule AlexClawWeb.AdminLive.LLM do
 
       :error ->
         {:noreply, socket}
-    end
-  end
-
-  @impl true
-  def handle_event("cancel_form", _, socket) do
-    {:noreply, assign(socket, show_form: false, editing: nil)}
-  end
-
-  @impl true
-  def handle_event("test_provider", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, provider_id} -> test_provider(LLM.get_provider(provider_id), socket)
-      :error -> {:noreply, socket}
     end
   end
 

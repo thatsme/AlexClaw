@@ -64,6 +64,40 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
+  @doc """
+  Record a control-plane change made by an elevated admin session.
+
+  `detail` says what changed, with secrets already masked by the caller — the
+  row exists to answer "who changed this, and from what to what", which a
+  masked value still answers.
+  """
+  @spec log_admin_write(String.t(), String.t()) :: :ok
+  def log_admin_write(session_fingerprint, detail) do
+    Logger.info("Admin write by #{session_fingerprint}: #{detail}", auth: :admin_write)
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.control_plane",
+      decision: "write",
+      reason: detail
+    })
+  end
+
+  @doc "Record a control-plane change refused for want of an elevation."
+  @spec log_admin_refusal(String.t(), String.t()) :: :ok
+  def log_admin_refusal(session_fingerprint, detail) do
+    Logger.warning("Admin write refused for #{session_fingerprint}: #{detail}", auth: :denied)
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.control_plane",
+      decision: "deny",
+      reason: "not elevated — " <> detail
+    })
+  end
+
   @doc "Prune audit entries older than retention period."
   @spec prune() :: {non_neg_integer(), nil}
   def prune do

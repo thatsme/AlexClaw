@@ -3,6 +3,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   require Logger
 
   alias AlexClaw.Auth.{Elevation, TOTP}
+  alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Google.OAuth
@@ -225,6 +226,16 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
       {:error, reason} ->
         Gateway.send_message("Skill reload failed: #{SkillRegistry.describe_error(reason)}")
     end
+  end
+
+  # Arbitrary SQL against the live database, so it is never covered by an
+  # elevation window — only by a code answered for this restore. The staged
+  # file is consumed either way: Restore.run/1 deletes it.
+  def execute_2fa_action(%{type: :database_restore, path: path, filename: filename}, _msg) do
+    Gateway.send_message("Restoring the database from #{filename}...")
+
+    {_status, message} = Restore.run(path)
+    Gateway.send_message(message)
   end
 
   def execute_2fa_action(action, msg) do

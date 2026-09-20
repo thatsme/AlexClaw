@@ -3,11 +3,16 @@ defmodule AlexClawWeb.AdminLive.Database do
 
   use Phoenix.LiveView
 
+  alias AlexClaw.Auth.{Elevation, Gate}
+  alias AlexClaw.Database.Restore
+
   @max_upload_size 100_000_000
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket = AlexClawWeb.Live.Elevation.assign_elevation(socket, session)
+
     {:ok,
      socket
      |> assign(
@@ -24,6 +29,11 @@ defmodule AlexClawWeb.AdminLive.Database do
   end
 
   @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, AlexClawWeb.Live.Elevation.handle_broadcast(socket, message)}
+  end
+
+  @impl true
   @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_event("validate_upload", _params, socket) do
@@ -31,30 +41,75 @@ defmodule AlexClawWeb.AdminLive.Database do
   end
 
   @impl true
+  # A restore is arbitrary SQL against the live database, so it is challenged
+  # every time rather than covered by an elevation window. An unlock earned for
+  # editing a setting is not authority to replace the database.
   def handle_event("restore", _params, socket) do
-    socket = assign(socket, restoring: true, restore_result: nil)
-
-    result =
-      consume_uploaded_entries(socket, :dump_file, fn %{path: path}, _entry ->
-        {:ok, restore_from_file(path)}
-      end)
-
-    {status, message} =
-      case result do
-        [{:ok, msg}] -> {:info, msg}
-        [{:error, msg}] -> {:error, msg}
-        [] -> {:error, "No file uploaded"}
-      end
-
-    {:noreply,
-     socket
-     |> put_flash(status, message)
-     |> assign(restoring: false, restore_result: message, tables: list_tables())}
+    socket
+    |> consume_uploaded_entries(:dump_file, fn %{path: path}, entry ->
+      {:ok, {Restore.stage(path), entry.client_name}}
+    end)
+    |> staged(socket)
   end
 
   @impl true
   def handle_event("refresh_tables", _, socket) do
     {:noreply, assign(socket, tables: list_tables())}
+  end
+
+  defp staged([{{:ok, path}, filename}], socket) do
+    challenge(Elevation.required?(), path, filename, socket)
+  end
+
+  defp staged([{{:error, reason}, _filename}], socket) do
+    {:noreply, put_flash(socket, :error, "Could not stage the upload: #{inspect(reason)}")}
+  end
+
+  defp staged([], socket), do: {:noreply, put_flash(socket, :error, "No file uploaded")}
+
+  # Nothing to verify on an instance without a second factor: the restore is
+  # protected by the admin password, exactly as the banner says.
+  defp challenge(false, path, filename, socket) do
+    AlexClawWeb.Live.Elevation.audit_unprotected(socket, "database restore from #{filename}")
+
+    {:noreply,
+     socket
+     |> assign(restore_result: nil)
+     |> restored(Restore.run(path))}
+  end
+
+  defp challenge(true, path, filename, socket) do
+    %{type: :database_restore, path: path, filename: filename}
+    |> Gate.request("Restore the database from *#{filename}* — this replaces live data")
+    |> requested(path, socket)
+  end
+
+  defp requested(:challenged, _path, socket) do
+    {:noreply,
+     put_flash(socket, :info, "2FA code requested — the restore runs once you answer it")}
+  end
+
+  defp requested(:no_2fa, path, socket) do
+    Restore.discard(path)
+
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       "A restore needs a second factor, and no gateway is configured to ask for one"
+     )}
+  end
+
+  defp restored(socket, {:ok, message}) do
+    socket
+    |> put_flash(:info, message)
+    |> assign(restoring: false, restore_result: message, tables: list_tables())
+  end
+
+  defp restored(socket, {:error, message}) do
+    socket
+    |> put_flash(:error, message)
+    |> assign(restoring: false, restore_result: message)
   end
 
   defp list_tables do
@@ -76,40 +131,6 @@ defmodule AlexClawWeb.AdminLive.Database do
       _ ->
         []
     end
-  end
-
-  defp restore_from_file(path) do
-    db = db_connection_env()
-
-    args = [
-      "-h",
-      db.hostname,
-      "-U",
-      db.username,
-      "-d",
-      db.database,
-      "--single-transaction",
-      "-f",
-      path
-    ]
-
-    case System.cmd("psql", args, env: [{"PGPASSWORD", db.password}], stderr_to_stdout: true) do
-      {output, 0} ->
-        lines = String.split(output, "\n", trim: true)
-        {:ok, "Restore completed (#{length(lines)} statements executed)"}
-
-      {error, _code} ->
-        {:error, "Restore failed: #{String.slice(error, 0, 500)}"}
-    end
-  end
-
-  defp db_connection_env do
-    %{
-      hostname: System.get_env("DATABASE_HOSTNAME", "db"),
-      username: System.get_env("DATABASE_USERNAME", "alexclaw"),
-      password: System.get_env("DATABASE_PASSWORD", ""),
-      database: "alex_claw_prod"
-    }
   end
 
   defp format_size(bytes) when bytes < 1024, do: "#{bytes} B"

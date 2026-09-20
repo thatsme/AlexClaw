@@ -23,6 +23,11 @@ defmodule AlexClaw.Auth.Elevation do
   audit log or a PubSub topic — the sid is a session credential, and a
   credential written somewhere durable is a credential leaked.
 
+  A grant and a revoke are audited by the caller, before it reports success: a
+  person has just been told their elevation holds, so the record of it should
+  already exist. An expiry has no caller and is recorded by the sweep, off the
+  owner process — see `audit_expired/2`.
+
   `configured?/0` reports whether a second factor exists at all. It never
   decides whether the gate applies, only what a refusal should say: a session
   that cannot elevate yet is told how to make elevation possible.
@@ -66,14 +71,45 @@ defmodule AlexClaw.Auth.Elevation do
   def elevated?(nil, _now), do: false
   def elevated?(sid, now) when is_binary(sid), do: live?(:ets.lookup(@table, sid), now)
 
-  @doc "Grant `sid` a fifteen-minute window, and say when it ends."
-  @spec grant(String.t()) :: {:ok, integer()}
-  def grant(sid) when is_binary(sid), do: GenServer.call(__MODULE__, {:grant, sid})
+  @doc """
+  Grant `sid` a fifteen-minute window, and say when it ends.
 
-  @doc "End `sid`'s elevation now. A session holding none is not an error."
+  The audit row is written here, in the caller, before this returns. Someone is
+  about to be told their elevation holds, and the record of it should exist by
+  the time they are told.
+  """
+  @spec grant(String.t()) :: {:ok, integer()}
+  def grant(sid) when is_binary(sid) do
+    {:ok, deadline} = GenServer.call(__MODULE__, {:grant, sid})
+
+    AuditLog.log_elevation(
+      :granted,
+      fingerprint(sid),
+      "window #{@window_seconds}s, principal: #{Principal.current()}"
+    )
+
+    {:ok, deadline}
+  end
+
+  @doc """
+  End `sid`'s elevation now. A session holding none is not an error.
+
+  Audited in the caller, like a grant, and only when something was actually
+  dropped — a revoke that found nothing is not an event.
+  """
   @spec revoke(String.t() | nil) :: :ok
   def revoke(nil), do: :ok
-  def revoke(sid) when is_binary(sid), do: GenServer.call(__MODULE__, {:revoke, sid})
+
+  def revoke(sid) when is_binary(sid) do
+    audit_revoked(GenServer.call(__MODULE__, {:revoke, sid}), sid)
+  end
+
+  defp audit_revoked(:dropped, sid) do
+    AuditLog.log_elevation(:revoked, fingerprint(sid), nil)
+    :ok
+  end
+
+  defp audit_revoked(:none, _sid), do: :ok
 
   @doc "When `sid`'s elevation ends, or nil when it holds none."
   @spec expires_at(String.t() | nil) :: integer() | nil
@@ -126,13 +162,6 @@ defmodule AlexClaw.Auth.Elevation do
   def handle_call({:grant, sid}, _from, state) do
     deadline = now() + @window_seconds
     :ets.insert(@table, {sid, deadline})
-
-    audit(
-      :granted,
-      fingerprint(sid),
-      "window #{@window_seconds}s, principal: #{Principal.current()}"
-    )
-
     broadcast(sid, {:elevation, :granted, deadline})
     {:reply, {:ok, deadline}, state}
   end
@@ -143,7 +172,7 @@ defmodule AlexClaw.Auth.Elevation do
 
   @impl true
   def handle_info(:sweep, state) do
-    for sid <- expired(now()), do: end_elevation(:expired, sid)
+    for sid <- expired(now()), do: audit_expired(end_elevation(:expired, sid), sid)
     schedule_sweep()
     {:noreply, state}
   end
@@ -160,26 +189,32 @@ defmodule AlexClaw.Auth.Elevation do
   # this process raises rather than quietly ending someone's elevation.
   defp end_elevation(reason, sid), do: drop(:ets.lookup(@table, sid), reason, sid)
 
-  defp drop([], _reason, _sid), do: :ok
+  defp drop([], _reason, _sid), do: :none
 
   defp drop([_row], reason, sid) do
     :ets.delete(@table, sid)
-    audit(reason, fingerprint(sid), nil)
     broadcast(sid, {:elevation, :ended, reason})
-    :ok
+    :dropped
   end
 
-  # Off the owner, deliberately. This process owns the :protected table that is
-  # the elevation boundary, and an audit insert here would run inside it: a
-  # database that has gone away exits rather than raising, and an exit would
-  # take the table — and every live elevation — with it. The rescue in AuditLog
-  # stays as defence in depth; this is the structural half of the same fix.
+  # An expiry has no caller. Nobody asked for it and nobody is waiting to be
+  # told it happened, so the sweep is the only thing that can record it — and
+  # the sweep runs in the owner, which must not wait on a database. A database
+  # that has gone away exits rather than raising, and an exit here would take
+  # the :protected table, and every live elevation, with it.
+  #
+  # Grants and revokes do not come through here. They have a caller, and the
+  # caller writes their row before it reports success.
   #
   # Only the fingerprint crosses into the task. The sid is a live session
   # credential and has no business on another process's heap.
-  defp audit(event, fingerprint, detail) do
+  defp audit_expired(:none, _sid), do: :ok
+
+  defp audit_expired(:dropped, sid) do
+    fingerprint = fingerprint(sid)
+
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AuditLog.log_elevation(event, fingerprint, detail)
+      AuditLog.log_elevation(:expired, fingerprint, nil)
     end)
 
     :ok

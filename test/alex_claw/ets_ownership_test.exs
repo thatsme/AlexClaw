@@ -205,18 +205,74 @@ defmodule AlexClaw.ETSOwnershipTest do
         do: name
   end
 
+  @callbacks ~w(init handle_call handle_cast handle_info handle_continue terminate)
+
+  # Every `def`/`defp` in a file, by name, with the lines it spans. A one-line
+  # `do:` clause spans itself; anything else runs to the `end` at its own
+  # indentation.
+  defp def_spans(body) do
+    lines = lines_of(body)
+
+    lines
+    |> Enum.with_index(1)
+    |> Enum.filter(fn {line, _n} -> Regex.match?(~r/^\s*defp?\s+[a-z_]/, line) end)
+    |> Enum.map(fn {line, n} -> {def_name(line), span(lines, line, n)} end)
+  end
+
+  defp def_name(line) do
+    [_, name] = Regex.run(~r/^\s*defp?\s+([a-z_][a-zA-Z0-9_]*)/, line)
+    name
+  end
+
+  defp span(lines, line, n), do: span(lines, line, n, String.contains?(line, ", do:"))
+  defp span(_lines, _line, n, true), do: {n, n}
+  defp span(lines, line, n, false), do: {n, end_of_block(lines, n, indent_of(line))}
+
+  # The functions that run *in* the owner process: the GenServer callbacks, and
+  # everything they reach, to a fixpoint. The distinction matters because a
+  # client function in the same module runs in the caller, where waiting on the
+  # database is not only allowed but wanted — Elevation.grant/1 writes its audit
+  # row there on purpose, so the record exists before anyone is told the
+  # elevation holds.
+  #
+  # A fixpoint rather than one level: the write that started all this sat two
+  # calls deep, in drop/3 behind end_elevation/2.
+  defp owner_functions(body) do
+    spans = def_spans(body)
+    seeds = for {name, _span} <- spans, name in @callbacks, into: MapSet.new(), do: name
+
+    grow(seeds, spans, lines_of(body))
+  end
+
+  defp grow(names, spans, lines) do
+    grown =
+      for {name, {from, to}} <- spans,
+          MapSet.member?(names, name),
+          line <- Enum.slice(lines, from - 1, to - from + 1),
+          [_, called] <- Regex.scan(~r/\b([a-z_][a-zA-Z0-9_]*)\(/, line),
+          into: names,
+          do: called
+
+    settled(MapSet.equal?(grown, names), grown, spans, lines)
+  end
+
+  defp settled(true, names, _spans, _lines), do: names
+  defp settled(false, names, spans, lines), do: grow(names, spans, lines)
+
   test "the auth table owners do no database or gateway work in the owner process" do
     offenders =
       for path <- @auth_owners,
           body = File.read!(path),
           lines = lines_of(body),
           allowed = off_owner_ranges(body),
-          reachable = called_off_owner(body),
+          off_owner = called_off_owner(body),
+          owner = owner_functions(body),
           {line, n} <- Enum.with_index(lines, 1),
           not comment?(line),
           Regex.match?(@io_call, line),
+          MapSet.member?(owner, enclosing_function(lines, n)),
           not Enum.any?(allowed, fn {from, to} -> n >= from and n <= to end),
-          not MapSet.member?(reachable, enclosing_function(lines, n)),
+          not MapSet.member?(off_owner, enclosing_function(lines, n)),
           do: "#{path}:#{n} #{String.trim(line)}"
 
     assert offenders == [],
@@ -224,10 +280,64 @@ defmodule AlexClaw.ETSOwnershipTest do
            I/O in a process that owns a :protected auth table:
              #{Enum.join(offenders, "\n  ")}
 
-           These calls belong in a Task.Supervisor.start_child/2 block. The
-           owner must not be the process that waits on a database or a gateway:
-           a slow one blocks every grant, revoke and code attempt behind it, and
-           a dead one exits rather than raising, taking the table with it.
+           The owner must not be the process that waits on a database or a
+           gateway: a slow one blocks every grant, revoke and code attempt
+           behind it, and a dead one exits rather than raising, taking the
+           table with it.
+
+           Two places this work can go. A client function in the same module
+           runs in the caller, which is where an audit row belongs when someone
+           is about to be told the action succeeded. Anything with no caller to
+           run in belongs in a Task.Supervisor.start_child/2 block.
            """
   end
+
+  # The other half of the rule above. Keeping work out of the owner says where
+  # it must not run. For a row recording something a person has just done, it
+  # also matters that it does not merely run somewhere else eventually: a grant
+  # and a revoke are written by the caller, inline, so the record exists before
+  # the caller reports success. An expiry has nobody to report to and no caller
+  # to run in, so it is deferred.
+  #
+  # Structural because the timing is not observable. A deferred write lands
+  # before a test can look — and Ecto's sandbox follows $callers into a
+  # supervised task, so even a non-shared connection does not stop it — which
+  # means a test that reads the row back passes whichever process wrote it.
+  # That was tried first and it passed against a deliberately broken version.
+  @elevation_rows [
+    {"audit_expired", :deferred},
+    {"audit_revoked", :inline},
+    {"grant", :inline}
+  ]
+
+  test "a grant and a revoke are audited by the caller, an expiry is deferred" do
+    body = File.read!("lib/alex_claw/auth/elevation.ex")
+    lines = lines_of(body)
+    deferred = off_owner_ranges(body)
+
+    found =
+      for {line, n} <- Enum.with_index(lines, 1),
+          not comment?(line),
+          String.contains?(line, "AuditLog.log_elevation("),
+          do: {enclosing_function(lines, n), placement(deferred, n)}
+
+    assert Enum.sort(found) == @elevation_rows,
+           """
+           The elevation audit rows are not written where they should be.
+             found:    #{inspect(Enum.sort(found))}
+             expected: #{inspect(@elevation_rows)}
+
+           :inline means the caller writes it and waits — which is the point,
+           because the caller is about to tell someone the action succeeded.
+           :deferred means a Task.Supervisor.start_child/2 block, which is for
+           work with no caller to run in.
+           """
+  end
+
+  defp placement(deferred, n) do
+    placement(Enum.any?(deferred, fn {from, to} -> n >= from and n <= to end))
+  end
+
+  defp placement(true), do: :deferred
+  defp placement(false), do: :inline
 end

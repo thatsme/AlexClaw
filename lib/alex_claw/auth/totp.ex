@@ -16,7 +16,6 @@ defmodule AlexClaw.Auth.TOTP do
   require Logger
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
-  alias AlexClaw.Auth.ChallengeStore
   alias AlexClaw.Config
   alias AlexClaw.Config.Crypto
   alias AlexClaw.Config.Setting
@@ -30,7 +29,6 @@ defmodule AlexClaw.Auth.TOTP do
   # A challenge is a two-minute window in which any six digits can be tried.
   # The table itself is owned by AlexClaw.Auth.ChallengeStore, so a challenge
   # outlives the process that raised it.
-  @max_attempts 3
 
   # --- Setup ---
 
@@ -198,64 +196,5 @@ defmodule AlexClaw.Auth.TOTP do
   defp log_undecryptable(reason) do
     Logger.error("Could not decrypt the TOTP secret: #{inspect(reason)}")
     nil
-  end
-
-  # --- Challenge system ---
-
-  @doc """
-  Create a pending 2FA challenge for a sensitive action.
-  Returns the challenge ID. The user must respond with a valid TOTP code.
-  """
-  @spec create_challenge(String.t() | integer(), map()) :: String.t()
-  def create_challenge(chat_id, action) do
-    challenge_id = Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
-
-    ChallengeStore.put(to_string(chat_id), %{
-      id: challenge_id,
-      action: action,
-      expires_at: System.monotonic_time(:second) + 120,
-      attempts: 0
-    })
-
-    challenge_id
-  end
-
-  @doc "Check if there's a pending challenge for this chat and try to verify the code."
-  @spec resolve_challenge(String.t() | integer(), String.t()) ::
-          {:ok, map()} | {:error, atom()}
-  def resolve_challenge(chat_id, code) do
-    chat_id_str = to_string(chat_id)
-
-    case ChallengeStore.fetch(chat_id_str) do
-      {:ok, challenge} ->
-        decide_challenge(challenge, chat_id_str, code)
-
-      :error ->
-        {:error, :no_challenge}
-    end
-  end
-
-  defp decide_challenge(challenge, chat_id_str, code) do
-    cond do
-      System.monotonic_time(:second) > challenge.expires_at ->
-        ChallengeStore.drop(chat_id_str)
-        {:error, :challenge_expired}
-
-      verify(code) ->
-        ChallengeStore.drop(chat_id_str)
-        {:ok, challenge.action}
-
-      true ->
-        ChallengeStore.record_attempt(chat_id_str, @max_attempts)
-    end
-  end
-
-  @doc "Check if a chat has a pending challenge."
-  @spec pending_challenge?(String.t() | integer()) :: boolean()
-  def pending_challenge?(chat_id) do
-    case ChallengeStore.fetch(to_string(chat_id)) do
-      {:ok, challenge} -> System.monotonic_time(:second) <= challenge.expires_at
-      :error -> false
-    end
   end
 end

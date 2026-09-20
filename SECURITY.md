@@ -22,6 +22,144 @@ the login page will show an error and no access is granted.
 
 ---
 
+## Control-Plane Elevation
+
+The admin password authenticates a session. It does not, on its own, authorise
+a change to what the agent does unattended.
+
+Changing the control plane — configuration, authorization policies, LLM
+providers, API resources, cluster membership, workflows and their steps —
+requires an **elevation** on top of the session: one TOTP code, verified once,
+granting fifteen minutes of write authority to that session alone.
+
+**The window is fixed.** It does not slide with activity. Fifteen minutes after
+the code was accepted the session is read-only again, whether it was idle or in
+use, so an open tab is never a standing grant.
+
+**Elevation is per session.** It is keyed by a random identifier placed in the
+session at login and dropped at logout. One browser's unlock says nothing about
+another's. Only a fingerprint of that identifier reaches the audit log or a
+PubSub topic; the identifier itself is a live credential and is never written
+anywhere durable.
+
+**Checks are server-side.** A control-plane event is refused in its handler, not
+by hiding a button, and a refused event leaves the database untouched. Both the
+write and the refusal are recorded in the authorization audit log, naming the
+session by fingerprint, the key or record touched, and its old and new values —
+with sensitive values masked, because the record worth keeping is that a secret
+changed and who changed it. A refusal records which of the two it was:
+`not_elevated` for a session that has not unlocked, `no_second_factor` for an
+instance where nothing can.
+
+### What elevation does not cover
+
+**Database restore is challenged every time**, and refused outright where no
+code can be asked for. Restoring an uploaded SQL file
+runs arbitrary SQL against the live database as the application's own user,
+which reaches the settings and policy tables without passing through either. It
+therefore asks for a code per restore and is never covered by an existing
+elevation: authority earned for editing a setting is not authority to replace
+the database. The upload is staged on disk while the code is outstanding, and
+discarded whether the restore runs or not.
+
+**Running a workflow follows the workflow's own rule.** A workflow marked
+`requires_2fa` is challenged when it is run, from the Workflows page and the
+Scheduler page alike. Editing a workflow is a control-plane change and needs an
+elevation; running it is governed by the flag.
+
+**Scheduled runs are not challenged.** A schedule is authorised when it is
+saved, under elevation. The run that follows is the schedule doing what it was
+told to do.
+
+### auth.totp.* is managed from a gateway
+
+The `auth.totp.*` settings are not editable from the Config page at any
+elevation, and deleting them is refused for the same reason as changing them.
+They are written by `/setup 2fa` and `/disable 2fa` on a gateway, and nowhere
+else.
+
+This is load-bearing rather than tidy. Whether elevation is enforced at all is
+decided by `auth.totp.enabled`; if that setting were editable from behind the
+gate it protects, a session could switch the gate off and then change anything.
+
+### Giving a code
+
+A code can be typed into the admin UI or answered on a gateway. The
+authenticator app is the second factor either way — a gateway is a convenient
+place to type a code, never what makes it one — so an instance with no bot
+configured is fully usable, and an instance with one can still be driven from
+the browser.
+
+Both routes check the same code, apply the same replay guard (a code from a
+period already accepted is refused), run through the same verification, and
+write the same audit row, which records which route it came in by.
+
+**Wrong codes are bounded twice.** Three wrong codes lock that session's code
+entry for five minutes. Ten wrong codes inside fifteen minutes, counted across
+every session, lock web code entry entirely for fifteen minutes, with an audit
+row and one notification to any reachable gateway. The second limit is the one
+that bounds guessing: a session identifier is a cookie the caller sends, so a
+per-session count alone is defeated by discarding it. Both counters live in a
+supervised process, not in page state.
+
+**The trade-off, plainly.** Typing the code in the browser means the password
+and the code are entered on the same device, which is how most two-factor
+deployments work and is weaker than keeping them apart. The gateway route
+remains for operators who want the code to arrive somewhere else; it is a
+choice the deployment makes, not one the software makes for it.
+
+---
+
+### Recovery codes
+
+Ten one-time codes are generated when 2FA is enabled and shown **once**, in the
+browser. They are never sent over a gateway — a chat log is not where the way
+back in belongs — so enabling 2FA with `/setup 2fa` replies with where to
+generate them rather than with the codes themselves.
+
+What is stored is a SHA-256 hash of each code, compared in constant time. The
+rows cannot be used to authenticate, so a database dump is not a set of keys.
+
+A recovery code is accepted anywhere a code is asked for, is consumed on use,
+and is subject to the same limits as any other code. Each use writes an audit
+row, notifies any reachable gateway, and is shown on the Services page with how
+many remain. Two or fewer remaining warns until a new set is generated.
+Generating a set invalidates every earlier code and needs a current code
+itself.
+
+---
+
+### If everything is lost
+
+If both the authenticator and the recovery codes are gone, there is no way in
+through the application. That is the design, not an oversight: a mechanism that
+could restore access without either would be the weakest link in this whole
+chapter, and an attacker would use that one.
+
+What remains is the host. Restore the database from a backup taken while 2FA
+was configured differently, or reinstall and re-seed. Whoever holds the machine
+holds the root of trust — which is why `SECRET_KEY_BASE`, the database and
+backups deserve the care the rest of this document describes.
+
+---
+
+### Before a second factor exists
+
+With no TOTP configured, nothing can elevate — so the control plane is
+**read-only**. Every configuration change, policy edit, provider or resource
+change, cluster change, workflow edit and database restore is refused, recorded
+in the audit log as `no_second_factor`, and answered with what to do about it.
+There is no state in which a control-plane write proceeds on the admin password
+alone, and no environment variable that disables the gate.
+
+Setting 2FA up is the one thing the admin password alone can do, because adding
+protection is not a privileged act and because requiring a second factor to
+configure the second factor would be a locked door with the key inside. It is
+configured under **Services → Two-factor authentication**, or with `/setup 2fa`
+on a gateway; both write the same settings.
+
+---
+
 ## Two-Factor Authentication
 
 TOTP-based 2FA protects all sensitive operations. Setup via `/setup 2fa`
@@ -533,6 +671,12 @@ at the API boundary, not a sandbox. Only load skills from trusted sources.
 Workflow steps send data to external LLM providers (Anthropic, Google Gemini).
 Review which providers are enabled and their data retention policies before
 processing sensitive information.
+
+**An elevation is bounded by time, not by action.**
+Within its fifteen minutes, an elevated session may make any control-plane
+change the pages expose, not only the one the code was requested for. The
+per-action exceptions are the two named above: a database restore, and running
+a workflow marked `requires_2fa`.
 
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures

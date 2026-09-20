@@ -16,6 +16,11 @@ services:
       retries: 5
 
   node1:
+    # The BEAM turns SIGTERM into an orderly System.stop/0, but Docker's default
+    # grace period is 10 seconds and the supervision tree needs longer: every
+    # stop was reaching SIGKILL, so Reasoning.Loop's terminate/2 never ran and
+    # in-flight workflow runs stayed recorded as executing.
+    stop_grace_period: 30s
     build:
       context: .
       args:
@@ -52,6 +57,11 @@ services:
       - skills_data:/app/skills
 
   node2:
+    # The BEAM turns SIGTERM into an orderly System.stop/0, but Docker's default
+    # grace period is 10 seconds and the supervision tree needs longer: every
+    # stop was reaching SIGKILL, so Reasoning.Loop's terminate/2 never ran and
+    # in-flight workflow runs stayed recorded as executing.
+    stop_grace_period: 30s
     build:
       context: .
       args:

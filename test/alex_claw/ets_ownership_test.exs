@@ -123,11 +123,14 @@ defmodule AlexClaw.ETSOwnershipTest do
     end
   end
 
-  # The two security-relevant tables are :protected, so a write from outside
-  # the owner raises instead of quietly succeeding.
-  test "the challenge and OAuth state tables are protected" do
+  # The security-relevant tables are :protected, so a write from outside the
+  # owner raises instead of quietly succeeding. For elevations that is the
+  # whole guarantee: a process that could insert a row could elevate itself.
+  test "the challenge, code-attempt, OAuth state and elevation tables are protected" do
     for path <- [
           "lib/alex_claw/auth/challenge_store.ex",
+          "lib/alex_claw/auth/code_attempts.ex",
+          "lib/alex_claw/auth/elevation.ex",
           "lib/alex_claw/google/token_manager.ex"
         ] do
       assert Regex.match?(

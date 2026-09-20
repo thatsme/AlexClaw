@@ -4,6 +4,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowsRunNowTest do
 
   import Phoenix.LiveViewTest
 
+  alias AlexClaw.Auth.Challenge
   alias AlexClaw.Auth.TOTP
   alias AlexClaw.Workflows
 
@@ -54,7 +55,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowsRunNowTest do
 
       click_run(conn, wf)
 
-      refute TOTP.pending_challenge?(chat_id)
+      refute Challenge.pending?(chat_id)
     end
 
     # Previously this ran the workflow outright, bypassing the gate the gateway applies.
@@ -64,7 +65,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowsRunNowTest do
 
       click_run(conn, wf)
 
-      assert TOTP.pending_challenge?(chat_id)
+      assert Challenge.pending?(chat_id)
     end
 
     test "a flagged workflow raises no challenge when there is no second factor", %{conn: conn} do
@@ -73,7 +74,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowsRunNowTest do
 
       click_run(conn, wf)
 
-      refute TOTP.pending_challenge?(chat_id)
+      refute Challenge.pending?(chat_id)
     end
 
     test "the page still renders after a gated click", %{conn: conn} do

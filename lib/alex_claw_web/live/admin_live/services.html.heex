@@ -1,4 +1,139 @@
 <div class="space-y-8">
+
+  <div class="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-4">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-semibold text-white">Two-factor authentication</h2>
+        <p class="text-xs text-gray-500 mt-1">
+          Required for every admin change. Without it the control plane is read-only.
+        </p>
+      </div>
+      <span :if={@elevation.configured?} class="text-xs px-2 py-1 rounded bg-green-900 text-green-300">
+        on
+      </span>
+      <span :if={!@elevation.configured?} class="text-xs px-2 py-1 rounded bg-red-900 text-red-300">
+        off
+      </span>
+    </div>
+
+    <div :if={!@elevation.configured? && !@totp_setup}>
+      <button
+        phx-click="setup_2fa"
+        class="px-4 py-2 bg-claw-700 hover:bg-claw-600 text-white text-sm rounded transition"
+      >
+        Set up 2FA
+      </button>
+    </div>
+
+    <div :if={@totp_setup} class="space-y-3">
+      <p class="text-sm text-gray-300">
+        Scan this with your authenticator, then enter the code it shows.
+      </p>
+      <img
+        src={"data:image/png;base64,#{@totp_setup.qr}"}
+        alt="Two-factor setup QR code"
+        class="w-44 h-44 bg-white p-2 rounded"
+      />
+      <p class="text-xs text-gray-400">
+        Or enter the key by hand: <code class="text-gray-200">{@totp_setup.key}</code>
+      </p>
+      <form phx-submit="confirm_2fa" class="flex items-center gap-3 flex-wrap">
+        <input
+          type="text"
+          name="code"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          placeholder="123456"
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm w-40 tracking-widest"
+        />
+        <button
+          type="submit"
+          class="px-3 py-1.5 bg-claw-700 hover:bg-claw-600 text-white text-xs rounded transition"
+        >
+          Confirm
+        </button>
+        <button
+          type="button"
+          phx-click="cancel_2fa_setup"
+          class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded transition"
+        >
+          Cancel
+        </button>
+      </form>
+    </div>
+
+    <div :if={@elevation.configured?} class="space-y-2">
+      <p class="text-xs text-gray-500">
+        Turning 2FA off needs a current code — an unlock earned elsewhere does not cover it.
+      </p>
+      <form phx-submit="disable_2fa" class="flex items-center gap-3 flex-wrap">
+        <input
+          type="text"
+          name="code"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          placeholder="123456"
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm w-40 tracking-widest"
+        />
+        <button
+          type="submit"
+          class="px-3 py-1.5 bg-red-900 hover:bg-red-800 text-red-200 text-xs rounded transition"
+        >
+          Turn 2FA off
+        </button>
+      </form>
+    </div>
+
+
+    <div :if={@recovery_codes} class="bg-amber-950 border border-amber-800 rounded-lg p-4 space-y-3">
+      <p class="text-amber-100 text-sm font-semibold">
+        Save these recovery codes now — they are shown once.
+      </p>
+      <p class="text-amber-200 text-xs">
+        Each one works a single time, in any code field, if your authenticator is gone.
+      </p>
+      <ul class="grid grid-cols-2 gap-2 font-mono text-sm text-amber-50">
+        <li :for={code <- @recovery_codes} class="bg-amber-900/40 rounded px-2 py-1">{code}</li>
+      </ul>
+      <button
+        phx-click="saved_recovery_codes"
+        class="px-3 py-1.5 bg-amber-800 hover:bg-amber-700 text-amber-50 text-xs rounded transition"
+      >
+        I have saved these
+      </button>
+    </div>
+
+    <div :if={@elevation.configured? && !@recovery_codes} class="space-y-2 border-t border-gray-800 pt-4">
+      <p :if={!@recovery.generated?} class="text-amber-300 text-sm">
+        No recovery codes exist. Without them, a lost authenticator means restoring from backup.
+      </p>
+      <p :if={@recovery.generated? && @recovery.remaining <= 2} class="text-amber-300 text-sm">
+        Only {@recovery.remaining} recovery codes left. Generate a new set.
+      </p>
+      <p :if={@recovery.last_used_at} class="text-gray-400 text-xs">
+        A recovery code was used on {Calendar.strftime(@recovery.last_used_at, "%Y-%m-%d %H:%M")} UTC.
+        {@recovery.remaining} remaining.
+      </p>
+      <form phx-submit="regenerate_recovery_codes" class="flex items-center gap-3 flex-wrap">
+        <input
+          type="text"
+          name="code"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          placeholder="123456"
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm w-40 tracking-widest"
+        />
+        <button
+          type="submit"
+          class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs rounded transition"
+        >
+          {if @recovery.generated?, do: "Replace recovery codes", else: "Generate recovery codes"}
+        </button>
+      </form>
+    </div>
+
+    <p :if={@totp_message} class="text-red-300 text-xs">{@totp_message}</p>
+  </div>
   <div class="flex justify-between items-center">
     <div>
       <h1 class="text-2xl font-bold text-white">Services</h1>

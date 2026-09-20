@@ -10,7 +10,7 @@ defmodule AlexClaw.Dispatcher do
   """
   require Logger
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.Challenge
   alias AlexClaw.Config
   alias AlexClaw.Dispatcher.{AuthCommands, AutomationCommands, CommandParser}
   alias AlexClaw.Gateway
@@ -597,8 +597,8 @@ defmodule AlexClaw.Dispatcher do
   def dispatch(%Message{text: text} = msg) when is_binary(text) do
     trimmed = String.trim(text)
 
-    if Regex.match?(~r/^\d{6}$/, trimmed) and TOTP.pending_challenge?(msg.chat_id) do
-      case TOTP.resolve_challenge(msg.chat_id, trimmed) do
+    if Regex.match?(~r/^\d{6}$/, trimmed) and Challenge.pending?(msg.chat_id) do
+      case Challenge.resolve(msg.chat_id, trimmed) do
         {:ok, action} ->
           Gateway.send_message("Code verified. Executing...",
             chat_id: msg.chat_id,

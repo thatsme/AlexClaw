@@ -4,9 +4,11 @@ defmodule AlexClaw.Config.Loader do
   """
   use GenServer
   require Logger
+  alias AlexClaw.Auth.SecondFactor
   alias AlexClaw.Config.EncryptExisting
   alias AlexClaw.Config.Seeder
   alias AlexClaw.Gateway
+  alias AlexClaw.Gateway.Router
   alias AlexClaw.Knowledge.SelfAwareness
   alias AlexClaw.LLM.ProviderSeeder
   alias AlexClaw.RAG.QueryRewriter
@@ -49,8 +51,10 @@ defmodule AlexClaw.Config.Loader do
 
     # 7. Subscribe to config changes for cross-node ETS sync
     AlexClaw.Config.subscribe()
-    # 8. Report a configured shell allowlist that still grants what 0.3.22 dropped
+    # 8. Report a configured shell allowlist that still grants what 0.3.22 dropped,
+    #    and say so if the control plane is read-only for want of a second factor
     Process.send_after(self(), :audit_shell_allowlist, @audit_delay_ms)
+    Process.send_after(self(), :report_second_factor, @audit_delay_ms)
     {:ok, %{}}
   catch
     :error, %Postgrex.Error{} = e ->
@@ -61,6 +65,11 @@ defmodule AlexClaw.Config.Loader do
   @impl true
   def handle_info(:audit_shell_allowlist, state) do
     report_withdrawn(Shell.withdrawn_in_use())
+    {:noreply, state}
+  end
+
+  def handle_info(:report_second_factor, state) do
+    report_second_factor(SecondFactor.impl().configured?())
     {:noreply, state}
   end
 
@@ -76,6 +85,33 @@ defmodule AlexClaw.Config.Loader do
     end
 
     {:noreply, state}
+  end
+
+  # Without a second factor nothing can be changed from the admin UI, so this
+  # is a statement about what the instance can do, not a suggestion. Sent once
+  # at boot, and only over a gateway that is already reachable — on an instance
+  # with neither, the log is the only place left to say it.
+  defp report_second_factor(true), do: :ok
+
+  defp report_second_factor(false) do
+    Logger.warning(
+      "2FA is not configured: the admin control plane is read-only. " <>
+        "Set it up under Services → Two-factor authentication.",
+      auth: :config
+    )
+
+    notify_read_only(Router.active_gateways())
+  end
+
+  defp notify_read_only([]), do: :ok
+
+  defp notify_read_only(_gateways) do
+    Gateway.send_message(
+      "Admin config is read-only until 2FA is configured: " <>
+        "Services → Two-factor authentication, or /setup 2fa here"
+    )
+
+    :ok
   end
 
   # A configured allowlist is never overwritten — not by the seeder, and not by

@@ -21,6 +21,10 @@ defmodule AlexClaw.Application do
       # gateway process that raised it. Must start before anything that can
       # raise one: the endpoint and the gateways.
       AlexClaw.Auth.ChallengeStore,
+      # Owns the admin elevation table. Before the endpoint for the same reason
+      # as ChallengeStore: a page must never be served that cannot ask it.
+      AlexClaw.Auth.Elevation,
+      AlexClaw.Auth.CodeAttempts,
       {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,

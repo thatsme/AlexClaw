@@ -10,7 +10,7 @@ defmodule AlexClaw.Auth.AuditLog do
 
   import Ecto.Query
 
-  alias AlexClaw.Auth.{AuditEntry, AuthContext}
+  alias AlexClaw.Auth.{AuditEntry, AuthContext, Principal}
   alias AlexClaw.Repo
 
   @retention_days 30
@@ -42,6 +42,149 @@ defmodule AlexClaw.Auth.AuditLog do
     )
   end
 
+  @doc """
+  Record a change to one admin session's elevation.
+
+  The session is named by fingerprint, never by its sid: this row is durable
+  and the sid is a live session credential.
+  """
+  @spec log_elevation(:granted | :revoked | :expired, String.t(), String.t() | nil) :: :ok
+  def log_elevation(event, session_fingerprint, detail \\ nil) do
+    Logger.info("Admin elevation #{event} for session #{session_fingerprint}",
+      auth: :elevation,
+      elevation: event
+    )
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.elevation",
+      decision: to_string(event),
+      reason: detail
+    })
+  end
+
+  @doc """
+  Record a control-plane change made by an elevated admin session.
+
+  `detail` says what changed, with secrets already masked by the caller — the
+  row exists to answer "who changed this, and from what to what", which a
+  masked value still answers.
+  """
+  @spec log_admin_write(String.t(), String.t()) :: :ok
+  def log_admin_write(session_fingerprint, detail) do
+    Logger.info("Admin write by #{session_fingerprint}: #{detail}", auth: :admin_write)
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.control_plane",
+      decision: "write",
+      reason: detail
+    })
+  end
+
+  @doc """
+  Record a control-plane change that was refused.
+
+  `reason` separates the two refusals that look alike in a log and are not:
+  `:not_elevated` is a session that can unlock and has not, `:no_second_factor`
+  is an instance where nothing can unlock until 2FA is configured.
+  """
+  @spec log_admin_refusal(String.t(), :not_elevated | :no_second_factor, String.t()) :: :ok
+  def log_admin_refusal(session_fingerprint, reason, detail) do
+    Logger.warning("Admin write refused (#{reason}) for #{session_fingerprint}: #{detail}",
+      auth: :denied
+    )
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.control_plane",
+      decision: "deny",
+      reason: "#{reason} — #{detail}"
+    })
+  end
+
+  @doc """
+  Record one second-factor attempt.
+
+  `method` says where the code came from — typed into the admin UI, or sent to
+  a gateway. `factor` says what was presented: the authenticator, or one of the
+  recovery codes. They answer different questions, and the second is the one
+  that matters after the fact — a recovery code being spent means the
+  authenticator is gone, which is either an operator having a bad day or
+  someone else having a good one.
+
+  A refused attempt carries `:unknown`, because a code that matched nothing is
+  not evidence of which kind it was meant to be.
+  """
+  @spec log_code_attempt(
+          :accepted | :refused,
+          String.t(),
+          :web | :gateway,
+          :totp | :recovery_code | :unknown
+        ) :: :ok
+  def log_code_attempt(outcome, session_fingerprint, method, factor) do
+    Logger.info("2FA #{factor} #{outcome} (#{method}) for #{session_fingerprint}",
+      auth: :code_attempt
+    )
+
+    insert_entry(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.second_factor",
+      decision: to_string(outcome),
+      reason: "method: #{method}, factor: #{factor}"
+    })
+  end
+
+  @doc "Record that wrong codes have locked web code entry for the whole instance."
+  @spec log_code_lockout(pos_integer(), integer()) :: :ok
+  def log_code_lockout(failures, until) do
+    insert_entry(%{
+      caller: "admin:instance",
+      caller_type: "admin",
+      permission: "admin.second_factor",
+      decision: "deny",
+      reason: "web code entry locked after #{failures} wrong codes, until #{until}"
+    })
+  end
+
+  @doc "Record that a fresh set of recovery codes was generated."
+  @spec log_recovery_codes(:generated, pos_integer()) :: :ok
+  def log_recovery_codes(:generated, count) do
+    Logger.info("#{count} recovery codes generated", auth: :recovery_codes)
+
+    insert_entry(%{
+      caller: "admin:recovery",
+      caller_type: "admin",
+      permission: "admin.recovery_codes",
+      decision: "generated",
+      reason: "#{count} codes, replacing any earlier set"
+    })
+  end
+
+  @doc """
+  Record that a recovery code was spent.
+
+  Worth its own row rather than an ordinary code attempt: a recovery code being
+  used means the authenticator is gone, which is either an operator having a
+  bad day or someone else having a good one.
+  """
+  @spec log_recovery_code_used(non_neg_integer()) :: :ok
+  def log_recovery_code_used(remaining) do
+    Logger.warning("A recovery code was used — #{remaining} remaining", auth: :recovery_codes)
+
+    insert_entry(%{
+      caller: "admin:recovery",
+      caller_type: "admin",
+      permission: "admin.recovery_codes",
+      decision: "accepted",
+      reason: "recovery code used, #{remaining} remaining"
+    })
+  end
+
   @doc "Prune audit entries older than retention period."
   @spec prune() :: {non_neg_integer(), nil}
   def prune do
@@ -70,23 +213,45 @@ defmodule AlexClaw.Auth.AuditLog do
   # --- Internals ---
 
   defp persist(%AuthContext{} = ctx, decision, reason) do
-    %AuditEntry{
+    insert_entry(%{
       caller: inspect(ctx.caller),
       caller_type: to_string(ctx.caller_type),
       permission: to_string(ctx.permission),
       decision: decision,
       reason: reason,
       workflow_run_id: ctx.workflow_run_id,
-      chain_depth: ctx.chain_depth,
-      inserted_at: DateTime.utc_now()
-    }
+      chain_depth: ctx.chain_depth
+    })
+  end
+
+  # Best effort by design: the action being audited has already happened, and
+  # failing it now because its record could not be written would trade a lost
+  # row for a lost action.
+  #
+  # The catch matters as much as the rescue. Some of these run inside the
+  # Elevation owner, and a database that has gone away exits rather than
+  # raising — which would kill that process, take its :protected table with it,
+  # and silently revoke every live elevation because a log line failed.
+  defp insert_entry(attrs) do
+    %AuditEntry{}
+    |> AuditEntry.changeset(
+      attrs
+      |> Map.merge(Principal.audit_fields())
+      |> Map.put(:inserted_at, DateTime.utc_now())
+    )
     |> Repo.insert()
     |> case do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
+      {:ok, _entry} -> :ok
+      {:error, _changeset} -> :ok
     end
   rescue
-    _ -> :ok
+    error ->
+      Logger.warning("Audit row not written: #{Exception.message(error)}")
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("Audit row not written: #{inspect(reason)}")
+      :ok
   end
 
   defp maybe_filter_decision(query, nil), do: query

@@ -2,7 +2,8 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.{Challenge, Elevation, TOTP}
+  alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Google.OAuth
@@ -37,8 +38,12 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   def dispatch(%Message{text: "/confirm 2fa " <> code} = msg) do
     case TOTP.confirm_setup(String.trim(code)) do
       :ok ->
+        # The codes themselves never travel this way: a chat log is not where
+        # the way back in belongs. The operator is sent to the one place that
+        # shows them once.
         Gateway.send_message(
-          "2FA enabled! Sensitive actions will now require a code from your authenticator app.",
+          "2FA enabled! Sensitive actions will now require a code from your authenticator app.\n\n" <>
+            "Generate your recovery codes in the admin UI: Services → Two-factor authentication.",
           chat_id: msg.chat_id,
           gateway: msg.gateway
         )
@@ -154,7 +159,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   defp challenge_2fa(_msg, _action, _description, false), do: :no_2fa
 
   defp challenge_2fa(msg, action, description, true) do
-    TOTP.create_challenge(msg.chat_id, action)
+    Challenge.create(msg.chat_id, action)
 
     Gateway.send_message(
       "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:",
@@ -197,8 +202,15 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end
   end
 
-  defp load_opts(%{origin: :generated}), do: [origin: "generated", approval: "totp"]
-  defp load_opts(_action), do: [origin: "upload", approval: "totp"]
+  # The window starts when the code is accepted, not when it was requested.
+  def execute_2fa_action(%{type: :elevate, sid: sid}, _msg) do
+    {:ok, expires_at} = Elevation.grant(sid)
+    minutes = div(Elevation.window_seconds(), 60)
+
+    Gateway.send_message(
+      "Admin editing unlocked for #{minutes} minutes (until #{format_time(expires_at)} UTC)."
+    )
+  end
 
   def execute_2fa_action(%{type: :skill_unload, name: name}, _msg) do
     case SkillRegistry.unload_skill(name) do
@@ -220,6 +232,23 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end
   end
 
+  # Arbitrary SQL against the live database, so it is never covered by an
+  # elevation window — only by a code answered for this restore. The staged
+  # file is consumed either way: Restore.run/1 deletes it.
+  def execute_2fa_action(%{type: :database_restore, path: path, filename: filename}, _msg) do
+    Gateway.send_message("Restoring the database from #{filename}...")
+
+    {status, message} = Restore.run(path)
+
+    Phoenix.PubSub.broadcast(
+      AlexClaw.PubSub,
+      "database:restore",
+      {:restore_finished, status, message}
+    )
+
+    Gateway.send_message(message)
+  end
+
   def execute_2fa_action(action, msg) do
     Logger.warning("Unknown 2FA action: #{inspect(action)}")
     Gateway.send_message("Action completed.", chat_id: msg.chat_id, gateway: msg.gateway)
@@ -232,5 +261,14 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
 
   defp report_load({:error, reason}) do
     Gateway.send_message("Skill load failed: #{SkillRegistry.describe_error(reason)}")
+  end
+
+  defp load_opts(%{origin: :generated}), do: [origin: "generated", approval: "totp"]
+  defp load_opts(_action), do: [origin: "upload", approval: "totp"]
+
+  defp format_time(unix_seconds) do
+    unix_seconds
+    |> DateTime.from_unix!()
+    |> Calendar.strftime("%H:%M")
   end
 end

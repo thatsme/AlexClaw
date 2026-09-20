@@ -1,4 +1,8 @@
 <div class="space-y-8">
+  <AlexClawWeb.CoreComponents.action_code_bar action_code={@action_code} />
+
+  <AlexClawWeb.CoreComponents.elevation_bar elevation={@elevation} unlockable={false} />
+
   <h1 class="text-2xl font-bold text-white">Database</h1>
 
   <div class="bg-gray-900 rounded-lg border border-gray-800 p-6">
@@ -13,7 +17,7 @@
     <h2 class="text-lg font-semibold text-gray-300 mb-2">Restore</h2>
     <p class="text-sm text-gray-500 mb-4">Upload a .sql dump file to restore the database. This will replace existing data.</p>
 
-    <form phx-submit="restore" phx-change="validate_upload" class="space-y-4">
+    <form id="restore-form" phx-submit="restore" phx-change="validate_upload" class="space-y-4">
       <div class="flex items-center space-x-4">
         <label class="flex-1">
           <div class="relative">

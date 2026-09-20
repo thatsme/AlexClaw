@@ -6,6 +6,11 @@ defmodule AlexClaw.Gateway.Router do
 
   @gateways [AlexClaw.Gateway.Telegram, AlexClaw.Gateway.Discord]
 
+  # Injectable so a test can assert on what actually left the instance —
+  # "a recovery code is never sent over a gateway" is a claim about the wire,
+  # and checking it needs something holding the wire.
+  defp gateways, do: Application.get_env(:alex_claw, :gateways, @gateways)
+
   @spec send_message(String.t(), keyword()) :: :ok
   def send_message(text, opts \\ []) do
     resolve_gateway(opts).send_message(text, opts)
@@ -31,7 +36,7 @@ defmodule AlexClaw.Gateway.Router do
   @doc "List all gateways that are currently configured and active."
   @spec active_gateways() :: [module()]
   def active_gateways do
-    Enum.filter(@gateways, & &1.configured?())
+    Enum.filter(gateways(), & &1.configured?())
   end
 
   defp resolve_gateway(opts) do
@@ -44,6 +49,6 @@ defmodule AlexClaw.Gateway.Router do
   end
 
   defp default_gateway do
-    Enum.find(@gateways, AlexClaw.Gateway.Telegram, & &1.configured?())
+    Enum.find(gateways(), AlexClaw.Gateway.Telegram, & &1.configured?())
   end
 end

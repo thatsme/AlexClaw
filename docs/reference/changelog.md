@@ -1,5 +1,99 @@
 # Changelog
 
+## v0.3.27 — Control-Plane Elevation (2026-09-20)
+
+**BEHAVIOUR CHANGE — without 2FA configured, the admin control plane is
+read-only.** Configuration, authorization policies, LLM providers, API
+resources, cluster membership, workflow edits and database restores are all
+refused until a second factor exists. Set it up under Services → Two-factor
+authentication, or with `/setup 2fa` on a gateway, and the control plane opens
+to elevation. An upgrade on an instance without 2FA will find its admin pages
+read-only until that is done, and the first thing to do after setting it up is
+save the recovery codes it shows once.
+
+The admin password authenticated a session and authorised everything that
+session could reach. `config.ex` and `policies.ex` called no gate at all, so a
+password-only session could edit `shell.whitelist`, the `mcp.*` and `auth.*`
+settings, and delete authorization policies — which is to say it could undo the
+shell narrowing, the MCP denials and the 2FA settings shipped in 0.3.22 through
+0.3.26 from an ungated page.
+
+- **Control-plane changes need an elevation** — one TOTP code, verified once,
+  granting fifteen minutes of write authority to one session. Configuration,
+  authorization policies, LLM providers, API resources, cluster membership, and
+  workflows and their steps are all gated
+  - The window is fixed rather than sliding: fifteen minutes after the code was
+    accepted the session is read-only again, busy or idle
+  - Elevation is keyed by a random session identifier minted at login and
+    revoked at logout. Only a fingerprint of it reaches the audit log or a
+    PubSub topic
+  - Checks run in the event handler, not in the template. A refused event leaves
+    the database untouched, and both writes and refusals are audited with the
+    key or record touched and its old and new values, secrets masked
+  - `AlexClaw.Auth.Elevation` owns a `:protected` ETS table: a process that
+    could insert a row could elevate itself, so writes happen in the owner
+  - Granting reuses the existing gate, so the attempt limit and replay guard
+    from 0.3.26 apply to elevation without being reimplemented
+- **`auth.totp.*` is no longer editable from the Config page**, at any
+  elevation, and deleting those keys is refused for the same reason. They are
+  written by `/setup 2fa` and `/disable 2fa` on a gateway. Whether elevation is
+  enforced is decided by `auth.totp.enabled`; editable from behind the gate it
+  protects, it would be the way to switch that gate off
+- **A database restore is challenged every time** and is never covered by an
+  elevation. It runs arbitrary SQL against the live database as the
+  application's own user, reaching the settings and policy tables without
+  passing through either. The upload is staged while the code is outstanding and
+  discarded whether the restore runs or not
+- **Running a workflow follows one rule from both pages** — the `requires_2fa`
+  check moved into `AlexClaw.Workflows.Launch`, which the Workflows and
+  Scheduler pages both call. The Scheduler page previously called
+  `Executor.run/1` directly, so a workflow challenged on one page ran unchallenged
+  from the other
+- **A code can be typed in the admin UI** — "Unlock editing" opens a six-digit
+  field on the page, and the same field appears for the gates an elevation does
+  not cover: loading a skill, approving generated code, running a workflow
+  marked `requires_2fa`, restoring the database. The gateway prompt is still
+  raised alongside it, and whichever is answered first performs the action and
+  withdraws the other
+  - The authenticator app is the second factor; a gateway is a convenient place
+    to type a code. An instance with no bot configured is now fully usable
+  - Three wrong codes lock a session's code entry for five minutes; ten inside
+    fifteen minutes, across any sessions, lock web code entry for fifteen, with
+    an audit row and one gateway notification. Counters live in a supervised
+    process, because a per-session count alone is defeated by discarding the
+    session cookie
+  - Every attempt is audited with the route it came in by
+- **2FA can be set up from the admin UI** — Services → Two-factor
+  authentication: QR, manual key, confirm with a code. The admin password alone
+  is enough, deliberately. Turning 2FA off needs a current code, including from
+  a session holding an elevation
+- **Recovery codes** — ten one-time codes, generated when 2FA is enabled and
+  shown once in the browser, never over a gateway. Stored as SHA-256 hashes and
+  compared in constant time; accepted in any code field; consumed on use; each
+  use audited, announced, and counted down on the page. Regenerating invalidates
+  the old set and needs a current code
+  - If both the authenticator and the recovery codes are lost there is no way in
+    through the application. Restore from backup or reinstall; the host remains
+    the root of trust
+- **Instances without a second factor are read-only** — every control-plane
+  event is refused and audited as `no_second_factor`, and every gated page says
+  so and says how to fix it. There is no password-only path, and no variable
+  that disables the gate
+  - Boot logs a warning, and sends one gateway message where a gateway is
+    reachable, pointing at the page that sets 2FA up
+- **The app gets 30 seconds to shut down** (`stop_grace_period`) — Docker's
+  default 10 seconds was shorter than the supervision tree takes to unwind, so
+  every stop ended in SIGKILL and in-flight workflow runs stayed recorded as
+  executing. This is the whole of the exit-137 question; there was no memory
+  problem
+- **New invariant** — a test reads each gated LiveView's source and follows
+  every `handle_event` clause through the functions it calls, failing the build
+  when a clause can reach a write without reaching a gate. A new write event has
+  to be gated or allow-listed with a reason
+- **CI runs Credo** against the merge base, so issues a branch introduces fail
+  the build while the 26 that predate the gate do not. The strict configuration
+  is now tracked rather than gitignored, which is what the diff baseline reads
+
 ## v0.3.26 — Secrets, Privileged Invocation, and Settings That Lie (2026-09-20)
 
 Closes two routes a skill could take to something it was never granted, and

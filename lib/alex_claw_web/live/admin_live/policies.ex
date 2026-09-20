@@ -2,6 +2,7 @@ defmodule AlexClawWeb.AdminLive.Policies do
   @moduledoc "LiveView page for managing authorization policies and viewing audit log."
 
   use Phoenix.LiveView
+  alias AlexClawWeb.Live.Elevation
 
   alias AlexClaw.Auth.{AuditLog, Policy, PolicyEngine}
   alias AlexClaw.Repo
@@ -10,7 +11,9 @@ defmodule AlexClawWeb.AdminLive.Policies do
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket = Elevation.assign_elevation(socket, session)
+
     {:ok,
      assign(socket,
        page_title: "Policies",
@@ -33,6 +36,11 @@ defmodule AlexClawWeb.AdminLive.Policies do
       "match" => "exact"
     }
   }
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
+  end
 
   @impl true
   @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
@@ -73,29 +81,31 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("create_policy", %{"policy" => params}, socket) do
-    config = parse_config(params["config_json"] || "{}")
+    Elevation.gate(socket, "policy created: #{params["name"]}", fn ->
+      config = parse_config(params["config_json"] || "{}")
 
-    attrs = %{
-      name: params["name"],
-      description: params["description"],
-      rule_type: params["rule_type"],
-      config: config,
-      priority: parse_int(params["priority"], 0),
-      enabled: params["enabled"] == "true"
-    }
+      attrs = %{
+        name: params["name"],
+        description: params["description"],
+        rule_type: params["rule_type"],
+        config: config,
+        priority: parse_int(params["priority"], 0),
+        enabled: params["enabled"] == "true"
+      }
 
-    case %Policy{} |> Policy.changeset(attrs) |> Repo.insert() do
-      {:ok, _policy} ->
-        PolicyEngine.reload_policies()
+      case %Policy{} |> Policy.changeset(attrs) |> Repo.insert() do
+        {:ok, _policy} ->
+          PolicyEngine.reload_policies()
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Policy created")
-         |> assign(policies: list_policies(), form: default_form())}
+          {:noreply,
+           socket
+           |> put_flash(:info, "Policy created")
+           |> assign(policies: list_policies(), form: default_form())}
 
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Invalid policy")}
-    end
+        {:error, _changeset} ->
+          {:noreply, put_flash(socket, :error, "Invalid policy")}
+      end
+    end)
   end
 
   def handle_event("edit_policy", %{"id" => id}, socket) do
@@ -119,60 +129,84 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("update_policy", %{"policy" => params}, socket) do
-    policy = Repo.get!(Policy, params["id"])
-    config = parse_config(params["config_json"] || "{}")
+    Elevation.gate(socket, "policy updated: #{params["name"]}", fn ->
+      policy = Repo.get!(Policy, params["id"])
+      config = parse_config(params["config_json"] || "{}")
 
-    attrs = %{
-      name: params["name"],
-      description: params["description"],
-      rule_type: params["rule_type"],
-      config: config,
-      priority: parse_int(params["priority"], 0),
-      enabled: params["enabled"] == "true"
-    }
+      attrs = %{
+        name: params["name"],
+        description: params["description"],
+        rule_type: params["rule_type"],
+        config: config,
+        priority: parse_int(params["priority"], 0),
+        enabled: params["enabled"] == "true"
+      }
 
-    case policy |> Policy.changeset(attrs) |> Repo.update() do
-      {:ok, _} ->
-        PolicyEngine.reload_policies()
+      case policy |> Policy.changeset(attrs) |> Repo.update() do
+        {:ok, _} ->
+          PolicyEngine.reload_policies()
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Policy updated")
-         |> assign(editing: nil, policies: list_policies(), form: default_form())}
+          {:noreply,
+           socket
+           |> put_flash(:info, "Policy updated")
+           |> assign(editing: nil, policies: list_policies(), form: default_form())}
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Invalid policy")}
-    end
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Invalid policy")}
+      end
+    end)
   end
 
   def handle_event("toggle_policy", %{"id" => id}, socket) do
-    policy = Repo.get!(Policy, id)
-    {:ok, _} = policy |> Policy.changeset(%{enabled: !policy.enabled}) |> Repo.update()
-    PolicyEngine.reload_policies()
-    {:noreply, assign(socket, policies: list_policies())}
+    Elevation.gate(socket, "policy toggled: id #{id}", fn ->
+      policy = Repo.get!(Policy, id)
+      {:ok, _} = policy |> Policy.changeset(%{enabled: !policy.enabled}) |> Repo.update()
+      PolicyEngine.reload_policies()
+      {:noreply, assign(socket, policies: list_policies())}
+    end)
   end
 
   def handle_event("delete_policy", %{"id" => id}, socket) do
-    Repo.delete!(Repo.get!(Policy, id))
-    PolicyEngine.reload_policies()
+    Elevation.gate(socket, "policy deleted: id #{id}", fn ->
+      Repo.delete!(Repo.get!(Policy, id))
+      PolicyEngine.reload_policies()
 
-    {:noreply,
-     socket
-     |> put_flash(:info, "Policy deleted")
-     |> assign(policies: list_policies())}
+      {:noreply,
+       socket
+       |> put_flash(:info, "Policy deleted")
+       |> assign(policies: list_policies())}
+    end)
   end
 
   def handle_event("prune_audit", _, socket) do
-    {count, _} = AuditLog.prune()
+    Elevation.gate(socket, "authorization audit log pruned", fn ->
+      {count, _} = AuditLog.prune()
 
-    {:noreply,
-     socket
-     |> put_flash(:info, "Pruned #{count} old audit entries")
-     |> assign(audit_entries: AuditLog.recent(limit: 50))}
+      {:noreply,
+       socket
+       |> put_flash(:info, "Pruned #{count} old audit entries")
+       |> assign(audit_entries: AuditLog.recent(limit: 50))}
+    end)
   end
 
   def handle_event("refresh_audit", _, socket) do
     {:noreply, assign(socket, audit_entries: AuditLog.recent(limit: 50))}
+  end
+
+  def handle_event("unlock_editing", _params, socket) do
+    Elevation.open_entry(socket)
+  end
+
+  def handle_event("submit_code", %{"code" => code}, socket) do
+    Elevation.submit_code(socket, code)
+  end
+
+  def handle_event("cancel_code", _params, socket) do
+    Elevation.close_entry(socket)
+  end
+
+  def handle_event("request_gateway_code", _params, socket) do
+    Elevation.unlock(socket)
   end
 
   # --- Helpers ---

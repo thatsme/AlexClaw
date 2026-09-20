@@ -18,6 +18,9 @@ defmodule AlexClaw.Auth.ChallengeStore do
 
   @table :totp_challenges
 
+  @typedoc "A chat id, or a session raising its own challenge in the admin UI."
+  @type key :: String.t() | {:web, String.t()}
+
   # --- Client ---
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -25,14 +28,21 @@ defmodule AlexClaw.Auth.ChallengeStore do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
-  @doc "Store a challenge for a chat, replacing any challenge already pending."
-  @spec put(String.t(), map()) :: :ok
+  @doc """
+  Store a challenge, replacing any already pending for that key.
+
+  A key is a chat id for a challenge sent to a gateway, or `{:web, sid}` for
+  one raised by a session typing its code into the admin UI. Both hold the same
+  shape, expire the same way, and are executed by the same function — the key
+  only says where the code is expected from.
+  """
+  @spec put(key(), map()) :: :ok
   def put(chat_id, challenge) do
     GenServer.call(__MODULE__, {:put, chat_id, challenge})
   end
 
-  @doc "Forget a chat's challenge. Used on success, expiry and cancellation."
-  @spec drop(String.t()) :: :ok
+  @doc "Forget a challenge. Used on success, expiry and cancellation."
+  @spec drop(key()) :: :ok
   def drop(chat_id) do
     GenServer.call(__MODULE__, {:drop, chat_id})
   end
@@ -43,17 +53,17 @@ defmodule AlexClaw.Auth.ChallengeStore do
   Returns `{:error, :too_many_attempts}` and forgets the challenge once `max`
   is reached, `{:error, :invalid_code}` while attempts remain.
   """
-  @spec record_attempt(String.t(), pos_integer()) ::
+  @spec record_attempt(key(), pos_integer()) ::
           {:error, :invalid_code | :too_many_attempts | :no_challenge}
   def record_attempt(chat_id, max) do
     GenServer.call(__MODULE__, {:record_attempt, chat_id, max})
   end
 
-  @doc "Read a chat's pending challenge. Reads go straight to the table."
-  @spec fetch(String.t()) :: {:ok, map()} | :error
-  def fetch(chat_id) do
-    case :ets.lookup(@table, chat_id) do
-      [{^chat_id, challenge}] -> {:ok, challenge}
+  @doc "Read a pending challenge. Reads go straight to the table."
+  @spec fetch(key()) :: {:ok, map()} | :error
+  def fetch(key) do
+    case :ets.lookup(@table, key) do
+      [{^key, challenge}] -> {:ok, challenge}
       [] -> :error
     end
   end

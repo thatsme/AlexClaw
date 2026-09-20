@@ -2,7 +2,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.Auth.{Elevation, TOTP}
+  alias AlexClaw.Auth.{Challenge, Elevation, TOTP}
   alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
@@ -159,7 +159,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   defp challenge_2fa(_msg, _action, _description, false), do: :no_2fa
 
   defp challenge_2fa(msg, action, description, true) do
-    TOTP.create_challenge(msg.chat_id, action)
+    Challenge.create(msg.chat_id, action)
 
     Gateway.send_message(
       "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:",

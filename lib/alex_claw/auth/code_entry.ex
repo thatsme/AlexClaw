@@ -12,7 +12,7 @@ defmodule AlexClaw.Auth.CodeEntry do
   answer.
   """
 
-  alias AlexClaw.Auth.{AuditLog, CodeAttempts, Elevation, RecoveryCodes, TOTP}
+  alias AlexClaw.Auth.{AuditLog, CodeAttempts, Elevation, SecondFactor}
 
   @type method :: :web | :gateway
   @type failure :: :locked_session | :locked_instance | :invalid_code | :not_configured
@@ -30,9 +30,9 @@ defmodule AlexClaw.Auth.CodeEntry do
   """
   @spec verify(String.t() | nil, String.t(), method()) :: :ok | {:error, failure()}
   def verify(sid, code, method \\ :web) do
-    with :ok <- configured(TOTP.enabled?()),
+    with :ok <- configured(SecondFactor.impl().configured?()),
          :ok <- allowed(CodeAttempts.status(sid)) do
-      check(normalize(code), sid, method)
+      check(code, sid, method)
     end
   end
 
@@ -45,27 +45,16 @@ defmodule AlexClaw.Auth.CodeEntry do
   defp allowed({:locked, :session, _until}), do: {:error, :locked_session}
   defp allowed({:locked, :instance, _until}), do: {:error, :locked_instance}
 
-  # A code is a TOTP code or a recovery code, and the field does not ask which:
-  # an operator whose phone is gone types what they have, in the same box.
+  # What "a good code" means belongs to the second-factor implementation. What
+  # belongs here is everything around it: the limits, the audit row, and the
+  # refusal an operator reads.
   defp check(code, sid, method) do
-    totp_or_recovery(TOTP.verify(code), code, sid, method)
+    SecondFactor.impl().verify(code, method)
+    |> judge(sid, method)
   end
 
-  defp totp_or_recovery(true, _code, sid, method), do: accept(sid, method, :totp)
-
-  # Recovery codes are accepted in the browser and nowhere else. They are never
-  # sent over a gateway, for the same reason they must not be typed into one: a
-  # chat transcript is a durable copy of the way back in, sitting on someone
-  # else's server. An operator whose authenticator is gone still has the admin
-  # UI, which is where the codes are read and where they are spent.
-  defp totp_or_recovery(false, code, sid, :web) do
-    spent(RecoveryCodes.redeem(code), sid, :web)
-  end
-
-  defp totp_or_recovery(false, _code, sid, :gateway), do: reject(sid, :gateway)
-
-  defp spent({:ok, _remaining}, sid, method), do: accept(sid, method, :recovery_code)
-  defp spent({:error, :invalid_code}, sid, method), do: reject(sid, method)
+  defp judge({:ok, factor}, sid, method), do: accept(sid, method, factor)
+  defp judge({:error, :invalid_code}, sid, method), do: reject(sid, method)
 
   defp accept(sid, method, factor) do
     CodeAttempts.record_success(sid)
@@ -83,9 +72,6 @@ defmodule AlexClaw.Auth.CodeEntry do
     CodeAttempts.record_failure(sid)
     {:error, :invalid_code}
   end
-
-  # Operators paste codes with the space their authenticator shows.
-  defp normalize(code), do: code |> to_string() |> String.replace(~r/\s/, "")
 
   defp fingerprint(sid) when is_binary(sid), do: Elevation.fingerprint(sid)
   defp fingerprint(_sid), do: "unidentified"

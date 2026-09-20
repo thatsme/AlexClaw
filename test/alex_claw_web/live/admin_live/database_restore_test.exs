@@ -9,7 +9,7 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
   use AlexClawWeb.ConnCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{AuditLog, Elevation, TOTP}
+  alias AlexClaw.Auth.{AuditLog, Challenge, Elevation, TOTP}
 
   setup do
     sid = Elevation.new_sid()
@@ -67,7 +67,7 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
 
       render_click(view, "restore", %{})
 
-      assert TOTP.pending_challenge?(chat_id),
+      assert Challenge.pending?(chat_id),
              "the restore ran without asking for a code"
     end
 
@@ -81,7 +81,7 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
 
       render_click(view, "restore", %{})
 
-      assert TOTP.pending_challenge?(chat_id),
+      assert Challenge.pending?(chat_id),
              "an elevation covered a restore, which it must never do"
     end
 

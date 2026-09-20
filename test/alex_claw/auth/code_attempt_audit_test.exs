@@ -10,7 +10,7 @@ defmodule AlexClaw.Auth.CodeAttemptAuditTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{AuditLog, CodeAttempts, CodeEntry, RecoveryCodes, TOTP}
+  alias AlexClaw.Auth.{AuditLog, Challenge, CodeAttempts, CodeEntry, RecoveryCodes, TOTP}
 
   setup do
     CodeAttempts.reset()
@@ -57,9 +57,9 @@ defmodule AlexClaw.Auth.CodeAttemptAuditTest do
 
     test "records the gateway route when it came in that way", ctx do
       chat = "chat-#{System.unique_integer([:positive])}"
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      {:ok, _action} = TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(ctx.secret))
+      {:ok, _action} = Challenge.resolve(chat, NimbleTOTP.verification_code(ctx.secret))
 
       assert latest("accepted").reason =~ "method: gateway"
       assert latest("accepted").reason =~ "factor: totp"
@@ -100,9 +100,9 @@ defmodule AlexClaw.Auth.CodeAttemptAuditTest do
 
     test "still names the route for a gateway attempt", ctx do
       chat = "chat-#{System.unique_integer([:positive])}"
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      TOTP.resolve_challenge(chat, "000000")
+      Challenge.resolve(chat, "000000")
 
       assert latest("refused").reason =~ "method: gateway"
       assert ctx.sid

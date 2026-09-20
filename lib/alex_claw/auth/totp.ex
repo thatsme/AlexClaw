@@ -16,8 +16,6 @@ defmodule AlexClaw.Auth.TOTP do
   require Logger
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
-  alias AlexClaw.Auth.ChallengeStore
-  alias AlexClaw.Auth.CodeEntry
   alias AlexClaw.Config
   alias AlexClaw.Config.Crypto
   alias AlexClaw.Config.Setting
@@ -31,10 +29,6 @@ defmodule AlexClaw.Auth.TOTP do
   # A challenge is a two-minute window in which any six digits can be tried.
   # The table itself is owned by AlexClaw.Auth.ChallengeStore, so a challenge
   # outlives the process that raised it.
-  @max_attempts 3
-
-  # How long a pending action waits for its code, either way it was raised.
-  @challenge_seconds 120
 
   # --- Setup ---
 
@@ -202,156 +196,5 @@ defmodule AlexClaw.Auth.TOTP do
   defp log_undecryptable(reason) do
     Logger.error("Could not decrypt the TOTP secret: #{inspect(reason)}")
     nil
-  end
-
-  # --- Challenge system ---
-
-  @doc """
-  Create a pending 2FA challenge for a sensitive action.
-  Returns the challenge ID. The user must respond with a valid TOTP code.
-  """
-  @spec create_challenge(String.t() | integer(), map()) :: String.t()
-  def create_challenge(chat_id, action) do
-    challenge_id = Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
-
-    ChallengeStore.put(to_string(chat_id), %{
-      id: challenge_id,
-      action: action,
-      expires_at: System.monotonic_time(:second) + @challenge_seconds,
-      attempts: 0
-    })
-
-    challenge_id
-  end
-
-  @doc "Check if there's a pending challenge for this chat and try to verify the code."
-  @spec resolve_challenge(String.t() | integer(), String.t()) ::
-          {:ok, map()} | {:error, atom()}
-  def resolve_challenge(chat_id, code) do
-    chat_id_str = to_string(chat_id)
-
-    case ChallengeStore.fetch(chat_id_str) do
-      {:ok, challenge} ->
-        decide_challenge(challenge, chat_id_str, code)
-
-      :error ->
-        {:error, :no_challenge}
-    end
-  end
-
-  # The code is checked by CodeEntry, whichever way it arrived: same replay
-  # guard, same brute-force counters, same audit row. What stays here is what is
-  # specific to a gateway challenge — its two-minute life, and the per-challenge
-  # attempt count that discards the pending action.
-  defp decide_challenge(challenge, chat_id_str, code) do
-    expired(System.monotonic_time(:second) > challenge.expires_at, challenge, chat_id_str, code)
-  end
-
-  defp expired(true, _challenge, chat_id_str, _code) do
-    ChallengeStore.drop(chat_id_str)
-    {:error, :challenge_expired}
-  end
-
-  defp expired(false, challenge, chat_id_str, code) do
-    chat_id_str
-    |> session_key()
-    |> CodeEntry.verify(code, :gateway)
-    |> resolved(challenge, chat_id_str)
-  end
-
-  defp resolved(:ok, challenge, chat_id_str) do
-    ChallengeStore.drop(chat_id_str)
-    {:ok, challenge.action}
-  end
-
-  # A locked instance is not "wrong code": the caller is told to stop, and the
-  # pending action is left alone rather than burned by an attempt that never
-  # reached the verifier.
-  defp resolved({:error, locked}, _challenge, _chat_id_str)
-       when locked in [:locked_session, :locked_instance] do
-    {:error, locked}
-  end
-
-  defp resolved({:error, _reason}, _challenge, chat_id_str) do
-    ChallengeStore.record_attempt(chat_id_str, @max_attempts)
-  end
-
-  # A chat is the session on that side: three wrong codes from one chat lock
-  # that chat, not every gateway at once.
-  defp session_key(chat_id_str), do: "chat:" <> chat_id_str
-
-  @doc "Check if a chat has a pending challenge."
-  @spec pending_challenge?(String.t() | integer()) :: boolean()
-  def pending_challenge?(chat_id) do
-    case ChallengeStore.fetch(to_string(chat_id)) do
-      {:ok, challenge} -> System.monotonic_time(:second) <= challenge.expires_at
-      :error -> false
-    end
-  end
-
-  @doc """
-  Hold an action raised in the admin UI until its code arrives.
-
-  The same shape as a gateway challenge, keyed by session rather than by chat,
-  because the action has to outlive the click either way. Two minutes, as for a
-  gateway: an approval left open on a screen is an approval someone else can
-  finish.
-  """
-  @spec create_web_challenge(String.t(), map()) :: String.t()
-  def create_web_challenge(sid, action) do
-    challenge_id = Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
-
-    ChallengeStore.put({:web, sid}, %{
-      id: challenge_id,
-      action: action,
-      expires_at: System.monotonic_time(:second) + @challenge_seconds,
-      attempts: 0
-    })
-
-    challenge_id
-  end
-
-  @doc "The action a session is waiting to confirm, if it has not expired."
-  @spec pending_web_action(String.t() | nil) :: {:ok, map()} | :error
-  def pending_web_action(nil), do: :error
-
-  def pending_web_action(sid) do
-    unexpired(ChallengeStore.fetch({:web, sid}), sid)
-  end
-
-  @doc """
-  Take a session's pending action, leaving nothing behind.
-
-  Taking rather than reading: the caller is about to perform the action, and a
-  second caller must not find it still waiting. The code itself is checked by
-  `AlexClaw.Auth.CodeEntry`, which owns the attempt limits.
-  """
-  @spec take_web_action(String.t() | nil) :: {:ok, map()} | :error
-  def take_web_action(sid) do
-    taken = pending_web_action(sid)
-    drop_web_challenge(sid)
-    taken
-  end
-
-  @doc "Forget a session's pending action — cancelled, or already performed."
-  @spec drop_web_challenge(String.t() | nil) :: :ok
-  def drop_web_challenge(nil), do: :ok
-  def drop_web_challenge(sid), do: ChallengeStore.drop({:web, sid})
-
-  @doc "Forget a gateway's pending challenge — answered elsewhere, or cancelled."
-  @spec drop_challenge(String.t() | integer()) :: :ok
-  def drop_challenge(chat_id), do: ChallengeStore.drop(to_string(chat_id))
-
-  defp unexpired({:ok, challenge}, sid) do
-    fresh(System.monotonic_time(:second) <= challenge.expires_at, challenge, sid)
-  end
-
-  defp unexpired(:error, _sid), do: :error
-
-  defp fresh(true, challenge, _sid), do: {:ok, challenge.action}
-
-  defp fresh(false, _challenge, sid) do
-    drop_web_challenge(sid)
-    :error
   end
 end

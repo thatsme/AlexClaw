@@ -9,7 +9,7 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{ChallengeStore, CodeAttempts, CodeEntry, RecoveryCodes, TOTP}
+  alias AlexClaw.Auth.{Challenge, ChallengeStore, CodeAttempts, CodeEntry, RecoveryCodes, TOTP}
 
   setup do
     CodeAttempts.reset()
@@ -38,7 +38,7 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
     secret
   end
 
-  defp challenge(chat), do: TOTP.create_challenge(chat, %{type: :run_workflow, workflow_id: 1})
+  defp challenge(chat), do: Challenge.create(chat, %{type: :run_workflow, workflow_id: 1})
 
   describe "the counters are shared" do
     # The point of unifying: ten wrong codes are ten wrong codes, whether they
@@ -51,14 +51,14 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
       for n <- 1..4 do
         chat = "#{ctx.chat}-#{n}"
         challenge(chat)
-        TOTP.resolve_challenge(chat, "000000")
+        Challenge.resolve(chat, "000000")
       end
 
       # Nine so far, from both sides, and nothing is locked yet.
       assert CodeAttempts.status("anyone") == :ok
 
       challenge(ctx.chat)
-      TOTP.resolve_challenge(ctx.chat, "000000")
+      Challenge.resolve(ctx.chat, "000000")
 
       assert {:locked, :instance, _until} = CodeAttempts.status("anyone"),
              "ten wrong codes across both routes did not reach the instance limit"
@@ -68,7 +68,7 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
       for n <- 1..CodeAttempts.instance_limit() do
         chat = "#{ctx.chat}-#{n}"
         challenge(chat)
-        TOTP.resolve_challenge(chat, "000000")
+        Challenge.resolve(chat, "000000")
       end
 
       assert {:error, :locked_instance} =
@@ -81,7 +81,7 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
 
       for _n <- 1..3 do
         challenge(ctx.chat)
-        TOTP.resolve_challenge(ctx.chat, "000000")
+        Challenge.resolve(ctx.chat, "000000")
       end
 
       assert {:locked, :session, _until} = CodeAttempts.status("chat:" <> ctx.chat)
@@ -93,18 +93,18 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
     test "still accepts a correct code and returns the action", ctx do
       challenge(ctx.chat)
 
-      assert {:ok, action} = TOTP.resolve_challenge(ctx.chat, code(ctx.secret))
+      assert {:ok, action} = Challenge.resolve(ctx.chat, code(ctx.secret))
       assert action.type == :run_workflow
     end
 
     test "still refuses a replayed code", ctx do
       used = code(ctx.secret)
       challenge(ctx.chat)
-      {:ok, _action} = TOTP.resolve_challenge(ctx.chat, used)
+      {:ok, _action} = Challenge.resolve(ctx.chat, used)
 
       challenge(ctx.chat)
 
-      assert {:error, _reason} = TOTP.resolve_challenge(ctx.chat, used)
+      assert {:error, _reason} = Challenge.resolve(ctx.chat, used)
     end
 
     test "still expires a challenge", ctx do
@@ -116,7 +116,7 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
         | expires_at: System.monotonic_time(:second) - 1
       })
 
-      assert {:error, :challenge_expired} = TOTP.resolve_challenge(ctx.chat, code(ctx.secret))
+      assert {:error, :challenge_expired} = Challenge.resolve(ctx.chat, code(ctx.secret))
     end
 
     test "reports a lock rather than burning the pending action", ctx do
@@ -126,8 +126,8 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
 
       challenge(ctx.chat)
 
-      assert {:error, :locked_instance} = TOTP.resolve_challenge(ctx.chat, "000000")
-      assert TOTP.pending_challenge?(ctx.chat), "a locked-out attempt discarded the action"
+      assert {:error, :locked_instance} = Challenge.resolve(ctx.chat, "000000")
+      assert Challenge.pending?(ctx.chat), "a locked-out attempt discarded the action"
     end
   end
 
@@ -140,7 +140,7 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
       [recovery | _rest] = RecoveryCodes.generate()
       challenge(ctx.chat)
 
-      assert {:error, _reason} = TOTP.resolve_challenge(ctx.chat, recovery)
+      assert {:error, _reason} = Challenge.resolve(ctx.chat, recovery)
 
       assert RecoveryCodes.remaining() == RecoveryCodes.count(),
              "a recovery code was spent by a gateway attempt"
@@ -149,7 +149,7 @@ defmodule AlexClaw.Auth.UnifiedVerificationTest do
     test "but the same code still works in the browser", ctx do
       [recovery | _rest] = RecoveryCodes.generate()
       challenge(ctx.chat)
-      {:error, _reason} = TOTP.resolve_challenge(ctx.chat, recovery)
+      {:error, _reason} = Challenge.resolve(ctx.chat, recovery)
 
       assert :ok = CodeEntry.verify("a-web-session", recovery, :web)
       assert RecoveryCodes.remaining() == RecoveryCodes.count() - 1

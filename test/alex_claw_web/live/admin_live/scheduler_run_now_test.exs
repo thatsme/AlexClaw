@@ -11,6 +11,7 @@ defmodule AlexClawWeb.AdminLive.SchedulerRunNowTest do
 
   import Phoenix.LiveViewTest
 
+  alias AlexClaw.Auth.Challenge
   alias AlexClaw.Auth.TOTP
   alias AlexClaw.Workflows
 
@@ -52,7 +53,7 @@ defmodule AlexClawWeb.AdminLive.SchedulerRunNowTest do
 
       run_now(conn, wf)
 
-      assert TOTP.pending_challenge?(chat_id),
+      assert Challenge.pending?(chat_id),
              "the Scheduler page started a 2FA workflow without a challenge"
     end
 
@@ -62,7 +63,7 @@ defmodule AlexClawWeb.AdminLive.SchedulerRunNowTest do
 
       run_now(conn, wf)
 
-      refute TOTP.pending_challenge?(chat_id)
+      refute Challenge.pending?(chat_id)
     end
 
     # The rule is the workflow's own flag, so both pages reach the same verdict
@@ -78,10 +79,10 @@ defmodule AlexClawWeb.AdminLive.SchedulerRunNowTest do
       from_scheduler_chat = enable_totp_with_gateway()
       run_now(conn, wf)
 
-      assert TOTP.pending_challenge?(from_workflows_chat) ==
-               TOTP.pending_challenge?(from_scheduler_chat)
+      assert Challenge.pending?(from_workflows_chat) ==
+               Challenge.pending?(from_scheduler_chat)
 
-      assert TOTP.pending_challenge?(from_scheduler_chat)
+      assert Challenge.pending?(from_scheduler_chat)
     end
 
     test "reports a workflow that is gone rather than crashing", %{conn: conn} do

@@ -20,7 +20,7 @@ defmodule AlexClawWeb.Live.ActionCode do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [put_flash: 3]
 
-  alias AlexClaw.Auth.{CodeEntry, Gate, TOTP}
+  alias AlexClaw.Auth.{Challenge, CodeEntry, Gate}
   alias AlexClaw.Dispatcher.AuthCommands
   alias AlexClaw.Message
   alias Phoenix.LiveView.Socket
@@ -34,7 +34,7 @@ defmodule AlexClawWeb.Live.ActionCode do
   @spec request(Socket.t(), map(), String.t()) :: {:noreply, Socket.t()}
   def request(socket, action, description) do
     sid = sid(socket)
-    TOTP.create_web_challenge(sid, action)
+    Challenge.create_for_session(sid, action)
     Gate.request(action, description)
 
     {:noreply,
@@ -51,7 +51,7 @@ defmodule AlexClawWeb.Live.ActionCode do
   @doc "Abandon the waiting action, on the page and on the gateway."
   @spec cancel(Socket.t()) :: {:noreply, Socket.t()}
   def cancel(socket) do
-    TOTP.drop_web_challenge(sid(socket))
+    Challenge.drop_for_session(sid(socket))
 
     {:noreply, closed(socket)}
   end
@@ -66,7 +66,7 @@ defmodule AlexClawWeb.Live.ActionCode do
 
   defp perform(:ok, sid, socket) do
     sid
-    |> TOTP.take_web_action()
+    |> Challenge.take_for_session()
     |> run(sid, socket)
   end
 
@@ -92,7 +92,7 @@ defmodule AlexClawWeb.Live.ActionCode do
   # The same action was also waiting on every configured gateway. Leaving it
   # there would let a second code perform it twice.
   defp withdraw_gateway_challenges do
-    for chat_id <- Gate.notify_targets(), do: TOTP.drop_challenge(chat_id)
+    for chat_id <- Gate.notify_targets(), do: Challenge.drop(chat_id)
     :ok
   end
 

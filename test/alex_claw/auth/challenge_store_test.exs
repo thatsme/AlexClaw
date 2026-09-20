@@ -2,6 +2,7 @@ defmodule AlexClaw.Auth.ChallengeStoreTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
+  alias AlexClaw.Auth.Challenge
   alias AlexClaw.Auth.ChallengeStore
   alias AlexClaw.Auth.TOTP
 
@@ -21,14 +22,14 @@ defmodule AlexClaw.Auth.ChallengeStoreTest do
       secret = enable_2fa()
       chat = chat()
 
-      task = Task.async(fn -> TOTP.create_challenge(chat, %{type: :test}) end)
+      task = Task.async(fn -> Challenge.create(chat, %{type: :test}) end)
       _challenge_id = Task.await(task)
 
       refute Process.alive?(task.pid)
-      assert TOTP.pending_challenge?(chat)
+      assert Challenge.pending?(chat)
 
       assert {:ok, %{type: :test}} =
-               TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+               Challenge.resolve(chat, NimbleTOTP.verification_code(secret))
     end
 
     test "the table survives many short-lived creators" do
@@ -36,10 +37,10 @@ defmodule AlexClaw.Auth.ChallengeStoreTest do
       chats = for _ <- 1..20, do: chat()
 
       chats
-      |> Enum.map(fn c -> Task.async(fn -> TOTP.create_challenge(c, %{type: :test}) end) end)
+      |> Enum.map(fn c -> Task.async(fn -> Challenge.create(c, %{type: :test}) end) end)
       |> Task.await_many(5_000)
 
-      for c <- chats, do: assert(TOTP.pending_challenge?(c))
+      for c <- chats, do: assert(Challenge.pending?(c))
     end
   end
 
@@ -61,7 +62,7 @@ defmodule AlexClaw.Auth.ChallengeStoreTest do
     test "a non-owner may still read" do
       enable_2fa()
       chat = chat()
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
       assert {:ok, %{attempts: 0}} = ChallengeStore.fetch(chat)
     end
@@ -76,7 +77,7 @@ defmodule AlexClaw.Auth.ChallengeStoreTest do
       results =
         1..50
         |> Enum.map(fn _ ->
-          Task.async(fn -> TOTP.create_challenge(chat(), %{type: :test}) end)
+          Task.async(fn -> Challenge.create(chat(), %{type: :test}) end)
         end)
         |> Task.await_many(10_000)
 
@@ -87,17 +88,17 @@ defmodule AlexClaw.Auth.ChallengeStoreTest do
     test "concurrent wrong codes against one challenge do not lose an increment" do
       enable_2fa()
       chat = chat()
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
       # Three wrong codes arriving together must still end the challenge, not
       # race each other into a lost count.
       1..3
       |> Enum.map(fn i ->
-        Task.async(fn -> TOTP.resolve_challenge(chat, "00000#{i}") end)
+        Task.async(fn -> Challenge.resolve(chat, "00000#{i}") end)
       end)
       |> Task.await_many(5_000)
 
-      refute TOTP.pending_challenge?(chat)
+      refute Challenge.pending?(chat)
     end
   end
 

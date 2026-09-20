@@ -29,7 +29,7 @@ defmodule AlexClaw.Auth.Elevation do
   """
   use GenServer
 
-  alias AlexClaw.Auth.{AuditLog, TOTP}
+  alias AlexClaw.Auth.{AuditLog, SecondFactor}
 
   @table :admin_elevations
   @window_seconds 15 * 60
@@ -51,7 +51,7 @@ defmodule AlexClaw.Auth.Elevation do
   whether this instance can answer it yet.
   """
   @spec configured?() :: boolean()
-  def configured?, do: TOTP.enabled?()
+  def configured?, do: SecondFactor.impl().configured?()
 
   @doc """
   Whether `sid` currently holds an elevation.

@@ -4,7 +4,7 @@ defmodule AlexClaw.Config.Loader do
   """
   use GenServer
   require Logger
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.SecondFactor
   alias AlexClaw.Config.EncryptExisting
   alias AlexClaw.Config.Seeder
   alias AlexClaw.Gateway
@@ -69,7 +69,7 @@ defmodule AlexClaw.Config.Loader do
   end
 
   def handle_info(:report_second_factor, state) do
-    report_second_factor(TOTP.enabled?())
+    report_second_factor(SecondFactor.impl().configured?())
     {:noreply, state}
   end
 

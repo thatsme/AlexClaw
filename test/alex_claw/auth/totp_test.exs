@@ -2,7 +2,7 @@ defmodule AlexClaw.Auth.TOTPTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{CodeAttempts, TOTP}
+  alias AlexClaw.Auth.{Challenge, CodeAttempts, TOTP}
   alias AlexClaw.Config.Crypto
 
   describe "setup/0" do
@@ -116,14 +116,14 @@ defmodule AlexClaw.Auth.TOTPTest do
       :ok = TOTP.confirm_setup(code)
 
       action = %{type: :run_workflow, workflow_id: 1}
-      _challenge_id = TOTP.create_challenge("chat_123", action)
+      _challenge_id = Challenge.create("chat_123", action)
 
-      assert TOTP.pending_challenge?("chat_123")
+      assert Challenge.pending?("chat_123")
 
       new_code = NimbleTOTP.verification_code(secret)
-      assert {:ok, ^action} = TOTP.resolve_challenge("chat_123", new_code)
+      assert {:ok, ^action} = Challenge.resolve("chat_123", new_code)
 
-      refute TOTP.pending_challenge?("chat_123")
+      refute Challenge.pending?("chat_123")
     end
 
     test "returns error for invalid code on challenge" do
@@ -131,17 +131,17 @@ defmodule AlexClaw.Auth.TOTPTest do
       code = NimbleTOTP.verification_code(secret)
       :ok = TOTP.confirm_setup(code)
 
-      TOTP.create_challenge("chat_456", %{type: :test})
-      assert {:error, :invalid_code} = TOTP.resolve_challenge("chat_456", "000000")
-      assert TOTP.pending_challenge?("chat_456")
+      Challenge.create("chat_456", %{type: :test})
+      assert {:error, :invalid_code} = Challenge.resolve("chat_456", "000000")
+      assert Challenge.pending?("chat_456")
     end
 
     test "returns error when no challenge exists" do
-      assert {:error, :no_challenge} = TOTP.resolve_challenge("no_chat", "123456")
+      assert {:error, :no_challenge} = Challenge.resolve("no_chat", "123456")
     end
 
     test "pending_challenge? returns false for unknown chat" do
-      refute TOTP.pending_challenge?("unknown_chat")
+      refute Challenge.pending?("unknown_chat")
     end
   end
 
@@ -230,65 +230,65 @@ defmodule AlexClaw.Auth.TOTPTest do
     test "the third invalid code cancels the challenge" do
       enable_2fa()
       chat = chat()
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000000")
-      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000001")
-      assert {:error, :too_many_attempts} = TOTP.resolve_challenge(chat, "000002")
+      assert {:error, :invalid_code} = Challenge.resolve(chat, "000000")
+      assert {:error, :invalid_code} = Challenge.resolve(chat, "000001")
+      assert {:error, :too_many_attempts} = Challenge.resolve(chat, "000002")
 
-      refute TOTP.pending_challenge?(chat)
+      refute Challenge.pending?(chat)
     end
 
     test "a correct code after the limit is refused — the challenge is gone" do
       secret = enable_2fa()
       chat = chat()
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+      for wrong <- ~w(000000 000001 000002), do: Challenge.resolve(chat, wrong)
 
       assert {:error, :no_challenge} =
-               TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+               Challenge.resolve(chat, NimbleTOTP.verification_code(secret))
     end
 
     test "a correct code before the limit still resolves" do
       secret = enable_2fa()
       chat = chat()
       action = %{type: :test}
-      TOTP.create_challenge(chat, action)
+      Challenge.create(chat, action)
 
-      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000000")
-      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000001")
+      assert {:error, :invalid_code} = Challenge.resolve(chat, "000000")
+      assert {:error, :invalid_code} = Challenge.resolve(chat, "000001")
 
-      assert {:ok, ^action} = TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+      assert {:ok, ^action} = Challenge.resolve(chat, NimbleTOTP.verification_code(secret))
     end
 
     test "a code accepted for a challenge cannot be replayed on the next one" do
       secret = enable_2fa()
       first = chat()
-      TOTP.create_challenge(first, %{type: :test})
+      Challenge.create(first, %{type: :test})
       code = NimbleTOTP.verification_code(secret)
 
-      assert {:ok, _action} = TOTP.resolve_challenge(first, code)
+      assert {:ok, _action} = Challenge.resolve(first, code)
 
       second = chat()
-      TOTP.create_challenge(second, %{type: :test})
-      assert {:error, :invalid_code} = TOTP.resolve_challenge(second, code)
+      Challenge.create(second, %{type: :test})
+      assert {:error, :invalid_code} = Challenge.resolve(second, code)
     end
 
     test "a new challenge does not inherit the old one's count" do
       enable_2fa()
       chat = chat()
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+      for wrong <- ~w(000000 000001 000002), do: Challenge.resolve(chat, wrong)
 
       # The chat-level counter is what the next challenge would meet; clearing
       # it isolates the question this test asks, which is about the challenge.
       CodeAttempts.reset()
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000003")
-      assert TOTP.pending_challenge?(chat)
+      assert {:error, :invalid_code} = Challenge.resolve(chat, "000003")
+      assert Challenge.pending?(chat)
     end
 
     # Three attempts per challenge and unlimited challenges is unlimited
@@ -297,13 +297,13 @@ defmodule AlexClaw.Auth.TOTPTest do
     test "re-raising a challenge does not buy three more guesses" do
       enable_2fa()
       chat = chat()
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+      for wrong <- ~w(000000 000001 000002), do: Challenge.resolve(chat, wrong)
 
-      TOTP.create_challenge(chat, %{type: :test})
+      Challenge.create(chat, %{type: :test})
 
-      assert {:error, :locked_session} = TOTP.resolve_challenge(chat, "000003")
+      assert {:error, :locked_session} = Challenge.resolve(chat, "000003")
     end
   end
 end

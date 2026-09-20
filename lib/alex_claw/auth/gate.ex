@@ -12,7 +12,7 @@ defmodule AlexClaw.Auth.Gate do
   one that function understands.
   """
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.{Challenge, SecondFactor}
   alias AlexClaw.Config
   alias AlexClaw.Gateway.Router
 
@@ -26,7 +26,7 @@ defmodule AlexClaw.Auth.Gate do
   """
   @spec request(map(), String.t()) :: result()
   def request(action, description) do
-    challenge(TOTP.enabled?() && notify_chat_ids(), action, description)
+    challenge(SecondFactor.impl().configured?() && notify_chat_ids(), action, description)
   end
 
   @doc """
@@ -49,7 +49,7 @@ defmodule AlexClaw.Auth.Gate do
   defp challenge(chat_ids, _action, _description) when chat_ids in [false, []], do: :no_2fa
 
   defp challenge(chat_ids, action, description) do
-    for id <- chat_ids, do: TOTP.create_challenge(id, action)
+    for id <- chat_ids, do: Challenge.create(id, action)
 
     Router.broadcast(
       "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:"

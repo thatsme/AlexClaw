@@ -11,7 +11,7 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
   use AlexClawWeb.ConnCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{ChallengeStore, CodeAttempts, Elevation, TOTP}
+  alias AlexClaw.Auth.{Challenge, ChallengeStore, CodeAttempts, Elevation, TOTP}
   alias AlexClaw.Workflows
 
   setup do
@@ -21,7 +21,7 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
     on_exit(fn ->
       Elevation.revoke(sid)
       CodeAttempts.reset()
-      TOTP.drop_web_challenge(sid)
+      Challenge.drop_for_session(sid)
     end)
 
     {:ok, sid: sid, secret: enable_totp_without_gateway()}
@@ -112,13 +112,13 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
       view = open(ctx.conn, ctx.sid, "/workflows")
       render_click(view, "run_now", %{"id" => to_string(wf.id)})
 
-      assert {:ok, _action} = TOTP.pending_web_action(ctx.sid)
+      assert {:ok, _action} = Challenge.pending_for_session(ctx.sid)
 
       html = render_submit(view, "submit_action_code", %{"code" => code(ctx.secret)})
 
       # The field is gone and the action is no longer waiting: it ran.
       refute html =~ "Code from your authenticator"
-      assert TOTP.pending_web_action(ctx.sid) == :error
+      assert Challenge.pending_for_session(ctx.sid) == :error
     end
 
     test "consumes the waiting action, so it cannot be performed twice", ctx do
@@ -128,7 +128,7 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
 
       render_submit(view, "submit_action_code", %{"code" => code(ctx.secret)})
 
-      assert TOTP.pending_web_action(ctx.sid) == :error,
+      assert Challenge.pending_for_session(ctx.sid) == :error,
              "the action was left waiting after it had been performed"
     end
 
@@ -140,11 +140,11 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
       view = open(ctx.conn, ctx.sid, "/workflows")
       render_click(view, "run_now", %{"id" => to_string(wf.id)})
 
-      assert TOTP.pending_challenge?(chat), "the gateway prompt was never raised"
+      assert Challenge.pending?(chat), "the gateway prompt was never raised"
 
       render_submit(view, "submit_action_code", %{"code" => code(ctx.secret)})
 
-      refute TOTP.pending_challenge?(chat),
+      refute Challenge.pending?(chat),
              "the gateway challenge outlived the code that answered it — a later code " <>
                "would perform the action a second time"
     end
@@ -159,7 +159,7 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
       html = render_submit(view, "submit_action_code", %{"code" => "000000"})
 
       assert html =~ "not valid"
-      assert {:ok, _action} = TOTP.pending_web_action(ctx.sid)
+      assert {:ok, _action} = Challenge.pending_for_session(ctx.sid)
     end
 
     test "counts against the same limits as an elevation code", ctx do
@@ -198,7 +198,7 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
 
       render_click(view, "cancel_action_code", %{})
 
-      assert TOTP.pending_web_action(ctx.sid) == :error
+      assert Challenge.pending_for_session(ctx.sid) == :error
     end
   end
 

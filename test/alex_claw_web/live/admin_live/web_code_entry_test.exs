@@ -9,7 +9,7 @@ defmodule AlexClawWeb.AdminLive.WebCodeEntryTest do
   use AlexClawWeb.ConnCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{CodeAttempts, Elevation, TOTP}
+  alias AlexClaw.Auth.{CodeAttempts, Elevation}
 
   setup do
     CodeAttempts.reset()

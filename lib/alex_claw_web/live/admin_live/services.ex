@@ -4,7 +4,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.{CodeEntry, RecoveryCodes, TOTP}
+  alias AlexClaw.Auth.{Challenge, CodeEntry, RecoveryCodes, TOTP}
   alias AlexClaw.Config
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
@@ -384,7 +384,7 @@ defmodule AlexClawWeb.AdminLive.Services do
 
       if chat_id && chat_id != "" do
         action = %{type: :service_check, description: "2FA connectivity check from Services page"}
-        TOTP.create_challenge(chat_id, action)
+        Challenge.create(chat_id, action)
 
         Telegram.send_message(
           "2FA check from Services page.\n\nEnter your 6-digit authenticator code:"

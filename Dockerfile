@@ -17,6 +17,9 @@ RUN mix local.hex --force && \
 COPY config config/
 COPY lib lib/
 COPY priv priv/
+# rel/env.sh.eex becomes releases/<vsn>/env.sh, which bin/alex_claw sources for
+# every command. Without it here, `rpc` and `remote` start with no node name.
+COPY rel rel/
 
 # Copy Phoenix and LiveView JS assets from deps into priv/static/assets
 RUN mkdir -p priv/static/assets && \

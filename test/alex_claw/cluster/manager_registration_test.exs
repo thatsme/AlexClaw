@@ -32,7 +32,7 @@ defmodule AlexClaw.Cluster.ManagerRegistrationTest do
   test "an unreachable database does not take the manager down", %{manager: manager} do
     ref = Process.monitor(manager)
 
-    send(manager, {:register, @probe})
+    send(manager, {:register, @probe, 0})
 
     refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 300
     assert Process.alive?(manager)
@@ -44,7 +44,7 @@ defmodule AlexClaw.Cluster.ManagerRegistrationTest do
   test "the node is registered on the retry once the database answers", ctx do
     owner = self()
 
-    send(ctx.manager, {:register, @probe})
+    send(ctx.manager, {:register, @probe, 0})
 
     # The first attempt has to have failed before the database arrives, or the
     # retry is never what writes the row and this passes without one.
@@ -57,7 +57,9 @@ defmodule AlexClaw.Cluster.ManagerRegistrationTest do
            "the retry never registered the node after the database came back"
   end
 
-  # The first backoff is 1s, so this has to outlast it.
+  # The first backoff is 1s, and the count rides on the message, so a retry
+  # asked for here always starts from the beginning of the schedule.
+
   defp eventually(check, remaining_ms \\ 4_000)
   defp eventually(_check, remaining_ms) when remaining_ms <= 0, do: false
 

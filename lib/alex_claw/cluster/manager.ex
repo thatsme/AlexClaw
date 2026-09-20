@@ -50,12 +50,13 @@ defmodule AlexClaw.Cluster.Manager do
     # Non-blocking, unlike Config.Loader: a node can run for a moment without
     # its row. The row says "this node is up", and it says so just as well a
     # second later.
-    {:ok, %{attempts: 0}, {:continue, :register_self}}
+    {:ok, %{}, {:continue, :register_self}}
   end
 
   @impl true
   def handle_continue(:register_self, state) do
-    {:noreply, register(to_string(node()), state)}
+    register(to_string(node()), 0)
+    {:noreply, state}
   end
 
   @impl true
@@ -68,12 +69,17 @@ defmodule AlexClaw.Cluster.Manager do
   def handle_info({:nodeup, remote_node}, state) do
     name = to_string(remote_node)
     Logger.info("Node connected: #{name}")
-    {:noreply, register(name, state)}
+    register(name, 0)
+    {:noreply, state}
   end
 
-  # A retry owed from either path. The database is what failed, not the name,
-  # so one attempt count covers both.
-  def handle_info({:register, name}, state), do: {:noreply, register(name, state)}
+  # A retry owed from either path. The count rides on the message rather than
+  # sitting in the state, because this process registers many names and a
+  # single shared counter makes one name's backoff depend on another's history.
+  def handle_info({:register, name, attempts}, state) do
+    register(name, attempts)
+    {:noreply, state}
+  end
 
   @impl true
   def handle_info({:nodedown, remote_node}, state) do
@@ -111,16 +117,14 @@ defmodule AlexClaw.Cluster.Manager do
   # --- Internal ---
 
   # A node with no name has nothing to register: the VM is not distributed.
-  defp register("nonode@nohost", state), do: state
-  defp register(name, state), do: settle(auto_register_node(name), name, state)
+  defp register("nonode@nohost", _attempts), do: :ok
+  defp register(name, attempts), do: settle(auto_register_node(name), name, attempts)
 
-  defp settle(:ok, _name, state), do: %{state | attempts: 0}
+  defp settle(:ok, _name, _attempts), do: :ok
 
-  defp settle({:error, reason}, name, state) do
-    attempts =
-      BootRetry.schedule({:register, name}, state.attempts, "Cluster node #{name}", reason)
-
-    %{state | attempts: attempts}
+  defp settle({:error, reason}, name, attempts) do
+    BootRetry.schedule({:register, name, attempts + 1}, attempts, "Cluster node #{name}", reason)
+    :ok
   end
 
   # `:ok` means nothing more is owed — the row is there, or the attempt failed

@@ -12,6 +12,7 @@ defmodule AlexClaw.LLM.UsageTracker do
 
   import Ecto.Query
 
+  alias AlexClaw.BootRetry
   alias AlexClaw.LLM.UsageEntry
   alias AlexClaw.Repo
 
@@ -30,15 +31,14 @@ defmodule AlexClaw.LLM.UsageTracker do
     # yet would fail the boot rather than the read. handle_continue/2 runs
     # before any other message, so nothing observes a half-loaded table through
     # this process.
-    {:ok, %{}, {:continue, :load_today}}
+    {:ok, %{attempts: 0}, {:continue, :load_today}}
   end
 
   @impl true
-  def handle_continue(:load_today, state) do
-    load_today_from_db()
-    Logger.info("LLM UsageTracker started (loaded persisted counts)")
-    {:noreply, state}
-  end
+  def handle_continue(:load_today, state), do: {:noreply, load_or_retry(state)}
+
+  @impl true
+  def handle_info(:load_today, state), do: {:noreply, load_or_retry(state)}
 
   @impl true
   def handle_info(:reset, state) do
@@ -71,6 +71,11 @@ defmodule AlexClaw.LLM.UsageTracker do
     :ok
   end
 
+  # Broad on purpose, and every failure mode in here is the database: an
+  # unreachable server raises DBConnection.ConnectionError, a missing table
+  # raises Postgrex.Error, and a connection that goes away exits. What used to
+  # be here caught :error on a Postgrex.Error alone, so a database that was not
+  # up yet went straight past it and killed the process.
   defp load_today_from_db do
     today = Date.utc_today()
 
@@ -86,9 +91,23 @@ defmodule AlexClaw.LLM.UsageTracker do
           :ok
       end
     end
+
+    :ok
+  rescue
+    e -> {:error, Exception.message(e)}
   catch
-    :error, %Postgrex.Error{} = e ->
-      Logger.warning("Could not load usage from DB: #{Exception.message(e)}")
+    :exit, reason -> {:error, inspect(reason)}
+  end
+
+  defp load_or_retry(state), do: settle(load_today_from_db(), state)
+
+  defp settle(:ok, state) do
+    Logger.info("LLM UsageTracker loaded today's persisted counts")
+    %{state | attempts: 0}
+  end
+
+  defp settle({:error, reason}, state) do
+    %{state | attempts: BootRetry.schedule(:load_today, state.attempts, "Usage counts", reason)}
   end
 
   # Parse both new "provider_<id>" and legacy formats

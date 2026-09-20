@@ -303,10 +303,18 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       :ets.insert(table, {name, module, :core, :all, routes, external})
     end
 
-    # Load dynamic skills from DB
-    load_dynamic_skills_from_db()
+    # The dynamic skills come from the database, and this process is child 7 of
+    # 25: querying here makes every child after it wait on that query, and a
+    # database that is a few seconds behind the app turns a delay into a crash
+    # loop. handle_continue/2 runs before any other message, so a caller that
+    # goes through this process still sees a complete registry.
+    {:ok, %{table: table}, {:continue, :load_dynamic_skills}}
+  end
 
-    {:ok, %{table: table}}
+  @impl true
+  def handle_continue(:load_dynamic_skills, state) do
+    load_dynamic_skills_from_db()
+    {:noreply, state}
   end
 
   @impl true

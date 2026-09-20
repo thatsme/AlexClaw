@@ -228,18 +228,22 @@ defmodule AlexClaw.ETSOwnershipTest do
   defp span(_lines, _line, n, true), do: {n, n}
   defp span(lines, line, n, false), do: {n, end_of_block(lines, n, indent_of(line))}
 
-  # The functions that run *in* the owner process: the GenServer callbacks, and
-  # everything they reach, to a fixpoint. The distinction matters because a
-  # client function in the same module runs in the caller, where waiting on the
+  defp owner_functions(body), do: reachable_from(body, @callbacks)
+
+  # The functions in a file reachable from a given set of entry points, to a
+  # fixpoint. Seeded with the GenServer callbacks it gives the code that runs
+  # *in* the owner process, which is the distinction that matters: a client
+  # function in the same module runs in the caller, where waiting on the
   # database is not only allowed but wanted — Elevation.grant/1 writes its audit
   # row there on purpose, so the record exists before anyone is told the
-  # elevation holds.
+  # elevation holds. Seeded with init it gives the code that runs during boot.
   #
   # A fixpoint rather than one level: the write that started all this sat two
-  # calls deep, in drop/3 behind end_elevation/2.
-  defp owner_functions(body) do
+  # calls deep, in drop/3 behind end_elevation/2, and both database reads that
+  # held up the boot were one call below init.
+  defp reachable_from(body, entry_points) do
     spans = def_spans(body)
-    seeds = for {name, _span} <- spans, name in @callbacks, into: MapSet.new(), do: name
+    seeds = for {name, _span} <- spans, name in entry_points, into: MapSet.new(), do: name
 
     grow(seeds, spans, lines_of(body))
   end
@@ -340,4 +344,41 @@ defmodule AlexClaw.ETSOwnershipTest do
 
   defp placement(true), do: :deferred
   defp placement(false), do: :inline
+
+  # A database read in init/1 makes the boot depend on the database being up.
+  # The supervisor starts children in order and init/1 runs before start_link
+  # returns, so every child after this one waits on that query — SkillRegistry
+  # was child 7 of 25 — and a database that is a few seconds behind the app
+  # turns a delay into a crash loop rather than a slow start.
+  #
+  # handle_continue/2 is where this belongs: it runs before any other message,
+  # so a caller going through the process still sees a finished load, and the
+  # supervisor is no longer holding the rest of the tree behind it.
+  #
+  # Reachability again, and per file rather than project-wide: neither of the
+  # two reads this was written for was in an init body. Both were one call
+  # below, in load_today_from_db/0 and load_dynamic_skills_from_db/0.
+  test "no supervised init/1 waits on the database" do
+    offenders =
+      for path <- sources(),
+          body = File.read!(path),
+          String.contains?(body, "def init("),
+          lines = lines_of(body),
+          booting = reachable_from(body, ["init"]),
+          {line, n} <- Enum.with_index(lines, 1),
+          not comment?(line),
+          Regex.match?(~r/\bRepo\./, line),
+          MapSet.member?(booting, enclosing_function(lines, n)),
+          do: "#{path}:#{n} #{String.trim(line)}"
+
+    assert offenders == [],
+           """
+           A database call reachable from init/1:
+             #{Enum.join(offenders, "\n  ")}
+
+           Move it to handle_continue/2 and return {:ok, state, {:continue, _}}
+           from init/1. The process stays correct — a continue runs before any
+           other message — and stops holding up every child started after it.
+           """
+  end
 end

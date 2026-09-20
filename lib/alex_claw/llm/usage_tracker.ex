@@ -23,10 +23,21 @@ defmodule AlexClaw.LLM.UsageTracker do
   @impl true
   def init(_) do
     AlexClaw.LLM.init_usage_table()
-    load_today_from_db()
     schedule_midnight_reset()
+
+    # Today's counts come from the database. Read here, they would hold up every
+    # child the supervisor starts after this one, and a database that is not up
+    # yet would fail the boot rather than the read. handle_continue/2 runs
+    # before any other message, so nothing observes a half-loaded table through
+    # this process.
+    {:ok, %{}, {:continue, :load_today}}
+  end
+
+  @impl true
+  def handle_continue(:load_today, state) do
+    load_today_from_db()
     Logger.info("LLM UsageTracker started (loaded persisted counts)")
-    {:ok, %{}}
+    {:noreply, state}
   end
 
   @impl true

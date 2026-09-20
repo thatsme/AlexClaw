@@ -5,6 +5,11 @@
 Closes two routes a skill could take to something it was never granted, and
 removes eleven settings that promised an effect the code never had.
 
+**Requires PostgreSQL 16 or later.** The `shell.whitelist` migration uses the
+`IS JSON ARRAY` predicate to compare stored entries as a set. All shipped
+compose files pin `pgvector/pgvector:pg17`; an install on an older server would
+fail at migrate with a syntax error.
+
 - **Secrets do not reach skills** — `SkillAPI.config_get/3` returned whatever the config cache held, and the cache holds decrypted plaintext. It now returns `{:error, :sensitive}` for any setting marked sensitive, and for any key the cache does not know
   - The ETS cache carries each row's `sensitive` flag beside its value, so the check needs no database round-trip
   - `auth.totp.secret` is out of the cache entirely: `AlexClaw.Auth.TOTP.secret/0` reads the row and decrypts per verification, so `Config.get/2` cannot serve it at all
@@ -27,6 +32,7 @@ removes eleven settings that promised an effect the code never had.
 
 - **`config_get/3` no longer returns sensitive settings to a skill.** A skill that read an API key out of config must be given the value another way, or granted the capability rather than the credential.
 - **`run_skill/3` refuses the four privileged skills.** A workflow that chained into `shell` through another skill must call `shell` as its own step.
+- **noVNC is bound to loopback.** `web-automator` published `6080:6080` on every interface, giving unauthenticated browser control to anything on the LAN — which SECURITY.md already said should never be exposed. It now publishes `127.0.0.1:6080:6080`; reach it with `ssh -L 6080:127.0.0.1:6080 <host>`.
 - **A shell allowlist seeded before 0.3.26 and never edited is narrowed on migrate.** `curl`, `git`, `ping`, `nslookup`, `cat /proc`, `bin/alex_claw` and bare `ps` stop being accepted by `/shell`. If you relied on any of them, add it back in Admin > Config — deliberately, knowing what it grants.
 - **A 2FA challenge is cancelled after three wrong codes**, rather than staying open for the full two minutes.
 - **A TOTP code is accepted once.** Re-entering the same code within its 30-second period is refused; wait for the next one.

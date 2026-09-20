@@ -25,8 +25,11 @@ defmodule AlexClaw.Auth.TOTP do
 
   defp issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
 
-  # Pending 2FA challenges: chat_id -> %{action: ..., expires_at: ...}
+  # Pending 2FA challenges: chat_id -> %{action: ..., expires_at: ..., attempts: ...}
   @challenges_table :totp_challenges
+
+  # A challenge is a two-minute window in which any six digits can be tried.
+  @max_attempts 3
 
   @spec init_tables() :: :ets.tid() | atom()
   def init_tables do
@@ -173,7 +176,8 @@ defmodule AlexClaw.Auth.TOTP do
       %{
         id: challenge_id,
         action: action,
-        expires_at: expires_at
+        expires_at: expires_at,
+        attempts: 0
       }
     })
 
@@ -199,12 +203,25 @@ defmodule AlexClaw.Auth.TOTP do
             {:ok, challenge.action}
 
           true ->
-            {:error, :invalid_code}
+            count_attempt(chat_id_str, challenge)
         end
 
       [] ->
         {:error, :no_challenge}
     end
+  end
+
+  # Without a limit the two minutes are a guessing window: a six-digit code is
+  # one in a million, but nothing stopped a caller spending the window on it.
+  # The third wrong code ends the challenge; the action must be triggered again.
+  defp count_attempt(chat_id, %{attempts: attempts}) when attempts + 1 >= @max_attempts do
+    :ets.delete(@challenges_table, chat_id)
+    {:error, :too_many_attempts}
+  end
+
+  defp count_attempt(chat_id, challenge) do
+    :ets.insert(@challenges_table, {chat_id, %{challenge | attempts: challenge.attempts + 1}})
+    {:error, :invalid_code}
   end
 
   @doc "Check if a chat has a pending challenge."

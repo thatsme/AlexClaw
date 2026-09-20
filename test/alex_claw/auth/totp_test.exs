@@ -144,4 +144,63 @@ defmodule AlexClaw.Auth.TOTPTest do
       refute TOTP.pending_challenge?("unknown_chat")
     end
   end
+
+  # The challenge lives for two minutes and accepts any six digits in that time.
+  # Without a limit those two minutes are a guessing window.
+  describe "challenge attempt limit" do
+    defp enable_2fa do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+      secret
+    end
+
+    defp chat, do: "limit_#{System.unique_integer([:positive])}"
+
+    test "the third invalid code cancels the challenge" do
+      enable_2fa()
+      chat = chat()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000000")
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000001")
+      assert {:error, :too_many_attempts} = TOTP.resolve_challenge(chat, "000002")
+
+      refute TOTP.pending_challenge?(chat)
+    end
+
+    test "a correct code after the limit is refused — the challenge is gone" do
+      secret = enable_2fa()
+      chat = chat()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+
+      assert {:error, :no_challenge} =
+               TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+    end
+
+    test "a correct code before the limit still resolves" do
+      secret = enable_2fa()
+      chat = chat()
+      action = %{type: :test}
+      TOTP.create_challenge(chat, action)
+
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000000")
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000001")
+
+      assert {:ok, ^action} = TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+    end
+
+    test "the count is per challenge, not per chat" do
+      enable_2fa()
+      chat = chat()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+
+      TOTP.create_challenge(chat, %{type: :test})
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000003")
+      assert TOTP.pending_challenge?(chat)
+    end
+  end
 end

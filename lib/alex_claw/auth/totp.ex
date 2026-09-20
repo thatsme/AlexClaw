@@ -22,6 +22,7 @@ defmodule AlexClaw.Auth.TOTP do
   alias AlexClaw.Repo
 
   @account "admin"
+  @last_used_key "auth.totp.last_used_at"
 
   defp issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
 
@@ -108,6 +109,7 @@ defmodule AlexClaw.Auth.TOTP do
 
     Config.delete("auth.totp.secret")
     Config.delete("auth.totp.pending_secret")
+    Config.delete(@last_used_key)
     Logger.info("2FA disabled")
     :ok
   end
@@ -120,14 +122,60 @@ defmodule AlexClaw.Auth.TOTP do
     Config.enabled?("auth.totp.enabled")
   end
 
-  @doc "Verify a 6-digit TOTP code."
+  @doc """
+  Verify a 6-digit TOTP code.
+
+  A code stays valid for its whole 30-second period, so one observed in transit
+  — read over the operator's shoulder, or lifted from a gateway an attacker can
+  see — could be used again within that window. The time of the last accepted
+  code is passed to `NimbleTOTP.valid?/3` as `since:`, which refuses any code
+  from a period that has already been accepted.
+  """
   @spec verify(String.t()) :: boolean()
   def verify(code) do
     case secret() do
       nil -> false
-      secret_b32 -> NimbleTOTP.valid?(Base.decode32!(secret_b32, padding: false), code)
+      secret_b32 -> verified(Base.decode32!(secret_b32, padding: false), code)
     end
   end
+
+  defp verified(secret, code) do
+    secret
+    |> NimbleTOTP.valid?(code, since_opts(last_used_at()))
+    |> record_if_accepted()
+  end
+
+  defp since_opts(nil), do: []
+  defp since_opts(unix), do: [since: unix]
+
+  defp record_if_accepted(false), do: false
+
+  defp record_if_accepted(true) do
+    Config.set(@last_used_key, to_string(System.os_time(:second)),
+      type: "string",
+      category: "auth",
+      description: "Unix time of the last accepted TOTP code (replay guard)"
+    )
+
+    true
+  end
+
+  # Kept out of the config cache with the secret, so it is read from the row.
+  defp last_used_at do
+    case Repo.get_by(Setting, key: @last_used_key) do
+      nil -> nil
+      %Setting{value: value} -> parsed_unix(value)
+    end
+  end
+
+  defp parsed_unix(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {unix, ""} -> unix
+      _not_an_integer -> nil
+    end
+  end
+
+  defp parsed_unix(_value), do: nil
 
   @doc """
   Read the TOTP secret.

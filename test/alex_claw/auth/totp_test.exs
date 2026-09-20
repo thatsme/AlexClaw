@@ -145,6 +145,66 @@ defmodule AlexClaw.Auth.TOTPTest do
     end
   end
 
+  # A code is valid for its whole 30-second period, so one seen in transit could
+  # be used again inside that window.
+  describe "replay protection" do
+    test "a valid code is accepted once and refused on reuse" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      code = NimbleTOTP.verification_code(secret)
+
+      assert TOTP.verify(code)
+      refute TOTP.verify(code)
+    end
+
+    test "a code from a period after the last acceptance is allowed" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+    end
+
+    test "acceptance is recorded as a row, outside the config cache" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+
+      assert AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
+      assert AlexClaw.Config.get("auth.totp.last_used_at") == nil
+    end
+
+    test "a skill cannot read the marker" do
+      assert AlexClaw.Config.sensitive?("auth.totp.last_used_at")
+    end
+
+    test "disabling 2FA clears the marker" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+
+      :ok = TOTP.disable()
+
+      refute AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
+    end
+
+    test "a rejected code is not recorded" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      refute TOTP.verify("000000")
+      refute AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
+
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+    end
+  end
+
   # The challenge lives for two minutes and accepts any six digits in that time.
   # Without a limit those two minutes are a guessing window.
   describe "challenge attempt limit" do
@@ -189,6 +249,19 @@ defmodule AlexClaw.Auth.TOTPTest do
       assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000001")
 
       assert {:ok, ^action} = TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+    end
+
+    test "a code accepted for a challenge cannot be replayed on the next one" do
+      secret = enable_2fa()
+      first = chat()
+      TOTP.create_challenge(first, %{type: :test})
+      code = NimbleTOTP.verification_code(secret)
+
+      assert {:ok, _action} = TOTP.resolve_challenge(first, code)
+
+      second = chat()
+      TOTP.create_challenge(second, %{type: :test})
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(second, code)
     end
 
     test "the count is per challenge, not per chat" do

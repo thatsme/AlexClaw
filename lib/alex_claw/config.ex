@@ -23,7 +23,7 @@ defmodule AlexClaw.Config do
 
   # The second factor is not configuration. It is never cached and never served
   # through get/2, so the only way to it is AlexClaw.Auth.TOTP's own accessor.
-  @uncached_keys ["auth.totp.secret"]
+  @uncached_keys ["auth.totp.secret", "auth.totp.last_used_at"]
 
   # --- ETS lifecycle ---
 

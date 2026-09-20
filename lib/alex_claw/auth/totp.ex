@@ -114,6 +114,23 @@ defmodule AlexClaw.Auth.TOTP do
   end
 
   @doc """
+  Whether this instance has a second factor that can actually answer.
+
+  The flag on its own is not one. A row saying `auth.totp.enabled = true` with
+  no secret behind it describes an instance that reports 2FA as configured,
+  refuses every code because there is nothing to compare against, and hides the
+  setup button because the page asks the same question — a control plane that
+  is read-only with no way out of it. That state shipped to production and was
+  cleared by hand.
+
+  `secret/0` rather than the presence of the row: a value that is there but
+  cannot be decrypted is no more usable than one that is absent, and it fails
+  the same way.
+  """
+  @spec configured?() :: boolean()
+  def configured?, do: enabled?() and secret() != nil
+
+  @doc """
   Verify a 6-digit TOTP code.
 
   A code stays valid for its whole 30-second period, so one observed in transit

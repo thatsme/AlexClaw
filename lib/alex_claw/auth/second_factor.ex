@@ -44,6 +44,21 @@ defmodule AlexClaw.Auth.SecondFactor do
   @doc "A short name for this factor, for logs and for the UI."
   @callback name() :: atom()
 
+  @doc """
+  Put right an instance that claims this factor while unable to supply it.
+
+  `configured?/0` answering true on an instance that can verify nothing is the
+  worst of both: every code is refused, and the screen that would fix it is
+  hidden because it asks the same question. There is no way out from the
+  browser. That shipped — an upgrade arrived with the TOTP flag set and no
+  secret behind it, and the flag had to be cleared by hand.
+
+  The repair belongs to the implementation because only it knows what its own
+  claim is made of. The caller learns whether something was put right, and says
+  so; it does not learn what was wrong.
+  """
+  @callback repair() :: :repaired | :ok
+
   @doc "The configured implementation."
   @spec impl() :: module()
   def impl do

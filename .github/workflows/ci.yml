@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+    # Tags are built too, so the version check below has something to check.
+    tags: ["v*"]
   pull_request:
 
 jobs:
@@ -16,6 +18,14 @@ jobs:
           # `credo diff` resolves a merge base, which needs the history and the
           # origin/main ref. The default shallow checkout has neither.
           fetch-depth: 0
+
+      # v0.3.28 was tagged while mix.exs still said 0.3.27, so the release it
+      # produced boots from releases/0.3.27 and reports that version. The tag
+      # and @version are two copies of one fact; this is the check that stops
+      # them drifting again.
+      - name: Tag matches the version in mix.exs
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: .github/scripts/check-version-tag.sh "$GITHUB_REF_NAME"
 
       # The test image pins Elixir and OTP via the Dockerfile's `test` stage, so
       # CI and `make test-elixir` always run the same toolchain.

@@ -7,7 +7,32 @@ if config_env() == :prod do
     System.get_env("SECRET_KEY_BASE") ||
       raise "SECRET_KEY_BASE not set. Generate with: mix phx.gen.secret"
 
-  config :alex_claw, AlexClawWeb.Endpoint, secret_key_base: secret_key_base
+  # Explicit, rather than inherited from url: [host: ...]. Phoenix falls back to
+  # that host when check_origin is unset, which made the endpoint accept
+  # "localhost" and refuse "127.0.0.1" — and 0.3.28 bound the published port to
+  # 127.0.0.1. The page rendered, the LiveView socket was rejected, and every
+  # button on every page did nothing. The only trace was one line in the log:
+  # "Could not check origin for Phoenix.Socket transport."
+  #
+  # Both loopback spellings by default, because both are things an operator
+  # types. PHX_HOST adds the public origin behind a proxy; CHECK_ORIGIN replaces
+  # the list outright when neither fits.
+  check_origin =
+    case System.get_env("CHECK_ORIGIN") do
+      value when value in [nil, ""] ->
+        ["http://localhost:5001", "http://127.0.0.1:5001"] ++
+          case System.get_env("PHX_HOST") do
+            host when host in [nil, ""] -> []
+            host -> ["https://#{host}"]
+          end
+
+      list ->
+        list |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+    end
+
+  config :alex_claw, AlexClawWeb.Endpoint,
+    secret_key_base: secret_key_base,
+    check_origin: check_origin
 
   config :alex_claw, AlexClaw.Repo,
     username: System.fetch_env!("DATABASE_USERNAME"),

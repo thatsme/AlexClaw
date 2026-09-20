@@ -40,6 +40,7 @@ jobs:
           docker compose -f docker-compose.test.yml run --rm --no-deps
           -v "$PWD/.git:/app/.git" test-elixir sh -c
           'git config --global --add safe.directory /app &&
+          git config --global --add safe.directory /app/.git &&
           mix credo diff --from-git-merge-base origin/main --strict'
 
       # Started explicitly and waited on: after the --no-deps run above, the

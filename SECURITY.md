@@ -82,6 +82,67 @@ This is load-bearing rather than tidy. Whether elevation is enforced at all is
 decided by `auth.totp.enabled`; if that setting were editable from behind the
 gate it protects, a session could switch the gate off and then change anything.
 
+### Giving a code
+
+A code can be typed into the admin UI or answered on a gateway. The
+authenticator app is the second factor either way — a gateway is a convenient
+place to type a code, never what makes it one — so an instance with no bot
+configured is fully usable, and an instance with one can still be driven from
+the browser.
+
+Both routes check the same code, apply the same replay guard (a code from a
+period already accepted is refused), run through the same verification, and
+write the same audit row, which records which route it came in by.
+
+**Wrong codes are bounded twice.** Three wrong codes lock that session's code
+entry for five minutes. Ten wrong codes inside fifteen minutes, counted across
+every session, lock web code entry entirely for fifteen minutes, with an audit
+row and one notification to any reachable gateway. The second limit is the one
+that bounds guessing: a session identifier is a cookie the caller sends, so a
+per-session count alone is defeated by discarding it. Both counters live in a
+supervised process, not in page state.
+
+**The trade-off, plainly.** Typing the code in the browser means the password
+and the code are entered on the same device, which is how most two-factor
+deployments work and is weaker than keeping them apart. The gateway route
+remains for operators who want the code to arrive somewhere else; it is a
+choice the deployment makes, not one the software makes for it.
+
+---
+
+### Recovery codes
+
+Ten one-time codes are generated when 2FA is enabled and shown **once**, in the
+browser. They are never sent over a gateway — a chat log is not where the way
+back in belongs — so enabling 2FA with `/setup 2fa` replies with where to
+generate them rather than with the codes themselves.
+
+What is stored is a SHA-256 hash of each code, compared in constant time. The
+rows cannot be used to authenticate, so a database dump is not a set of keys.
+
+A recovery code is accepted anywhere a code is asked for, is consumed on use,
+and is subject to the same limits as any other code. Each use writes an audit
+row, notifies any reachable gateway, and is shown on the Services page with how
+many remain. Two or fewer remaining warns until a new set is generated.
+Generating a set invalidates every earlier code and needs a current code
+itself.
+
+---
+
+### If everything is lost
+
+If both the authenticator and the recovery codes are gone, there is no way in
+through the application. That is the design, not an oversight: a mechanism that
+could restore access without either would be the weakest link in this whole
+chapter, and an attacker would use that one.
+
+What remains is the host. Restore the database from a backup taken while 2FA
+was configured differently, or reinstall and re-seed. Whoever holds the machine
+holds the root of trust — which is why `SECRET_KEY_BASE`, the database and
+backups deserve the care the rest of this document describes.
+
+---
+
 ### Before a second factor exists
 
 With no TOTP configured, nothing can elevate — so the control plane is

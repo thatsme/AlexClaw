@@ -5,11 +5,11 @@
 **BEHAVIOUR CHANGE — without 2FA configured, the admin control plane is
 read-only.** Configuration, authorization policies, LLM providers, API
 resources, cluster membership, workflow edits and database restores are all
-refused until a second factor exists. Configure a gateway with
-`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` or `DISCORD_BOT_TOKEN` /
-`DISCORD_CHANNEL_ID`, run `/setup 2fa` there, and the control plane opens to
-elevation. An upgrade on an instance without 2FA will find its admin pages
-read-only until that is done.
+refused until a second factor exists. Set it up under Services → Two-factor
+authentication, or with `/setup 2fa` on a gateway, and the control plane opens
+to elevation. An upgrade on an instance without 2FA will find its admin pages
+read-only until that is done, and the first thing to do after setting it up is
+save the recovery codes it shows once.
 
 The admin password authenticated a session and authorised everything that
 session could reach. `config.ex` and `policies.ex` called no gate at all, so a
@@ -49,16 +49,38 @@ shell narrowing, the MCP denials and the 2FA settings shipped in 0.3.22 through
   Scheduler pages both call. The Scheduler page previously called
   `Executor.run/1` directly, so a workflow challenged on one page ran unchallenged
   from the other
+- **A code can be typed in the admin UI** — "Unlock editing" opens a six-digit
+  field on the page, and the same field appears for the gates an elevation does
+  not cover: loading a skill, approving generated code, running a workflow
+  marked `requires_2fa`, restoring the database. The gateway prompt is still
+  raised alongside it, and whichever is answered first performs the action and
+  withdraws the other
+  - The authenticator app is the second factor; a gateway is a convenient place
+    to type a code. An instance with no bot configured is now fully usable
+  - Three wrong codes lock a session's code entry for five minutes; ten inside
+    fifteen minutes, across any sessions, lock web code entry for fifteen, with
+    an audit row and one gateway notification. Counters live in a supervised
+    process, because a per-session count alone is defeated by discarding the
+    session cookie
+  - Every attempt is audited with the route it came in by
+- **2FA can be set up from the admin UI** — Services → Two-factor
+  authentication: QR, manual key, confirm with a code. The admin password alone
+  is enough, deliberately. Turning 2FA off needs a current code, including from
+  a session holding an elevation
+- **Recovery codes** — ten one-time codes, generated when 2FA is enabled and
+  shown once in the browser, never over a gateway. Stored as SHA-256 hashes and
+  compared in constant time; accepted in any code field; consumed on use; each
+  use audited, announced, and counted down on the page. Regenerating invalidates
+  the old set and needs a current code
+  - If both the authenticator and the recovery codes are lost there is no way in
+    through the application. Restore from backup or reinstall; the host remains
+    the root of trust
 - **Instances without a second factor are read-only** — every control-plane
   event is refused and audited as `no_second_factor`, and every gated page says
   so and says how to fix it. There is no password-only path, and no variable
   that disables the gate
-  - `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` join `TELEGRAM_BOT_TOKEN` and
-    `TELEGRAM_CHAT_ID` as bootstrap variables, read whenever the matching
-    setting is empty so a fresh instance can be asked for a code. A setting wins
-    once it holds a value
   - Boot logs a warning, and sends one gateway message where a gateway is
-    reachable: "Admin config is read-only until 2FA is configured: /setup 2fa"
+    reachable, pointing at the page that sets 2FA up
 - **The app gets 30 seconds to shut down** (`stop_grace_period`) — Docker's
   default 10 seconds was shorter than the supervision tree takes to unwind, so
   every stop ended in SIGKILL and in-flight workflow runs stayed recorded as

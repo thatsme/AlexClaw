@@ -17,6 +17,10 @@ defmodule AlexClaw.Application do
       AlexClaw.Google.TokenManager,
       AlexClaw.RateLimiter.Server,
       AlexClaw.Auth.SkillRateLimiter,
+      # Owns the pending-2FA table, so a challenge outlives the LiveView or
+      # gateway process that raised it. Must start before anything that can
+      # raise one: the endpoint and the gateways.
+      AlexClaw.Auth.ChallengeStore,
       {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,

@@ -1,6 +1,8 @@
 # Workflow Engine
 
-Workflows are **linear pipelines** with conditional branching. The executor walks the step graph sequentially — each step has exactly one successor per branch.
+Workflows are **linear pipelines** with conditional branching.
+`AlexClaw.Workflows.Executor` walks the step graph sequentially — each step has
+exactly one successor per branch.
 
 ## Execution Model
 
@@ -39,10 +41,35 @@ By default, each step receives the output of the previous step. The `input_from`
 
 | Method | How |
 |---|---|
-| Scheduled | Cron expressions synced to Quantum by `SchedulerSync` |
-| Telegram/Discord | `/run <id or name>` (supports 2FA gating) |
-| Admin UI | Run button on workflow page |
+| Scheduled | Cron expressions synced to Quantum by `Workflows.SchedulerSync` |
+| Telegram/Discord | `/run <id or name>` |
+| Admin UI | Run button on the workflow page |
 | MCP | `workflow:<name>` tool call |
+
+Every run executes under `AlexClaw.TaskSupervisor`, so a crash is supervised
+rather than lost. A workflow marked as requiring a second factor raises a
+challenge first, on every one of these paths —
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md) states
+what that gate covers and how it behaves when 2FA is not configured.
+
+## The LLM step
+
+`AlexClaw.Workflows.LLMTransform` is the generic "run a prompt over the previous
+step's output" step, used wherever a workflow needs a model rather than a
+purpose-built skill. It substitutes `{input}` and `{resources}` into the step's
+prompt template and carries a set of named presets — summarise, bullet points,
+code review, translate, classify, extract.
+
+## Provider routing
+
+Three levels decide which model a step uses, most specific winning:
+
+1. **Step** — the `llm_tier` and `llm_model` fields on the workflow step
+2. **Workflow** — the `default_provider` field
+3. **Global** — the tier fallback chain in the [LLM Router](llm-router.md)
+
+Not every skill reads these; a skill declares which step fields it honours
+through `step_fields/0`, and the editor shows only those.
 
 ## Resilience
 
@@ -94,7 +121,7 @@ The JSON file can be edited manually — add resources, modify steps, change con
 
 ## Live Run Tracking
 
-The `WorkflowRegistry` (GenServer + ETS) tracks every running workflow:
+`AlexClaw.Workflows.Registry` (GenServer + ETS) tracks every running workflow:
 
 - Active run visibility with current step and start time
 - Cancellation via Admin UI or `/cancel <run_id>` command
@@ -103,4 +130,15 @@ The `WorkflowRegistry` (GenServer + ETS) tracks every running workflow:
 
 ## Execution Outcome Annotation
 
-Every skill execution is recorded in `skill_outcomes` with timing, output snapshot, and metadata. Users can rate outcomes via `/rate <run_id>` (thumbs up/down). Skills can query past outcomes for episodic memory and self-improvement.
+Every skill execution is recorded in `skill_outcomes` with timing, a truncated
+output snapshot, and metadata. Outcomes start neutral and are annotated with
+`/rate <run_id>` (`+`/`-`, `up`/`down`, or a thumb). A rating can target a whole
+run or one step.
+
+Skills read past outcomes back through `SkillAPI.skill_outcomes/3`, which is the
+foundation for episodic memory and self-improvement loops.
+
+## Notifications
+
+A workflow containing a notify step gets a start notification when it begins,
+and a failure notification if a step fails before reaching that step.

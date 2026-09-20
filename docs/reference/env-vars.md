@@ -25,31 +25,29 @@ All variables are set in the `.env` file. Values are seeded to the database on f
 
 ## Discord (optional)
 
-| Variable | Description |
-|---|---|
-| `DISCORD_ENABLED` | `true` to enable Discord gateway |
-| `DISCORD_BOT_TOKEN` | Discord bot token |
-| `DISCORD_CHANNEL_ID` | Command channel ID |
-| `DISCORD_GUILD_ID` | Server (guild) ID |
+Discord has no environment variables. Set `discord.enabled`,
+`discord.bot_token` and `discord.channel_id` in **Admin > Config** and restart
+the container.
 
 ## Database
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_HOST` | `db` | PostgreSQL host |
-| `DATABASE_PORT` | `5432` | PostgreSQL port |
-| `DATABASE_NAME` | `alex_claw` | Database name |
-| `DATABASE_USER` | `postgres` | Database user |
-| `DATABASE_PASSWORD` | — | Database password (required) |
-| `DATABASE_POOL_SIZE` | `10` | Connection pool size |
+| `DATABASE_HOSTNAME` | — | PostgreSQL host (required) |
+| `DATABASE_USERNAME` | — | PostgreSQL role (required) |
+| `DATABASE_PASSWORD` | — | PostgreSQL password (required) |
+| `POOL_SIZE` | `10` | Connection pool size |
+
+The database name is set by the compose file, not by an environment variable.
 
 ## Application
 
 | Variable | Default | Description |
 |---|---|---|
-| `PHX_HOST` | `localhost` | Hostname for URL generation |
-| `PORT` | `5001` | HTTP port |
 | `SECRET_KEY_BASE` | — | Session and encryption key (required) |
+| `ADMIN_PASSWORD` | — | Admin UI password (required) |
+| `SKILLS_DIR` | `/app/skills` | Where dynamic skill files live |
+| `ADMIN_PORT` | `5001` | Host port the admin UI is published on |
 
 ## Clustering
 

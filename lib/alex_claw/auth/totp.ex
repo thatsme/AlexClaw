@@ -16,6 +16,7 @@ defmodule AlexClaw.Auth.TOTP do
   require Logger
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
+  alias AlexClaw.Auth.ChallengeStore
   alias AlexClaw.Config
   alias AlexClaw.Config.Crypto
   alias AlexClaw.Config.Setting
@@ -26,18 +27,10 @@ defmodule AlexClaw.Auth.TOTP do
 
   defp issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
 
-  # Pending 2FA challenges: chat_id -> %{action: ..., expires_at: ..., attempts: ...}
-  @challenges_table :totp_challenges
-
   # A challenge is a two-minute window in which any six digits can be tried.
+  # The table itself is owned by AlexClaw.Auth.ChallengeStore, so a challenge
+  # outlives the process that raised it.
   @max_attempts 3
-
-  @spec init_tables() :: :ets.tid() | atom()
-  def init_tables do
-    if :ets.whereis(@challenges_table) == :undefined do
-      :ets.new(@challenges_table, [:named_table, :public, :set])
-    end
-  end
 
   # --- Setup ---
 
@@ -215,18 +208,13 @@ defmodule AlexClaw.Auth.TOTP do
   """
   @spec create_challenge(String.t() | integer(), map()) :: String.t()
   def create_challenge(chat_id, action) do
-    init_tables()
     challenge_id = Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
-    expires_at = System.monotonic_time(:second) + 120
 
-    :ets.insert(@challenges_table, {
-      to_string(chat_id),
-      %{
-        id: challenge_id,
-        action: action,
-        expires_at: expires_at,
-        attempts: 0
-      }
+    ChallengeStore.put(to_string(chat_id), %{
+      id: challenge_id,
+      action: action,
+      expires_at: System.monotonic_time(:second) + 120,
+      attempts: 0
     })
 
     challenge_id
@@ -236,50 +224,38 @@ defmodule AlexClaw.Auth.TOTP do
   @spec resolve_challenge(String.t() | integer(), String.t()) ::
           {:ok, map()} | {:error, atom()}
   def resolve_challenge(chat_id, code) do
-    init_tables()
     chat_id_str = to_string(chat_id)
 
-    case :ets.lookup(@challenges_table, chat_id_str) do
-      [{^chat_id_str, challenge}] ->
-        cond do
-          System.monotonic_time(:second) > challenge.expires_at ->
-            :ets.delete(@challenges_table, chat_id_str)
-            {:error, :challenge_expired}
+    case ChallengeStore.fetch(chat_id_str) do
+      {:ok, challenge} ->
+        decide_challenge(challenge, chat_id_str, code)
 
-          verify(code) ->
-            :ets.delete(@challenges_table, chat_id_str)
-            {:ok, challenge.action}
-
-          true ->
-            count_attempt(chat_id_str, challenge)
-        end
-
-      [] ->
+      :error ->
         {:error, :no_challenge}
     end
   end
 
-  # Without a limit the two minutes are a guessing window: a six-digit code is
-  # one in a million, but nothing stopped a caller spending the window on it.
-  # The third wrong code ends the challenge; the action must be triggered again.
-  defp count_attempt(chat_id, %{attempts: attempts}) when attempts + 1 >= @max_attempts do
-    :ets.delete(@challenges_table, chat_id)
-    {:error, :too_many_attempts}
-  end
+  defp decide_challenge(challenge, chat_id_str, code) do
+    cond do
+      System.monotonic_time(:second) > challenge.expires_at ->
+        ChallengeStore.drop(chat_id_str)
+        {:error, :challenge_expired}
 
-  defp count_attempt(chat_id, challenge) do
-    :ets.insert(@challenges_table, {chat_id, %{challenge | attempts: challenge.attempts + 1}})
-    {:error, :invalid_code}
+      verify(code) ->
+        ChallengeStore.drop(chat_id_str)
+        {:ok, challenge.action}
+
+      true ->
+        ChallengeStore.record_attempt(chat_id_str, @max_attempts)
+    end
   end
 
   @doc "Check if a chat has a pending challenge."
   @spec pending_challenge?(String.t() | integer()) :: boolean()
   def pending_challenge?(chat_id) do
-    init_tables()
-
-    case :ets.lookup(@challenges_table, to_string(chat_id)) do
-      [{_, challenge}] -> System.monotonic_time(:second) <= challenge.expires_at
-      [] -> false
+    case ChallengeStore.fetch(to_string(chat_id)) do
+      {:ok, challenge} -> System.monotonic_time(:second) <= challenge.expires_at
+      :error -> false
     end
   end
 end

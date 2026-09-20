@@ -17,6 +17,8 @@ defmodule AlexClaw.Google.TokenManager do
   alias AlexClaw.Config
 
   @table :google_token_cache
+  @state_table :google_oauth_states
+  @state_ttl_seconds 600
   @token_url "https://oauth2.googleapis.com/token"
   @refresh_margin_seconds 300
 
@@ -68,12 +70,38 @@ defmodule AlexClaw.Google.TokenManager do
     GenServer.call(__MODULE__, :refresh)
   end
 
+  @doc """
+  Record an OAuth CSRF state against the chat that started the flow.
+
+  Expired states are purged on the way through, which is cheap and keeps the
+  table from growing on abandoned flows.
+  """
+  @spec put_state(String.t(), String.t()) :: :ok
+  def put_state(state, chat_id) do
+    GenServer.call(__MODULE__, {:put_state, state, chat_id})
+  end
+
+  @doc """
+  Consume an OAuth CSRF state, returning the chat it belongs to.
+
+  Lookup and delete happen together inside the owner, so a state cannot be
+  redeemed twice by two callbacks arriving at once. Returns `:expired` for a
+  state older than the TTL, `:error` when it is unknown or already used.
+  """
+  @spec take_state(String.t()) :: {:ok, String.t()} | :expired | :error
+  def take_state(state) do
+    GenServer.call(__MODULE__, {:take_state, state})
+  end
+
   # --- GenServer ---
 
   @impl true
   @spec init(keyword()) :: {:ok, map()}
   def init(_opts) do
     :ets.new(@table, [:named_table, :public, :set])
+    # The OAuth CSRF states live here too, owned by this process rather than by
+    # whichever request happened to start a flow first.
+    :ets.new(@state_table, [:named_table, :protected, :set])
 
     if configured?() do
       send(self(), :initial_refresh)
@@ -101,6 +129,36 @@ defmodule AlexClaw.Google.TokenManager do
     result = do_refresh()
     {:reply, result, state}
   end
+
+  def handle_call({:put_state, oauth_state, chat_id}, _from, state) do
+    now = System.monotonic_time(:second)
+    :ets.insert(@state_table, {oauth_state, chat_id, now})
+    purge_expired_states(now)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:take_state, oauth_state}, _from, state) do
+    now = System.monotonic_time(:second)
+    {:reply, taken(:ets.lookup(@state_table, oauth_state), now), state}
+  end
+
+  defp purge_expired_states(now) do
+    @state_table
+    |> :ets.tab2list()
+    |> Enum.each(fn {state, _chat_id, created_at} ->
+      if now - created_at > @state_ttl_seconds, do: :ets.delete(@state_table, state)
+    end)
+  end
+
+  defp taken([], _now), do: :error
+
+  defp taken([{state, chat_id, created_at}], now) do
+    :ets.delete(@state_table, state)
+    fresh(chat_id, now - created_at > @state_ttl_seconds)
+  end
+
+  defp fresh(_chat_id, true), do: :expired
+  defp fresh(chat_id, false), do: {:ok, chat_id}
 
   # --- Internal ---
 

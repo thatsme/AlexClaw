@@ -18,6 +18,15 @@ defmodule AlexClawWeb.AdminLive.WorkflowsRunNowTest do
     workflow
   end
 
+  # Each test gets its own chat id. The challenge table is owned by a supervised
+  # process and so persists for the whole suite; a shared id would let one test's
+  # challenge decide another's assertion.
+  defp gateway_chat do
+    chat_id = "chat_#{System.unique_integer([:positive])}"
+    AlexClaw.Config.set("telegram.chat_id", chat_id, type: "string", category: "telegram")
+    chat_id
+  end
+
   defp enable_totp_with_gateway do
     AlexClaw.Config.set("auth.totp.secret", Base.encode32(NimbleTOTP.secret(), padding: false),
       type: "string",
@@ -25,7 +34,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowsRunNowTest do
     )
 
     AlexClaw.Config.set("auth.totp.enabled", "true", type: "boolean", category: "auth")
-    AlexClaw.Config.set("telegram.chat_id", "123", type: "string", category: "telegram")
+    gateway_chat()
   end
 
   defp click_run(conn, workflow) do
@@ -40,30 +49,31 @@ defmodule AlexClawWeb.AdminLive.WorkflowsRunNowTest do
   # layout, and the challenge is the thing that actually gates the run.
   describe "run_now honours metadata requires_2fa" do
     test "a workflow without the flag is not challenged", %{conn: conn} do
-      enable_totp_with_gateway()
+      chat_id = enable_totp_with_gateway()
       wf = workflow(false)
 
       click_run(conn, wf)
 
-      refute TOTP.pending_challenge?("123")
+      refute TOTP.pending_challenge?(chat_id)
     end
 
     # Previously this ran the workflow outright, bypassing the gate the gateway applies.
     test "a workflow with the flag raises a challenge instead of running", %{conn: conn} do
-      enable_totp_with_gateway()
+      chat_id = enable_totp_with_gateway()
       wf = workflow(true)
 
       click_run(conn, wf)
 
-      assert TOTP.pending_challenge?("123")
+      assert TOTP.pending_challenge?(chat_id)
     end
 
     test "a flagged workflow raises no challenge when there is no second factor", %{conn: conn} do
+      chat_id = gateway_chat()
       wf = workflow(true)
 
       click_run(conn, wf)
 
-      refute TOTP.pending_challenge?("123")
+      refute TOTP.pending_challenge?(chat_id)
     end
 
     test "the page still renders after a gated click", %{conn: conn} do

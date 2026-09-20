@@ -4,11 +4,12 @@ defmodule AlexClawWeb.AdminLive.Services do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.{CodeEntry, TOTP}
   alias AlexClaw.Config
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
   alias AlexClaw.Google.TokenManager
+  alias AlexClawWeb.Live.Elevation
   alias Ecto.Adapters.SQL
   alias Nostrum.Api.Message
 
@@ -16,15 +17,27 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, "services:totp")
     end
 
-    {:ok, assign(socket, page_title: "Services", services: build_services())}
+    {:ok,
+     socket
+     |> Elevation.assign_elevation(session)
+     |> assign(
+       page_title: "Services",
+       services: build_services(),
+       totp_setup: nil,
+       totp_message: nil
+     )}
   end
 
   @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
+  end
+
   def handle_info({:totp_verified, _action}, socket) do
     services =
       Enum.map(socket.assigns.services, fn svc ->
@@ -32,6 +45,36 @@ defmodule AlexClawWeb.AdminLive.Services do
       end)
 
     {:noreply, assign(socket, services: services)}
+  end
+
+  # Setting 2FA up needs the admin password and nothing else. Requiring a second
+  # factor to configure the second factor is the circle this whole design exists
+  # to break, and adding protection is not a privileged act.
+  @impl true
+  def handle_event("setup_2fa", _params, socket) do
+    {:ok, %{uri: uri, qr_png: qr_png}} = TOTP.setup()
+
+    {:noreply,
+     assign(socket,
+       totp_setup: %{uri: uri, qr: Base.encode64(qr_png), key: manual_key(uri)},
+       totp_message: nil
+     )}
+  end
+
+  def handle_event("confirm_2fa", %{"code" => code}, socket) do
+    {:noreply, confirmed(TOTP.confirm_setup(String.trim(code)), socket)}
+  end
+
+  def handle_event("cancel_2fa_setup", _params, socket) do
+    Config.delete("auth.totp.pending_secret")
+    {:noreply, assign(socket, totp_setup: nil, totp_message: nil)}
+  end
+
+  # Turning 2FA off is the one thing an elevation must never cover: a window
+  # opened an hour of typing ago should not be able to remove the factor that
+  # opened it.
+  def handle_event("disable_2fa", %{"code" => code}, socket) do
+    {:noreply, disabled(CodeEntry.verify(sid(socket), code, :web), socket)}
   end
 
   @impl true
@@ -223,6 +266,45 @@ defmodule AlexClawWeb.AdminLive.Services do
   defp initial_status(_), do: :error
 
   # --- Live checks (real connectivity tests) ---
+
+  # The secret as the authenticator shows it, for typing in by hand when a
+  # camera is not an option.
+  defp manual_key(uri) do
+    uri
+    |> URI.parse()
+    |> Map.get(:query)
+    |> URI.decode_query()
+    |> Map.get("secret", "")
+  end
+
+  defp sid(%{assigns: %{elevation_sid: sid}}), do: sid
+  defp sid(_socket), do: nil
+
+  defp confirmed(:ok, socket) do
+    socket
+    |> assign(totp_setup: nil, totp_message: nil, services: build_services())
+    |> put_flash(:info, "Two-factor authentication is on.")
+  end
+
+  defp confirmed({:error, :invalid_code}, socket) do
+    assign(socket, totp_message: "That code is not valid. Try the next one.")
+  end
+
+  defp confirmed({:error, :no_pending_setup}, socket) do
+    assign(socket, totp_setup: nil, totp_message: "That setup expired. Start again.")
+  end
+
+  defp disabled(:ok, socket) do
+    TOTP.disable()
+
+    socket
+    |> assign(services: build_services(), totp_message: nil)
+    |> put_flash(:info, "Two-factor authentication is off. The control plane is read-only.")
+  end
+
+  defp disabled({:error, _reason}, socket) do
+    assign(socket, totp_message: "That code is not valid. 2FA is unchanged.")
+  end
 
   defp live_check("database") do
     case SQL.query(AlexClaw.Repo, "SELECT 1") do

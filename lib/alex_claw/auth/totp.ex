@@ -17,6 +17,7 @@ defmodule AlexClaw.Auth.TOTP do
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
   alias AlexClaw.Auth.ChallengeStore
+  alias AlexClaw.Auth.CodeEntry
   alias AlexClaw.Config
   alias AlexClaw.Config.Crypto
   alias AlexClaw.Config.Setting
@@ -238,20 +239,46 @@ defmodule AlexClaw.Auth.TOTP do
     end
   end
 
+  # The code is checked by CodeEntry, whichever way it arrived: same replay
+  # guard, same brute-force counters, same audit row. What stays here is what is
+  # specific to a gateway challenge — its two-minute life, and the per-challenge
+  # attempt count that discards the pending action.
   defp decide_challenge(challenge, chat_id_str, code) do
-    cond do
-      System.monotonic_time(:second) > challenge.expires_at ->
-        ChallengeStore.drop(chat_id_str)
-        {:error, :challenge_expired}
-
-      verify(code) ->
-        ChallengeStore.drop(chat_id_str)
-        {:ok, challenge.action}
-
-      true ->
-        ChallengeStore.record_attempt(chat_id_str, @max_attempts)
-    end
+    expired(System.monotonic_time(:second) > challenge.expires_at, challenge, chat_id_str, code)
   end
+
+  defp expired(true, _challenge, chat_id_str, _code) do
+    ChallengeStore.drop(chat_id_str)
+    {:error, :challenge_expired}
+  end
+
+  defp expired(false, challenge, chat_id_str, code) do
+    chat_id_str
+    |> session_key()
+    |> CodeEntry.verify(code, :gateway)
+    |> resolved(challenge, chat_id_str)
+  end
+
+  defp resolved(:ok, challenge, chat_id_str) do
+    ChallengeStore.drop(chat_id_str)
+    {:ok, challenge.action}
+  end
+
+  # A locked instance is not "wrong code": the caller is told to stop, and the
+  # pending action is left alone rather than burned by an attempt that never
+  # reached the verifier.
+  defp resolved({:error, locked}, _challenge, _chat_id_str)
+       when locked in [:locked_session, :locked_instance] do
+    {:error, locked}
+  end
+
+  defp resolved({:error, _reason}, _challenge, chat_id_str) do
+    ChallengeStore.record_attempt(chat_id_str, @max_attempts)
+  end
+
+  # A chat is the session on that side: three wrong codes from one chat lock
+  # that chat, not every gateway at once.
+  defp session_key(chat_id_str), do: "chat:" <> chat_id_str
 
   @doc "Check if a chat has a pending challenge."
   @spec pending_challenge?(String.t() | integer()) :: boolean()

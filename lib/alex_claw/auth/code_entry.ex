@@ -36,18 +36,6 @@ defmodule AlexClaw.Auth.CodeEntry do
     end
   end
 
-  @doc "Record a code accepted somewhere other than here, for the same audit trail."
-  @spec accepted_elsewhere(String.t() | nil, method()) :: :ok
-  def accepted_elsewhere(sid, method) do
-    AuditLog.log_code_attempt(:accepted, fingerprint(sid), method)
-  end
-
-  @doc "Record a code refused somewhere other than here."
-  @spec refused_elsewhere(String.t() | nil, method()) :: :ok
-  def refused_elsewhere(sid, method) do
-    AuditLog.log_code_attempt(:refused, fingerprint(sid), method)
-  end
-
   # --- Internals ---
 
   defp configured(true), do: :ok
@@ -65,9 +53,16 @@ defmodule AlexClaw.Auth.CodeEntry do
 
   defp totp_or_recovery(true, _code, sid, method), do: accept(sid, method)
 
-  defp totp_or_recovery(false, code, sid, method) do
-    spent(RecoveryCodes.redeem(code), sid, method)
+  # Recovery codes are accepted in the browser and nowhere else. They are never
+  # sent over a gateway, for the same reason they must not be typed into one: a
+  # chat transcript is a durable copy of the way back in, sitting on someone
+  # else's server. An operator whose authenticator is gone still has the admin
+  # UI, which is where the codes are read and where they are spent.
+  defp totp_or_recovery(false, code, sid, :web) do
+    spent(RecoveryCodes.redeem(code), sid, :web)
   end
+
+  defp totp_or_recovery(false, _code, sid, :gateway), do: reject(sid, :gateway)
 
   defp spent({:ok, _remaining}, sid, method), do: accept(sid, method)
   defp spent({:error, :invalid_code}, sid, method), do: reject(sid, method)
@@ -78,14 +73,16 @@ defmodule AlexClaw.Auth.CodeEntry do
     :ok
   end
 
+  # A wrong code is reported as a wrong code, even when it is the one that trips
+  # a lock. The lock is state the caller can read — the page shows it, and the
+  # gateway path counts this attempt against the challenge — whereas conflating
+  # the two would mean a caller could not tell "you guessed wrong" from "the
+  # attempt never reached the verifier".
   defp reject(sid, method) do
     AuditLog.log_code_attempt(:refused, fingerprint(sid), method)
-    refusal(CodeAttempts.record_failure(sid))
+    CodeAttempts.record_failure(sid)
+    {:error, :invalid_code}
   end
-
-  defp refusal({:locked, :session, _until}), do: {:error, :locked_session}
-  defp refusal({:locked, :instance, _until}), do: {:error, :locked_instance}
-  defp refusal(:ok), do: {:error, :invalid_code}
 
   # Operators paste codes with the space their authenticator shows.
   defp normalize(code), do: code |> to_string() |> String.replace(~r/\s/, "")

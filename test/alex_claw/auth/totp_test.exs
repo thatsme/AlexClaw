@@ -2,7 +2,7 @@ defmodule AlexClaw.Auth.TOTPTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.{CodeAttempts, TOTP}
   alias AlexClaw.Config.Crypto
 
   describe "setup/0" do
@@ -207,7 +207,18 @@ defmodule AlexClaw.Auth.TOTPTest do
 
   # The challenge lives for two minutes and accepts any six digits in that time.
   # Without a limit those two minutes are a guessing window.
+  #
+  # The per-challenge count is not the only one any more: codes are verified by
+  # CodeEntry whichever way they arrive, so the session and instance limits
+  # count these attempts too. The counters are reset per test, because what is
+  # under test here is the challenge's own limit.
   describe "challenge attempt limit" do
+    setup do
+      CodeAttempts.reset()
+      on_exit(&CodeAttempts.reset/0)
+      :ok
+    end
+
     defp enable_2fa do
       {:ok, %{secret: secret}} = TOTP.setup()
       :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
@@ -264,7 +275,26 @@ defmodule AlexClaw.Auth.TOTPTest do
       assert {:error, :invalid_code} = TOTP.resolve_challenge(second, code)
     end
 
-    test "the count is per challenge, not per chat" do
+    test "a new challenge does not inherit the old one's count" do
+      enable_2fa()
+      chat = chat()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+
+      # The chat-level counter is what the next challenge would meet; clearing
+      # it isolates the question this test asks, which is about the challenge.
+      CodeAttempts.reset()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000003")
+      assert TOTP.pending_challenge?(chat)
+    end
+
+    # Three attempts per challenge and unlimited challenges is unlimited
+    # attempts. Since codes are verified by CodeEntry, the chat is locked after
+    # three wrong ones and raising a fresh challenge buys nothing.
+    test "re-raising a challenge does not buy three more guesses" do
       enable_2fa()
       chat = chat()
       TOTP.create_challenge(chat, %{type: :test})
@@ -272,8 +302,8 @@ defmodule AlexClaw.Auth.TOTPTest do
       for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
 
       TOTP.create_challenge(chat, %{type: :test})
-      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000003")
-      assert TOTP.pending_challenge?(chat)
+
+      assert {:error, :locked_session} = TOTP.resolve_challenge(chat, "000003")
     end
   end
 end

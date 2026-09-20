@@ -43,6 +43,17 @@ defmodule AlexClaw.Workflows.Launch do
   def describe(:no_2fa, _workflow),
     do: {:error, "This workflow requires 2FA. Enable 2FA and configure a gateway first."}
 
+  @doc """
+  Whether this workflow's own flag demands a second factor before it runs.
+
+  The page asks so it can offer a code field; `start/1` asks so it can raise
+  the challenge. One flag, read in one way.
+  """
+  @spec needs_code?(Workflow.t()) :: boolean()
+  def needs_code?(%Workflow{} = workflow) do
+    workflow.metadata["requires_2fa"] not in [nil, false]
+  end
+
   defp launch(workflow, requires_2fa) when requires_2fa in [nil, false] do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> Executor.run(workflow.id) end)
 

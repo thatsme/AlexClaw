@@ -54,14 +54,16 @@ defmodule AlexClawWeb.AdminLive.ElevationInvariantTest do
     {:Restore, :run}
   ]
 
-  # The three ways a write is allowed to be reached. Elevation.gate is the
-  # fifteen-minute window; Gate.request is a challenge for this action alone;
+  # The ways a write is allowed to be reached. Elevation.gate is the
+  # fifteen-minute window; Gate.request and ActionCode.request are a challenge
+  # for this action alone, sent to a gateway and offered on the page;
   # Launch.start is the workflow's own requires_2fa rule, which decides between
-  # the two.
+  # them.
   @gates [
     {:Elevation, :gate},
     {:Gate, :request},
-    {:Launch, :start}
+    {:Launch, :start},
+    {:ActionCode, :request}
   ]
 
   # An event that writes without a gate, deliberately. Empty, and each entry

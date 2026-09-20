@@ -32,6 +32,9 @@ defmodule AlexClaw.Auth.TOTP do
   # outlives the process that raised it.
   @max_attempts 3
 
+  # How long a pending action waits for its code, either way it was raised.
+  @challenge_seconds 120
+
   # --- Setup ---
 
   @doc "Generate a new TOTP secret and return it with a QR code PNG."
@@ -213,7 +216,7 @@ defmodule AlexClaw.Auth.TOTP do
     ChallengeStore.put(to_string(chat_id), %{
       id: challenge_id,
       action: action,
-      expires_at: System.monotonic_time(:second) + 120,
+      expires_at: System.monotonic_time(:second) + @challenge_seconds,
       attempts: 0
     })
 
@@ -257,5 +260,71 @@ defmodule AlexClaw.Auth.TOTP do
       {:ok, challenge} -> System.monotonic_time(:second) <= challenge.expires_at
       :error -> false
     end
+  end
+
+  @doc """
+  Hold an action raised in the admin UI until its code arrives.
+
+  The same shape as a gateway challenge, keyed by session rather than by chat,
+  because the action has to outlive the click either way. Two minutes, as for a
+  gateway: an approval left open on a screen is an approval someone else can
+  finish.
+  """
+  @spec create_web_challenge(String.t(), map()) :: String.t()
+  def create_web_challenge(sid, action) do
+    challenge_id = Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
+
+    ChallengeStore.put({:web, sid}, %{
+      id: challenge_id,
+      action: action,
+      expires_at: System.monotonic_time(:second) + @challenge_seconds,
+      attempts: 0
+    })
+
+    challenge_id
+  end
+
+  @doc "The action a session is waiting to confirm, if it has not expired."
+  @spec pending_web_action(String.t() | nil) :: {:ok, map()} | :error
+  def pending_web_action(nil), do: :error
+
+  def pending_web_action(sid) do
+    unexpired(ChallengeStore.fetch({:web, sid}), sid)
+  end
+
+  @doc """
+  Take a session's pending action, leaving nothing behind.
+
+  Taking rather than reading: the caller is about to perform the action, and a
+  second caller must not find it still waiting. The code itself is checked by
+  `AlexClaw.Auth.CodeEntry`, which owns the attempt limits.
+  """
+  @spec take_web_action(String.t() | nil) :: {:ok, map()} | :error
+  def take_web_action(sid) do
+    taken = pending_web_action(sid)
+    drop_web_challenge(sid)
+    taken
+  end
+
+  @doc "Forget a session's pending action — cancelled, or already performed."
+  @spec drop_web_challenge(String.t() | nil) :: :ok
+  def drop_web_challenge(nil), do: :ok
+  def drop_web_challenge(sid), do: ChallengeStore.drop({:web, sid})
+
+  @doc "Forget a gateway's pending challenge — answered elsewhere, or cancelled."
+  @spec drop_challenge(String.t() | integer()) :: :ok
+  def drop_challenge(chat_id), do: ChallengeStore.drop(to_string(chat_id))
+
+  defp unexpired({:ok, challenge}, sid) do
+    fresh(System.monotonic_time(:second) <= challenge.expires_at, challenge, sid)
+  end
+
+  defp unexpired(:error, _sid), do: :error
+
+  defp fresh(true, challenge, _sid), do: {:ok, challenge.action}
+
+  defp fresh(false, _challenge, sid) do
+    drop_web_challenge(sid)
+    :error
   end
 end

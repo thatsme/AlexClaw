@@ -96,7 +96,7 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
   end
 
   describe "with 2FA enabled but no gateway" do
-    test "the restore is refused, because no code can be asked for", ctx do
+    test "the restore asks for a code on the page instead of refusing", ctx do
       %{conn: conn, sid: sid} = ctx
 
       AlexClaw.Config.set("auth.totp.secret", Base.encode32(NimbleTOTP.secret(), padding: false),
@@ -113,10 +113,11 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
 
       html = render_click(view, "restore", %{})
 
-      # Nothing ran, and the upload is not left lying around waiting for a code
-      # that cannot arrive.
-      assert html
-      assert staged_files() == ctx.already_staged
+      # The field is offered, and nothing has run: a restore waits for its code
+      # whether or not a gateway exists to prompt on.
+      assert html =~ "Confirm:"
+      assert html =~ "Restore the database from"
+      assert html =~ "Code from your authenticator"
     end
   end
 

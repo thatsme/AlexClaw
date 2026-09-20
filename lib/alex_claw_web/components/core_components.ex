@@ -136,6 +136,58 @@ defmodule AlexClawWeb.CoreComponents do
     """
   end
 
+  attr(:action_code, :map, required: true)
+
+  @doc """
+  The code field for one action waiting to be confirmed.
+
+  Separate from `elevation_bar/1` because it confirms a single thing rather
+  than opening a window: the description says what is about to happen, and
+  nothing else on the page becomes editable.
+  """
+  @spec action_code_bar(map()) :: Phoenix.LiveView.Rendered.t()
+  def action_code_bar(%{action_code: %{open?: false}} = assigns) do
+    ~H"""
+    """
+  end
+
+  def action_code_bar(assigns) do
+    ~H"""
+    <div class="bg-gray-900 border border-claw-700 text-gray-200 text-sm rounded-lg px-4 py-3 space-y-3">
+      <p>
+        <span class="font-semibold">Confirm:</span> {@action_code.description}
+      </p>
+      <form phx-submit="submit_action_code" class="flex items-center gap-3 flex-wrap">
+        <label for="action-code" class="whitespace-nowrap">Code from your authenticator</label>
+        <input
+          type="text"
+          id="action-code"
+          name="code"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          autofocus
+          class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm w-40 tracking-widest"
+        />
+        <button
+          type="submit"
+          class="px-3 py-1.5 bg-claw-700 hover:bg-claw-600 text-white text-xs rounded transition"
+        >
+          Confirm
+        </button>
+        <button
+          type="button"
+          phx-click="cancel_action_code"
+          class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded transition"
+        >
+          Cancel
+        </button>
+        <span class="text-xs text-gray-500">or answer the prompt on your gateway</span>
+      </form>
+      <p :if={@action_code.message} class="text-red-300 text-xs">{@action_code.message}</p>
+    </div>
+    """
+  end
+
   defp scope(:session), do: " from this session"
   defp scope(:instance), do: " across sessions"
 

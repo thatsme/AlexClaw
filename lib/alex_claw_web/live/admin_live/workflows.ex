@@ -1,7 +1,7 @@
 defmodule AlexClawWeb.AdminLive.Workflows do
   @moduledoc "LiveView page for creating, editing, and managing workflows and their steps."
   use Phoenix.LiveView
-  alias AlexClawWeb.Live.Elevation
+  alias AlexClawWeb.Live.{ActionCode, Elevation}
 
   alias AlexClaw.Resources
   alias AlexClaw.Workflows
@@ -10,7 +10,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, session, socket) do
-    socket = Elevation.assign_elevation(socket, session)
+    socket =
+      socket
+      |> Elevation.assign_elevation(session)
+      |> ActionCode.assign_action_code()
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, "skills:registry")
@@ -606,6 +609,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     Elevation.close_entry(socket)
   end
 
+  def handle_event("submit_action_code", %{"code" => code}, socket) do
+    ActionCode.submit(socket, code)
+  end
+
+  def handle_event("cancel_action_code", _params, socket) do
+    ActionCode.cancel(socket)
+  end
+
   def handle_event("request_gateway_code", _params, socket) do
     Elevation.unlock(socket)
   end
@@ -623,6 +634,23 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp launched(socket, {:ok, workflow}) do
+    started(Launch.needs_code?(workflow), workflow, socket)
+  end
+
+  # A workflow that asks for a second factor gets the field here, rather than
+  # only a prompt on a gateway the operator may not be holding.
+  defp started(true, workflow, socket) do
+    {:noreply, socket} =
+      ActionCode.request(
+        socket,
+        %{type: :run_workflow, workflow_id: workflow.id},
+        "Run workflow: #{workflow.name}"
+      )
+
+    socket
+  end
+
+  defp started(false, workflow, socket) do
     {kind, message} = Launch.describe(Launch.start(workflow), workflow)
     put_flash(socket, kind, message)
   end

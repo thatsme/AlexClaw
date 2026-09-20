@@ -3,16 +3,21 @@ defmodule AlexClawWeb.AdminLive.Forge do
 
   use Phoenix.LiveView
 
-  alias AlexClaw.Auth.Gate
   alias AlexClaw.LLM
   alias AlexClaw.Memory
   alias AlexClaw.Skills.CodeGenerator
+  alias AlexClawWeb.Live.{ActionCode, Elevation}
 
   @default_max_retries 5
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket =
+      socket
+      |> Elevation.assign_elevation(session)
+      |> ActionCode.assign_action_code()
+
     {:ok,
      assign(socket,
        page_title: "Forge",
@@ -137,6 +142,14 @@ defmodule AlexClawWeb.AdminLive.Forge do
      )}
   end
 
+  def handle_event("submit_action_code", %{"code" => code}, socket) do
+    ActionCode.submit(socket, code)
+  end
+
+  def handle_event("cancel_action_code", _params, socket) do
+    ActionCode.cancel(socket)
+  end
+
   @impl true
   @spec handle_async(atom(), {:ok, term()} | {:exit, term()}, Phoenix.LiveView.Socket.t()) ::
           {:noreply, Phoenix.LiveView.Socket.t()}
@@ -202,29 +215,21 @@ defmodule AlexClawWeb.AdminLive.Forge do
       file_path: "#{socket.assigns.current_skill_name}.ex",
       origin: :generated
     }
-    |> Gate.request("Generated skill #{socket.assigns.current_skill_name} needs: #{listed}")
-    |> approval_msg(socket, listed)
-    |> assign(status: :failed, loading: false, retries_left: retries_left)
+    |> then(&ActionCode.request(socket, &1, "Approve generated skill: #{listed}"))
+    |> approval_pending(socket, listed, retries_left)
   end
 
   defp exhausted(socket, _reason, retries_left) do
     assign(socket, status: :failed, loading: false, retries_left: retries_left)
   end
 
-  defp approval_msg(:challenged, socket, listed) do
-    add_system_msg(
-      socket,
+  defp approval_pending({:noreply, socket}, _previous, listed, retries_left) do
+    socket
+    |> add_system_msg(
       "Left staged in pending/. It calls outside the contained set (#{listed}), " <>
-        "so a 2FA code was requested — approve it to load the skill."
+        "so it needs a 2FA code — enter it above, or approve it on a gateway."
     )
-  end
-
-  defp approval_msg(:no_2fa, socket, listed) do
-    add_system_msg(
-      socket,
-      "Left staged in pending/ and not loaded: it calls outside the contained set " <>
-        "(#{listed}) and 2FA is not configured. Enable 2FA to approve it."
-    )
+    |> assign(status: :failed, loading: false, retries_left: retries_left)
   end
 
   @spec start_forge_step(Phoenix.LiveView.Socket.t(), String.t(), String.t(), String.t() | nil) ::

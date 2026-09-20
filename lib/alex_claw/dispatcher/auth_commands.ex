@@ -234,7 +234,14 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   def execute_2fa_action(%{type: :database_restore, path: path, filename: filename}, _msg) do
     Gateway.send_message("Restoring the database from #{filename}...")
 
-    {_status, message} = Restore.run(path)
+    {status, message} = Restore.run(path)
+
+    Phoenix.PubSub.broadcast(
+      AlexClaw.PubSub,
+      "database:restore",
+      {:restore_finished, status, message}
+    )
+
     Gateway.send_message(message)
   end
 

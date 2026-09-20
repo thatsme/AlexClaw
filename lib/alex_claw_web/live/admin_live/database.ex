@@ -3,15 +3,21 @@ defmodule AlexClawWeb.AdminLive.Database do
 
   use Phoenix.LiveView
 
-  alias AlexClaw.Auth.{Elevation, Gate}
+  alias AlexClaw.Auth.Elevation
   alias AlexClaw.Database.Restore
+  alias AlexClawWeb.Live.ActionCode
 
   @max_upload_size 100_000_000
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, session, socket) do
-    socket = AlexClawWeb.Live.Elevation.assign_elevation(socket, session)
+    if connected?(socket), do: Phoenix.PubSub.subscribe(AlexClaw.PubSub, "database:restore")
+
+    socket =
+      socket
+      |> AlexClawWeb.Live.Elevation.assign_elevation(session)
+      |> ActionCode.assign_action_code()
 
     {:ok,
      socket
@@ -29,6 +35,10 @@ defmodule AlexClawWeb.AdminLive.Database do
   end
 
   @impl true
+  def handle_info({:restore_finished, status, message}, socket) do
+    {:noreply, restored(socket, {status, message})}
+  end
+
   def handle_info({:elevation, _state, _detail} = message, socket) do
     {:noreply, AlexClawWeb.Live.Elevation.handle_broadcast(socket, message)}
   end
@@ -55,6 +65,14 @@ defmodule AlexClawWeb.AdminLive.Database do
   @impl true
   def handle_event("refresh_tables", _, socket) do
     {:noreply, assign(socket, tables: list_tables())}
+  end
+
+  def handle_event("submit_action_code", %{"code" => code}, socket) do
+    ActionCode.submit(socket, code)
+  end
+
+  def handle_event("cancel_action_code", _params, socket) do
+    ActionCode.cancel(socket)
   end
 
   defp staged([{{:ok, path}, filename}], socket) do
@@ -87,25 +105,11 @@ defmodule AlexClawWeb.AdminLive.Database do
   end
 
   defp challenge(true, path, filename, socket) do
-    %{type: :database_restore, path: path, filename: filename}
-    |> Gate.request("Restore the database from *#{filename}* — this replaces live data")
-    |> requested(path, socket)
-  end
-
-  defp requested(:challenged, _path, socket) do
-    {:noreply,
-     put_flash(socket, :info, "2FA code requested — the restore runs once you answer it")}
-  end
-
-  defp requested(:no_2fa, path, socket) do
-    Restore.discard(path)
-
-    {:noreply,
-     put_flash(
-       socket,
-       :error,
-       "A restore needs a second factor, and no gateway is configured to ask for one"
-     )}
+    ActionCode.request(
+      socket,
+      %{type: :database_restore, path: path, filename: filename},
+      "Restore the database from #{filename} — this replaces live data"
+    )
   end
 
   defp restored(socket, {:ok, message}) do

@@ -29,6 +29,16 @@ defmodule AlexClaw.Auth.Gate do
     challenge(TOTP.enabled?() && notify_chat_ids(), action, description)
   end
 
+  @doc """
+  Every destination a prompt for this action was sent to.
+
+  Public because a code answered in the admin UI has to withdraw the same
+  challenge from the gateways it was also sent to, or the action could be
+  performed twice.
+  """
+  @spec notify_targets() :: [String.t()]
+  def notify_targets, do: notify_chat_ids()
+
   # The destinations come from Credentials, not straight from the settings: a
   # blank setting falls back to the environment, which is the only way a fresh
   # instance can be asked for a code at all.

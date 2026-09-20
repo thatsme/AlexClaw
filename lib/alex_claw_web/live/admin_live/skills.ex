@@ -4,20 +4,22 @@ defmodule AlexClawWeb.AdminLive.Skills do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.Gate
   alias AlexClaw.Workflows.SkillRegistry
+  alias AlexClawWeb.Live.{ActionCode, Elevation}
 
   @max_upload_size 1_000_000
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(AlexClaw.PubSub, "skills:registry")
     end
 
     {:ok,
      socket
+     |> Elevation.assign_elevation(session)
+     |> ActionCode.assign_action_code()
      |> assign(
        page_title: "Skills",
        skills: build_skill_list(),
@@ -68,38 +70,30 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   @impl true
   def handle_event("unload_skill", %{"name" => name}, socket) do
-    case Gate.request(%{type: :skill_unload, name: name}, "Unload skill: *#{name}*") do
-      :challenged ->
-        {:noreply,
-         socket
-         |> assign(pending_2fa: name)
-         |> put_flash(:info, "2FA code requested — check Telegram/Discord")}
-
-      :no_2fa ->
-        {:noreply,
-         put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
-    end
+    socket
+    |> assign(pending_2fa: name)
+    |> ActionCode.request(%{type: :skill_unload, name: name}, "Unload skill: #{name}")
   end
 
   @impl true
   def handle_event("reload_skill", %{"name" => name}, socket) do
-    case Gate.request(%{type: :skill_reload, name: name}, "Reload skill: *#{name}*") do
-      :challenged ->
-        {:noreply,
-         socket
-         |> assign(pending_2fa: name)
-         |> put_flash(:info, "2FA code requested — check Telegram/Discord")}
+    socket
+    |> assign(pending_2fa: name)
+    |> ActionCode.request(%{type: :skill_reload, name: name}, "Reload skill: #{name}")
+  end
 
-      :no_2fa ->
-        {:noreply,
-         put_flash(socket, :error, "2FA must be enabled for skill operations. Set up 2FA first.")}
-    end
+  def handle_event("submit_action_code", %{"code" => code}, socket) do
+    ActionCode.submit(socket, code)
+  end
+
+  def handle_event("cancel_action_code", _params, socket) do
+    ActionCode.cancel(socket)
   end
 
   defp upload_skill(socket, filename) do
-    %{type: :skill_load, file_path: filename}
-    |> Gate.request("Load skill: `#{filename}`")
-    |> uploaded(socket, filename)
+    socket
+    |> assign(uploading: false, pending_2fa: filename)
+    |> ActionCode.request(%{type: :skill_load, file_path: filename}, "Load skill: #{filename}")
   end
 
   # Staged under skills_dir/pending, never the live directory: until the 2FA code
@@ -113,20 +107,6 @@ defmodule AlexClawWeb.AdminLive.Skills do
         Logger.warning("Rejected skill upload #{inspect(client_name)}: #{inspect(reason)}")
         {:error, reason}
     end
-  end
-
-  defp uploaded(:challenged, socket, filename) do
-    {:noreply,
-     socket
-     |> put_flash(:info, "File uploaded. 2FA code requested — check Telegram/Discord")
-     |> assign(uploading: false, pending_2fa: filename)}
-  end
-
-  defp uploaded(:no_2fa, socket, _filename) do
-    {:noreply,
-     socket
-     |> put_flash(:error, "2FA must be enabled for skill operations. Set up 2FA first.")
-     |> assign(uploading: false)}
   end
 
   @impl true

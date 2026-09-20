@@ -22,6 +22,19 @@ services:
     # stop was reaching SIGKILL, so Reasoning.Loop's terminate/2 never ran and
     # in-flight workflow runs stayed recorded as executing.
     stop_grace_period: 30s
+    # Nothing writes to the image. The three places that do write are mounted:
+    # the skills directory, the backup directory, and a tmpfs for /tmp — which
+    # is also where the release puts its generated runtime config and where a
+    # crash dump goes.
+    read_only: true
+    tmpfs:
+      - /tmp
+    # The app opens a listening socket above 1024 and talks to postgres. It
+    # needs nothing the kernel gates behind a capability.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     build:
       context: .
       args:
@@ -71,6 +84,13 @@ services:
 
       # Dynamic skills
       SKILLS_DIR: /app/skills
+
+      # The release's scratch directory defaults to /app/tmp, which is on the
+      # read-only filesystem. Nothing writes there on an ordinary boot — that
+      # was checked — but the daemon and remote subcommands do, and a default
+      # pointing at an unwritable path is a trap rather than a decision.
+      RELEASE_TMP: /tmp
+      ERL_CRASH_DUMP: /tmp/erl_crash.dump
     volumes:
       - skills_data:/app/skills
       - ${BACKUP_DIR:-./backups}:/app/backups

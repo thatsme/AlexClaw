@@ -71,13 +71,24 @@ FROM alpine:3.22 AS runtime
 
 RUN apk add --no-cache libstdc++ openssl ncurses-libs postgresql-client git
 
+# The app has no reason to be root, and with no-new-privileges it could not
+# regain it anyway. A numeric uid/gid rather than only a name, because what a
+# bind-mounted host directory checks is the number.
+RUN addgroup -g 1000 -S alexclaw && adduser -u 1000 -S -G alexclaw alexclaw
+
 WORKDIR /app
 
-COPY --from=build /app/_build/prod/rel/alex_claw ./
+COPY --from=build --chown=alexclaw:alexclaw /app/_build/prod/rel/alex_claw ./
 
 # EPMD is needed for BEAM long-name distribution (clustering)
 COPY --from=build /usr/local/lib/erlang/erts-*/bin/epmd /usr/local/bin/epmd
-COPY entrypoint.sh ./
+COPY --chown=alexclaw:alexclaw entrypoint.sh ./
 RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
+
+# Created in the image so that a fresh named volume inherits this ownership.
+# An existing volume keeps whatever it already has — see INSTALLATION.md.
+RUN mkdir -p /app/skills /app/backups && chown -R alexclaw:alexclaw /app
+
+USER alexclaw
 
 CMD ["./entrypoint.sh"]

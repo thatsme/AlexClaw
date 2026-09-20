@@ -28,6 +28,7 @@ DATABASE_USERNAME=alexclaw
 DATABASE_PASSWORD=changeme
 SECRET_KEY_BASE=generate_with_openssl_rand_base64_48
 ADMIN_PASSWORD=changeme
+CLUSTER_COOKIE=generate_with_openssl_rand_base64_32
 
 # === Telegram ===
 TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather
@@ -53,7 +54,6 @@ ANTHROPIC_API_KEY=
 
 # === Clustering (optional — multi-node) ===
 # NODE_NAME=alexclaw@node1.local
-# CLUSTER_COOKIE=generate_a_random_secret
 
 # === Advanced ===
 # ADMIN_PORT=5001
@@ -69,6 +69,9 @@ openssl rand -hex 32
 
 # Generate SECRET_KEY_BASE — copy the output into .env
 openssl rand -base64 48
+
+# Generate CLUSTER_COOKIE — copy the output into .env
+openssl rand -base64 32
 ```
 
 Then fill in the remaining values:
@@ -78,6 +81,7 @@ Then fill in the remaining values:
 | `DATABASE_PASSWORD` | Paste the output of the first `openssl` command |
 | `SECRET_KEY_BASE` | Paste the output of the second `openssl` command |
 | `ADMIN_PASSWORD` | Choose a strong password for the web admin UI |
+| `CLUSTER_COOKIE` | Paste the output of the third `openssl` command. The container does not start without it, and every node of a cluster shares the same value |
 | `DATABASE_USERNAME` | Leave as `alexclaw` (default) unless you have a reason to change it |
 | `TELEGRAM_BOT_TOKEN` | From @BotFather (see [Getting Your Bot Token](#getting-your-telegram-bot-token) below) |
 | `TELEGRAM_CHAT_ID` | **Optional** — leave empty and AlexClaw will auto-detect it when you send the bot its first message. Or set it manually (see [Getting Your Chat ID](#getting-your-telegram-chat-id) below) |
@@ -691,6 +695,26 @@ AlexClaw runs on **Windows**, **macOS**, and **Linux** via Docker. A few things 
 - Check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct in `.env`
 - Check logs: `docker compose logs alexclaw-prod | grep -i telegram`
 - Make sure you started a conversation with the bot first (send it any message)
+
+### Skill uploads or generated skills fail to save
+
+The container runs as uid 1000 with a read-only root filesystem. Only the
+skills directory, the backup directory and `/tmp` are writable.
+
+A volume created before this was the case is owned by root, and the app cannot
+write to it. The symptom is a permission error on the skills directory while
+everything else works. Correct the ownership once, with the stack stopped:
+
+```bash
+docker run --rm -v alexclaw_skills_data:/s alpine chown -R 1000:1000 /s
+```
+
+On a Linux host the backup directory is a bind mount and its ownership is the
+host's, so it needs the same treatment:
+
+```bash
+chown -R 1000:1000 ./backups
+```
 
 ### Database connection errors
 

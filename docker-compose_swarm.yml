@@ -21,6 +21,13 @@ services:
     # stop was reaching SIGKILL, so Reasoning.Loop's terminate/2 never ran and
     # in-flight workflow runs stayed recorded as executing.
     stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     build:
       context: .
       args:
@@ -53,6 +60,8 @@ services:
       NODE_NAME: alexclaw@node1.local
       CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
       SKILLS_DIR: /app/skills
+      RELEASE_TMP: /tmp
+      ERL_CRASH_DUMP: /tmp/erl_crash.dump
     volumes:
       - skills_data:/app/skills
 
@@ -62,6 +71,13 @@ services:
     # stop was reaching SIGKILL, so Reasoning.Loop's terminate/2 never ran and
     # in-flight workflow runs stayed recorded as executing.
     stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     build:
       context: .
       args:
@@ -94,6 +110,8 @@ services:
       NODE_NAME: alexclaw@node2.local
       CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
       SKILLS_DIR: /app/skills
+      RELEASE_TMP: /tmp
+      ERL_CRASH_DUMP: /tmp/erl_crash.dump
     volumes:
       - skills_data:/app/skills
 

@@ -87,6 +87,19 @@ The `:min_score` option filters vector results directly in SQL. Only entries wit
 
 The Research skill uses this for cross-store RAG. Other skills search individual stores directly.
 
+## Embedding Throttle
+
+`AlexClaw.Knowledge.EmbedThrottle` is a supervised process that paces embedding
+calls so a bulk ingest does not exhaust a provider's rate limit. Background
+embedding tasks pass through it rather than calling the provider directly.
+
+## Self-Awareness
+
+`AlexClaw.Knowledge.SelfAwareness` loads the project's own architecture and
+security documents into the knowledge base at boot, chunked like any other
+source. That is what lets the agent answer questions about itself, and what the
+skill generator retrieves as context when writing a new skill.
+
 ## Embedding Metadata & Staleness Detection
 
 Each entry tracks which model generated its embedding. `stale_embedding_count/1` compares each entry's `embedding_model` against the current configured model and counts mismatches. The Services page shows a stale count when models differ.

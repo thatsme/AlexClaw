@@ -45,6 +45,17 @@ The loop runs as a GenServer under a DynamicSupervisor. LLM calls run as Tasks s
 | Consecutive failures at threshold | Stuck | No |
 | Everything else | LLM decides | Yes |
 
+## Modules
+
+| Module | Role |
+|---|---|
+| `Reasoning.Loop` | The `gen_statem` running one session's cycle |
+| `Reasoning.Supervisor` | DynamicSupervisor — one child per active session |
+| `Reasoning.Session`, `Reasoning.Step` | The persisted record of a run and its steps |
+| `Reasoning.SkillExecutor` | Runs a chosen skill with a per-step timeout, isolating the loop from a skill that hangs |
+| `Reasoning.Prompts` | The planning, execution, evaluation and decision templates, each overridable from configuration |
+| `Reasoning.PromptParser` | Reads the model's replies back into structured decisions, and fails closed when a reply does not parse |
+
 ## Working Memory
 
 A single string threaded through all four prompts. Each LLM response includes an updated `working_memory` field. This is the loop's train of thought — it prevents context fragmentation across phases.

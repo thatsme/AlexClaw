@@ -1,35 +1,72 @@
 # Supervision Tree
 
-AlexClaw uses a flat `one_for_one` supervision strategy. Each child is independent — a crash in one component does not affect others.
+AlexClaw uses a flat `one_for_one` supervision strategy. Each child is
+independent — a crash in one does not restart the others.
 
 ```
 AlexClaw.Application (one_for_one)
-  ├── AlexClaw.Repo                    # PostgreSQL connection pool (Ecto)
-  ├── Phoenix.PubSub                   # Config change broadcast
-  ├── Task.Supervisor (TaskSupervisor) # Supervised fire-and-forget tasks
-  ├── AlexClaw.LLM.UsageTracker       # ETS owner for LLM call counters
-  ├── AlexClaw.Config.Loader          # Seeds config from env → DB, loads into ETS
-  ├── AlexClaw.LogBuffer              # In-memory ring buffer for recent logs
-  ├── AlexClaw.Google.TokenManager    # Google OAuth2 token lifecycle
-  ├── AlexClaw.RateLimiter.Server     # Login rate limiting (ETS + periodic purge)
-  ├── Registry (CircuitBreakerRegistry)
-  ├── CircuitBreakerSupervisor        # DynamicSupervisor — per-skill breakers
-  ├── AlexClaw.SkillSupervisor        # DynamicSupervisor — skill workers
-  ├── AlexClaw.MCP.Server             # MCP server (Streamable HTTP)
-  ├── AlexClaw.Cluster.Manager        # Node discovery and remote triggers
-  ├── AlexClaw.Scheduler              # Quantum cron scheduler
-  ├── AlexClaw.Workflows.SchedulerSync # Syncs DB schedules into Quantum
-  ├── AlexClaw.Gateway.Telegram       # Telegram long-polling bot
-  ├── AlexClaw.Gateway.Discord        # Discord WebSocket (conditional)
-  └── AlexClawWeb.Endpoint            # Phoenix HTTP server
+  ├── AlexClaw.Repo                      # PostgreSQL connection pool (Ecto)
+  ├── Phoenix.PubSub (AlexClaw.PubSub)   # Config changes, skill list, run events
+  ├── Task.Supervisor (AlexClaw.TaskSupervisor)  # Supervised fire-and-forget work
+  ├── AlexClaw.Knowledge.EmbedThrottle   # Paces embedding calls against provider limits
+  ├── AlexClaw.LLM.UsageTracker          # ETS owner for per-provider call counters
+  ├── AlexClaw.Config.Loader             # Seeds config, loads it into the ETS cache
+  ├── AlexClaw.Workflows.SkillRegistry   # ETS owner for the skill catalogue
+  ├── AlexClaw.Workflows.Registry        # Tracks in-flight workflow runs
+  ├── AlexClaw.LogBuffer                 # In-memory ring buffer for recent logs
+  ├── AlexClaw.Google.TokenManager       # OAuth2 token lifecycle (cache + refresh)
+  ├── AlexClaw.RateLimiter.Server        # Login rate limiting (ETS + periodic purge)
+  ├── AlexClaw.Auth.SkillRateLimiter     # Per-skill call rate limiting
+  ├── Registry (AlexClaw.CircuitBreakerRegistry)  # Per-skill breaker registry
+  ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor
+  ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
+  ├── AlexClaw.Reasoning.Supervisor      # DynamicSupervisor — reasoning sessions
+  ├── AlexClaw.MCP.Server                # MCP server (Streamable HTTP)
+  ├── AlexClaw.Cluster.Manager           # Node registration and remote triggers
+  ├── AlexClaw.Scheduler                 # Quantum cron scheduler
+  ├── AlexClaw.Gateway.Telegram          # Telegram long-polling bot
+  ├── AlexClawWeb.Endpoint               # Phoenix HTTP server (admin UI)
+  ├── AlexClaw.UpdateChecker             # Periodic release check
+  │
+  └── background workers, when :start_background_workers is true:
+      ├── AlexClaw.Workflows.SchedulerSync  # Syncs DB schedules into Quantum
+      └── AlexClaw.Gateway.DiscordStarter   # Starts Nostrum if Discord is configured
 ```
 
 ## Key Design Decisions
 
-**Flat hierarchy** — all children are siblings under one supervisor. This is intentional for a single-user agent where simplicity outweighs complex restart strategies.
+**Flat hierarchy** — every child is a sibling under one supervisor. That is
+deliberate for a single-operator agent, where simplicity is worth more than a
+restart strategy nobody will reason about at 3am.
 
-**Task.Supervisor for async work** — all workflow executions, background embeddings, and fire-and-forget tasks run under `AlexClaw.TaskSupervisor`. Crashes are reported and supervised, not silently lost.
+**Task.Supervisor for async work** — workflow executions, background embeddings
+and notification sends run under `AlexClaw.TaskSupervisor`. A crash there is
+reported and supervised rather than silently lost. `AlexClaw.TaskSupervisor` is
+a registered process name, not a module.
 
-**DynamicSupervisors** — `SkillSupervisor` and `CircuitBreakerSupervisor` manage variable numbers of child processes (one per active skill execution or circuit breaker).
+**DynamicSupervisors** — `SkillSupervisor`, `CircuitBreakerSupervisor` and
+`Reasoning.Supervisor` manage a variable number of children: one per running
+skill, per circuit breaker, and per reasoning session.
 
-**Conditional children** — the Discord gateway only starts when `DISCORD_BOT_TOKEN` is set. In cluster mode, gateways only start on their assigned node.
+**ETS owners are supervised processes** — `Config.Loader`, `SkillRegistry`,
+`UsageTracker`, `RateLimiter.Server` and `LogBuffer` each own a table. The table
+dies with its owner and is rebuilt on restart, so no cache outlives the process
+responsible for it.
+
+## Conditional children
+
+Two children start only when `:start_background_workers` is true, which the test
+environment sets to false so the suite does not run cron jobs or open a Discord
+socket.
+
+`Gateway.DiscordStarter` is the supervised child; it is not the Discord
+connection. It reads the Discord settings from configuration, and starts Nostrum
+only if the gateway is enabled, a token is present, and this node is the one
+assigned to run the bot. `AlexClaw.Gateway.Discord` — the Nostrum consumer that
+receives messages — is then started underneath it.
+
+Discord is configured from **Admin > Config**, not from the environment. See
+[Configuration](../getting-started/configuration.md).
+
+In a cluster, `telegram.node` and `discord.node` decide which single node runs
+each bot. See [Multi-Node Clustering](clustering.md).

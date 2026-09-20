@@ -13,17 +13,26 @@ Sensitive configuration values (API keys, OAuth tokens, webhook secrets) are enc
 
 Any setting with `sensitive: true` is encrypted:
 
+These are setting keys, not environment variables — several are seeded from the
+environment on first boot, but the encrypted value lives in the database under
+the key below.
+
 | Setting | Category |
 |---|---|
-| `GEMINI_API_KEY` | llm |
-| `ANTHROPIC_API_KEY` | llm |
-| `TELEGRAM_BOT_TOKEN` | telegram |
-| `DISCORD_BOT_TOKEN` | discord |
-| `mcp.api_key` | mcp |
+| `llm.gemini_api_key` | llm |
+| `llm.anthropic_api_key` | llm |
+| `telegram.bot_token` | telegram |
+| `discord.bot_token` | discord |
 | `github.token` | github |
 | `github.webhook_secret` | github |
 | `google.oauth.client_secret` | google |
 | `google.oauth.refresh_token` | google |
+| `auth.totp.secret` | auth |
+
+`auth.totp.secret` is additionally kept out of the ETS cache: it is read from
+its row and decrypted for the length of a verification, so `Config.get/2` never
+serves it. See
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md).
 
 ## Boot Sequence
 

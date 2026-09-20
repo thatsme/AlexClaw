@@ -17,7 +17,9 @@ All commands work identically on both Telegram and Discord. Responses route back
 | `/skills` | List all registered skills (core + dynamic) |
 
 !!! note "Skill management"
-    Loading, unloading, and reloading skills is Admin UI only (2FA enforced).
+    Loading, unloading and reloading skills is 2FA-gated, from the Admin UI and
+    from the gateway alike. The gateway command names a file already present in
+    the skills volume — code cannot be uploaded from a chat.
 
 ## Workflows
 

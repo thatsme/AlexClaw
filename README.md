@@ -85,9 +85,9 @@ Load custom skills at runtime — no code changes, no Docker rebuild, no restart
 - **Integrity verification** — SHA256 checksum stored on load, verified on boot. Tampered files are skipped with a Telegram alert.
 - **Persistence** — Dynamic skills survive container restarts (DB + Docker volume)
 - **Admin UI** — Upload, reload, and unload skills from the Skills page. Core and dynamic skills are shown separately. All operations require 2FA verification via Telegram/Discord.
-- **2FA enforced** — Every skill load, unload, and reload requires TOTP verification sent to Telegram/Discord. No exceptions, no bypass. Skill management is Admin UI only.
+- **2FA enforced** — Every skill load, unload, and reload requires TOTP verification sent to Telegram/Discord, from the Admin UI and from `/skill load|unload|reload` alike, and is refused outright when 2FA is not configured.
 - **Version bump enforcement** — Loading a skill that's already loaded with the same version is rejected. Bump `version/0` or use reload to force.
-- **Cross-skill invocation** — Dynamic skills can call other skills (core or dynamic) through `SkillAPI.run_skill/3`
+- **Cross-skill invocation** — Dynamic skills can call other skills through `SkillAPI.run_skill/3`, except the four privileged ones (`shell`, `coder`, `db_backup`, `web_automation`)
 - **Conditional branching** — Dynamic skills can declare `routes/0` (e.g. `[:on_results, :on_empty, :on_error]`) and return triple tuples `{:ok, result, :branch_name}` for workflow routing. Routes are persisted in the database on load and cleaned up on unload — same behavior as core skills.
 
 #### Permissions
@@ -223,12 +223,9 @@ All configuration is managed at runtime through the admin UI (`/config`). On fir
 
 ### Discord (optional)
 
-| Variable | Description |
-|---|---|
-| `DISCORD_ENABLED=true` | Enable the Discord gateway |
-| `DISCORD_BOT_TOKEN` | Discord bot token from Developer Portal |
-| `DISCORD_CHANNEL_ID` | Channel ID for commands (auto-detected on first message) |
-| `DISCORD_GUILD_ID` | Server (guild) ID |
+Discord is configured in **Admin > Config**, not by environment variable — set
+`discord.enabled`, `discord.bot_token` and `discord.channel_id`, then restart
+the container.
 
 All other settings (GitHub tokens, webhook secrets, LLM limits, prompts, skill config) are managed at runtime through the Config UI after first boot.
 
@@ -258,7 +255,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/ping` | Check if the bot is alive |
 | `/status` | System status (uptime, memory, active skills) |
 | `/skills` | List registered skills (core + dynamic) |
-| `/skill` | Skill management — Admin UI only (2FA enforced via Telegram/Discord) |
+| `/skill list\|load\|unload\|reload` | Skill management, 2FA-gated. Names a file already in the skills volume |
 | `/llm` | Show LLM provider status |
 | `/workflows` | List all workflows with status and ID |
 | `/run <id or name>` | Run a workflow on demand |

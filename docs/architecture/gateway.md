@@ -1,70 +1,69 @@
 # Gateway Layer
 
-The gateway layer supports multiple messaging transports via a behaviour pattern. All gateways normalize inbound messages into a common `%Message{}` struct and route responses back to the originating transport.
+How a message becomes an action. The gateway layer normalises several transports
+into one message shape, and the dispatcher turns that into a skill call without
+consulting an LLM.
 
 ## Transports
 
-| Gateway | Transport | Module |
-|---|---|---|
-| Telegram | Long-polling (Bot API) | `AlexClaw.Gateway.Telegram` |
-| Discord | WebSocket (Nostrum) | `AlexClaw.Gateway.Discord` |
-| MCP | Streamable HTTP | `AlexClaw.MCP.Server` |
+Each transport implements `AlexClaw.Gateway.Behaviour` — `send_message/2`,
+`send_html/2`, `send_photo/3`, `name/0`, `configured?/0`.
 
-## Architecture
+| Module | Role |
+|---|---|
+| `Gateway.Telegram` | GenServer long-polling the Telegram Bot API |
+| `Gateway.Discord` | Nostrum consumer for `MESSAGE_CREATE`, sending over Nostrum's REST API |
+| `Gateway.DiscordStarter` | Supervised child that configures and starts Nostrum when Discord is enabled and this node is assigned it |
+| `Gateway.Router` | Resolves the target gateway from `opts[:gateway]`, falling back to the first configured one. `broadcast/2` reaches all active transports |
+| `AlexClaw.Gateway` | Thin facade delegating to the Router, so callers name one module |
 
-```
-Inbound message
-    │
-    ▼
-Gateway (Telegram/Discord) ──normalize──> %Message{gateway: :telegram}
-    │
-    ▼
-Router ──resolve gateway──> Dispatcher
-    │
-    ▼
-Pattern match on command ──> Skill execution
-    │
-    ▼
-Response ──route back──> originating gateway
-```
+Inbound traffic is normalised into `%AlexClaw.Message{}` carrying the text, the
+chat, and which gateway it arrived on. The dispatcher threads `gateway:` back
+through every reply, so an answer returns on the transport that asked.
 
-## Gateway Behaviour
+Discord is configured from **Admin > Config**, not from environment variables —
+see [Configuration](../getting-started/configuration.md). Which node runs which
+bot is covered in [Multi-Node Clustering](clustering.md).
 
-`AlexClaw.Gateway.Behaviour` defines the contract:
-
-- `send_message/2` — send text to a chat
-- `send_html/2` — send HTML-formatted message
-- `send_photo/3` — send an image
-- `name/0` — transport identifier
-- `configured?/0` — whether the transport is ready
-
-## Router
-
-`AlexClaw.Gateway.Router` resolves the correct gateway from `opts[:gateway]` and delegates. Falls back to the first configured gateway (Telegram preferred). Provides `broadcast/2` for system-level notifications to all active gateways.
+The MCP server is a separate entry point rather than a gateway: it exposes
+skills and workflows as tools to external AI clients. See
+[Integrations](integrations.md).
 
 ## Dispatcher
 
-`AlexClaw.Dispatcher` is a deterministic pattern-matching router. No LLM involved in routing — zero token cost for dispatch:
+`AlexClaw.Dispatcher` is a deterministic pattern-matching router. Routing costs
+no tokens — an LLM is involved only once a command reaches a skill that uses
+one, or when free text falls through to the conversational skill.
 
-```
-/ping              → pong
-/status            → system stats
-/skills            → list from SkillRegistry
-/workflows         → list all workflows
-/run <id|name>     → execute a workflow
-/search <q>        → WebSearch skill
-/research <q>      → Research skill
-/web <url> [q]     → WebBrowse skill
-/help              → command list
-<free text>        → Conversational skill (LLM fallback)
-```
+Command families, rather than an exhaustive list — the
+[Commands reference](../reference/commands.md) owns that:
 
-The Dispatcher threads `gateway: msg.gateway` through all send calls, ensuring responses route back to the originating transport.
+| Family | Commands |
+|---|---|
+| Status | `/ping`, `/status`, `/help`, `/llm`, `/skills` |
+| Skills | `/skill list\|load\|unload\|reload\|create` |
+| Workflows | `/workflows`, `/run`, `/runs`, `/cancel`, `/rate` |
+| Research and web | `/research`, `/search`, `/web` — each also accepts `--tier` and `--provider` to save a default |
+| GitHub | `/github pr`, `/github commit` |
+| Generation | `/coder <goal>` |
+| Shell | `/shell <command>` |
+| Automation | `/record`, `/replay`, `/automate` |
+| Google | `/tasks`, `/task add`, `/tasklists`, `/connect google`, `/disconnect google` |
+| 2FA | `/setup 2fa`, `/confirm 2fa`, `/disable 2fa` |
+| Anything else | The conversational skill |
 
-## Cluster Behavior
+Larger families live in their own modules — `Dispatcher.SkillCommands`,
+`Dispatcher.AuthCommands`, `Dispatcher.AutomationCommands` — with
+`Dispatcher.CommandParser` handling the shared `--tier`/`--provider` grammar.
 
-In single-node mode, gateways always start. In a cluster:
+**Several of these commands are gated by a second factor**, and are refused
+outright when it is not configured. `AlexClaw.Auth.Gate` is the single place
+that decides, so the admin UI and the gateway cannot disagree. Which commands,
+and what happens when 2FA is off, is stated in
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md).
 
-- Gateways only start on their assigned node (`telegram.node`, `discord.node` config)
-- Setting `telegram.enabled = true` auto-assigns `telegram.node` to the current node
-- Cross-node config changes propagate via PubSub over BEAM distribution
+## Challenge responses
+
+A six-digit message arriving while a challenge is pending is treated as a
+response to it rather than as conversation. The challenge carries the action it
+authorises, so verifying the code executes the action that raised it.

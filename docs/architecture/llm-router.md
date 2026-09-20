@@ -37,6 +37,17 @@ AlexClaw.LLM.call(prompt, tier: :medium)
 
 Each provider row has an `options` JSONB column for provider-specific inference parameters (e.g., `num_ctx`, `temperature`, `top_p`). These are sent with every request to that provider and can be edited from **Admin > LLM Providers** via a dynamic options form that adapts to the provider type. For OpenAI-compatible providers, the client falls back to `reasoning_content` when `content` is empty (Qwen3 thinking mode). Qwen3 models also expose a thinking toggle in the Admin UI.
 
+## Test seam
+
+`AlexClaw.LLM` is a facade. The work happens in `AlexClaw.LLM.Real`, selected at
+runtime through `Application.get_env(:alex_claw, :llm_impl)` and declared by
+`AlexClaw.LLM.Behaviour`. Tests substitute a mock at that seam, so a test can
+assert which tier and provider a skill asked for without a network call, and
+without the skill knowing it is being tested.
+
+`AlexClaw.LLM.Client` holds the per-provider HTTP details;
+`AlexClaw.LLM.ProviderSeeder` writes the default provider rows on first boot.
+
 ## Usage Tracking
 
 - Counters are keyed by `{provider_id, date}` in ETS for fast reads

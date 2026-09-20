@@ -45,7 +45,14 @@ services:
       db-prod:
         condition: service_healthy
     ports:
-      - "${ADMIN_PORT:-5001}:5001"
+      # Loopback by default. The admin UI carries session cookies and the MCP
+      # endpoint carries bearer tokens, both in clear over HTTP, so the
+      # supported way to reach it from anywhere else is a reverse proxy
+      # terminating TLS — which is what docs/deployment/reverse-proxy.md
+      # already assumes when it proxies to 127.0.0.1:5001.
+      #
+      # ADMIN_BIND=0.0.0.0 opens it to the network for anyone who means to.
+      - "${ADMIN_BIND:-127.0.0.1}:${ADMIN_PORT:-5001}:5001"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:

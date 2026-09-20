@@ -696,6 +696,24 @@ AlexClaw runs on **Windows**, **macOS**, and **Linux** via Docker. A few things 
 - Check logs: `docker compose logs alexclaw-prod | grep -i telegram`
 - Make sure you started a conversation with the bot first (send it any message)
 
+### The admin UI is unreachable from another device
+
+The admin UI is published on `127.0.0.1` only, so it answers on the Docker host
+and nowhere else. Session cookies and MCP bearer tokens travel in clear over
+HTTP, which is why reaching it across a network is not the default.
+
+The supported way to reach it from elsewhere is a reverse proxy terminating
+TLS in front of it — see [Reverse Proxy & TLS](docs/deployment/reverse-proxy.md).
+Its nginx example proxies to `127.0.0.1:5001`, which is exactly what this bind
+leaves in place.
+
+To publish it on every interface anyway, unencrypted, set this in `.env` and
+recreate the container:
+
+```bash
+ADMIN_BIND=0.0.0.0
+```
+
 ### Skill uploads or generated skills fail to save
 
 The container runs as uid 1000 with a read-only root filesystem. Only the

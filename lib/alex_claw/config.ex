@@ -21,6 +21,10 @@ defmodule AlexClaw.Config do
   @pubsub AlexClaw.PubSub
   @topic "config:changes"
 
+  # The second factor is not configuration. It is never cached and never served
+  # through get/2, so the only way to it is AlexClaw.Auth.TOTP's own accessor.
+  @uncached_keys ["auth.totp.secret", "auth.totp.last_used_at"]
+
   # --- ETS lifecycle ---
 
   @spec init() :: :ok
@@ -36,9 +40,11 @@ defmodule AlexClaw.Config do
   defp load_all_into_ets do
     case Repo.all(Setting) do
       entries when is_list(entries) ->
-        Enum.each(entries, fn s ->
-          s = decrypt_setting(s)
-          :ets.insert(@table, {s.key, cast_value(s)})
+        entries
+        |> Enum.reject(&(&1.key in @uncached_keys))
+        |> Enum.each(fn s ->
+          decrypted = decrypt_setting(s)
+          :ets.insert(@table, {s.key, cast_value(decrypted), s.sensitive})
         end)
 
       _ ->
@@ -56,8 +62,28 @@ defmodule AlexClaw.Config do
   @spec get(String.t(), config_value()) :: config_value()
   def get(key, default \\ nil) do
     case :ets.lookup(@table, key) do
-      [{_, value}] -> value
+      [{_key, value, _sensitive}] -> value
+      # Tolerated rather than matched-or-crash: a config read should degrade, not
+      # take the caller down, if anything ever writes the older two-tuple shape.
+      [{_key, value}] -> value
       [] -> default
+    end
+  end
+
+  @doc """
+  Whether a setting is marked sensitive.
+
+  Callers that hand values to untrusted code — `SkillAPI.config_get/3` — use this
+  to refuse rather than serve. Unknown keys are treated as sensitive: a key that
+  is not in the cache cannot be shown to be safe.
+  """
+  @spec sensitive?(String.t()) :: boolean()
+  def sensitive?(key) when key in @uncached_keys, do: true
+
+  def sensitive?(key) do
+    case :ets.lookup(@table, key) do
+      [{_key, _value, sensitive}] -> sensitive
+      _unknown_shape_or_missing -> true
     end
   end
 
@@ -108,10 +134,15 @@ defmodule AlexClaw.Config do
   defp upsert_setting(nil, attrs), do: %Setting{} |> Setting.changeset(attrs) |> Repo.insert()
   defp upsert_setting(existing, attrs), do: existing |> Setting.changeset(attrs) |> Repo.update()
 
+  defp cache_setting({:ok, %Setting{key: key} = setting}, key, _encoded)
+       when key in @uncached_keys do
+    {:ok, setting}
+  end
+
   defp cache_setting({:ok, setting}, key, encoded) do
-    # ETS gets the plaintext value
+    # ETS gets the plaintext value, alongside the flag that decides who may see it
     cast = cast_value(%{setting | value: encoded})
-    :ets.insert(@table, {key, cast})
+    :ets.insert(@table, {key, cast, setting.sensitive})
     broadcast_change(key, cast)
     {:ok, setting}
   end

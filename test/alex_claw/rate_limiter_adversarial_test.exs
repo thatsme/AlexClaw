@@ -65,7 +65,7 @@ defmodule AlexClaw.RateLimiterAdversarialTest do
 
       # Insert a record with blocked_until in the past
       past = System.system_time(:second) - 10
-      :ets.insert(:alexclaw_rate_limiter, {ip, 5, past})
+      :ets.insert(:alexclaw_rate_limiter, {ip, 5, past, past})
 
       # Check should clear the expired block
       assert :ok = RateLimiter.check(ip)
@@ -81,9 +81,11 @@ defmodule AlexClaw.RateLimiterAdversarialTest do
       past = System.system_time(:second) - 10
       future = System.system_time(:second) + 3600
 
-      :ets.insert(:alexclaw_rate_limiter, {ip_expired, 5, past})
-      :ets.insert(:alexclaw_rate_limiter, {ip_active, 5, future})
-      :ets.insert(:alexclaw_rate_limiter, {ip_unblocked, 2, nil})
+      now = System.system_time(:second)
+
+      :ets.insert(:alexclaw_rate_limiter, {ip_expired, 5, past, past})
+      :ets.insert(:alexclaw_rate_limiter, {ip_active, 5, future, now})
+      :ets.insert(:alexclaw_rate_limiter, {ip_unblocked, 2, nil, now})
 
       purged = RateLimiter.purge_expired()
       assert purged >= 1
@@ -92,10 +94,10 @@ defmodule AlexClaw.RateLimiterAdversarialTest do
       assert :ets.lookup(:alexclaw_rate_limiter, ip_expired) == []
 
       # Active block should remain
-      assert [{^ip_active, 5, ^future}] = :ets.lookup(:alexclaw_rate_limiter, ip_active)
+      assert [{^ip_active, 5, ^future, _first}] = :ets.lookup(:alexclaw_rate_limiter, ip_active)
 
-      # Unblocked record should remain (nil blocked_until is not expired)
-      assert [{^ip_unblocked, 2, nil}] = :ets.lookup(:alexclaw_rate_limiter, ip_unblocked)
+      # Unblocked record inside the window should remain
+      assert [{^ip_unblocked, 2, nil, _first}] = :ets.lookup(:alexclaw_rate_limiter, ip_unblocked)
     end
 
     test "returns 0 when no expired entries exist" do

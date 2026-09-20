@@ -144,4 +144,136 @@ defmodule AlexClaw.Auth.TOTPTest do
       refute TOTP.pending_challenge?("unknown_chat")
     end
   end
+
+  # A code is valid for its whole 30-second period, so one seen in transit could
+  # be used again inside that window.
+  describe "replay protection" do
+    test "a valid code is accepted once and refused on reuse" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      code = NimbleTOTP.verification_code(secret)
+
+      assert TOTP.verify(code)
+      refute TOTP.verify(code)
+    end
+
+    test "a code from a period after the last acceptance is allowed" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+    end
+
+    test "acceptance is recorded as a row, outside the config cache" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+
+      assert AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
+      assert AlexClaw.Config.get("auth.totp.last_used_at") == nil
+    end
+
+    test "a skill cannot read the marker" do
+      assert AlexClaw.Config.sensitive?("auth.totp.last_used_at")
+    end
+
+    test "disabling 2FA clears the marker" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+
+      :ok = TOTP.disable()
+
+      refute AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
+    end
+
+    test "a rejected code is not recorded" do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      refute TOTP.verify("000000")
+      refute AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
+
+      assert TOTP.verify(NimbleTOTP.verification_code(secret))
+    end
+  end
+
+  # The challenge lives for two minutes and accepts any six digits in that time.
+  # Without a limit those two minutes are a guessing window.
+  describe "challenge attempt limit" do
+    defp enable_2fa do
+      {:ok, %{secret: secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+      secret
+    end
+
+    defp chat, do: "limit_#{System.unique_integer([:positive])}"
+
+    test "the third invalid code cancels the challenge" do
+      enable_2fa()
+      chat = chat()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000000")
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000001")
+      assert {:error, :too_many_attempts} = TOTP.resolve_challenge(chat, "000002")
+
+      refute TOTP.pending_challenge?(chat)
+    end
+
+    test "a correct code after the limit is refused — the challenge is gone" do
+      secret = enable_2fa()
+      chat = chat()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+
+      assert {:error, :no_challenge} =
+               TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+    end
+
+    test "a correct code before the limit still resolves" do
+      secret = enable_2fa()
+      chat = chat()
+      action = %{type: :test}
+      TOTP.create_challenge(chat, action)
+
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000000")
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000001")
+
+      assert {:ok, ^action} = TOTP.resolve_challenge(chat, NimbleTOTP.verification_code(secret))
+    end
+
+    test "a code accepted for a challenge cannot be replayed on the next one" do
+      secret = enable_2fa()
+      first = chat()
+      TOTP.create_challenge(first, %{type: :test})
+      code = NimbleTOTP.verification_code(secret)
+
+      assert {:ok, _action} = TOTP.resolve_challenge(first, code)
+
+      second = chat()
+      TOTP.create_challenge(second, %{type: :test})
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(second, code)
+    end
+
+    test "the count is per challenge, not per chat" do
+      enable_2fa()
+      chat = chat()
+      TOTP.create_challenge(chat, %{type: :test})
+
+      for wrong <- ~w(000000 000001 000002), do: TOTP.resolve_challenge(chat, wrong)
+
+      TOTP.create_challenge(chat, %{type: :test})
+      assert {:error, :invalid_code} = TOTP.resolve_challenge(chat, "000003")
+      assert TOTP.pending_challenge?(chat)
+    end
+  end
 end

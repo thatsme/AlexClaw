@@ -619,6 +619,19 @@ defmodule AlexClaw.Dispatcher do
             chat_id: msg.chat_id,
             gateway: msg.gateway
           )
+
+        {:error, :too_many_attempts} ->
+          Gateway.send_message(
+            "Too many invalid codes. Challenge cancelled — trigger the action again.",
+            chat_id: msg.chat_id,
+            gateway: msg.gateway
+          )
+
+        {:error, :no_challenge} ->
+          Gateway.send_message("No pending challenge. Trigger the action again.",
+            chat_id: msg.chat_id,
+            gateway: msg.gateway
+          )
       end
     else
       Conversational.handle(msg)

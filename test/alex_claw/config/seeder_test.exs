@@ -15,7 +15,7 @@ defmodule AlexClaw.Config.SeederTest do
       assert Config.get("identity.name") != nil
       assert Config.get("shell.enabled") != nil
       assert Config.get("auth.rate_limit.max_attempts") != nil
-      assert Config.get("cluster.enabled") != nil
+      assert Config.get("prompts.rss.interests") != nil
       assert Config.get("backup.enabled") != nil
     end
 

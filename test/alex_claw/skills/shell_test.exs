@@ -306,6 +306,48 @@ defmodule AlexClaw.Skills.ShellTest do
     end
   end
 
+  # The seeder carried its own copy of the allowlist until 0.3.26, so a database
+  # seeded before then still grants what 0.3.22 withdrew. A configured list is
+  # never overwritten, so the boot report is what tells the operator.
+  describe "withdrawn_in_use/0" do
+    test "is empty when the compiled default is in force" do
+      assert Shell.withdrawn_in_use() == []
+    end
+
+    test "names every withdrawn prefix the original seeded list still grants" do
+      allow(
+        ~w(df free ps uptime) ++
+          ["cat /proc"] ++ ~w(ping nslookup curl bin/alex_claw uname whoami hostname date ls git)
+      )
+
+      assert Shell.withdrawn_in_use() == Shell.withdrawn_prefixes()
+    end
+
+    test "names only the ones actually present" do
+      allow(["df", "curl", "git"])
+
+      assert Shell.withdrawn_in_use() == ["curl", "git"]
+    end
+
+    test "is empty for a customised list that grants none of them" do
+      allow(["df", "my-own-tool"])
+
+      assert Shell.withdrawn_in_use() == []
+    end
+
+    test "a prefix that merely contains a withdrawn name does not count" do
+      allow(["curlywurly", "gitea"])
+
+      assert Shell.withdrawn_in_use() == []
+    end
+
+    test "unreadable configuration falls back to the compiled default" do
+      insert_setting("shell.whitelist", "not json at all", category: "shell")
+
+      assert Shell.withdrawn_in_use() == []
+    end
+  end
+
   describe "disabled" do
     test "returns :shell_disabled when shell.enabled is not true" do
       insert_setting("shell.enabled", "false", type: "boolean", category: "shell")

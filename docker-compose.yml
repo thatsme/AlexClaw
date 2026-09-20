@@ -80,7 +80,10 @@ services:
     build: ./web-automator
     restart: unless-stopped
     ports:
-      - "6080:6080"
+      # noVNC gives unauthenticated control of the automation browser, so it is
+      # bound to loopback. Reach it over an SSH tunnel rather than the LAN:
+      #   ssh -L 6080:127.0.0.1:6080 <host>
+      - "127.0.0.1:6080:6080"
     environment:
       DISPLAY: ":99"
     healthcheck:

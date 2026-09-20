@@ -66,7 +66,8 @@ defmodule AlexClaw.Workflows.SkillStagingTest do
 
       assert File.read!(live) =~ "original"
       refute File.read!(live) =~ "replaced"
-      assert apply(AlexClaw.Skills.Dynamic.Staged, :run, [%{}]) == {:ok, "original", :on_success}
+      {:ok, module} = SkillRegistry.resolve("staged")
+      assert module.run(%{}) == {:ok, "original", :on_success}
     end
 
     test "stage_upload still refuses a traversing filename", %{skills_dir: dir} do

@@ -61,7 +61,7 @@ defmodule AlexClaw.Skills.RSSCollector do
       threshold:
         parse_float(config["threshold"], Config.get("skills.rss.relevance_threshold", 0.7)),
       max_items: parse_int(config["max_items"], Config.get("skills.rss.max_items", 5)),
-      llm_opts: provider_opts(args[:llm_provider]),
+      llm_opts: provider_opts(args[:llm_provider]) ++ tier_opts(args[:llm_tier]),
       config: config
     }
 
@@ -74,6 +74,11 @@ defmodule AlexClaw.Skills.RSSCollector do
 
   defp provider_opts(provider) when provider in [nil, "", "auto"], do: []
   defp provider_opts(provider), do: [provider: provider]
+
+  defp tier_opts(tier) when tier in ~w(local light medium heavy),
+    do: [tier: String.to_existing_atom(tier)]
+
+  defp tier_opts(_tier), do: []
 
   defp fetch_all(feeds, recv_timeout) do
     feeds
@@ -295,7 +300,7 @@ defmodule AlexClaw.Skills.RSSCollector do
 
     interests
     |> scoring_prompt(items, count)
-    |> AlexClaw.LLM.complete(llm_opts ++ [tier: :light])
+    |> AlexClaw.LLM.complete(Keyword.put_new(llm_opts, :tier, :light))
     |> select_scored(items, threshold, max_items)
   end
 

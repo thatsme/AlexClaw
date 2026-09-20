@@ -6,8 +6,14 @@ defmodule AlexClaw.Config.Loader do
   require Logger
   alias AlexClaw.Config.EncryptExisting
   alias AlexClaw.Config.Seeder
+  alias AlexClaw.Gateway
   alias AlexClaw.Knowledge.SelfAwareness
   alias AlexClaw.LLM.ProviderSeeder
+  alias AlexClaw.Skills.Shell
+
+  # Long enough for the gateways to have started, since the report goes out over
+  # one of them.
+  @audit_delay_ms :timer.seconds(15)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
@@ -40,6 +46,8 @@ defmodule AlexClaw.Config.Loader do
 
     # 7. Subscribe to config changes for cross-node ETS sync
     AlexClaw.Config.subscribe()
+    # 8. Report a configured shell allowlist that still grants what 0.3.22 dropped
+    Process.send_after(self(), :audit_shell_allowlist, @audit_delay_ms)
     {:ok, %{}}
   catch
     :error, %Postgrex.Error{} = e ->
@@ -48,6 +56,11 @@ defmodule AlexClaw.Config.Loader do
   end
 
   @impl true
+  def handle_info(:audit_shell_allowlist, state) do
+    report_withdrawn(Shell.withdrawn_in_use())
+    {:noreply, state}
+  end
+
   def handle_info({:config_changed, _key, _value}, state) do
     # Reload ETS from DB to pick up changes from other nodes.
     # Only reload if in a cluster — local changes are already in ETS.
@@ -60,5 +73,27 @@ defmodule AlexClaw.Config.Loader do
     end
 
     {:noreply, state}
+  end
+
+  # A configured allowlist is never overwritten — not by the seeder, and not by
+  # the migration that narrowed untouched ones. Left alone is not the same as
+  # left unsaid: the operator decides, but should know what the list still grants.
+  defp report_withdrawn([]), do: :ok
+
+  defp report_withdrawn(prefixes) do
+    named = Enum.join(prefixes, ", ")
+
+    Logger.warning(
+      "shell.whitelist still allows prefixes the default dropped in 0.3.22: #{named}. " <>
+        "The configured list was left as it is — review it in Admin > Config.",
+      auth: :config
+    )
+
+    Gateway.send_message(
+      "⚠️ `shell.whitelist` still allows prefixes withdrawn in 0.3.22: #{named}\n\n" <>
+        "Your configured list was kept as-is. Review it in Admin > Config."
+    )
+
+    :ok
   end
 end

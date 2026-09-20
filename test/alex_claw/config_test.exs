@@ -11,8 +11,17 @@ defmodule AlexClaw.ConfigTest do
     end
 
     test "returns value from ETS" do
-      :ets.insert(:alexclaw_config, {"test.direct", "direct_value"})
+      :ets.insert(:alexclaw_config, {"test.direct", "direct_value", false})
       assert Config.get("test.direct") == "direct_value"
+    end
+
+    # The cache entry carries the sensitive flag; a value without one is still
+    # served rather than crashing the caller.
+    test "tolerates a legacy entry with no sensitive flag" do
+      :ets.insert(:alexclaw_config, {"test.legacy", "legacy_value"})
+
+      assert Config.get("test.legacy") == "legacy_value"
+      assert Config.sensitive?("test.legacy")
     end
   end
 

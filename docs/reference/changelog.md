@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.3.26 — Secrets, Privileged Invocation, and Settings That Lie (2026-09-20)
+
+Closes two routes a skill could take to something it was never granted, and
+removes eleven settings that promised an effect the code never had.
+
+**Requires PostgreSQL 16 or later.** The `shell.whitelist` migration uses the
+`IS JSON ARRAY` predicate to compare stored entries as a set. All shipped
+compose files pin `pgvector/pgvector:pg17`; an install on an older server would
+fail at migrate with a syntax error.
+
+- **Secrets do not reach skills** — `SkillAPI.config_get/3` returned whatever the config cache held, and the cache holds decrypted plaintext. It now returns `{:error, :sensitive}` for any setting marked sensitive, and for any key the cache does not know
+  - The ETS cache carries each row's `sensitive` flag beside its value, so the check needs no database round-trip
+  - `auth.totp.secret` is out of the cache entirely: `AlexClaw.Auth.TOTP.secret/0` reads the row and decrypts per verification, so `Config.get/2` cannot serve it at all
+  - `SkillAPI.list_resources/2` and `get_resource/2` drop `metadata["auth"]` and strip userinfo from the resource URL. `:resources_read` is inside the auto-load ceiling and a resource row carries the credential `api_request` authenticates with
+- **The 0.3.22 shell narrowing applied only to installs without a seeded `shell.whitelist`; this release applies it to existing databases holding the original seeded value** — the seeder carried its own literal copy of the allowlist, so 0.3.22 changed the compiled default while every seeded database went on granting `curl`, `git`, `ping`, `nslookup`, `cat /proc`, `bin/alex_claw` and bare `ps`. A configured row wins over the compiled default, and the shell tests never caught it because the test database is not seeded
+  - The seeder now seeds `Shell.default_whitelist/0`, `default_blocklist/0` and `default_exact_commands/0` rather than second copies. Two tests fail the build if a literal returns, or if a seeded default stops matching the compiled one
+  - A migration rewrites `shell.whitelist` where it still holds exactly the originally seeded set, comparing entries as a parsed set so formatting and ordering do not matter. A list an operator has edited is left alone
+  - A list left alone that still grants a withdrawn prefix is reported at boot: a logged warning and one gateway notification naming the entries. `shell.blocklist` needed no migration — its seeded value already matched
+- **A 2FA challenge cannot be spent guessing** — a challenge accepted any six digits for its full two minutes with no limit on attempts. The third wrong code now cancels it and the action must be triggered again
+- **A TOTP code cannot be used twice** — a code is valid for its whole 30-second period, so one observed in transit could be presented again inside that window. `verify/1` passes the last accepted code's time to NimbleTOTP as `since:`. The marker is a settings row, so it survives a restart, and it joins the secret outside the config cache
+- **Cross-skill invocation cannot reach privileged core skills** — `SkillAPI.run_skill/3` resolved through the registry, which resolves core skills, and called `run/1` directly. `shell`, `coder`, `db_backup` and `web_automation` are 2FA-gated at the dispatcher and were not passing that gate here. They are now refused by name for every caller and the attempt is recorded as a denial
+- **Settings that lie** — eleven seeded settings had no reader, and three skills advertised step fields `run/1` discarded
+  - `auth.rate_limit.window_seconds` is wired: the limiter tracked `{ip, attempts, blocked_until}` with no timestamp, so failures never decayed and an IP that failed four times months ago was one attempt from a block. Records now carry the first attempt in their window; failures outside it start a fresh count, and stale records are dropped on check and on purge
+  - `rss_collector`, `conversational` and `research` now read the `llm_tier`, `llm_model` and `prompt_template` the executor has always passed them. The step's tier and provider win over the skill-wide default; an unset or unknown value still falls back. RSS scoring keeps `:light` unless the step chooses otherwise
+  - Removed, with a migration for existing databases: `llm.limit.{haiku,sonnet,gemini_pro,gemini_flash}` (superseded by `llm_providers.daily_limit`, which is what is enforced), `skill.github_review.{tier,provider}` and `github.security_focus` (that skill fetches diffs and calls no LLM), `discord.guild_id`, `cluster.enabled` (clustering follows registered nodes; the flag defaulted to `false` while clustering worked), and `prompts.rss.scoring` (a per-item template from before scoring became one batched call)
+  - `prompts.rss.interests`, `skills.rss.max_items` and `shell.exact_commands` are now seeded. All three were read with a hardcoded fallback and had no UI entry
+  - Two source-scan tests fail the build when a key is seeded with no reader, or read with no seed
+
+### Behaviour changes
+
+- **`config_get/3` no longer returns sensitive settings to a skill.** A skill that read an API key out of config must be given the value another way, or granted the capability rather than the credential.
+- **`run_skill/3` refuses the four privileged skills.** A workflow that chained into `shell` through another skill must call `shell` as its own step.
+- **noVNC is bound to loopback.** `web-automator` published `6080:6080` on every interface, giving unauthenticated browser control to anything on the LAN — which SECURITY.md already said should never be exposed. It now publishes `127.0.0.1:6080:6080`; reach it with `ssh -L 6080:127.0.0.1:6080 <host>`.
+- **A shell allowlist seeded before 0.3.26 and never edited is narrowed on migrate.** `curl`, `git`, `ping`, `nslookup`, `cat /proc`, `bin/alex_claw` and bare `ps` stop being accepted by `/shell`. If you relied on any of them, add it back in Admin > Config — deliberately, knowing what it grants.
+- **A 2FA challenge is cancelled after three wrong codes**, rather than staying open for the full two minutes.
+- **A TOTP code is accepted once.** Re-entering the same code within its 30-second period is refused; wait for the next one.
+- **Login failures now expire.** With the default 300-second window, five failures block an IP only if they land inside five minutes. Raise `auth.rate_limit.window_seconds` to restore accumulating behaviour.
+- **Workflow steps on `rss_collector`, `conversational` and `research` now honour their tier and provider fields**, which previously had no effect. A step left on a non-default tier will change which model it uses.
+
 ## v0.3.25 — Tightening the Containment Envelope (2026-09-19)
 
 Follow-up to 0.3.24, closing gaps in what "contained" actually guaranteed.

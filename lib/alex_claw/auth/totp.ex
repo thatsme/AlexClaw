@@ -17,13 +17,20 @@ defmodule AlexClaw.Auth.TOTP do
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
   alias AlexClaw.Config
+  alias AlexClaw.Config.Crypto
+  alias AlexClaw.Config.Setting
+  alias AlexClaw.Repo
 
   @account "admin"
+  @last_used_key "auth.totp.last_used_at"
 
   defp issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
 
-  # Pending 2FA challenges: chat_id -> %{action: ..., expires_at: ...}
+  # Pending 2FA challenges: chat_id -> %{action: ..., expires_at: ..., attempts: ...}
   @challenges_table :totp_challenges
+
+  # A challenge is a two-minute window in which any six digits can be tried.
+  @max_attempts 3
 
   @spec init_tables() :: :ets.tid() | atom()
   def init_tables do
@@ -102,6 +109,7 @@ defmodule AlexClaw.Auth.TOTP do
 
     Config.delete("auth.totp.secret")
     Config.delete("auth.totp.pending_secret")
+    Config.delete(@last_used_key)
     Logger.info("2FA disabled")
     :ok
   end
@@ -114,17 +122,89 @@ defmodule AlexClaw.Auth.TOTP do
     Config.enabled?("auth.totp.enabled")
   end
 
-  @doc "Verify a 6-digit TOTP code."
+  @doc """
+  Verify a 6-digit TOTP code.
+
+  A code stays valid for its whole 30-second period, so one observed in transit
+  — read over the operator's shoulder, or lifted from a gateway an attacker can
+  see — could be used again within that window. The time of the last accepted
+  code is passed to `NimbleTOTP.valid?/3` as `since:`, which refuses any code
+  from a period that has already been accepted.
+  """
   @spec verify(String.t()) :: boolean()
   def verify(code) do
-    secret_b32 = Config.get("auth.totp.secret")
-
-    if blank?(secret_b32) do
-      false
-    else
-      secret = Base.decode32!(secret_b32, padding: false)
-      NimbleTOTP.valid?(secret, code)
+    case secret() do
+      nil -> false
+      secret_b32 -> verified(Base.decode32!(secret_b32, padding: false), code)
     end
+  end
+
+  defp verified(secret, code) do
+    secret
+    |> NimbleTOTP.valid?(code, since_opts(last_used_at()))
+    |> record_if_accepted()
+  end
+
+  defp since_opts(nil), do: []
+  defp since_opts(unix), do: [since: unix]
+
+  defp record_if_accepted(false), do: false
+
+  defp record_if_accepted(true) do
+    Config.set(@last_used_key, to_string(System.os_time(:second)),
+      type: "string",
+      category: "auth",
+      description: "Unix time of the last accepted TOTP code (replay guard)"
+    )
+
+    true
+  end
+
+  # Kept out of the config cache with the secret, so it is read from the row.
+  defp last_used_at do
+    case Repo.get_by(Setting, key: @last_used_key) do
+      nil -> nil
+      %Setting{value: value} -> parsed_unix(value)
+    end
+  end
+
+  defp parsed_unix(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {unix, ""} -> unix
+      _not_an_integer -> nil
+    end
+  end
+
+  defp parsed_unix(_value), do: nil
+
+  @doc """
+  Read the TOTP secret.
+
+  The secret is deliberately not in the config cache: `Config.get/2` cannot serve
+  it and `SkillAPI.config_get/3` cannot reach it. This reads the row and decrypts
+  it each time, so the plaintext exists only for the length of a verification.
+  """
+  @spec secret() :: String.t() | nil
+  def secret do
+    case Repo.get_by(Setting, key: "auth.totp.secret") do
+      nil -> nil
+      %Setting{value: value} -> decoded_secret(value)
+    end
+  end
+
+  defp decoded_secret(value) do
+    case Crypto.decrypt(value) do
+      {:ok, plaintext} -> presence(plaintext)
+      {:error, reason} -> log_undecryptable(reason)
+    end
+  end
+
+  defp presence(value) when is_binary(value), do: if(blank?(value), do: nil, else: value)
+  defp presence(_value), do: nil
+
+  defp log_undecryptable(reason) do
+    Logger.error("Could not decrypt the TOTP secret: #{inspect(reason)}")
+    nil
   end
 
   # --- Challenge system ---
@@ -144,7 +224,8 @@ defmodule AlexClaw.Auth.TOTP do
       %{
         id: challenge_id,
         action: action,
-        expires_at: expires_at
+        expires_at: expires_at,
+        attempts: 0
       }
     })
 
@@ -170,12 +251,25 @@ defmodule AlexClaw.Auth.TOTP do
             {:ok, challenge.action}
 
           true ->
-            {:error, :invalid_code}
+            count_attempt(chat_id_str, challenge)
         end
 
       [] ->
         {:error, :no_challenge}
     end
+  end
+
+  # Without a limit the two minutes are a guessing window: a six-digit code is
+  # one in a million, but nothing stopped a caller spending the window on it.
+  # The third wrong code ends the challenge; the action must be triggered again.
+  defp count_attempt(chat_id, %{attempts: attempts}) when attempts + 1 >= @max_attempts do
+    :ets.delete(@challenges_table, chat_id)
+    {:error, :too_many_attempts}
+  end
+
+  defp count_attempt(chat_id, challenge) do
+    :ets.insert(@challenges_table, {chat_id, %{challenge | attempts: challenge.attempts + 1}})
+    {:error, :invalid_code}
   end
 
   @doc "Check if a chat has a pending challenge."

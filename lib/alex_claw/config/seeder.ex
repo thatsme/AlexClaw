@@ -25,7 +25,6 @@ defmodule AlexClaw.Config.Seeder do
      true},
     {"discord.channel_id", "", "string", "discord",
      "Discord channel ID for commands (auto-detected on first message)", false},
-    {"discord.guild_id", "", "string", "discord", "Discord server (guild) ID", false},
     {"discord.node", "", "string", "discord",
      "Cluster: only this node runs the Discord bot. Empty = cluster-wide (any node)", false},
 
@@ -44,13 +43,6 @@ defmodule AlexClaw.Config.Seeder do
      false},
     {"llm.lmstudio_host", &__MODULE__.env/1, "string", "llm", "LM Studio API host URL", false},
     {"llm.lmstudio_model", &__MODULE__.env/1, "string", "llm", "LM Studio model name", false},
-
-    # LLM - Tier limits (requests per day)
-    {"llm.limit.gemini_flash", "250", "integer", "llm", "Gemini Flash daily request limit",
-     false},
-    {"llm.limit.gemini_pro", "50", "integer", "llm", "Gemini Pro daily request limit", false},
-    {"llm.limit.haiku", "1000", "integer", "llm", "Claude Haiku daily request limit", false},
-    {"llm.limit.sonnet", "5", "integer", "llm", "Claude Sonnet daily request limit", false},
 
     # Embeddings
     {"embedding.provider", "", "string", "embedding",
@@ -76,16 +68,14 @@ defmodule AlexClaw.Config.Seeder do
      false},
     {"skill.web_browse.provider", "auto", "string", "skill.web_browse", "LLM provider for /web",
      false},
-    {"skill.github_review.tier", "medium", "string", "skill.github_review",
-     "LLM tier for GitHub security review", false},
-    {"skill.github_review.provider", "auto", "string", "skill.github_review",
-     "LLM provider for GitHub review", false},
 
     # Skills - RSS
     {"skills.rss.relevance_threshold", "0.7", "float", "skills",
      "Minimum relevance score for RSS items (0.0-1.0)", false},
     {"skills.rss.fetch_timeout", "15", "integer", "skills",
      "RSS feed fetch timeout in seconds (per feed)", false},
+    {"skills.rss.max_items", "5", "integer", "skills",
+     "Maximum RSS items kept per run after scoring", false},
 
     # GitHub
     {"github.token", "", "string", "github",
@@ -95,8 +85,6 @@ defmodule AlexClaw.Config.Seeder do
      "Default repo for workflow steps (owner/repo format, e.g. myuser/myrepo)", false},
     {"github.watched_branches", "main,master", "string", "github",
      "Comma-separated branch names to review on push events", false},
-    {"github.security_focus", "", "string", "github",
-     "Custom security focus areas (leave blank to use built-in defaults)", false},
 
     # Google OAuth (Calendar, Keep, etc.)
     {"google.oauth.client_id", &__MODULE__.env/1, "string", "google", "Google OAuth client ID",
@@ -167,20 +155,15 @@ defmodule AlexClaw.Config.Seeder do
      "string", "prompts", "System prompt addition for conversational mode", false},
 
     # Prompts - RSS scoring
-    {"prompts.rss.scoring",
-     "Score relevance 0.0-1.0 for the following interests:\nBEAM ecosystem, Elixir, Erlang, infrastructure, DevOps, cybersecurity, world news, geopolitics, international conflicts, technology policy.\n\nTitle: {title}\nDescription: {description}\n\nReply with ONLY a float number, nothing else.",
-     "string", "prompts",
-     "Prompt template for RSS relevance scoring. Use {title} and {description} placeholders.",
+    {"prompts.rss.interests",
+     "BEAM ecosystem, Elixir, Erlang, infrastructure, DevOps, cybersecurity, world news, geopolitics, international conflicts, technology policy",
+     "string", "prompts", "Topics the RSS scorer rates headlines against (comma-separated)",
      false},
 
     # Prompts - Research
     {"prompts.research.system",
      "Provide a concise, technically precise summary. Include key facts and links if known.",
      "string", "prompts", "System instruction appended to research queries", false},
-
-    # Cluster
-    {"cluster.enabled", "false", "boolean", "cluster",
-     "Enable BEAM clustering for multi-node workflow distribution", false},
 
     # Backup
     {"backup.enabled", "false", "boolean", "backup",

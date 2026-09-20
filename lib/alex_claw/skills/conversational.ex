@@ -18,7 +18,7 @@ defmodule AlexClaw.Skills.Conversational do
 
   @impl true
   @spec step_fields() :: [atom()]
-  def step_fields, do: [:llm_tier, :llm_model, :prompt_template]
+  def step_fields, do: [:llm_tier, :llm_model, :prompt_template, :config]
 
   @impl true
   @spec config_hint() :: String.t()
@@ -40,9 +40,28 @@ defmodule AlexClaw.Skills.Conversational do
   @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
-    text = args[:input] || args[:config]["message"] || ""
-    do_converse(to_string(text))
+    do_converse(resolved_message(args), step_llm_opts(args))
   end
+
+  # A step that sets a prompt template sends the rendered template, not the raw
+  # input. {input} is the placeholder prompt_help/0 documents.
+  defp resolved_message(%{prompt_template: template} = args)
+       when is_binary(template) and template != "",
+       do: String.replace(template, "{input}", to_string(args[:input] || ""))
+
+  defp resolved_message(args), do: to_string(args[:input] || args[:config]["message"] || "")
+
+  # The step's own tier and provider win over the skill-wide defaults; unset or
+  # "auto" leaves skill.conversational.* in charge.
+  defp step_llm_opts(args), do: tier_opt(args[:llm_tier]) ++ provider_opt(args[:llm_provider])
+
+  defp tier_opt(tier) when tier in ~w(local light medium heavy),
+    do: [tier: String.to_existing_atom(tier)]
+
+  defp tier_opt(_tier), do: []
+
+  defp provider_opt(provider) when provider in [nil, "", "auto"], do: []
+  defp provider_opt(provider), do: [provider: provider]
 
   @spec handle(AlexClaw.Message.t()) :: :ok
   def handle(message) do
@@ -61,7 +80,7 @@ defmodule AlexClaw.Skills.Conversational do
     end
   end
 
-  defp do_converse(text) do
+  defp do_converse(text, opts \\ []) do
     system = Identity.system_prompt(%{skill: :conversational})
 
     context =
@@ -80,19 +99,24 @@ defmodule AlexClaw.Skills.Conversational do
 
     prompt = "#{context}\n\nUser: #{text}"
 
-    tier = String.to_existing_atom(Config.get("skill.conversational.tier") || "light")
-
-    provider =
-      case Config.get("skill.conversational.provider") do
-        p when p in [nil, "", "auto"] -> nil
-        p -> p
-      end
+    tier = Keyword.get(opts, :tier, config_tier())
+    provider = Keyword.get(opts, :provider, config_provider())
 
     llm_opts = [tier: tier, system: system] ++ if(provider, do: [provider: provider], else: [])
 
     case LLM.complete(prompt, llm_opts) do
       {:ok, response} -> {:ok, response, :on_success}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp config_tier,
+    do: String.to_existing_atom(Config.get("skill.conversational.tier") || "light")
+
+  defp config_provider do
+    case Config.get("skill.conversational.provider") do
+      p when p in [nil, "", "auto"] -> nil
+      p -> p
     end
   end
 end

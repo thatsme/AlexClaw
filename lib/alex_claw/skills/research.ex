@@ -44,14 +44,31 @@ defmodule AlexClaw.Skills.Research do
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
-    query = args[:input] || args[:config]["query"] || ""
-
-    if query == "" do
-      {:error, :no_query}
-    else
-      do_research(to_string(query))
-    end
+    run_query(resolved_query(args), args)
   end
+
+  defp run_query("", _args), do: {:error, :no_query}
+  defp run_query(query, args), do: do_research(query, step_llm_opts(args))
+
+  # A step that sets a prompt template researches the rendered template, not the
+  # raw input. {input} is the placeholder prompt_help/0 documents.
+  defp resolved_query(%{prompt_template: template} = args)
+       when is_binary(template) and template != "",
+       do: String.replace(template, "{input}", to_string(args[:input] || ""))
+
+  defp resolved_query(args), do: to_string(args[:input] || args[:config]["query"] || "")
+
+  # The step's own tier and provider win over the skill-wide defaults; unset or
+  # "auto" leaves resolve_tier/0 and resolve_provider/0 in charge.
+  defp step_llm_opts(args), do: tier_opt(args[:llm_tier]) ++ provider_opt(args[:llm_provider])
+
+  defp tier_opt(tier) when tier in ~w(local light medium heavy),
+    do: [tier: String.to_existing_atom(tier)]
+
+  defp tier_opt(_tier), do: []
+
+  defp provider_opt(provider) when provider in [nil, "", "auto"], do: []
+  defp provider_opt(provider), do: [provider: provider]
 
   @spec handle(String.t(), keyword()) :: :ok
   def handle(query, opts \\ []) do

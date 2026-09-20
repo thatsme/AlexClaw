@@ -35,7 +35,7 @@ defmodule AlexClaw.RateLimiterStressTest do
 
       # ETS should have the IP with some count > 0
       # Due to read-modify-write race, count may be less than 100
-      [{^ip, count, _}] = :ets.lookup(:alexclaw_rate_limiter, ip)
+      [{^ip, count, _blocked_until, _first}] = :ets.lookup(:alexclaw_rate_limiter, ip)
       assert count > 0
       assert count <= 100
     end
@@ -75,7 +75,7 @@ defmodule AlexClaw.RateLimiterStressTest do
       now = System.system_time(:second)
 
       for i <- 1..20 do
-        :ets.insert(:alexclaw_rate_limiter, {"expired_#{i}", 5, now - 100})
+        :ets.insert(:alexclaw_rate_limiter, {"expired_#{i}", 5, now - 100, now - 100})
       end
 
       # Concurrent writers adding new entries

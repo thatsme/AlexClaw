@@ -20,12 +20,13 @@ defmodule AlexClaw.Config.SeededKeysTest do
   #   rss_feeds                — legacy key the resource migrator reads once
   #                              and deletes; seeding it would resurrect it
   #   mcp.api_key              — absent means MCP is unauthenticated and denied
-  #   shell.exact_commands     — falls back to the compiled-in allowlist
+  #   auth.totp.last_used_at   — written on the first accepted code, and kept
+  #                              out of the config cache with the secret
   @unseeded_by_design ~w(
     auth.totp.pending_secret
     rss_feeds
     mcp.api_key
-    shell.exact_commands
+    auth.totp.last_used_at
   )
 
   @read_calls ~r/(?:Config\.get|Config\.enabled\?|config_get|config_int|config_or_default|configured_list)\(\s*"([a-z0-9_.]+)"/

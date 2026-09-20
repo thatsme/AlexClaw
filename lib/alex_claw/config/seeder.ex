@@ -110,6 +110,8 @@ defmodule AlexClaw.Config.Seeder do
      "string", "shell", "JSON array of allowed command prefixes", false},
     {"shell.blocklist", ~s(["&&","||","|",";","`","$(",">","<","\\n"]), "string", "shell",
      "JSON array of blocked metacharacters/sequences", false},
+    {"shell.exact_commands", ~s(["cat /proc/meminfo","cat /proc/loadavg","ps aux"]), "string",
+     "shell", "JSON array of commands allowed only as an exact match, with no arguments", false},
     {"shell.timeout_seconds", "30", "integer", "shell",
      "Max seconds before killing a shell command", false},
     {"shell.max_output_chars", "4000", "integer", "shell",

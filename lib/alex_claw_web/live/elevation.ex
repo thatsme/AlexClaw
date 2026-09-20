@@ -7,9 +7,9 @@ defmodule AlexClawWeb.Live.Elevation do
   It answers three questions in order: is elevation enforced on this instance,
   does this session hold one, and what should the audit row say.
 
-  When no second factor is configured, `AlexClaw.Auth.Elevation.required?/0` is
-  false and writes proceed. That is the bootstrap case, and the pages say so in
-  a banner rather than pretending to a protection they do not have.
+  With no second factor configured nothing can elevate, so every control-plane
+  write is refused and the pages say how to make elevation possible. There is no
+  state in which a write proceeds on the password alone.
 
   Pages take the session identifier at mount, subscribe to their own elevation
   topic, and re-render when it changes — so a code answered on Telegram unlocks
@@ -23,6 +23,8 @@ defmodule AlexClawWeb.Live.Elevation do
   alias Phoenix.LiveView.Socket
 
   @refusal "Unlock editing first"
+  @unconfigured "Admin changes require 2FA. Configure a gateway via environment " <>
+                  "variables and run /setup 2fa."
 
   @doc """
   Assign what a gated page needs, and follow this session's elevation.
@@ -48,7 +50,7 @@ defmodule AlexClawWeb.Live.Elevation do
   """
   @spec gate(Socket.t(), String.t(), (-> {:noreply, Socket.t()})) :: {:noreply, Socket.t()}
   def gate(socket, detail, write) do
-    decide(Elevation.required?(), elevated?(socket), socket, detail, write)
+    decide(elevated?(socket), socket, detail, write)
   end
 
   @doc "Raise a 2FA challenge that will unlock this session when answered."
@@ -85,35 +87,45 @@ defmodule AlexClawWeb.Live.Elevation do
   end
 
   @doc """
-  Record a control-plane change on an instance with no second factor.
+  Record a refusal for a write that is gated per action rather than by window.
 
-  The change is allowed — there is nothing to verify — but the row says so, so
-  that reading the audit log later does not suggest a gate that was not there.
+  The restore path refuses before it reaches `gate/3`, and a refusal nobody
+  wrote down is a refusal nobody can review.
   """
-  @spec audit_unprotected(Socket.t(), String.t()) :: :ok
-  def audit_unprotected(socket, detail) do
-    AuditLog.log_admin_write(fingerprint(socket), "no second factor configured — " <> detail)
+  @spec audit_refusal(Socket.t(), :not_elevated | :no_second_factor, String.t()) :: :ok
+  def audit_refusal(socket, reason, detail) do
+    AuditLog.log_admin_refusal(fingerprint(socket), reason, detail)
   end
 
   # --- Internals ---
 
-  defp decide(false, _elevated?, socket, detail, write) do
-    audit_unprotected(socket, detail)
-    write.()
-  end
-
-  defp decide(true, true, socket, detail, write) do
+  defp decide(true, socket, detail, write) do
     AuditLog.log_admin_write(fingerprint(socket), detail)
     write.()
   end
 
-  defp decide(true, false, socket, detail, _write) do
-    AuditLog.log_admin_refusal(fingerprint(socket), detail)
+  # Two ways to hold no elevation, and they need different answers: one session
+  # can unlock, the other is on an instance where nothing can.
+  defp decide(false, socket, detail, _write) do
+    refuse(Elevation.configured?(), socket, detail)
+  end
+
+  defp refuse(true, socket, detail) do
+    AuditLog.log_admin_refusal(fingerprint(socket), :not_elevated, detail)
 
     {:noreply,
      socket
      |> refresh()
      |> put_flash(:error, @refusal)}
+  end
+
+  defp refuse(false, socket, detail) do
+    AuditLog.log_admin_refusal(fingerprint(socket), :no_second_factor, detail)
+
+    {:noreply,
+     socket
+     |> refresh()
+     |> put_flash(:error, @unconfigured)}
   end
 
   defp request_unlock(sid, socket) when is_binary(sid) do
@@ -139,7 +151,7 @@ defmodule AlexClawWeb.Live.Elevation do
 
   defp state(sid) do
     %{
-      required?: Elevation.required?(),
+      configured?: Elevation.configured?(),
       elevated?: Elevation.elevated?(sid),
       expires_at: Elevation.expires_at(sid)
     }

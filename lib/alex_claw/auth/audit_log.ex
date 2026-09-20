@@ -84,17 +84,25 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
-  @doc "Record a control-plane change refused for want of an elevation."
-  @spec log_admin_refusal(String.t(), String.t()) :: :ok
-  def log_admin_refusal(session_fingerprint, detail) do
-    Logger.warning("Admin write refused for #{session_fingerprint}: #{detail}", auth: :denied)
+  @doc """
+  Record a control-plane change that was refused.
+
+  `reason` separates the two refusals that look alike in a log and are not:
+  `:not_elevated` is a session that can unlock and has not, `:no_second_factor`
+  is an instance where nothing can unlock until 2FA is configured.
+  """
+  @spec log_admin_refusal(String.t(), :not_elevated | :no_second_factor, String.t()) :: :ok
+  def log_admin_refusal(session_fingerprint, reason, detail) do
+    Logger.warning("Admin write refused (#{reason}) for #{session_fingerprint}: #{detail}",
+      auth: :denied
+    )
 
     insert_entry(%{
       caller: "admin:" <> session_fingerprint,
       caller_type: "admin",
       permission: "admin.control_plane",
       decision: "deny",
-      reason: "not elevated — " <> detail
+      reason: "#{reason} — #{detail}"
     })
   end
 

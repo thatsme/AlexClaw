@@ -35,20 +35,22 @@ defmodule AlexClawWeb.CoreComponents do
   attr(:unlockable, :boolean, default: true)
 
   @doc """
-  The elevation state of the page: locked, unlocked, or unprotected.
+  The elevation state of the page: unconfigured, locked, or unlocked.
 
-  The third case is the loud one. With no second factor configured there is
-  nothing for the gate to verify, so every change on the page is protected by
-  the admin password alone, and the banner says exactly that rather than
-  leaving the page looking guarded.
+  The first case is the loud one, and it is not a warning that the page is
+  unprotected — it is the reason nothing on it can be changed. With no second
+  factor there is nothing to verify, so the control plane stays read-only until
+  one is configured.
   """
   @spec elevation_bar(map()) :: Phoenix.LiveView.Rendered.t()
-  def elevation_bar(%{elevation: %{required?: false}} = assigns) do
+  def elevation_bar(%{elevation: %{configured?: false}} = assigns) do
     ~H"""
     <div class="bg-red-950 border border-red-800 text-red-200 text-sm rounded-lg px-4 py-3">
-      <span class="font-semibold">2FA not configured</span>
-      — admin changes are protected by password only.
-      <span class="text-red-300">Set it up from a gateway with <code>/setup 2fa</code>.</span>
+      <span class="font-semibold">Read-only — 2FA is not configured.</span>
+      Admin changes require a second factor. Configure a gateway via environment variables
+      (<code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code>, or
+      <code>DISCORD_BOT_TOKEN</code> and <code>DISCORD_CHANNEL_ID</code>), then run
+      <code>/setup 2fa</code> there.
     </div>
     """
   end

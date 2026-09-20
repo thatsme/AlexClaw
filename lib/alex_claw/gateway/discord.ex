@@ -12,6 +12,7 @@ defmodule AlexClaw.Gateway.Discord do
   require Logger
 
   alias AlexClaw.{Config, Message}
+  alias AlexClaw.Gateway.Credentials
 
   # --- Behaviour callbacks ---
 
@@ -22,7 +23,7 @@ defmodule AlexClaw.Gateway.Discord do
   @spec configured?() :: boolean()
   def configured? do
     enabled = Config.get("discord.enabled")
-    token = Config.get("discord.bot_token")
+    token = Credentials.discord_token()
     (enabled == true or enabled == "true") and token != nil and token != ""
   end
 
@@ -154,9 +155,7 @@ defmodule AlexClaw.Gateway.Discord do
     end
   end
 
-  defp get_channel_id do
-    Config.get("discord.channel_id")
-  end
+  defp get_channel_id, do: Credentials.discord_channel_id()
 
   defp to_integer(val) when is_integer(val), do: val
 

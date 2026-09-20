@@ -7,6 +7,14 @@ defmodule AlexClaw.Auth.Elevation do
   providers, API resources, cluster membership, workflows — needs an elevation
   on top: one second factor, verified once, good for fifteen minutes.
 
+  Elevation is always required. There is no instance state in which a
+  control-plane write proceeds on the password alone: with no second factor
+  configured, the control plane is read-only and every such write is refused
+  until 2FA is set up. That is why the bootstrap path is the environment —
+  `TELEGRAM_*` and `DISCORD_*` make a gateway reachable, `/setup 2fa` on that
+  gateway configures the second factor — and why there is no variable that
+  turns the gate off.
+
   The window is fixed. It does not slide with activity: fifteen minutes after
   the code was accepted the session is read-only again, busy or idle.
 
@@ -15,11 +23,9 @@ defmodule AlexClaw.Auth.Elevation do
   audit log or a PubSub topic — the sid is a session credential, and a
   credential written somewhere durable is a credential leaked.
 
-  `required?/0` answers whether elevation means anything on this instance. With
-  no second factor configured there is nothing to verify, so writes proceed and
-  every gated page says so in a banner. That bootstrap hole is deliberate and
-  documented in SECURITY.md; it is the reason `auth.totp.*` is not editable
-  from the Config page at any elevation.
+  `configured?/0` reports whether a second factor exists at all. It never
+  decides whether the gate applies, only what a refusal should say: a session
+  that cannot elevate yet is told how to make elevation possible.
   """
   use GenServer
 
@@ -39,13 +45,13 @@ defmodule AlexClaw.Auth.Elevation do
   end
 
   @doc """
-  Whether elevation is enforced on this instance.
+  Whether a second factor exists to elevate with.
 
-  False when no second factor is configured, because there would be nothing to
-  verify and the gate would lock the operator out of their own settings.
+  Not a question about whether the gate applies — it always does — but about
+  whether this instance can answer it yet.
   """
-  @spec required?() :: boolean()
-  def required?, do: TOTP.enabled?()
+  @spec configured?() :: boolean()
+  def configured?, do: TOTP.enabled?()
 
   @doc """
   Whether `sid` currently holds an elevation.

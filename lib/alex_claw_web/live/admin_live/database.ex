@@ -58,7 +58,7 @@ defmodule AlexClawWeb.AdminLive.Database do
   end
 
   defp staged([{{:ok, path}, filename}], socket) do
-    challenge(Elevation.required?(), path, filename, socket)
+    challenge(Elevation.configured?(), path, filename, socket)
   end
 
   defp staged([{{:error, reason}, _filename}], socket) do
@@ -67,15 +67,23 @@ defmodule AlexClawWeb.AdminLive.Database do
 
   defp staged([], socket), do: {:noreply, put_flash(socket, :error, "No file uploaded")}
 
-  # Nothing to verify on an instance without a second factor: the restore is
-  # protected by the admin password, exactly as the banner says.
+  # A restore replaces the live database, so it is refused outright where no
+  # code can be asked for. There is no password-only path to it.
   defp challenge(false, path, filename, socket) do
-    AlexClawWeb.Live.Elevation.audit_unprotected(socket, "database restore from #{filename}")
+    Restore.discard(path)
+
+    AlexClawWeb.Live.Elevation.audit_refusal(
+      socket,
+      :no_second_factor,
+      "database restore from #{filename}"
+    )
 
     {:noreply,
-     socket
-     |> assign(restore_result: nil)
-     |> restored(Restore.run(path))}
+     put_flash(
+       socket,
+       :error,
+       "Admin changes require 2FA. Configure a gateway via environment variables and run /setup 2fa."
+     )}
   end
 
   defp challenge(true, path, filename, socket) do

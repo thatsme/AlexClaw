@@ -227,6 +227,10 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
   # refusal is observed where it is durable: the audit row, and the untouched
   # database. That is also the stronger claim — it says the gate refused, not
   # merely that the write failed.
+  defp latest_refusal do
+    AuditLog.recent(limit: 1, decision: "deny") |> List.first() |> Map.get(:reason)
+  end
+
   defp refusals do
     Enum.count(AuditLog.recent(limit: 500, decision: "deny"), &(&1.caller_type == "admin"))
   end
@@ -336,26 +340,49 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
     end
   end
 
+  # Strict: no second factor is not a lesser protection, it is a closed door.
+  # There is no state in which a control-plane write proceeds on the password.
   describe "with no second factor configured" do
-    test "every control-plane event goes through", ctx do
+    test "every control-plane event is refused and changes nothing", ctx do
       for test_case <- cases(ctx.fixtures) do
         before = test_case.check.()
+        refused_before = refusals()
         {view, _html} = open(ctx.conn, ctx.sid, test_case.page)
         send_event(view, test_case)
 
-        refute test_case.check.() == before,
-               "#{test_case.page} #{test_case.event} did not take effect without 2FA"
+        assert test_case.check.() == before,
+               "#{test_case.page} #{test_case.event} took effect without a second factor"
+
+        assert refusals() == refused_before + 1,
+               "#{test_case.page} #{test_case.event} recorded no refusal"
       end
     end
 
-    test "every gated page says so, loudly", ctx do
+    test "the refusal says why, and names the way out", ctx do
+      [test_case | _] = cases(ctx.fixtures)
+      {view, _html} = open(ctx.conn, ctx.sid, test_case.page)
+
+      send_event(view, test_case)
+
+      assert latest_refusal() =~ "no_second_factor"
+    end
+
+    test "an elevation cannot be obtained either", ctx do
+      {view, _html} = open(ctx.conn, ctx.sid, "/config")
+
+      render_click(view, "unlock_editing", %{})
+
+      refute Elevation.elevated?(ctx.sid)
+    end
+
+    test "every gated page says the control plane is read-only", ctx do
       for page <- ~w(/config /policies /llm /resources /cluster /workflows /database) do
         {_view, html} = open(ctx.conn, ctx.sid, page)
 
-        assert html =~ "2FA not configured",
-               "#{page} does not warn that changes are password-only"
+        assert html =~ "Read-only — 2FA is not configured",
+               "#{page} does not say that changes are refused"
 
-        assert html =~ "protected by password only"
+        assert html =~ "/setup 2fa", "#{page} does not say how to make changes possible"
       end
     end
   end

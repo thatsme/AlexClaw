@@ -47,11 +47,14 @@ by hiding a button, and a refused event leaves the database untouched. Both the
 write and the refusal are recorded in the authorization audit log, naming the
 session by fingerprint, the key or record touched, and its old and new values —
 with sensitive values masked, because the record worth keeping is that a secret
-changed and who changed it.
+changed and who changed it. A refusal records which of the two it was:
+`not_elevated` for a session that has not unlocked, `no_second_factor` for an
+instance where nothing can.
 
 ### What elevation does not cover
 
-**Database restore is challenged every time.** Restoring an uploaded SQL file
+**Database restore is challenged every time**, and refused outright where no
+code can be asked for. Restoring an uploaded SQL file
 runs arbitrary SQL against the live database as the application's own user,
 which reaches the settings and policy tables without passing through either. It
 therefore asks for a code per restore and is never covered by an existing
@@ -79,16 +82,29 @@ This is load-bearing rather than tidy. Whether elevation is enforced at all is
 decided by `auth.totp.enabled`; if that setting were editable from behind the
 gate it protects, a session could switch the gate off and then change anything.
 
-### Without a second factor
+### Before a second factor exists
 
-With no TOTP configured there is nothing to verify, so elevation is not
-enforced: writes proceed under the admin password alone, and every gated page
-carries a banner saying exactly that. Those writes are still audited, and marked
-as having had no second factor.
+With no TOTP configured, nothing can elevate — so the control plane is
+**read-only**. Every configuration change, policy edit, provider or resource
+change, cluster change, workflow edit and database restore is refused, recorded
+in the audit log as `no_second_factor`, and answered with what to do about it.
+There is no state in which a control-plane write proceeds on the admin password
+alone, and no variable that disables the gate.
 
-This is the bootstrap case — an instance has to be configurable before 2FA can
-be set up on it. It is also the weakest state the admin UI can be in, and the
-banner exists so that state is never mistaken for a guarded one.
+The way in is the environment. A gateway's token and destination are read from
+`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` or `DISCORD_BOT_TOKEN` /
+`DISCORD_CHANNEL_ID` whenever the matching setting is empty, which makes a
+fresh instance reachable before anything has been configured on it. Running
+`/setup 2fa` there, then `/confirm 2fa <code>`, configures the second factor,
+and the control plane opens to elevation from that point.
+
+A setting wins over its variable as soon as it holds a value: the environment
+is a bootstrap, not an override.
+
+**Recovery.** An instance whose gateway has stopped working cannot be edited
+back into shape from the UI — that is the same rule, seen from the other side.
+Set the variables in the environment, restart, and the gateway becomes
+reachable again; the settings can then be corrected under an elevation.
 
 ---
 

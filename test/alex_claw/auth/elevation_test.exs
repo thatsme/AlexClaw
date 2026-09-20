@@ -192,9 +192,11 @@ defmodule AlexClaw.Auth.ElevationTest do
     end
   end
 
-  describe "required?/0" do
+  # Elevation is always required. What varies is whether the instance can
+  # answer a challenge yet, which is what decides how a refusal reads.
+  describe "configured?/0" do
     test "is false when no second factor is configured" do
-      refute Elevation.required?()
+      refute Elevation.configured?()
     end
 
     test "is true once TOTP is enabled" do
@@ -205,7 +207,7 @@ defmodule AlexClaw.Auth.ElevationTest do
 
       AlexClaw.Config.set("auth.totp.enabled", "true", type: "boolean", category: "auth")
 
-      assert Elevation.required?()
+      assert Elevation.configured?()
     end
   end
 end

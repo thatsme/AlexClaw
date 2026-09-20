@@ -12,6 +12,15 @@ All variables are set in the `.env` file. Values are seeded to the database on f
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 
+One gateway is required: Telegram or Discord. Both are read only when the
+matching setting is empty, and exist so an instance with nothing in its
+database can still be asked for a 2FA code.
+
+| Variable | Description |
+|---|---|
+| `DISCORD_BOT_TOKEN` | Discord bot token from the Developer Portal |
+| `DISCORD_CHANNEL_ID` | Discord channel ID for commands and prompts |
+
 ## LLM Providers (at least one)
 
 | Variable | Description |

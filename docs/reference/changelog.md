@@ -2,6 +2,15 @@
 
 ## v0.3.27 — Control-Plane Elevation (2026-09-20)
 
+**BEHAVIOUR CHANGE — without 2FA configured, the admin control plane is
+read-only.** Configuration, authorization policies, LLM providers, API
+resources, cluster membership, workflow edits and database restores are all
+refused until a second factor exists. Configure a gateway with
+`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` or `DISCORD_BOT_TOKEN` /
+`DISCORD_CHANNEL_ID`, run `/setup 2fa` there, and the control plane opens to
+elevation. An upgrade on an instance without 2FA will find its admin pages
+read-only until that is done.
+
 The admin password authenticated a session and authorised everything that
 session could reach. `config.ex` and `policies.ex` called no gate at all, so a
 password-only session could edit `shell.whitelist`, the `mcp.*` and `auth.*`
@@ -40,10 +49,16 @@ shell narrowing, the MCP denials and the 2FA settings shipped in 0.3.22 through
   Scheduler pages both call. The Scheduler page previously called
   `Executor.run/1` directly, so a workflow challenged on one page ran unchallenged
   from the other
-- **Instances without a second factor keep working, and say so** — elevation is
-  not enforced when no TOTP is configured, and every gated page carries a banner
-  stating that changes are protected by the password alone. Those writes are
-  audited as having had no second factor
+- **Instances without a second factor are read-only** — every control-plane
+  event is refused and audited as `no_second_factor`, and every gated page says
+  so and says how to fix it. There is no password-only path, and no variable
+  that disables the gate
+  - `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` join `TELEGRAM_BOT_TOKEN` and
+    `TELEGRAM_CHAT_ID` as bootstrap variables, read whenever the matching
+    setting is empty so a fresh instance can be asked for a code. A setting wins
+    once it holds a value
+  - Boot logs a warning, and sends one gateway message where a gateway is
+    reachable: "Admin config is read-only until 2FA is configured: /setup 2fa"
 - **The app gets 30 seconds to shut down** (`stop_grace_period`) — Docker's
   default 10 seconds was shorter than the supervision tree takes to unwind, so
   every stop ended in SIGKILL and in-flight workflow runs stayed recorded as

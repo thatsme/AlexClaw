@@ -9,7 +9,7 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
   use AlexClawWeb.ConnCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.{Elevation, TOTP}
+  alias AlexClaw.Auth.{AuditLog, Elevation, TOTP}
 
   setup do
     sid = Elevation.new_sid()
@@ -120,11 +120,37 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
     end
   end
 
+  # Strict: with no second factor there is no password-only path to a restore.
+  # This is the one write where that matters most — it is arbitrary SQL.
   describe "with no second factor configured" do
-    test "the page warns that a restore is password-only", %{conn: conn, sid: sid} do
+    test "the page says the control plane is read-only", %{conn: conn, sid: sid} do
       {_view, html} = open(conn, sid)
 
-      assert html =~ "2FA not configured"
+      assert html =~ "Read-only — 2FA is not configured"
+      assert html =~ "/setup 2fa"
+    end
+
+    test "a restore is refused rather than performed", ctx do
+      {view, _html} = open(ctx.conn, ctx.sid)
+      upload_dump(view)
+
+      render_click(view, "restore", %{})
+
+      # Nothing ran, and the upload was not left waiting for a code that cannot
+      # be asked for.
+      assert staged_files() == ctx.already_staged
+    end
+
+    test "the refusal is recorded with its reason", ctx do
+      {view, _html} = open(ctx.conn, ctx.sid)
+      upload_dump(view)
+
+      render_click(view, "restore", %{})
+
+      refusal = AuditLog.recent(limit: 1, decision: "deny") |> List.first()
+
+      assert refusal.reason =~ "no_second_factor"
+      assert refusal.reason =~ "database restore"
     end
   end
 

@@ -57,10 +57,13 @@ defmodule AlexClaw.Cluster.ManagerRegistrationTest do
            "the retry never registered the node after the database came back"
   end
 
-  # The first backoff is 1s, and the count rides on the message, so a retry
-  # asked for here always starts from the beginning of the schedule.
-
-  defp eventually(check, remaining_ms \\ 4_000)
+  # Long enough for the whole ladder, not just its first rung. The count rides
+  # on the message, so a retry asked for here starts at 1s — but on a loaded
+  # machine that first retry can itself land before Sandbox.allow/3 has taken
+  # effect, and then the next is 2s, then 5s. A 4s window passed on a quiet
+  # laptop and failed in CI. A run that never retries still fails, just slowly,
+  # which is the right way round.
+  defp eventually(check, remaining_ms \\ 20_000)
   defp eventually(_check, remaining_ms) when remaining_ms <= 0, do: false
 
   defp eventually(check, remaining_ms) do

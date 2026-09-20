@@ -12,10 +12,13 @@ All routes except `/login`, `/health`, and `/mcp` require an authenticated sessi
 
 ETS-based rate limiting protects against brute-force attacks:
 
-- Tracks failed attempts per IP address
-- After 5 failures (configurable): blocks the IP for 15 minutes (configurable)
-- A GenServer runs periodic purge cycles to clean expired entries
-- All limits adjustable at runtime via **Admin > Config**
+- Tracks failed attempts per IP address within a sliding window
+- After 5 failures (configurable) inside a 5-minute window (configurable): blocks the IP for 15 minutes (configurable)
+- Failures older than the window are discarded rather than accumulating, so an IP is never one attempt away from a block indefinitely
+- A GenServer runs periodic purge cycles, clearing both expired blocks and stale counts
+- All three limits are adjustable at runtime via **Admin > Config**:
+  `auth.rate_limit.max_attempts`, `auth.rate_limit.window_seconds`,
+  `auth.rate_limit.block_duration_seconds`
 
 ## Two-Factor Authentication (2FA)
 
@@ -33,9 +36,29 @@ When 2FA is enabled, these operations require TOTP verification:
 
 | Operation | Where |
 |---|---|
-| Skill load/unload/reload | Admin UI |
-| Shell command execution | Telegram/Discord |
-| Workflows marked "Requires 2FA" | Telegram/Discord |
+| Skill load/unload/reload | Admin UI **and** `/skill load\|unload\|reload` from Telegram/Discord |
+| Shell command execution | `/shell` from Telegram/Discord |
+| Workflows marked "Requires 2FA" | Telegram/Discord **and** the Run button in the Admin UI |
+| Disabling 2FA | `/disable 2fa <code>` |
+
+These **fail closed**: when TOTP is not configured they are refused outright,
+not allowed through. Set 2FA up before relying on any of them.
+
+The gateway commands name a file already present in the skills volume — code
+itself cannot be uploaded from a messaging app.
+
+### Challenge Limits
+
+A challenge is a two-minute window in which any six digits can be tried, so both
+the count and the reuse of codes are bounded:
+
+- **Three wrong codes cancel the challenge.** The action must be triggered
+  again, which mints a fresh challenge with a fresh count.
+- **A code is accepted once.** The time of the last accepted code is persisted
+  and passed to the verifier, which refuses any code from a period already
+  used — so a code observed in transit cannot be replayed inside its
+  30-second window. The marker survives a restart and is not readable through
+  the configuration API.
 
 ### Cross-Channel Verification
 

@@ -46,12 +46,15 @@ After first boot, providers are managed from **Admin > LLM Providers**. You can 
 
 ## Discord (Optional)
 
-| Variable | Description |
+Discord is **not** configured by environment variable. Set these in
+**Admin > Config** and restart the container:
+
+| Setting | Description |
 |---|---|
-| `DISCORD_ENABLED=true` | Enable the Discord gateway |
-| `DISCORD_BOT_TOKEN` | Discord bot token |
-| `DISCORD_CHANNEL_ID` | Command channel ID |
-| `DISCORD_GUILD_ID` | Server (guild) ID |
+| `discord.enabled` | Enable the Discord gateway |
+| `discord.bot_token` | Discord bot token |
+| `discord.channel_id` | Command channel ID — auto-detected on the first message if blank |
+| `discord.node` | In a cluster, the single node that runs the bot. Blank means any node |
 
 ## Config Categories
 
@@ -60,12 +63,14 @@ Settings are organized by category in the Admin UI:
 | Category | Examples |
 |---|---|
 | `general` | Admin password, session settings |
-| `skills` | RSS thresholds, fetch timeouts, shell whitelist |
+| `skills` | RSS thresholds, fetch timeouts, item limits |
+| `shell` | Command allowlist, exact-match list, blocklist, timeout, output cap |
 | `prompts` | System prompts, context templates |
 | `llm` | Provider-specific settings |
 | `identity` | Agent name, base prompt |
 | `mcp` | MCP API key, tool timeout |
-| `github` | Webhook secret, review settings |
+| `github` | Access token, webhook secret, default repo, watched branches |
+| `auth` | Login rate limits, 2FA state |
 
 ## Sensitive Values
 

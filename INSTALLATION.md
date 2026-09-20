@@ -397,6 +397,13 @@ curl http://localhost:6900/health
 ```
 
 The noVNC web UI for recording sessions is available at `http://localhost:6080`.
+It is published on loopback only, because it gives unauthenticated control of
+the automation browser. To reach it on a remote host, tunnel rather than
+republish the port:
+
+```bash
+ssh -L 6080:127.0.0.1:6080 <host>
+```
 
 ### Telegram Commands
 

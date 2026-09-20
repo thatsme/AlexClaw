@@ -83,25 +83,28 @@ Every skill receives a map with these keys:
 | `workflow_run_id` | integer or nil | Current run ID (nil if standalone) |
 | `llm_provider` | string or nil | Provider override |
 | `llm_tier` | string | LLM tier for this step |
-| `prompt_template` | string or nil | Handlebars template for LLM input |
+| `prompt_template` | string or nil | Template for LLM input. `{input}` is substituted; `llm_transform` also substitutes `{resources}` |
 
 ## Using SkillAPI
 
 Dynamic skills interact with the system through `AlexClaw.Skills.SkillAPI`:
 
 ```elixir
-# Search the web (requires :web_read permission)
-{:ok, results} = SkillAPI.web_search(__MODULE__, query)
+# Fetch a URL (requires :web_read, and def external, do: true)
+{:ok, %Req.Response{body: body}} = SkillAPI.http_get(__MODULE__, url)
 
 # Call an LLM (requires :llm permission)
-{:ok, response} = SkillAPI.llm_call(__MODULE__, prompt, tier: :medium)
+{:ok, response} = SkillAPI.llm_complete(__MODULE__, prompt, tier: :medium)
 
 # Store in memory (requires :memory_write permission)
-{:ok, entry} = SkillAPI.store_memory(__MODULE__, :fact, content, source: url)
+{:ok, entry} = SkillAPI.memory_store(__MODULE__, :fact, content, source: url)
 
 # Search memory (requires :memory_read permission)
-results = SkillAPI.search_memory(__MODULE__, query, limit: 10)
+{:ok, results} = SkillAPI.memory_search(__MODULE__, query, limit: 10)
 ```
+
+The full list of functions, their permissions and what they redact is in the
+[Skill API Reference](skill-api.md).
 
 ## External Skills
 

@@ -1,94 +1,215 @@
 # Skill API Reference
 
-`AlexClaw.Skills.SkillAPI` is the interface for dynamic skills to interact with the system. Each function requires the calling module and checks permissions before execution.
+`AlexClaw.Skills.SkillAPI` is the interface dynamic skills use to reach the rest
+of the system. Every function takes the calling module as its first argument and
+checks that module's declared permissions before doing anything.
 
-## Web Operations
-
-```elixir
-# Web search (requires :web_read)
-{:ok, results} = SkillAPI.web_search(MySkill, "elixir genserver patterns")
-
-# Fetch and parse a URL (requires :web_read)
-{:ok, content} = SkillAPI.web_browse(MySkill, "https://example.com")
-```
+A call whose permission was not declared in `permissions/0` returns
+`{:error, :permission_denied}` and is written to the authorization audit log.
 
 ## LLM Operations
 
 ```elixir
-# Call an LLM (requires :llm)
-{:ok, response} = SkillAPI.llm_call(MySkill, prompt, tier: :medium)
+# Complete a prompt (requires :llm)
+{:ok, response} = SkillAPI.llm_complete(MySkill, prompt, tier: :medium)
 
-# Call with system prompt
-{:ok, response} = SkillAPI.llm_call(MySkill, prompt,
+# With a system prompt and an explicit provider
+{:ok, response} = SkillAPI.llm_complete(MySkill, prompt,
   tier: :light,
-  system_prompt: "You are a classifier."
+  provider: "ollama",
+  system: "You are a classifier."
 )
+
+# The configured identity prompt, optionally scoped to a skill (requires :llm)
+{:ok, system} = SkillAPI.system_prompt(MySkill, %{skill: :my_skill})
 ```
+
+## Web Operations
+
+There is no search or page-fetch helper. Skills make HTTP requests directly and
+parse what comes back.
+
+```elixir
+# All Req options pass through: headers, params, receive_timeout, ...
+{:ok, %Req.Response{body: body}} = SkillAPI.http_get(MySkill, "https://example.com")
+
+{:ok, response} = SkillAPI.http_post(MySkill, url, json: %{q: "search term"})
+
+{:ok, response} = SkillAPI.http_request(MySkill, :put, url, json: payload)
+```
+
+All three require `:web_read`, and a skill using any of them must declare
+`def external, do: true` — see the warning at the end of this page.
 
 ## Memory Operations
 
 ```elixir
-# Store a memory entry (requires :memory_write)
-{:ok, entry} = SkillAPI.store_memory(MySkill, :fact, content,
+# Store an entry (requires :memory_write)
+{:ok, entry} = SkillAPI.memory_store(MySkill, :fact, content,
   source: "https://example.com",
   metadata: %{category: "tech"}
 )
 
-# Search memory (requires :memory_read)
-results = SkillAPI.search_memory(MySkill, "BEAM concurrency", limit: 10)
+# Semantic search (requires :memory_read)
+{:ok, results} = SkillAPI.memory_search(MySkill, "BEAM concurrency", limit: 10)
+
+# Most recent entries (requires :memory_read)
+{:ok, results} = SkillAPI.memory_recent(MySkill, limit: 20, kind: :fact)
+
+# Deduplicate before storing (requires :memory_read)
+{:ok, seen?} = SkillAPI.memory_exists?(MySkill, url)
 ```
 
 ## Knowledge Operations
 
 ```elixir
-# Store knowledge (requires :knowledge_write)
-{:ok, entry} = SkillAPI.store_knowledge(MySkill, :documentation, content,
+# Store (requires :knowledge_write)
+{:ok, entry} = SkillAPI.knowledge_store(MySkill, :documentation, content,
   source: "https://hexdocs.pm/elixir"
 )
 
-# Search knowledge (requires :knowledge_read)
-results = SkillAPI.search_knowledge(MySkill, "GenServer patterns", limit: 5)
+# Semantic search (requires :knowledge_read)
+{:ok, results} = SkillAPI.knowledge_search(MySkill, "GenServer patterns", limit: 5)
+
+# Check a source before re-ingesting (requires :knowledge_read)
+{:ok, seen?} = SkillAPI.knowledge_exists?(MySkill, url)
+
+# Delete by source prefix (requires :knowledge_write)
+{:ok, count} = SkillAPI.knowledge_delete(MySkill, kind: :documentation, source_prefix: "https://old.example.com/")
 ```
+
+`knowledge_delete/2` requires both a kind and a non-empty prefix, and escapes
+LIKE metacharacters. It cannot be used to clear the knowledge base.
+
+## Gateway Operations
+
+```elixir
+# Markdown (requires :gateway_send, or the older :telegram_send)
+:ok = SkillAPI.send_message(MySkill, "*Done*", gateway: :telegram)
+
+# HTML
+:ok = SkillAPI.send_html(MySkill, "<b>Done</b>")
+```
+
+`send_telegram/3` and `send_telegram_html/3` are aliases kept for older skills.
+The destination is the configured chat — a skill chooses what to send, not where
+it goes.
+
+## Configuration
+
+```elixir
+# Read a setting (requires :config_read)
+{:ok, threshold} = SkillAPI.config_get(MySkill, "skills.rss.relevance_threshold", 0.7)
+```
+
+**Secrets are not readable through this function.** A key marked `sensitive`
+returns `{:error, :sensitive}`, and so does a key the configuration cache does
+not know — absence is not proof that a key is safe. API tokens and the TOTP
+secret cannot be reached this way.
+
+If a skill needs to authenticate somewhere, give it the capability rather than
+the credential: a configured resource it can name, or a core skill that holds
+the token itself.
 
 ## Resource Operations
 
 ```elixir
-# List resources (requires :resource_read)
-resources = SkillAPI.list_resources(MySkill, %{type: "rss_feed"})
+# List, with optional filters (requires :resources_read)
+{:ok, resources} = SkillAPI.list_resources(MySkill, %{type: "rss_feed"})
 
-# Get a specific resource (requires :resource_read)
+# Fetch one by ID (requires :resources_read)
 {:ok, resource} = SkillAPI.get_resource(MySkill, resource_id)
 ```
 
-## Workflow Operations
+**Both redact credentials.** A resource row carries them in two places:
+`metadata["auth"]`, which the `api_request` skill turns into an authorization
+header, and any userinfo embedded in the URL. The `auth` key is dropped and the
+userinfo stripped before either function returns. A skill can name a resource
+and ask for a request to be made against it; it cannot read the secret out.
+
+## Cross-Skill Invocation
 
 ```elixir
-# Get workflow result (requires :workflow_read)
-{:ok, run} = SkillAPI.get_workflow_result(MySkill, run_id)
+# Invoke another skill by name (requires :skill_invoke)
+{:ok, output, branch} = SkillAPI.run_skill(MySkill, "web_fetch", %{input: url})
+```
 
-# Query skill outcomes (requires :memory_read)
-outcomes = SkillAPI.skill_outcomes(MySkill, "web_search", limit: 20)
+**Four core skills cannot be invoked this way**: `shell`, `coder`, `db_backup`
+and `web_automation` return `{:error, :privileged_skill}` for every caller, and
+the attempt is recorded as a denial. They are gated by two-factor authentication
+where a gateway dispatches them, and a skill-to-skill call was not passing that
+gate. Call them as their own workflow step instead.
+
+The capability token is attenuated on each hop: a child skill receives a subset
+of the caller's permissions, never more. Chains are limited to depth 3.
+
+## Skill Outcomes
+
+```elixir
+# Past executions (requires :memory_read)
+{:ok, outcomes} = SkillAPI.skill_outcomes(MySkill, "web_fetch", limit: 20)
+
+# Aggregates (requires :memory_read)
+{:ok, stats} = SkillAPI.skill_outcome_stats(MySkill, "web_fetch")
+```
+
+## Skill and Workflow Management
+
+These are administrative and rarely belong in an ordinary skill.
+
+```elixir
+# Skill files (requires :skill_write)
+:ok = SkillAPI.write_skill(MySkill, "generated.ex", source)
+{:ok, source} = SkillAPI.read_skill(MySkill, "generated.ex")
+
+# Registry (requires :skill_manage)
+{:ok, info} = SkillAPI.load_skill(MySkill, "generated.ex")
+:ok = SkillAPI.unload_skill(MySkill, "generated")
+{:ok, info} = SkillAPI.reload_skill(MySkill, "generated")
+
+# Workflows (requires :workflow_manage)
+{:ok, workflow} = SkillAPI.create_workflow(MySkill, attrs)
+{:ok, step} = SkillAPI.add_workflow_step(MySkill, workflow.id, step_attrs)
+{:ok, result} = SkillAPI.run_workflow(MySkill, workflow.id)
+{:ok, run} = SkillAPI.get_workflow_result(MySkill, run_id)
 ```
 
 ## Permission Model
 
-Every SkillAPI call checks the calling module's declared permissions:
+These are the only valid values for `permissions/0`. A skill declaring anything
+else is rejected at load with `unknown_permissions`.
 
 | Permission | Operations |
 |---|---|
-| `:web_read` | `web_search`, `web_browse`, `api_request`, `http_get`, `http_post`, `http_request` |
-| `:llm` | `llm_call` |
-| `:memory_read` | `search_memory`, `skill_outcomes` |
-| `:memory_write` | `store_memory` |
-| `:knowledge_read` | `search_knowledge` |
-| `:knowledge_write` | `store_knowledge` |
-| `:resource_read` | `list_resources`, `get_resource` |
-| `:workflow_read` | `get_workflow_result` |
-| `:skill_write` | Loading/unloading skills |
-| `:skill_manage` | Skill administration |
-| `:workflow_manage` | Workflow CRUD operations |
+| `:llm` | `llm_complete`, `system_prompt` |
+| `:web_read` | `http_get`, `http_post`, `http_request` |
+| `:gateway_send` | `send_message`, `send_html`, `send_telegram`, `send_telegram_html` |
+| `:telegram_send` | accepted in place of `:gateway_send` for older skills |
+| `:memory_read` | `memory_search`, `memory_recent`, `memory_exists?`, `skill_outcomes`, `skill_outcome_stats` |
+| `:memory_write` | `memory_store` |
+| `:knowledge_read` | `knowledge_search`, `knowledge_exists?` |
+| `:knowledge_write` | `knowledge_store`, `knowledge_delete` |
+| `:config_read` | `config_get` — sensitive keys are refused |
+| `:resources_read` | `list_resources`, `get_resource` — credentials are redacted |
+| `:skill_invoke` | `run_skill` — excluding the four privileged core skills |
+| `:skill_write` | `write_skill`, `read_skill` |
+| `:skill_manage` | `load_skill`, `unload_skill`, `reload_skill` |
+| `:workflow_manage` | `create_workflow`, `add_workflow_step`, `run_workflow`, `get_workflow_result` |
 
-If a permission is not declared in `permissions/0`, the call is denied with an audit log entry.
+### Permissions and unattended loading
+
+A skill generated by Coder or Forge loads without a two-factor code only if it
+stays inside a fixed set of permissions: `:llm`, `:web_read`, `:memory_read`,
+`:knowledge_read`, `:resources_read` and `:gateway_send`. `:config_read` and
+`:skill_invoke` are outside it, and `:web_read` combined with any private read
+is refused as a pair, because reading and then posting is an exfiltration path.
+
+Anything above that ceiling waits for a TOTP code. This applies to generated
+code only — a hand-written skill's boundary is the code entered to load it.
 
 !!! warning "AST detection"
-    Dynamic skills that call `http_get`, `http_post`, or `http_request` (or directly use `Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`) must declare `def external, do: true`. The registry AST-scans source at load time and rejects skills with undeclared HTTP/socket calls. See [Writing Skills](writing-skills.md#external-skills).
+    Dynamic skills that call `http_get`, `http_post`, or `http_request` (or
+    directly use `Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`) must declare
+    `def external, do: true`. The registry AST-scans source at load time and
+    rejects skills with undeclared HTTP/socket calls. See
+    [Writing Skills](writing-skills.md#external-skills).

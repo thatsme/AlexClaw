@@ -99,11 +99,11 @@ Load custom skills at runtime — no code changes, no Docker rebuild, no restart
 | `:telegram_send` | Send Markdown or HTML messages to Telegram |
 | `:memory_read` | Search, check existence, list recent memories |
 | `:memory_write` | Store new memory entries |
-| `:config_read` | Read runtime config values |
-| `:resources_read` | List and fetch resources |
+| `:config_read` | Read runtime config values — settings marked sensitive are refused |
+| `:resources_read` | List and fetch resources — embedded credentials are redacted |
 | `:knowledge_read` | Search and check existence in knowledge base |
 | `:knowledge_write` | Store knowledge entries |
-| `:skill_invoke` | Call other skills by name |
+| `:skill_invoke` | Call other skills by name — excluding `shell`, `coder`, `db_backup` and `web_automation` |
 
 #### Getting Started
 

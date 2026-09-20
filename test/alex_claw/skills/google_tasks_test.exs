@@ -2,25 +2,15 @@ defmodule AlexClaw.Skills.GoogleTasksTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
+  alias AlexClaw.Google.TokenManager
   alias AlexClaw.Skills.GoogleTasks
 
+  # The token cache is :private, so a token gets in through its owner or not at
+  # all. TokenManager.seed_token/2 is compiled under MIX_ENV=test only.
   setup do
-    case :ets.info(:google_token_cache) do
-      :undefined -> :ets.new(:google_token_cache, [:named_table, :public, :set])
-      _ -> :ok
-    end
+    TokenManager.seed_token("fake-test-token", System.monotonic_time(:second) + 3600)
 
-    :ets.insert(
-      :google_token_cache,
-      {:access_token, "fake-test-token", System.monotonic_time(:second) + 3600}
-    )
-
-    on_exit(fn ->
-      case :ets.info(:google_token_cache) do
-        :undefined -> :ok
-        _ -> :ets.delete_all_objects(:google_token_cache)
-      end
-    end)
+    on_exit(fn -> TokenManager.clear_token() end)
 
     bypass = Bypass.open()
     {:ok, bypass: bypass}
@@ -47,7 +37,7 @@ defmodule AlexClaw.Skills.GoogleTasksTest do
 
   describe "run/1 — no token" do
     test "returns error when no OAuth token available" do
-      :ets.delete_all_objects(:google_token_cache)
+      TokenManager.clear_token()
 
       result = GoogleTasks.run(%{config: %{"action" => "list"}})
       assert {:error, _} = result

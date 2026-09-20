@@ -123,22 +123,33 @@ defmodule AlexClaw.ETSOwnershipTest do
     end
   end
 
-  # The security-relevant tables are :protected, so a write from outside the
-  # owner raises instead of quietly succeeding. For elevations that is the
-  # whole guarantee: a process that could insert a row could elevate itself.
-  test "the challenge, code-attempt, OAuth state and elevation tables are protected" do
-    for path <- [
-          "lib/alex_claw/auth/challenge_store.ex",
-          "lib/alex_claw/auth/code_attempts.ex",
-          "lib/alex_claw/auth/elevation.ex",
-          "lib/alex_claw/google/token_manager.ex"
-        ] do
-      assert Regex.match?(
-               ~r/:ets\.new\(@?\w+,\s*\[:named_table,\s*:protected/,
-               File.read!(path)
-             ),
-             "#{path} owns security state, so its table must be :protected — a write " <>
-               "from outside the owner should raise rather than succeed"
+  # The table is named, not just the file. A file-wide search is satisfied by
+  # any one :ets.new in it, which is how :google_token_cache sat :public behind
+  # an assertion that was satisfied by the OAuth state table beside it.
+  #
+  # :protected — a write from outside the owner raises rather than quietly
+  # succeeding. For elevations that is the whole guarantee: a process that
+  # could insert a row could elevate itself.
+  #
+  # :private — nothing outside the owner can even read. The Google token cache
+  # holds bearer credentials, and a dynamic skill runs in this VM.
+  @table_visibility [
+    {"lib/alex_claw/auth/challenge_store.ex", "@table", ":protected"},
+    {"lib/alex_claw/auth/code_attempts.ex", "@table", ":protected"},
+    {"lib/alex_claw/auth/elevation.ex", "@table", ":protected"},
+    {"lib/alex_claw/google/token_manager.ex", "@state_table", ":protected"},
+    {"lib/alex_claw/google/token_manager.ex", "@table", ":private"}
+  ]
+
+  test "the security tables are created at the visibility they were given" do
+    for {path, attr, visibility} <- @table_visibility do
+      pattern = ~r/:ets\.new\(#{Regex.escape(attr)},\s*\[:named_table,\s*#{visibility}/
+
+      assert Regex.match?(pattern, File.read!(path)),
+             "#{path} must create #{attr} as #{visibility}. " <>
+               ":protected means a write from outside the owner raises rather " <>
+               "than quietly succeeding; :private means nothing outside the " <>
+               "owner can read it either."
     end
   end
 

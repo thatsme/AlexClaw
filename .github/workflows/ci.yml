@@ -12,6 +12,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `credo diff` resolves a merge base, which needs the history and the
+          # origin/main ref. The default shallow checkout has neither.
+          fetch-depth: 0
 
       # The test image pins Elixir and OTP via the Dockerfile's `test` stage, so
       # CI and `make test-elixir` always run the same toolchain.
@@ -23,6 +27,20 @@ jobs:
         run: >
           docker compose -f docker-compose.test.yml run --rm --no-deps
           test-elixir mix format --check-formatted
+
+      # Only issues a branch introduces fail the build; issues that predate it
+      # are reported as "kept" and do not. The baseline is the merge-base
+      # commit, and Credo reads its configuration from that checkout — which is
+      # why .credo.exs is tracked rather than ignored. A branch whose merge base
+      # predates that change sees the default configuration as its baseline and
+      # must be rebased. On a push to main the merge base is HEAD, so the diff
+      # is empty by construction.
+      - name: Credo — new issues only
+        run: >
+          docker compose -f docker-compose.test.yml run --rm --no-deps
+          -v "$PWD/.git:/app/.git" test-elixir sh -c
+          'git config --global --add safe.directory /app &&
+          mix credo diff --from-git-merge-base origin/main --strict'
 
       # Started explicitly and waited on: after the --no-deps run above, the
       # test service will not reliably bring its dependency up on its own, and

@@ -17,6 +17,11 @@ services:
 
   alexclaw-prod:
     container_name: alexclaw-prod
+    # The BEAM turns SIGTERM into an orderly System.stop/0, but Docker's default
+    # grace period is 10 seconds and the supervision tree needs longer: every
+    # stop was reaching SIGKILL, so Reasoning.Loop's terminate/2 never ran and
+    # in-flight workflow runs stayed recorded as executing.
+    stop_grace_period: 30s
     build:
       context: .
       args:

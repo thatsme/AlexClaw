@@ -86,6 +86,11 @@ defmodule AlexClaw.Auth.PrincipalTest do
       sid = Elevation.new_sid()
       {:ok, _expires_at} = Elevation.grant(sid)
 
+      # The row is written off the owner process, so it is not there the
+      # instant grant/1 returns. Batch 2d item 2c moves this particular write
+      # back into the caller — a person was told the elevation held, so the
+      # record of it should exist by then — and this drain goes when it does.
+      AlexClaw.TaskDrain.drain()
       row = AuditLog.recent(limit: 5, decision: "granted") |> List.first()
 
       assert row.principal == "owner"

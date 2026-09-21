@@ -103,10 +103,17 @@ defmodule AlexClaw.Auth.AuditLog do
   @doc """
   Write the row for what a control-plane change actually did outside the
   database — a node answering a ping or not — after the change was committed.
+
+  `principal` is passed in rather than taken from where this runs: the outcome
+  is often known in a task started for the change, and the row must name whose
+  authority the change ran under, not whatever the task's process would say.
   """
-  @spec record_admin_outcome(String.t(), String.t()) :: :ok | {:error, term()}
-  def record_admin_outcome(session_fingerprint, detail) do
-    record(admin_entry(session_fingerprint, "outcome", detail))
+  @spec record_admin_outcome(String.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  def record_admin_outcome(session_fingerprint, detail, principal) do
+    session_fingerprint
+    |> admin_entry("outcome", detail)
+    |> Map.merge(%{principal: principal, requested_by: principal, approved_by: principal})
+    |> record()
   end
 
   defp admin_entry(session_fingerprint, decision, detail) do

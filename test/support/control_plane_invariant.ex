@@ -184,8 +184,9 @@ defmodule AlexClaw.ControlPlaneInvariant do
     if List.last(aliases) == :ControlPlane, do: [write], else: []
   end
 
-  # ControlPlane.outcome(sid, detail, write)
-  defp gated_parts({{:., _, [{:__aliases__, _, aliases}, :outcome]}, _, [_sid, _detail, write]}) do
+  # ControlPlane.outcome(sid, detail, write) and ControlPlane.outcome_for(requester, detail, write)
+  defp gated_parts({{:., _, [{:__aliases__, _, aliases}, fun]}, _, [_who, _detail, write]})
+       when fun in [:outcome, :outcome_for] do
     if List.last(aliases) == :ControlPlane, do: [write], else: []
   end
 

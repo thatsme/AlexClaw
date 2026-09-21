@@ -9,7 +9,7 @@ defmodule AlexClaw.Resources.ApiDiscovery do
 
   require Logger
 
-  alias AlexClaw.Resources
+  alias AlexClaw.{ControlPlane, Resources}
   alias AlexClaw.Resources.Resource
 
   @pubsub AlexClaw.PubSub
@@ -30,16 +30,26 @@ defmodule AlexClaw.Resources.ApiDiscovery do
   @spec topic() :: String.t()
   def topic, do: @discovery_topic
 
-  @spec run_async(Resource.t()) :: {:ok, pid()} | :ignore
-  def run_async(%Resource{type: "api", url: url} = resource) when is_binary(url) and url != "" do
+  @doc """
+  Discover an API resource's endpoints in a supervised task.
+
+  `requester` says who asked — a session by fingerprint, and a principal — so
+  the row recording what discovery wrote can name them, long after the call
+  that asked has returned.
+  """
+  @spec run_async(Resource.t(), ControlPlane.requester()) :: {:ok, pid()} | :ignore
+  def run_async(resource, requester \\ ControlPlane.unattended())
+
+  def run_async(%Resource{type: "api", url: url} = resource, requester)
+      when is_binary(url) and url != "" do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      discover(resource)
+      discover(resource, requester)
     end)
   end
 
-  def run_async(_resource), do: :ignore
+  def run_async(_resource, _requester), do: :ignore
 
-  defp discover(resource) do
+  defp discover(resource, requester) do
     mark_status(resource, "running")
 
     url = String.trim(resource.url)
@@ -56,7 +66,7 @@ defmodule AlexClaw.Resources.ApiDiscovery do
       "error" => nil
     }
 
-    save_discovery(resource, discovery)
+    save_discovery(resource, discovery, requester)
     broadcast(resource.id, :completed)
 
     Logger.info("[ApiDiscovery] Completed for #{resource.name} (#{resource.url})",
@@ -66,11 +76,15 @@ defmodule AlexClaw.Resources.ApiDiscovery do
     e ->
       error_msg = Exception.message(e)
 
-      save_discovery(resource, %{
-        "status" => "failed",
-        "probed_at" => DateTime.to_iso8601(DateTime.utc_now()),
-        "error" => error_msg
-      })
+      save_discovery(
+        resource,
+        %{
+          "status" => "failed",
+          "probed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+          "error" => error_msg
+        },
+        requester
+      )
 
       broadcast(resource.id, {:failed, error_msg})
 
@@ -277,16 +291,24 @@ defmodule AlexClaw.Resources.ApiDiscovery do
     broadcast(resource.id, :running)
   end
 
-  defp save_discovery(resource, discovery_map) do
-    case Resources.get_resource(resource.id) do
-      {:ok, fresh_resource} ->
-        existing = fresh_resource.metadata || %{}
-        updated = Map.put(existing, "discovery", discovery_map)
-        Resources.update_resource(fresh_resource, %{metadata: updated}, skip_discovery: true)
+  # What discovery found is written to the resource with an outcome row saying
+  # so, in one transaction, under the requester who asked for it.
+  defp save_discovery(resource, discovery_map, requester) do
+    detail =
+      "resource discovery: #{resource.name} (id #{resource.id}) — #{discovery_map["status"]}"
 
-      {:error, :not_found} ->
-        Logger.warning("[ApiDiscovery] Resource #{resource.id} no longer exists, skipping save")
-    end
+    ControlPlane.outcome_for(requester, detail, fn ->
+      case Resources.get_resource(resource.id) do
+        {:ok, fresh_resource} ->
+          existing = fresh_resource.metadata || %{}
+          updated = Map.put(existing, "discovery", discovery_map)
+          Resources.update_resource(fresh_resource, %{metadata: updated}, skip_discovery: true)
+
+        {:error, :not_found} ->
+          Logger.warning("[ApiDiscovery] Resource #{resource.id} no longer exists, skipping save")
+          {:ok, :resource_gone}
+      end
+    end)
   end
 
   defp broadcast(resource_id, status) do

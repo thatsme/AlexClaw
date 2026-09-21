@@ -23,7 +23,7 @@ defmodule AlexClaw.ControlPlane do
   intended, the second what happened.
   """
 
-  alias AlexClaw.Auth.{AuditLog, Elevation}
+  alias AlexClaw.Auth.{AuditLog, Elevation, Principal}
   alias AlexClaw.Repo
 
   @typedoc "Why a change was refused before it ran."
@@ -62,7 +62,31 @@ defmodule AlexClaw.ControlPlane do
   @spec outcome(String.t() | nil, String.t(), (-> write_result())) ::
           {:ok, term()} | {:error, :audit_failed | term()}
   def outcome(sid, detail, write \\ fn -> {:ok, :recorded} end) do
-    transact(fn -> AuditLog.record_admin_outcome(print(sid), detail) end, write)
+    outcome_for(requester(sid), detail, write)
+  end
+
+  @typedoc """
+  Who asked for a change, in the form that may cross into a task: the session
+  by fingerprint — never the sid, which is a credential — and the principal.
+  """
+  @type requester :: %{session: String.t(), principal: String.t()}
+
+  @doc "The requester for the session `sid`, to hand to work that outlives the call."
+  @spec requester(String.t() | nil) :: requester()
+  def requester(sid), do: %{session: print(sid), principal: Principal.current()}
+
+  @doc "The requester for work nobody asked for from a session: a gateway command, a migration."
+  @spec unattended() :: requester()
+  def unattended, do: %{session: "unattended", principal: Principal.current()}
+
+  @doc """
+  `outcome/3` for a requester carried into a task, where the outcome is known
+  long after the call that asked for it has returned.
+  """
+  @spec outcome_for(requester(), String.t(), (-> write_result())) ::
+          {:ok, term()} | {:error, :audit_failed | term()}
+  def outcome_for(%{session: session, principal: principal}, detail, write) do
+    transact(fn -> AuditLog.record_admin_outcome(session, detail, principal) end, write)
   end
 
   defp permitted(true, _sid, _detail), do: :ok

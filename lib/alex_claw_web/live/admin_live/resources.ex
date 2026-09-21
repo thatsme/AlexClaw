@@ -4,7 +4,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   use Phoenix.LiveView
   alias AlexClawWeb.Live.Elevation
 
-  alias AlexClaw.Resources
+  alias AlexClaw.{ControlPlane, Resources}
   alias AlexClaw.Resources.ApiDiscovery
 
   @resource_types ~w(rss_feed website document api automation)
@@ -71,7 +71,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
     Elevation.gated(socket, "resource saved: #{params["name"]}",
       write: fn -> persist_resource(editing, resource_attrs(params)) end,
-      after_commit: &Resources.discover/1,
+      after_commit: discover_for(socket),
       ok: fn socket, _resource ->
         action = if editing, do: "updated", else: "created"
 
@@ -110,7 +110,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
           Resources.update_resource(resource, %{enabled: !resource.enabled}, skip_discovery: true)
         end
       end,
-      after_commit: &Resources.discover/1,
+      after_commit: discover_for(socket),
       ok: fn socket, _resource ->
         assign(socket, resources: list_resources(socket.assigns.type_filter))
       end,
@@ -135,7 +135,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   def handle_event("discover", %{"id" => id}, socket) do
     Elevation.gated(socket, "resource discovery started: id #{id}",
       write: fn -> fetch_resource(id) end,
-      after_commit: &Resources.discover/1,
+      after_commit: discover_for(socket),
       ok: fn socket, resource ->
         put_flash(socket, :info, "API discovery started for #{resource.name}")
       end,
@@ -173,6 +173,13 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   defp put_metadata(attrs, {:ok, map}) when is_map(map), do: Map.put(attrs, :metadata, map)
   defp put_metadata(attrs, _decoded), do: attrs
+
+  # Discovery outlives the event, so it carries who asked — by fingerprint and
+  # principal, never the sid — to the row it writes when it finishes.
+  defp discover_for(socket) do
+    requester = ControlPlane.requester(socket.assigns.elevation_sid)
+    fn resource -> Resources.discover(resource, requester) end
+  end
 
   # Discovery fetches the API and writes back to the resource, so it is started
   # after commit, never from inside the change.

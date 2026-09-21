@@ -65,11 +65,16 @@ defmodule AlexClaw.Resources do
   @doc """
   Start discovering an API resource's endpoints, in the background. Discovery
   fetches the API and then writes what it found to the resource, so it is
-  started only for a resource that is committed.
+  started only for a resource that is committed. `requester` is recorded on
+  the row for that write; without one, the work is unattended.
   """
-  @spec discover(Resource.t()) :: {:ok, pid()} | :ignore | :ok
-  def discover(%Resource{type: "api"} = resource), do: ApiDiscovery.run_async(resource)
-  def discover(_resource), do: :ok
+  @spec discover(Resource.t(), AlexClaw.ControlPlane.requester()) :: {:ok, pid()} | :ignore | :ok
+  def discover(resource, requester \\ AlexClaw.ControlPlane.unattended())
+
+  def discover(%Resource{type: "api"} = resource, requester),
+    do: ApiDiscovery.run_async(resource, requester)
+
+  def discover(_resource, _requester), do: :ok
 
   @spec delete_resource(Resource.t()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
   def delete_resource(%Resource{} = resource) do

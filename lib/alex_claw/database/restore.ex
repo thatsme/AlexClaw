@@ -14,7 +14,7 @@ defmodule AlexClaw.Database.Restore do
   """
   require Logger
 
-  alias AlexClaw.Auth.AuditLog
+  alias AlexClaw.Auth.{AuditLog, Principal}
 
   @staging_prefix "alexclaw-restore-"
 
@@ -63,7 +63,7 @@ defmodule AlexClaw.Database.Restore do
   defp restore(:ok, path, session, detail) do
     result = psql(File.exists?(path), path)
     discard(path)
-    AuditLog.record_admin_outcome(session, "#{detail} — #{outcome(result)}")
+    AuditLog.record_admin_outcome(session, "#{detail} — #{outcome(result)}", Principal.current())
     result
   end
 

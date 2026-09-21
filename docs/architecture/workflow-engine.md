@@ -111,10 +111,12 @@ Workflows can be exported as self-contained JSON files and imported on any insta
 
 No database IDs or timestamps — the file is portable across instances.
 
+No credentials either: every config key a skill declares secret (`secret_config_keys/0`, e.g. Telegram Notify's `bot_token`, API Request's `headers`) is written as the placeholder `<secret not exported>`. A map keeps its keys, so an API Request step still shows which headers it needs.
+
 **Import** (file upload in Admin UI) validates the JSON structure, then:
 
 1. Creates the workflow (disabled by default, `(imported N)` suffix on name conflicts)
-2. Creates steps with their original positions preserved
+2. Creates steps with their original positions preserved. Secret config values arrive as placeholders and are left empty; each such step is marked **needs secrets** in the editor, naming the keys, until they are filled in
 3. For each resource: links to an existing match by name + URL, or creates a new resource
 
 The JSON file can be edited manually — add resources, modify steps, change configs — before importing.

@@ -195,6 +195,7 @@
               <span class="text-xs text-gray-500 font-mono w-6">{step.position}</span>
               <span class="text-sm text-white font-semibold">{step.name}</span>
               <span class={"text-xs px-2 py-0.5 rounded #{if step.skill in @available_skills, do: "bg-gray-700 text-claw-500", else: "bg-red-900/50 text-red-400"}"}>{step.skill}{if step.skill not in @available_skills, do: " (missing)", else: ""}</span>
+              <span :if={keys = Workflows.steps_needing_secrets(@editing)[step.id]} class="text-xs px-2 py-0.5 rounded bg-red-900/50 text-red-300" title="Imported without its secrets: fill these in the step's config">needs secrets: {Enum.join(keys, ", ")}</span>
               <span :if={step.llm_tier} class="text-xs px-2 py-0.5 rounded bg-gray-700 text-yellow-400">{step.llm_tier}</span>
               <span :if={step.llm_model && step.llm_model != "" && step.llm_model != "auto"} class="text-xs px-2 py-0.5 rounded bg-gray-700 text-green-400">{step.llm_model}</span>
               <span :if={step.prompt_template} class="text-xs text-gray-600">has prompt</span>

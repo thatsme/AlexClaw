@@ -65,26 +65,6 @@ defmodule AlexClaw.Auth.AuditLog do
   end
 
   @doc """
-  Record a control-plane change made by an elevated admin session.
-
-  `detail` says what changed, with secrets already masked by the caller — the
-  row exists to answer "who changed this, and from what to what", which a
-  masked value still answers.
-  """
-  @spec log_admin_write(String.t(), String.t()) :: :ok
-  def log_admin_write(session_fingerprint, detail) do
-    Logger.info("Admin write by #{session_fingerprint}: #{detail}", auth: :admin_write)
-
-    insert_entry(%{
-      caller: "admin:" <> session_fingerprint,
-      caller_type: "admin",
-      permission: "admin.control_plane",
-      decision: "write",
-      reason: detail
-    })
-  end
-
-  @doc """
   Record a control-plane change that was refused.
 
   `reason` separates the two refusals that look alike in a log and are not:

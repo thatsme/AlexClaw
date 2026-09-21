@@ -24,8 +24,10 @@ Your `.env` file will look like this:
 
 ```bash
 # === Required ===
-DATABASE_USERNAME=alexclaw
-DATABASE_PASSWORD=changeme
+DATABASE_OWNER_USERNAME=alexclaw
+DATABASE_OWNER_PASSWORD=changeme_owner
+DATABASE_USERNAME=alexclaw_app
+DATABASE_PASSWORD=changeme_app
 SECRET_KEY_BASE=generate_with_openssl_rand_base64_48
 ADMIN_PASSWORD=changeme
 CLUSTER_COOKIE=generate_with_openssl_rand_base64_32
@@ -61,10 +63,13 @@ ANTHROPIC_API_KEY=
 
 ### 2. Generate secrets
 
-Run these two commands **in your terminal** and paste each output into `.env`:
+Run these commands **in your terminal** and paste each output into `.env`:
 
 ```bash
-# Generate DATABASE_PASSWORD — copy the output into .env
+# Generate DATABASE_OWNER_PASSWORD — copy the output into .env
+openssl rand -hex 32
+
+# Generate DATABASE_PASSWORD — a second, different value
 openssl rand -hex 32
 
 # Generate SECRET_KEY_BASE — copy the output into .env
@@ -78,11 +83,12 @@ Then fill in the remaining values:
 
 | Variable | What to do |
 |---|---|
-| `DATABASE_PASSWORD` | Paste the output of the first `openssl` command |
-| `SECRET_KEY_BASE` | Paste the output of the second `openssl` command |
+| `DATABASE_OWNER_PASSWORD` | Paste the output of the first `openssl` command. The database owner runs migrations only, in the one-shot `migrate` service |
+| `DATABASE_PASSWORD` | Paste the output of the second `openssl` command. This is the application role, which AlexClaw connects as |
+| `SECRET_KEY_BASE` | Paste the output of the `openssl rand -base64 48` command |
 | `ADMIN_PASSWORD` | Choose a strong password for the web admin UI |
-| `CLUSTER_COOKIE` | Paste the output of the third `openssl` command. The container does not start without it, and every node of a cluster shares the same value |
-| `DATABASE_USERNAME` | Leave as `alexclaw` (default) unless you have a reason to change it |
+| `CLUSTER_COOKIE` | Paste the output of the `openssl rand -base64 32` command. The container does not start without it, and every node of a cluster shares the same value |
+| `DATABASE_OWNER_USERNAME`, `DATABASE_USERNAME` | Leave as `alexclaw` and `alexclaw_app`. They must be two different roles: AlexClaw refuses to start as the owner. The application role is created automatically on a fresh install; to upgrade an existing one, see [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md) |
 | `TELEGRAM_BOT_TOKEN` | From @BotFather (see [Getting Your Bot Token](#getting-your-telegram-bot-token) below) |
 | `TELEGRAM_CHAT_ID` | **Optional** — leave empty and AlexClaw will auto-detect it when you send the bot its first message. Or set it manually (see [Getting Your Chat ID](#getting-your-telegram-chat-id) below) |
 | `GEMINI_API_KEY` | Free key from [ai.google.dev](https://ai.google.dev/) — gives you `light` and `medium` LLM tiers with no credit card |
@@ -803,7 +809,7 @@ If you run two AlexClaw instances with the same `TELEGRAM_BOT_TOKEN` (e.g., dev 
 
 ### Locked out after changing SECRET_KEY_BASE
 
-Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes all encrypted config values (API keys, tokens) unreadable. Log in again with your `ADMIN_PASSWORD` and re-enter any API keys via Admin > Config (or set them in `.env` and restart). If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
+Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes all encrypted config values (API keys, tokens, the TOTP secret) unreadable. To change it deliberately, follow [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). If it was changed without a rotation, put the old value back and restart; failing that, log in with `ADMIN_PASSWORD` and re-enter the API keys via Admin > Config (or set them in `.env` and restart). If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
 
 ### Web automator noVNC behind HTTPS
 

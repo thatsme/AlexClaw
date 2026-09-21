@@ -23,7 +23,7 @@ AlexClaw monitors the world — RSS feeds, GitHub repositories, Google services,
 git clone https://github.com/thatsme/AlexClaw.git
 cd AlexClaw
 cp .env.example .env
-# Edit .env — set DATABASE_PASSWORD, SECRET_KEY_BASE, ADMIN_PASSWORD,
+# Edit .env — set DATABASE_OWNER_PASSWORD, DATABASE_PASSWORD, SECRET_KEY_BASE, ADMIN_PASSWORD,
 # TELEGRAM_BOT_TOKEN, and at least one LLM API key (GEMINI_API_KEY is free)
 docker compose up -d
 ```

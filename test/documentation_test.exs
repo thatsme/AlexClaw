@@ -97,6 +97,16 @@ defmodule AlexClaw.DocumentationTest do
            "links to files that do not exist:\n  " <> Enum.join(Enum.uniq(broken), "\n  ")
   end
 
+  # Release notes have one home: the GitHub releases, published by CI from
+  # .github/release-notes/. A version copied into the changelog page would be
+  # a second copy that falls behind — as it did, twenty versions deep.
+  test "the changelog page copies no release notes" do
+    versions = Regex.scan(~r/^#+ v(\d+\.\d+\.\d+)/m, File.read!("docs/reference/changelog.md"))
+
+    assert Enum.map(versions, fn [_, v] -> v end) == ["0.3.10"],
+           "docs/reference/changelog.md lists versions; their notes belong in .github/release-notes/"
+  end
+
   test "every mkdocs nav target exists" do
     nav = File.read!("mkdocs.yml")
 
@@ -121,15 +131,21 @@ defmodule AlexClaw.DocumentationTest do
       |> Enum.map(fn [_, name] -> name end)
       |> Enum.uniq()
 
+    # The deployment reads some variables itself: the database owner's
+    # credentials reach only the migrate service, through the compose files,
+    # and the mix aliases that migrate the test database.
+    deployment = ["mix.exs" | Path.wildcard("docker-compose*.yml")] ++ Path.wildcard("db-init/*")
+
     sources =
       ["lib", "config"]
       |> Enum.flat_map(&Path.wildcard("#{&1}/**/*.{ex,exs}"))
+      |> Kernel.++(deployment)
       |> Enum.map_join("\n", &File.read!/1)
 
     unread = Enum.reject(documented, &String.contains?(sources, &1))
 
     assert unread == [],
-           "documented as environment variables but never read in lib/ or config/:\n  " <>
+           "documented as environment variables but never read in lib/, config/ or the deployment files:\n  " <>
              Enum.join(unread, "\n  ")
   end
 

@@ -9,10 +9,16 @@ defmodule AlexClaw.Config.Crypto do
   @prefix "enc:"
 
   @spec encrypt(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def encrypt(""), do: {:ok, ""}
+  def encrypt(plaintext), do: encrypt_with(derive_key(), plaintext)
 
-  def encrypt(plaintext) when is_binary(plaintext) do
-    key = derive_key()
+  @doc """
+  Encrypt under an explicit key, as `key_for/1` derives it. For re-keying, where
+  the configured key is not the one wanted.
+  """
+  @spec encrypt_with(binary(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def encrypt_with(_key, ""), do: {:ok, ""}
+
+  def encrypt_with(key, plaintext) when is_binary(plaintext) do
     iv = :crypto.strong_rand_bytes(@iv_bytes)
 
     {ciphertext, tag} =
@@ -33,9 +39,11 @@ defmodule AlexClaw.Config.Crypto do
   end
 
   @spec decrypt(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def decrypt(@prefix <> encoded) do
-    key = derive_key()
+  def decrypt(value), do: decrypt_with(derive_key(), value)
 
+  @doc "Decrypt under an explicit key, as `key_for/1` derives it. For re-keying."
+  @spec decrypt_with(binary(), String.t() | nil) :: {:ok, String.t() | nil} | {:error, term()}
+  def decrypt_with(key, @prefix <> encoded) do
     case Base.decode64(encoded) do
       {:ok, raw} -> decrypt_raw(raw, key)
       :error -> {:error, :invalid_base64}
@@ -44,8 +52,8 @@ defmodule AlexClaw.Config.Crypto do
     e -> {:error, Exception.message(e)}
   end
 
-  def decrypt(plaintext) when is_binary(plaintext), do: {:ok, plaintext}
-  def decrypt(nil), do: {:ok, nil}
+  def decrypt_with(_key, plaintext) when is_binary(plaintext), do: {:ok, plaintext}
+  def decrypt_with(_key, nil), do: {:ok, nil}
 
   defp decrypt_raw(raw, key) when byte_size(raw) < @iv_bytes + @tag_bytes do
     _ = key
@@ -72,8 +80,7 @@ defmodule AlexClaw.Config.Crypto do
   def derive_key do
     case :persistent_term.get({__MODULE__, :key}, nil) do
       nil ->
-        secret = fetch_secret_key_base!()
-        key = hkdf_sha256(secret, "AlexClaw.Config.Crypto", 32)
+        key = key_for(fetch_secret_key_base!())
         :persistent_term.put({__MODULE__, :key}, key)
         key
 
@@ -81,6 +88,11 @@ defmodule AlexClaw.Config.Crypto do
         key
     end
   end
+
+  @doc "The encryption key a given SECRET_KEY_BASE yields."
+  @spec key_for(String.t()) :: binary()
+  def key_for(secret_key_base) when byte_size(secret_key_base) >= 32,
+    do: hkdf_sha256(secret_key_base, "AlexClaw.Config.Crypto", 32)
 
   defp fetch_secret_key_base! do
     case Application.get_env(:alex_claw, AlexClawWeb.Endpoint)[:secret_key_base] do

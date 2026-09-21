@@ -13,8 +13,6 @@ defmodule AlexClaw.Auth.AuditLog do
   alias AlexClaw.Auth.{AuditEntry, AuditLoss, AuthContext, Principal}
   alias AlexClaw.Repo
 
-  @retention_days 30
-
   @doc "Log and persist an authorization denial."
   @spec log_deny(AuthContext.t(), String.t()) :: :ok
   def log_deny(%AuthContext{} = ctx, reason) do
@@ -69,11 +67,9 @@ defmodule AlexClaw.Auth.AuditLog do
 
   `reason` separates the two refusals that look alike in a log and are not:
   `:not_elevated` is a session that can unlock and has not, `:no_second_factor`
-  is an instance where nothing can unlock until 2FA is configured. `:disabled`
-  is an action the instance does not offer at all.
+  is an instance where nothing can unlock until 2FA is configured.
   """
-  @spec log_admin_refusal(String.t(), :not_elevated | :no_second_factor | :disabled, String.t()) ::
-          :ok
+  @spec log_admin_refusal(String.t(), :not_elevated | :no_second_factor, String.t()) :: :ok
   def log_admin_refusal(session_fingerprint, reason, detail) do
     Logger.warning("Admin write refused (#{reason}) for #{session_fingerprint}: #{detail}",
       auth: :denied
@@ -220,14 +216,17 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
-  @doc "Prune audit entries older than retention period."
+  @doc """
+  Prune audit entries older than thirty days.
+
+  The application's database role cannot delete from the audit log, so this
+  calls `prune_auth_audit_log()`, which runs with the owner's rights and whose
+  thirty-day floor is fixed in the database, not chosen here.
+  """
   @spec prune() :: {non_neg_integer(), nil}
   def prune do
-    cutoff = DateTime.add(DateTime.utc_now(), -@retention_days, :day)
-
-    Repo.delete_all(from(e in AuditEntry, where: e.inserted_at < ^cutoff))
-  rescue
-    _ -> {0, nil}
+    %{rows: [[count]]} = Repo.query!("SELECT prune_auth_audit_log()")
+    {count, nil}
   end
 
   @doc "List recent audit entries."

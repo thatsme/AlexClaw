@@ -69,12 +69,22 @@ instance where nothing can.
 
 ### What elevation does not cover
 
-**Database restore is not offered in the admin UI.** Until 0.3.34, restoring
-the database is an operator procedure, run from the host with the database
-owner's credentials (see [Database Backups](#database-backups)). The Database page shows no
-restore form. A restore request sent to the page anyway, and a restore challenge
-raised by an earlier version and answered after the upgrade, are refused and
-recorded in the audit log.
+**Database restore is challenged every time**, and refused outright where no
+code can be asked for. It replaces the application's data, so it asks for a
+code per restore and is never covered by an existing elevation: authority
+earned for editing a setting is not authority to replace the data. The upload
+is staged on disk while the code is outstanding, and discarded whether the
+restore runs or not.
+
+**A restore loads data; it runs nothing.** The file is an export from the
+Database page — JSON values, one entry per table. It is parsed and checked in
+the application, and the values are inserted through parameterised queries,
+each cast to its column's type. Table names, column names and types come from
+the live database, never from the file, and a file that disagrees with the
+schema in any way is refused before anything changes. The audit log and the
+current sign-ins are never touched. A full restore — schema and audit log
+included — is an operator step with the database owner's credentials (see
+[Database Backups](#database-backups)).
 
 **Running a workflow follows the workflow's own rule.** A workflow marked
 `requires_2fa` is challenged when it is run, from the Workflows page and the
@@ -161,7 +171,7 @@ backups deserve the care the rest of this document describes.
 
 With no TOTP configured, nothing can elevate — so the control plane is
 **read-only**. Every configuration change, policy edit, provider or resource
-change, cluster change and workflow edit is refused, recorded
+change, cluster change, workflow edit and database restore is refused, recorded
 in the audit log as `no_second_factor`, and answered with what to do about it.
 There is no state in which a control-plane write proceeds on the admin password
 alone, and no environment variable that disables the gate.
@@ -345,7 +355,9 @@ The noVNC interface (port 6080) should never be exposed publicly.
 
 The `db_backup` core skill produces gzip-compressed `pg_dump` files on a
 host-mounted directory. Backups contain the **full database contents**
-including encrypted API keys and tokens (stored as AES-256-GCM ciphertext).
+including sensitive settings (stored as AES-256-GCM ciphertext) and the
+credentials that encryption at rest does not cover yet, in plain text (see
+[Encryption at Rest](#encryption-at-rest)).
 
 **Security considerations:**
 - Backup files should be stored on an encrypted filesystem or encrypted at
@@ -357,15 +369,44 @@ including encrypted API keys and tokens (stored as AES-256-GCM ciphertext).
   container recreation
 - Backup rotation (configurable `backup.max_files`) limits exposure window —
   old backups are deleted automatically
-- To restore: `gunzip -c backup.sql.gz | psql -U alexclaw -d alex_claw_prod`
-  from a host with access to the database
+- A backup is made as the application role, which may read every table, so
+  it holds the audit log too
+- To restore a backup — an operator step, with the database owner's
+  credentials, that replaces the whole database: recreate the database, load
+  the backup with `psql --single-transaction -v ON_ERROR_STOP=1`, then run
+  `docker compose run --rm migrate` to bring the schema up to date and grant
+  the application role its privileges. The exact commands are in
+  [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md#restoring-after-0334)
+
+---
+
+## Database Roles
+
+AlexClaw connects to PostgreSQL as its own **application role**, not as the
+database owner.
+
+- The application role owns no table and cannot create roles or databases.
+  AlexClaw refuses to start in production on a connection that is a superuser,
+  can create roles or databases, bypasses row-level security, or owns a table
+- On the audit log it may **read and insert only**. Update, delete, truncate,
+  alter and drop are refused by the database. Rows older than thirty days are
+  pruned by `prune_auth_audit_log()`, a function owned by the owner. Its floor
+  is fixed in the database, not chosen by the application
+- Every table's privileges are an explicit decision. A table added without
+  one fails the migration step, and the build
+- Migrations run in a one-shot `migrate` service with the owner's credentials,
+  which no other application container receives. That service is never given
+  `SECRET_KEY_BASE`: the owner's credentials and the key that decrypts the
+  stored secrets never share a container, and a test fails the build if a
+  compose file puts them together
+- Upgrading an existing installation: [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md)
 
 ---
 
 ## Encryption at Rest
 
-Sensitive configuration values (API keys, tokens, OAuth secrets) are encrypted
-at the application level using **AES-256-GCM** before being stored in PostgreSQL.
+Sensitive settings (API keys, tokens, OAuth secrets held in the configuration)
+are encrypted at the application level using **AES-256-GCM** before being stored in PostgreSQL.
 
 - Encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256
 - Each value gets a unique 12-byte random IV — identical plaintext produces different ciphertext
@@ -380,9 +421,19 @@ at the application level using **AES-256-GCM** before being stored in PostgreSQL
 `github.token`, `github.webhook_secret`, `google.oauth.client_secret`,
 `google.oauth.refresh_token`
 
-**Important:** If you change `SECRET_KEY_BASE`, all encrypted settings become
-unreadable. You will need to re-enter API keys and tokens via the admin UI
-or environment variables and restart.
+**Changing `SECRET_KEY_BASE` needs a rotation, not an edit.** Changed alone,
+it leaves every encrypted setting unreadable, the TOTP secret included. The
+rotation re-encrypts them from the old key to the new one in a single audited
+transaction, and changes nothing if any value cannot be decrypted with the
+old key: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
+
+**Not covered yet.** Credentials entered outside the settings are stored in
+plain text: an LLM provider's API key and extra headers
+(`llm_providers.api_key`, `llm_providers.headers`) and a Telegram Notify step's
+own bot token (`bot_token` in the step's configuration). Database backups hold
+them in plain text. **Export Data** writes them encrypted under the same key as
+the sensitive settings, and a restore decrypts them, so an export made under
+another `SECRET_KEY_BASE` is refused.
 
 ---
 
@@ -694,8 +745,8 @@ processing sensitive information.
 **An elevation is bounded by time, not by action.**
 Within its fifteen minutes, an elevated session may make any control-plane
 change the pages expose, not only the one the code was requested for. The
-per-action exception is the one named above: running a workflow marked
-`requires_2fa`.
+per-action exceptions are the two named above: a database restore, and running
+a workflow marked `requires_2fa`.
 
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures

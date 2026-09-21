@@ -1,7 +1,7 @@
 defmodule AlexClaw.MixProject do
   use Mix.Project
 
-  @version "0.3.33"
+  @version "0.3.34"
 
   def project do
     [
@@ -66,8 +66,53 @@ defmodule AlexClaw.MixProject do
     [
       setup: ["deps.get", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"]
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      # app.config first: the ecto tasks load configuration themselves, which
+      # would otherwise overwrite the owner's credentials; a task already run
+      # is not run again.
+      "ecto.create": ["app.config", &as_owner/1, "ecto.create"],
+      "ecto.migrate": ["app.config", &as_owner/1, "ecto.migrate", &grant_app_role/1]
     ]
+  end
+
+  # The application role cannot create databases or run DDL. Where the owner's
+  # credentials are given (DATABASE_OWNER_USERNAME/_PASSWORD, as the test stack
+  # does), creating and migrating switch to them, and migrating ends by granting
+  # the application role its privileges — the same step a release's migrate
+  # runs. Without them nothing changes, so a single-role setup keeps working.
+  defp as_owner(_args), do: switch_to_owner(System.get_env("DATABASE_OWNER_USERNAME"))
+
+  defp switch_to_owner(nil), do: :ok
+
+  defp switch_to_owner(owner) do
+    config = Application.get_env(:alex_claw, AlexClaw.Repo, [])
+    System.put_env("DATABASE_APP_USERNAME", Keyword.fetch!(config, :username))
+
+    Application.put_env(
+      :alex_claw,
+      AlexClaw.Repo,
+      Keyword.merge(config,
+        username: owner,
+        password: System.fetch_env!("DATABASE_OWNER_PASSWORD")
+      )
+    )
+  end
+
+  defp grant_app_role(_args), do: grant_app_role(System.get_env("DATABASE_OWNER_USERNAME"), :run)
+
+  defp grant_app_role(nil, :run), do: :ok
+
+  defp grant_app_role(_owner, :run) do
+    {:ok, _} = Application.ensure_all_started(:postgrex)
+    config = Application.fetch_env!(:alex_claw, AlexClaw.Repo)
+
+    {:ok, conn} =
+      config
+      |> Keyword.take([:hostname, :port, :username, :password, :database])
+      |> Postgrex.start_link()
+
+    apply(AlexClaw.Database.Roles, :grant, [conn, System.fetch_env!("DATABASE_APP_USERNAME")])
+    GenServer.stop(conn)
   end
 
   defp build_suffix do

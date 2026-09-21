@@ -3,16 +3,74 @@ defmodule AlexClaw.Release do
   Release tasks for running migrations and seeding in production.
   Called from entrypoint.sh before the app starts.
   """
+  alias AlexClaw.Config.Rekey
+  alias AlexClaw.Database.Roles
+
   @app :alex_claw
 
-  @spec migrate() :: [{:ok, [integer()], [Ecto.Migration.t()]}]
+  @doc """
+  Run every pending migration, then grant the application role its privileges.
+
+  Runs as the database owner — in production the one-shot `migrate` service,
+  which is the only container given the owner's credentials. The role to grant
+  is `DATABASE_APP_USERNAME`; without it there is no separate application role
+  to grant, and the step says so.
+  """
+  @spec migrate() :: [:ok]
   def migrate do
     load_app()
 
     for repo <- repos() do
       {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :up, all: true))
+      grant_app_role(repo, System.get_env("DATABASE_APP_USERNAME"))
     end
   end
+
+  defp grant_app_role(_repo, nil) do
+    IO.puts("DATABASE_APP_USERNAME is not set — no application role to grant.")
+  end
+
+  defp grant_app_role(repo, role) do
+    {:ok, _} = Application.ensure_all_started(:postgrex)
+    {:ok, conn} = Postgrex.start_link(connection_opts(repo))
+
+    try do
+      Roles.grant(conn, role)
+      IO.puts("Granted #{role} the application's privileges.")
+    after
+      GenServer.stop(conn)
+    end
+  end
+
+  defp connection_opts(repo) do
+    Keyword.take(repo.config(), [:hostname, :port, :username, :password, :database, :ssl])
+  end
+
+  @doc """
+  Re-encrypt the stored secrets for a new SECRET_KEY_BASE — see
+  `AlexClaw.Config.Rekey`. With the application stopped, and with
+  OLD_SECRET_KEY_BASE and the new SECRET_KEY_BASE both in the environment.
+  """
+  @spec rekey() :: :ok
+  def rekey do
+    load_app()
+    old = System.fetch_env!("OLD_SECRET_KEY_BASE")
+    new = System.fetch_env!("SECRET_KEY_BASE")
+
+    for repo <- repos() do
+      {:ok, result, _} =
+        Ecto.Migrator.with_repo(repo, fn _repo -> Rekey.run(old, new) end)
+
+      report_rekey(result)
+    end
+
+    :ok
+  end
+
+  defp report_rekey({:ok, count}),
+    do: IO.puts("Re-encrypted #{count} settings under the new SECRET_KEY_BASE.")
+
+  defp report_rekey({:error, reason}), do: raise("SECRET_KEY_BASE rotation refused: #{reason}")
 
   @spec seed_examples() :: [{:ok, any(), any()}]
   def seed_examples do

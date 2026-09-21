@@ -4,16 +4,59 @@ services:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DATABASE_USERNAME:-alexclaw}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      # The owner. Used only when the volume is first initialised; the
+      # application role is created by the operator — see the upgrade guide.
+      POSTGRES_USER: ${DATABASE_OWNER_USERNAME:-alexclaw}
+      POSTGRES_PASSWORD: ${DATABASE_OWNER_PASSWORD}
       POSTGRES_DB: alex_claw_prod
+      # For db-init/01-app-role.sh, which creates the application role on a
+      # fresh volume. An existing volume ignores both.
+      DATABASE_APP_USERNAME: "${DATABASE_USERNAME:?not set - the application role}"
+      DATABASE_APP_PASSWORD: "${DATABASE_PASSWORD:?not set - the application role's password}"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db-init/01-app-role.sh:/docker-entrypoint-initdb.d/01-app-role.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-alexclaw}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_OWNER_USERNAME:-alexclaw}"]
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # Migrations run here, as the database owner, and nowhere else. This is the
+  # only container given the owner's credentials: it migrates, grants the
+  # application role its privileges (AlexClaw.Database.Roles), and exits. The
+  # application starts only once it has exited cleanly, and connects as the
+  # application role — which it checks at boot.
+  migrate:
+    container_name: alexclaw-migrate
+    image: alexclaw-app:latest
+    build:
+      context: .
+      args:
+        BUILD_NUMBER: ${BUILD_NUMBER:-0}
+    command: ["bin/alex_claw", "eval", "AlexClaw.Release.migrate()"]
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      db-prod:
+        condition: service_healthy
+    environment:
+      DATABASE_USERNAME: ${DATABASE_OWNER_USERNAME:-alexclaw}
+      DATABASE_PASSWORD: "${DATABASE_OWNER_PASSWORD:?not set - the database owner's password}"
+      DATABASE_HOSTNAME: db-prod
+      DATABASE_APP_USERNAME: "${DATABASE_USERNAME:?not set - the application role}"
+      # No SECRET_KEY_BASE, deliberately: the owner's credentials and the key
+      # that decrypts the stored secrets never share a container. The runtime
+      # configuration accepts its absence for an eval only.
+      CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
+      RELEASE_TMP: /tmp
+      ERL_CRASH_DUMP: /tmp/erl_crash.dump
 
   alexclaw-prod:
     container_name: alexclaw-prod
@@ -35,6 +78,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    image: alexclaw-app:latest
     build:
       context: .
       args:
@@ -42,8 +86,8 @@ services:
     hostname: node1.local
     restart: unless-stopped
     depends_on:
-      db-prod:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       # Loopback by default. The admin UI carries session cookies and the MCP
       # endpoint carries bearer tokens, both in clear over HTTP, so the
@@ -57,7 +101,8 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       # Database
-      DATABASE_USERNAME: ${DATABASE_USERNAME:-alexclaw}
+      # The application role, never the owner: the boot refuses the owner.
+      DATABASE_USERNAME: "${DATABASE_USERNAME:?not set - the application role}"
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_HOSTNAME: db-prod
 

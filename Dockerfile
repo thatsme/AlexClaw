@@ -40,7 +40,9 @@ RUN mix compile && mix release
 # --- Test stage (used by docker-compose.test.yml) ---
 FROM elixir:1.19-otp-28-alpine AS test
 
-RUN apk add --no-cache build-base git
+# postgresql-client: backup_as_app_role_test runs pg_dump as the application
+# role, the way the backup download and the backup skill do.
+RUN apk add --no-cache build-base git postgresql-client
 
 WORKDIR /app
 ENV MIX_ENV=test
@@ -63,6 +65,9 @@ COPY mkdocs.yml .env.example ./
 # must not ship with a default. Without them the scan would find nothing and
 # pass.
 COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml ./
+# Read by documentation_test with the compose files: the deployment reads some
+# documented variables itself.
+COPY db-init db-init/
 COPY ALEXCLAW_ARCHITECTURE.md CLA.md CODE_OF_CONDUCT.md CODING_CONVENTIONS.md ./
 COPY CONTRIBUTING.md INSTALLATION.md README.md ROADMAP.md SECURITY.md SELF_AWARENESS.md ./
 

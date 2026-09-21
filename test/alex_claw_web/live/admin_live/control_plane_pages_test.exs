@@ -146,6 +146,27 @@ defmodule AlexClawWeb.AdminLive.ControlPlanePagesTest do
   end
 
   describe "an effect outside the database" do
+    # Discovery fetches the API and writes back to the resource, so asking for
+    # it is audited like any change, and started only after that row commits.
+    test "asking for API discovery is an audited change", %{conn: conn, sid: sid} do
+      {:ok, resource} =
+        AlexClaw.Resources.create_resource(%{name: "pages-discover", type: "rss_feed"},
+          skip_discovery: true
+        )
+
+      view = open(conn, sid, "/resources")
+      render_click(view, "discover", %{"id" => to_string(resource.id)})
+
+      assert [_row] = rows("write", "resource discovery started: id #{resource.id}")
+    end
+
+    test "discovery for a resource that is not there leaves no row", %{conn: conn, sid: sid} do
+      view = open(conn, sid, "/resources")
+      render_click(view, "discover", %{"id" => "999999999"})
+
+      assert rows("write", "resource discovery started: id 999999999") == []
+    end
+
     test "connecting a node audits the intent, then what the node answered", %{
       conn: conn,
       sid: sid

@@ -28,14 +28,22 @@ defmodule AlexClaw.Resources do
   @spec get_resource!(integer()) :: Resource.t()
   def get_resource!(id), do: Repo.get!(Resource, id)
 
-  @spec create_resource(map()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
-  def create_resource(attrs) do
+  @doc """
+  Create a resource. An API resource starts discovery once created, unless
+  `skip_discovery: true` — which a caller inside a transaction passes, and
+  calls `discover/1` after commit instead.
+  """
+  @spec create_resource(map(), keyword()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
+  def create_resource(attrs, opts \\ []) do
     result =
       %Resource{}
       |> Resource.changeset(attrs)
       |> Repo.insert()
 
-    with {:ok, resource} <- result, do: maybe_trigger_discovery(resource)
+    unless opts[:skip_discovery] do
+      with {:ok, resource} <- result, do: discover(resource)
+    end
+
     result
   end
 
@@ -48,17 +56,20 @@ defmodule AlexClaw.Resources do
       |> Repo.update()
 
     unless opts[:skip_discovery] do
-      with {:ok, updated} <- result, do: maybe_trigger_discovery(updated)
+      with {:ok, updated} <- result, do: discover(updated)
     end
 
     result
   end
 
-  defp maybe_trigger_discovery(%Resource{type: "api"} = resource) do
-    ApiDiscovery.run_async(resource)
-  end
-
-  defp maybe_trigger_discovery(_resource), do: :ok
+  @doc """
+  Start discovering an API resource's endpoints, in the background. Discovery
+  fetches the API and then writes what it found to the resource, so it is
+  started only for a resource that is committed.
+  """
+  @spec discover(Resource.t()) :: {:ok, pid()} | :ignore | :ok
+  def discover(%Resource{type: "api"} = resource), do: ApiDiscovery.run_async(resource)
+  def discover(_resource), do: :ok
 
   @spec delete_resource(Resource.t()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
   def delete_resource(%Resource{} = resource) do

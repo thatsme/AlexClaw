@@ -71,6 +71,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
     Elevation.gated(socket, "resource saved: #{params["name"]}",
       write: fn -> persist_resource(editing, resource_attrs(params)) end,
+      after_commit: &Resources.discover/1,
       ok: fn socket, _resource ->
         action = if editing, do: "updated", else: "created"
 
@@ -106,9 +107,10 @@ defmodule AlexClawWeb.AdminLive.Resources do
     Elevation.gated(socket, "resource enabled toggled: id #{id}",
       write: fn ->
         with {:ok, resource} <- fetch_resource(id) do
-          Resources.update_resource(resource, %{enabled: !resource.enabled})
+          Resources.update_resource(resource, %{enabled: !resource.enabled}, skip_discovery: true)
         end
       end,
+      after_commit: &Resources.discover/1,
       ok: fn socket, _resource ->
         assign(socket, resources: list_resources(socket.assigns.type_filter))
       end,
@@ -126,22 +128,19 @@ defmodule AlexClawWeb.AdminLive.Resources do
     {:noreply, push_patch(socket, to: "/resources?type=#{type}")}
   end
 
+  # Discovery writes what it finds to the resource, so asking for it is a
+  # change like any other: audited, behind an elevation, and started after the
+  # row that records it is committed.
   @impl true
   def handle_event("discover", %{"id" => id}, socket) do
-    case parse_id(id) do
-      {:ok, rid} ->
-        case Resources.get_resource(rid) do
-          {:ok, resource} ->
-            ApiDiscovery.run_async(resource)
-            {:noreply, put_flash(socket, :info, "API discovery started for #{resource.name}")}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Resource not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
+    Elevation.gated(socket, "resource discovery started: id #{id}",
+      write: fn -> fetch_resource(id) end,
+      after_commit: &Resources.discover/1,
+      ok: fn socket, resource ->
+        put_flash(socket, :info, "API discovery started for #{resource.name}")
+      end,
+      error: &not_saved/2
+    )
   end
 
   def handle_event("unlock_editing", _params, socket) do
@@ -175,8 +174,12 @@ defmodule AlexClawWeb.AdminLive.Resources do
   defp put_metadata(attrs, {:ok, map}) when is_map(map), do: Map.put(attrs, :metadata, map)
   defp put_metadata(attrs, _decoded), do: attrs
 
-  defp persist_resource(nil, attrs), do: Resources.create_resource(attrs)
-  defp persist_resource(resource, attrs), do: Resources.update_resource(resource, attrs)
+  # Discovery fetches the API and writes back to the resource, so it is started
+  # after commit, never from inside the change.
+  defp persist_resource(nil, attrs), do: Resources.create_resource(attrs, skip_discovery: true)
+
+  defp persist_resource(resource, attrs),
+    do: Resources.update_resource(resource, attrs, skip_discovery: true)
 
   defp fetch_resource(id), do: id |> parse_id() |> fetched_resource()
 

@@ -158,7 +158,10 @@ services:
       retries: 5
       start_period: 30s
 
+  # Opt-in: built and started only with `--profile web-automation` (or
+  # COMPOSE_PROFILES=web-automation in .env). A first run does not build it.
   web-automator:
+    profiles: ["web-automation"]
     build: ./web-automator
     restart: unless-stopped
     ports:

@@ -97,6 +97,16 @@ defmodule AlexClaw.DocumentationTest do
            "links to files that do not exist:\n  " <> Enum.join(Enum.uniq(broken), "\n  ")
   end
 
+  # Release notes have one home: the GitHub releases, published by CI from
+  # .github/release-notes/. A version copied into the changelog page would be
+  # a second copy that falls behind — as it did, twenty versions deep.
+  test "the changelog page copies no release notes" do
+    versions = Regex.scan(~r/^#+ v(\d+\.\d+\.\d+)/m, File.read!("docs/reference/changelog.md"))
+
+    assert Enum.map(versions, fn [_, v] -> v end) == ["0.3.10"],
+           "docs/reference/changelog.md lists versions; their notes belong in .github/release-notes/"
+  end
+
   test "every mkdocs nav target exists" do
     nav = File.read!("mkdocs.yml")
 

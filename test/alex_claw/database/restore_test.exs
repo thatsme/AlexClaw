@@ -166,7 +166,9 @@ defmodule AlexClaw.Database.RestoreTest do
 
       for secret <- ["sk-plain-key", "hdr-secret", "123:bot-secret"], do: refute(text =~ secret)
       assert Crypto.encrypted?(exported(original, "llm_providers", p.id, "api_key"))
-      assert Crypto.encrypted?(exported(original, "llm_providers", p.id, "headers"))
+      headers = Jason.decode!(exported(original, "llm_providers", p.id, "headers"))
+      assert Map.keys(headers) == ["x-api-key"], "header names stay readable"
+      assert Crypto.encrypted?(headers["x-api-key"])
 
       config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
       assert Crypto.encrypted?(config["bot_token"])
@@ -181,6 +183,32 @@ defmodule AlexClaw.Database.RestoreTest do
 
       assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"] ==
                "123:bot-secret"
+    end
+
+    test "include an API Request step's headers, string by string" do
+      workflow = fixtures()
+
+      {:ok, step} =
+        Workflows.add_step(workflow, %{
+          name: "api",
+          skill: "api_request",
+          config: %{
+            "url" => "https://example.com",
+            "headers" => %{"authorization" => "Bearer api-secret"}
+          }
+        })
+
+      original = export()
+      refute Jason.encode!(original) =~ "api-secret"
+
+      config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
+      assert Crypto.encrypted?(config["headers"]["authorization"])
+      assert config["url"] == "https://example.com"
+
+      assert {:ok, _} = Restore.load(original)
+
+      assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["headers"] ==
+               %{"authorization" => "Bearer api-secret"}
     end
 
     test "that are nil or empty stay so" do
@@ -302,6 +330,12 @@ defmodule AlexClaw.Database.RestoreTest do
       bad = update_in(original, ["tables", "settings", "columns"], &Enum.reverse/1)
       assert {:error, message} = Restore.load(bad)
       assert message =~ "columns of settings"
+      unchanged!(original)
+    end
+
+    test "one in format version 1, which no release wrote", %{original: original} do
+      assert {:error, message} = Restore.load(%{original | "version" => 1})
+      assert message =~ "version"
       unchanged!(original)
     end
 

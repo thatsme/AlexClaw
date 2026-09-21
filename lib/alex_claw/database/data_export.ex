@@ -23,7 +23,9 @@ defmodule AlexClaw.Database.DataExport do
   alias Ecto.Adapters.SQL
 
   @format "alexclaw-data"
-  @version 1
+  # 2: every string in a sealed JSON value encrypted in place, the form later
+  # releases store credentials in at rest, so they restore this format as is.
+  @version 2
 
   @doc "The format name and version a restore expects."
   @spec format() :: {String.t(), pos_integer()}

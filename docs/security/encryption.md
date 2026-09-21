@@ -54,7 +54,7 @@ The same encryption covers credentials stored elsewhere:
 | `llm_providers.headers` | every header value (the header names stay readable) |
 | a workflow step's `config` | the keys its skill declares with `secret_config_keys/0`: `bot_token` (Telegram Notify), `headers` (API Request) |
 
-A skill whose configuration names a key like a credential (`token`, `key`, `password`, `secret`, `credential`) must declare it. A core skill that does not fails the build, and a dynamic skill that does not is refused at load.
+A skill whose configuration has a key with a name one of whose underscore-separated parts is `token`, `key`, `apikey`, `password`, `secret`, `credential`, `auth`, `authorization` or `headers` (so `api_key` and `auth_header` count, `keyword_count` does not) must declare it. A core skill that does not fails the build, and a dynamic skill that does not is refused at load.
 
 Values stored in plain text by an earlier release are encrypted at the next boot. A stored value that does not decrypt under the running `SECRET_KEY_BASE` stops the boot, naming the row and column. Seeded cloud providers (Gemini, Anthropic) hold no copy of their key; they read it from its setting.
 

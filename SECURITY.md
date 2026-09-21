@@ -430,8 +430,9 @@ old key: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.m
 provider's API key and header values (`llm_providers.api_key`,
 `llm_providers.headers`), and the step configuration keys a skill declares
 secret — a Telegram Notify step's `bot_token`, an API Request step's
-`headers`. A skill whose configuration names a key like a credential (`token`,
-`key`, `password`, `secret`, `credential`) must declare it with
+`headers`. A skill whose configuration has a key with a name
+one of whose underscore-separated parts is `token`, `key`, `apikey`,
+`password`, `secret`, `credential`, `auth`, `authorization` or `headers` must declare it with
 `secret_config_keys/0`: a core skill that does not fails the build, and a
 dynamic skill that does not is refused at load. Values written before this
 existed are encrypted at the next boot, and a stored value that does not

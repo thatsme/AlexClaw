@@ -123,7 +123,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
       else: []
   end
 
-  @credential_name ~r/token|key|password|secret|credential/i
+  # Whole underscore-separated segments, not substrings: `api_key` and
+  # `auth_header` name credentials, `keyword_count` does not.
+  @credential_segments ~w(token key apikey password secret credential auth authorization headers)
 
   @doc """
   Config keys of `module` named like a credential but not declared in
@@ -139,10 +141,19 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     configs
     |> Enum.flat_map(&Map.keys/1)
     |> Enum.map(&to_string/1)
-    |> Enum.filter(&Regex.match?(@credential_name, &1))
+    |> Enum.filter(&credential_name?/1)
     |> Enum.uniq()
     |> Kernel.--(declared_secrets(module))
     |> Enum.sort()
+  end
+
+  @doc "Whether a config key's name, split on underscores, has a credential segment."
+  @spec credential_name?(String.t()) :: boolean()
+  def credential_name?(name) do
+    name
+    |> String.downcase()
+    |> String.split("_")
+    |> Enum.any?(&(&1 in @credential_segments))
   end
 
   @doc "The core skill modules."

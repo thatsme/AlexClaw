@@ -26,6 +26,17 @@ defmodule AlexClaw.Workflows.SecretConfigKeysTest do
     assert undeclared == []
   end
 
+  test "a credential name is matched by whole segment, not by substring" do
+    for name <- ~w(api_key bot_token auth_header apikey password client_secret
+                   aws_credential authorization headers extra_headers API_KEY) do
+      assert SkillRegistry.credential_name?(name), "#{name} should be a credential name"
+    end
+
+    for name <- ~w(keyword_count monkey tokens_used author secretary url max_items) do
+      refute SkillRegistry.credential_name?(name), "#{name} is not a credential name"
+    end
+  end
+
   test "the skills that take credentials declare them" do
     assert "bot_token" in SkillRegistry.secret_config_keys()
     assert "headers" in SkillRegistry.secret_config_keys()
@@ -84,7 +95,7 @@ defmodule AlexClaw.Workflows.SecretConfigKeysTest do
     name =
       skill(dir, "plain_probe.ex", """
         @impl true
-        def config_scaffold, do: %{"url" => "", "max_items" => 3}
+        def config_scaffold, do: %{"url" => "", "keyword_count" => 3}
       """)
 
     assert {:ok, _} = SkillRegistry.load_skill(name)

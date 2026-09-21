@@ -69,7 +69,7 @@ These callbacks control how the workflow step editor renders when your skill is 
 | `config_presets/0` | `%{}` | Named config templates shown as buttons (e.g. `%{"GET" => %{"method" => "GET"}}`) |
 | `prompt_presets/0` | `%{}` | Named prompt templates shown as buttons (e.g. `%{"Summarize" => "Summarize:\n\n{input}"}`) |
 | `config_help/0` | `"Skill-specific parameters as JSON."` | Help text shown as tooltip on the config field |
-| `secret_config_keys/0` | `[]` | Config keys holding credentials, stored encrypted (e.g. `["api_key"]`). Required for every key in `config_scaffold/0` or `config_presets/0` whose name contains `token`, `key`, `password`, `secret` or `credential`: a skill that leaves one out is refused at load |
+| `secret_config_keys/0` | `[]` | Config keys holding credentials, stored encrypted (e.g. `["api_key"]`). Required for every key in `config_scaffold/0` or `config_presets/0` with a name one of whose underscore-separated parts is `token`, `key`, `apikey`, `password`, `secret`, `credential`, `auth`, `authorization` or `headers` (so `api_key` and `auth_header` count, `keyword_count` does not): a skill that leaves one out is refused at load |
 | `prompt_help/0` | `"Template sent to the LLM. Use {input} for previous step output."` | Help text shown as tooltip on the prompt field |
 
 ## The `args` Map

@@ -2,10 +2,9 @@ defmodule AlexClaw.Database.RestoreTest do
   @moduledoc """
   Staging and discarding an uploaded dump.
 
-  `run/1` itself shells out to psql against the live database, so the tests
-  here cover everything around it: that a file is staged out of the upload's
-  temporary directory, that it is discarded on refusal, and that a restore
-  asked to run against a file that is gone says so rather than proceeding.
+  That a file is staged out of the upload's temporary directory and discarded
+  on refusal. `run/2` writes audit rows, so it is tested with a database in
+  `AlexClaw.Database.RestoreAuditTest`.
   """
   use ExUnit.Case, async: true
 
@@ -73,16 +72,6 @@ defmodule AlexClaw.Database.RestoreTest do
     # tolerate a file that is already gone.
     test "is a no-op for a file that is already gone" do
       assert :ok = Restore.discard("/nonexistent/staged.sql")
-    end
-  end
-
-  describe "run/1" do
-    # The challenge can be answered minutes later, by which time a tmp cleaner
-    # may have taken the file. Shelling out to psql with a missing -f argument
-    # would be a worse way to find out.
-    test "refuses a staged file that has disappeared" do
-      assert {:error, message} = Restore.run("/nonexistent/staged.sql")
-      assert message =~ "no longer available"
     end
   end
 end

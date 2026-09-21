@@ -234,11 +234,18 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
 
   # Arbitrary SQL against the live database, so it is never covered by an
   # elevation window — only by a code answered for this restore. The staged
-  # file is consumed either way: Restore.run/1 deletes it.
-  def execute_2fa_action(%{type: :database_restore, path: path, filename: filename}, _msg) do
+  # file is consumed either way: Restore.run/2 deletes it.
+  #
+  # A restore challenge raised before sessions were carried on the action has no
+  # :session, and is recorded as unidentified rather than refused on the spot.
+  def execute_2fa_action(
+        %{type: :database_restore, path: path, filename: filename} = action,
+        _msg
+      ) do
     Gateway.send_message("Restoring the database from #{filename}...")
 
-    {status, message} = Restore.run(path)
+    {status, message} =
+      Restore.run(path, %{filename: filename, session: Map.get(action, :session, "unidentified")})
 
     Phoenix.PubSub.broadcast(
       AlexClaw.PubSub,

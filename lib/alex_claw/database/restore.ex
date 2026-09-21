@@ -14,6 +14,8 @@ defmodule AlexClaw.Database.Restore do
   """
   require Logger
 
+  alias AlexClaw.Auth.AuditLog
+
   @staging_prefix "alexclaw-restore-"
 
   @doc """
@@ -38,15 +40,40 @@ defmodule AlexClaw.Database.Restore do
   @doc """
   Run a staged file against the database, then discard it.
 
+  Audited on both sides. The row saying a restore is starting is written
+  before anything runs, and a restore whose row cannot be written does not
+  run. The row saying how it ended is written after — a restore cannot be
+  rolled back, so its outcome is recorded rather than made conditional.
+
+  `context` names the upload and, by fingerprint, the session that asked.
+
   The file is consumed either way: a restore that failed halfway is not a file
   worth keeping around, and it holds whatever the uploader put in it.
   """
-  @spec run(Path.t()) :: {:ok, String.t()} | {:error, String.t()}
-  def run(path) do
+  @spec run(Path.t(), %{filename: String.t(), session: String.t()}) ::
+          {:ok, String.t()} | {:error, String.t()}
+  def run(path, %{filename: filename, session: session}) do
+    detail = "database restore from #{filename}"
+
+    session
+    |> AuditLog.record_admin_write(detail)
+    |> restore(path, session, detail)
+  end
+
+  defp restore(:ok, path, session, detail) do
     result = psql(File.exists?(path), path)
     discard(path)
+    AuditLog.record_admin_outcome(session, "#{detail} — #{outcome(result)}")
     result
   end
+
+  defp restore({:error, _reason}, path, _session, _detail) do
+    discard(path)
+    {:error, "The restore was not run: it could not be recorded in the audit log."}
+  end
+
+  defp outcome({:ok, message}), do: message
+  defp outcome({:error, message}), do: message
 
   defp psql(false, path) do
     Logger.warning("Restore asked for a staged file that is gone: #{path}")

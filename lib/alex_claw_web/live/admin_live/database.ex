@@ -104,13 +104,23 @@ defmodule AlexClawWeb.AdminLive.Database do
      )}
   end
 
+  # The action carries the session's fingerprint, never the sid: it waits in
+  # the challenge store for the code, and names who asked in the audit rows.
   defp challenge(true, path, filename, socket) do
     ActionCode.request(
       socket,
-      %{type: :database_restore, path: path, filename: filename},
+      %{
+        type: :database_restore,
+        path: path,
+        filename: filename,
+        session: session_print(socket.assigns.elevation_sid)
+      },
       "Restore the database from #{filename} — this replaces live data"
     )
   end
+
+  defp session_print(sid) when is_binary(sid), do: AlexClaw.Auth.Elevation.fingerprint(sid)
+  defp session_print(_sid), do: "unidentified"
 
   defp restored(socket, {:ok, message}) do
     socket

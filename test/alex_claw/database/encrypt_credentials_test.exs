@@ -94,7 +94,9 @@ defmodule AlexClaw.Database.EncryptCredentialsTest do
     bad = plain_provider("openai_compatible", foreign("sk-foreign"))
 
     error = assert_raise RuntimeError, fn -> EncryptCredentials.run() end
-    assert error.message =~ "llm_providers #{bad}: api_key does not decrypt"
+    assert error.message =~ "llm_providers #{bad} api_key"
+    assert error.message =~ "Restore the previous SECRET_KEY_BASE"
+    assert error.message =~ "re-key procedure"
     refute error.message =~ "sk-foreign"
     refute Crypto.encrypted?(stored("llm_providers", "api_key", plain)), "nothing was written"
   end
@@ -103,7 +105,43 @@ defmodule AlexClaw.Database.EncryptCredentialsTest do
     s = plain_step(%{"bot_token" => foreign("t")})
 
     error = assert_raise RuntimeError, fn -> EncryptCredentials.run() end
-    assert error.message =~ "workflow_steps #{s}: config.bot_token"
+    assert error.message =~ "workflow_steps #{s} config.bot_token"
+  end
+
+  # The same rule as for credentials: a setting encrypted under another key is
+  # a changed SECRET_KEY_BASE, not something to start without.
+  test "a setting encrypted under another key stops it, and every bad row is named at once" do
+    {:ok, _} = AlexClaw.Config.set("boot.good", "fine", sensitive: true)
+
+    for key <- ["auth.totp.secret", "boot.lost"] do
+      Repo.query!(
+        "INSERT INTO settings (key, value, type, category, sensitive, inserted_at, updated_at) " <>
+          "VALUES ($1, $2, 'string', 'test', true, now(), now()) " <>
+          "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        [key, foreign("lost-value")]
+      )
+    end
+
+    bad = plain_provider("openai_compatible", foreign("sk-foreign"))
+
+    error = assert_raise RuntimeError, fn -> EncryptCredentials.run() end
+    assert error.message =~ "settings auth.totp.secret"
+    assert error.message =~ "settings boot.lost"
+    assert error.message =~ "llm_providers #{bad} api_key"
+    refute error.message =~ "boot.good"
+    refute error.message =~ "lost-value"
+  end
+
+  test "with every value decrypting, it starts and changes nothing" do
+    {:ok, _} = AlexClaw.Config.set("boot.good", "fine", sensitive: true)
+    %{rows: [[before]]} = Repo.query!("SELECT value FROM settings WHERE key = 'boot.good'")
+
+    assert {:ok, _} = EncryptCredentials.run()
+    assert {:ok, _} = EncryptCredentials.run()
+
+    %{rows: [[after_runs]]} = Repo.query!("SELECT value FROM settings WHERE key = 'boot.good'")
+    assert after_runs == before
+    assert Crypto.decrypt(after_runs) == {:ok, "fine"}
   end
 
   describe "a provider seeded with a copy of its setting's key" do

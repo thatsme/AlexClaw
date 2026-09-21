@@ -421,10 +421,14 @@ are encrypted at the application level using **AES-256-GCM** before being stored
 `google.oauth.refresh_token`
 
 **Changing `SECRET_KEY_BASE` needs a rotation, not an edit.** Changed alone,
-it leaves every encrypted setting unreadable, the TOTP secret included. The
-rotation re-encrypts them from the old key to the new one in a single audited
-transaction, and changes nothing if any value cannot be decrypted with the
-old key: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
+it leaves every encrypted value unreadable, the TOTP secret included, and the
+application refuses to start, naming each value it cannot decrypt (never the
+value itself). The rotation re-encrypts them from the old key to the new one
+in a single audited transaction, and changes nothing if any value cannot be
+decrypted with the old key: see
+[Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). A key
+lost for good has its own audited procedure there, which discards only the
+values that no longer decrypt.
 
 **Credentials outside the settings** are encrypted the same way: an LLM
 provider's API key and header values (`llm_providers.api_key`,

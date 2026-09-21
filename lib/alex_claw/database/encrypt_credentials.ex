@@ -1,8 +1,9 @@
 defmodule AlexClaw.Database.EncryptCredentials do
   @moduledoc """
-  At boot, before anything reads them: encrypts the credentials stored outside
-  the settings that are still in plain text, and checks that every encrypted
-  one decrypts under the running `SECRET_KEY_BASE`.
+  At boot, before anything reads them: checks that every encrypted value —
+  sensitive settings and stored credentials — decrypts under the running
+  `SECRET_KEY_BASE`, and encrypts the credentials stored outside the settings
+  that are still in plain text.
 
   Covered: `llm_providers.api_key`, `llm_providers.headers`, and the keys of
   a step's `config` that skills declare secret (`AlexClaw.Encrypted`). Rows
@@ -14,14 +15,17 @@ defmodule AlexClaw.Database.EncryptCredentials do
   `llm.anthropic_api_key`) is left without one, and the LLM client reads the
   setting, as it already does for a provider without a key.
 
-  A value that cannot be encrypted or decrypted stops the boot, naming the
-  row and column and never the value. Both tables are small and read whole,
+  A value that does not decrypt stops the boot. The message names every such
+  row and column, never a value, and says what to do: restore the previous
+  key, or rotate properly; a key lost for good has its own procedure
+  (`AlexClaw.Config.Undecryptable`). Both tables are small and read whole,
   under a row lock, in one transaction: two nodes booting together encrypt
   each row once.
   """
 
   require Logger
 
+  alias AlexClaw.Config.Undecryptable
   alias AlexClaw.Encrypted
   alias AlexClaw.LLM.Client
   alias AlexClaw.Repo
@@ -50,6 +54,8 @@ defmodule AlexClaw.Database.EncryptCredentials do
   @spec run() :: {:ok, %{encrypted: non_neg_integer(), copies: non_neg_integer()}}
   def run do
     Repo.transaction(fn ->
+      stop_if_undecryptable!(Undecryptable.list())
+
       providers =
         Enum.map(rows("SELECT id, type, api_key, headers FROM llm_providers"), &provider/1)
 
@@ -72,8 +78,6 @@ defmodule AlexClaw.Database.EncryptCredentials do
   # --- llm_providers ---
 
   defp provider([id, type, api_key, headers]) do
-    checked!(api_key, "llm_providers", id, "api_key")
-    checked!(headers, "llm_providers", id, "headers")
     provider_outcome(copy?(type, api_key), id, api_key, headers)
   end
 
@@ -107,10 +111,6 @@ defmodule AlexClaw.Database.EncryptCredentials do
   defp step([id, config], keys) do
     secrets = Map.take(config, keys)
 
-    Enum.each(secrets, fn {key, value} ->
-      checked!(value, "workflow_steps", id, "config.#{key}")
-    end)
-
     changed(
       Encrypted.plaintext?(secrets),
       "UPDATE workflow_steps SET config = $2 WHERE id = $1",
@@ -129,10 +129,13 @@ defmodule AlexClaw.Database.EncryptCredentials do
 
   defp update!(sql, params), do: Repo.query!(sql, params)
 
-  defp checked!(value, table, id, column) do
-    unless Encrypted.decryptable?(value) do
-      raise "#{table} #{id}: #{column} does not decrypt under this SECRET_KEY_BASE. " <>
-              "It was encrypted under another key; see docs/deployment/rotate-secret-key-base.md."
-    end
+  defp stop_if_undecryptable!([]), do: :ok
+
+  defp stop_if_undecryptable!(entries) do
+    raise "These stored values do not decrypt under this SECRET_KEY_BASE: " <>
+            Enum.map_join(entries, ", ", &Undecryptable.describe/1) <>
+            ". Restore the previous SECRET_KEY_BASE, or change it only with the re-key " <>
+            "procedure (docs/deployment/rotate-secret-key-base.md). If the previous key " <>
+            "is lost for good, see \"Lost key\" in that guide."
   end
 end

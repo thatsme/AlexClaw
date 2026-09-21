@@ -74,5 +74,35 @@ Sign in. Everyone has to, since every login was ended. Then unlock editing with 
 ## If something goes wrong
 
 - **The rotation was refused**: nothing changed. Start the application with the unchanged `.env`.
-- **The application started with the new key before the rotation ran**: encrypted settings cannot be read, and 2FA fails. Stop the application, put the old key back in `.env`, and start again from step 3.
+- **The application does not start after the key changed**: the log says `These stored values do not decrypt under this SECRET_KEY_BASE` and names them. The key changed without a rotation. Put the old key back in `.env`, start, and rotate from step 1. Nothing is lost while the old key exists.
 - **The backup from step 1** restores the database as it was: see [Upgrading to 0.3.34](upgrade-0.3.34.md#restoring-after-0334).
+
+## Lost key
+
+This is not a rotation. It is for the case where the previous `SECRET_KEY_BASE` is gone for good, so the values encrypted under it can never be read again. The application refuses to start while any are stored, and names them.
+
+The procedure clears exactly those values: sensitive settings (the TOTP secret among them), provider API keys and header values, and step secrets. It keeps everything that still decrypts. It runs in a one-off application container, with the application stopped.
+
+1. **Back up**, as in step 1. The backup still holds the lost values, should the key turn up again.
+
+2. **Stop the application**, as in step 3.
+
+3. **List what would be discarded.** This changes nothing:
+
+   ```bash
+   docker compose run --rm --no-deps --entrypoint bin/alex_claw \
+     alexclaw-prod eval "AlexClaw.Release.discard_undecryptable()"
+   ```
+
+   It prints each value's location, never the value (for example `settings telegram.bot_token`, `llm_providers 3 api_key`, `workflow_steps 12 config.bot_token`), and the confirmation to use, `DISCARD <n>`.
+
+4. **Discard them** with that exact confirmation. Anything else, including a count that no longer matches, is refused with nothing changed:
+
+   ```bash
+   docker compose run --rm --no-deps --entrypoint bin/alex_claw \
+     alexclaw-prod eval 'AlexClaw.Release.discard_undecryptable("DISCARD <n>")'
+   ```
+
+   It clears the values in one transaction and writes an audit row naming them: `undecryptable values discarded (SECRET_KEY_BASE lost): ...`.
+
+5. **Start the application**, and enter the discarded credentials again: sensitive settings under Config, provider keys under LLM, step secrets in each workflow step. If the TOTP secret was discarded, set up two-factor authentication again under Services. Until then, admin changes stay read-only.

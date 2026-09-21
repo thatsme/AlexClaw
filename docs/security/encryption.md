@@ -62,7 +62,7 @@ Values stored in plain text by an earlier release are encrypted at the next boot
 
 ## Key Rotation
 
-Changing `SECRET_KEY_BASE` alone makes every encrypted value unreadable, the TOTP secret included. Rotate it with the procedure in [Rotating SECRET_KEY_BASE](../deployment/rotate-secret-key-base.md), which re-encrypts every value from the old key to the new one in one audited transaction.
+Changing `SECRET_KEY_BASE` alone makes every encrypted value unreadable, the TOTP secret included, and the application refuses to start, naming each value it cannot decrypt. Rotate it with the procedure in [Rotating SECRET_KEY_BASE](../deployment/rotate-secret-key-base.md), which re-encrypts every value from the old key to the new one in one audited transaction. If the previous key is lost for good, [Lost key](../deployment/rotate-secret-key-base.md#lost-key) discards exactly the values that no longer decrypt.
 
 !!! danger "Protect SECRET_KEY_BASE"
     This is the root key for all encryption. Store it securely in your `.env` file and never commit it to version control. Generate with `openssl rand -base64 64`.

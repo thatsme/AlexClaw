@@ -813,7 +813,7 @@ If you run two AlexClaw instances with the same `TELEGRAM_BOT_TOKEN` (e.g., dev 
 
 Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes every encrypted value (API keys, tokens, the TOTP secret) unreadable. To change it deliberately, follow [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
 
-If it was changed without a rotation, put the old value back and restart. While any LLM provider key or workflow step secret is stored, the application does not start under a key that cannot decrypt it: the log names the row and column. If the old value is lost, those credentials cannot be recovered. Clear them with the database owner's credentials (for example `UPDATE llm_providers SET api_key = NULL, headers = '{}'`), start, and enter them again. Encrypted settings that no longer decrypt do not stop the start: log in with `ADMIN_PASSWORD` and re-enter them via Admin > Config (or set them in `.env` and restart). If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
+If it was changed without a rotation, the application does not start: the log says `These stored values do not decrypt under this SECRET_KEY_BASE` and names each one, never its value. Put the old value back and restart. If the old value is lost for good, those values cannot be recovered. Follow [Lost key](docs/deployment/rotate-secret-key-base.md#lost-key) to discard exactly them, then enter them again. If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
 
 ### Web automator noVNC behind HTTPS
 

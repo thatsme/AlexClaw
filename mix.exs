@@ -1,7 +1,7 @@
 defmodule AlexClaw.MixProject do
   use Mix.Project
 
-  @version "0.3.31"
+  @version "0.3.32"
 
   def project do
     [

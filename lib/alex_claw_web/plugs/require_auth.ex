@@ -1,43 +1,26 @@
 defmodule AlexClawWeb.Plugs.RequireAuth do
   @moduledoc """
-  Plug that requires session-based authentication.
-  Redirects unauthenticated requests to the login page.
-  Sessions expire after a configurable max age (default 8 hours).
+  Plug that requires a live admin login.
+
+  Whether the login stands is decided by `AlexClaw.Auth.Sessions` on the
+  server — opened at login, closed at logout, eight hours at most — never by
+  what the session cookie says about itself. LiveView mounts ask the same
+  question through `AlexClawWeb.Live.RequireSession`.
   """
   import Plug.Conn
   import Phoenix.Controller, only: [redirect: 2]
 
-  # 8 hours in seconds
-  @max_session_age 8 * 60 * 60
+  alias AlexClaw.Auth.Sessions
 
   def init(opts), do: opts
 
-  def call(conn, _opts) do
-    authenticated = get_session(conn, :authenticated)
-    authenticated_at = get_session(conn, :authenticated_at)
+  def call(conn, _opts), do: admit(Sessions.valid?(get_session(conn, :elevation_sid)), conn)
 
-    cond do
-      !authenticated ->
-        redirect_to_login(conn)
+  defp admit(true, conn), do: conn
 
-      session_expired?(authenticated_at) ->
-        conn
-        |> clear_session()
-        |> redirect_to_login()
-
-      true ->
-        conn
-    end
-  end
-
-  defp session_expired?(nil), do: true
-
-  defp session_expired?(authenticated_at) do
-    System.system_time(:second) - authenticated_at > @max_session_age
-  end
-
-  defp redirect_to_login(conn) do
+  defp admit(false, conn) do
     conn
+    |> clear_session()
     |> redirect(to: "/login")
     |> halt()
   end

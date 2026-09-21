@@ -37,8 +37,7 @@ defmodule AlexClawWeb.AdminLive.RecoveryCodesWebTest do
   defp open(conn, sid, page \\ "/services") do
     {:ok, view, html} =
       conn
-      |> authenticate()
-      |> Plug.Conn.put_session(:elevation_sid, sid)
+      |> authenticate(sid)
       |> live(page)
 
     {view, html}

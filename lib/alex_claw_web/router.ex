@@ -41,22 +41,27 @@ defmodule AlexClawWeb.Router do
   scope "/", AlexClawWeb do
     pipe_through([:browser, :require_auth])
 
-    live("/", AdminLive.Dashboard)
-    live("/chat", AdminLive.Chat)
-    live("/forge", AdminLive.Forge)
-    live("/skills", AdminLive.Skills)
-    live("/scheduler", AdminLive.Scheduler)
-    live("/llm", AdminLive.LLM)
-    live("/resources", AdminLive.Resources)
-    live("/workflows", AdminLive.Workflows)
-    live("/workflows/:id/runs", AdminLive.WorkflowRuns)
-    live("/database", AdminLive.Database)
-    live("/services", AdminLive.Services)
-    live("/config", AdminLive.Config)
-    live("/memory", AdminLive.Memory)
-    live("/logs", AdminLive.Logs)
-    live("/policies", AdminLive.Policies)
-    live("/cluster", AdminLive.Cluster)
+    # Every page mounts through RequireSession, which asks the server whether
+    # the login still stands. The plug above covers the first HTTP render; the
+    # hook covers the websocket, which never passes through the plug.
+    live_session :authenticated, on_mount: AlexClawWeb.Live.RequireSession do
+      live("/", AdminLive.Dashboard)
+      live("/chat", AdminLive.Chat)
+      live("/forge", AdminLive.Forge)
+      live("/skills", AdminLive.Skills)
+      live("/scheduler", AdminLive.Scheduler)
+      live("/llm", AdminLive.LLM)
+      live("/resources", AdminLive.Resources)
+      live("/workflows", AdminLive.Workflows)
+      live("/workflows/:id/runs", AdminLive.WorkflowRuns)
+      live("/database", AdminLive.Database)
+      live("/services", AdminLive.Services)
+      live("/config", AdminLive.Config)
+      live("/memory", AdminLive.Memory)
+      live("/logs", AdminLive.Logs)
+      live("/policies", AdminLive.Policies)
+      live("/cluster", AdminLive.Cluster)
+    end
 
     get("/database/download", DatabaseController, :download)
     get("/workflows/:id/export", WorkflowExportController, :export)

@@ -8,6 +8,8 @@ defmodule AlexClaw.Application do
       AlexClaw.Repo,
       {Phoenix.PubSub, name: AlexClaw.PubSub},
       {Task.Supervisor, name: AlexClaw.TaskSupervisor},
+      # Before anything that audits: a row lost at boot is announced too.
+      AlexClaw.Auth.AuditLoss,
       AlexClaw.Knowledge.EmbedThrottle,
       AlexClaw.LLM.UsageTracker,
       AlexClaw.Config.Loader,
@@ -25,6 +27,9 @@ defmodule AlexClaw.Application do
       # as ChallengeStore: a page must never be served that cannot ask it.
       AlexClaw.Auth.Elevation,
       AlexClaw.Auth.CodeAttempts,
+      # Owns the live-login table. Before the endpoint: no request or mount may
+      # be judged before there is something to judge it against.
+      AlexClaw.Auth.Sessions,
       {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,

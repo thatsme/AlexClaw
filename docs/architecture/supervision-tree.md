@@ -8,6 +8,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Repo                      # PostgreSQL connection pool (Ecto)
   ├── Phoenix.PubSub (AlexClaw.PubSub)   # Config changes, skill list, run events
   ├── Task.Supervisor (AlexClaw.TaskSupervisor)  # Supervised fire-and-forget work
+  ├── AlexClaw.Auth.AuditLoss            # Announces audit rows that could not be written
   ├── AlexClaw.Knowledge.EmbedThrottle   # Paces embedding calls against provider limits
   ├── AlexClaw.LLM.UsageTracker          # ETS owner for per-provider call counters
   ├── AlexClaw.Config.Loader             # Seeds config, loads it into the ETS cache
@@ -20,6 +21,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Auth.ChallengeStore       # Owns the pending-2FA table
   ├── AlexClaw.Auth.Elevation            # Owns the admin elevation table
   ├── AlexClaw.Auth.CodeAttempts         # Owns the 2FA code attempt counters
+  ├── AlexClaw.Auth.Sessions             # Owns the live admin login table
   ├── Registry (AlexClaw.CircuitBreakerRegistry)  # Per-skill breaker registry
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor
   ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
@@ -53,7 +55,7 @@ skill, per circuit breaker, and per reasoning session.
 
 **Every ETS table has a supervised owner.** `Config.Loader`, `SkillRegistry`,
 `UsageTracker`, `RateLimiter.Server`, `LogBuffer`, `ChallengeStore`,
-`Elevation`, `CodeAttempts` and `TokenManager` each create theirs in `init/1`, directly or through an
+`Elevation`, `CodeAttempts`, `Sessions` and `TokenManager` each create theirs in `init/1`, directly or through an
 initialiser they call. A table dies with its owner and is rebuilt on restart,
 so no state outlives the process responsible for it — and none is owned by a
 process nobody chose.
@@ -69,6 +71,22 @@ writes and everything else reads, so a write from elsewhere raises instead of
 quietly succeeding. Read-modify-writes on them happen inside the owner as a
 single call: counting a failed 2FA attempt, and redeeming a one-shot OAuth
 CSRF state.
+
+**A lost audit row is never silent.** When an audit row cannot be written, the
+event is logged at error level in the process that tried to write it.
+`AlexClaw.Auth.AuditLoss` then tells the operator over the gateways: the first
+loss at once, later ones counted and sent together at most once a minute, so a
+database outage produces one notice a minute rather than one per audited
+action. It starts right after `TaskSupervisor`, before anything that audits.
+
+**A login is decided on the server.** `AlexClaw.Auth.Sessions` holds every live
+admin login: opened when the password is accepted, closed at logout, valid for
+eight hours. Both the authentication plug and the `on_mount` hook of every
+admin LiveView ask it, rather than trusting the session a request carries — a
+LiveView mounts from a copy of the session signed into the page, which
+outlives logout. Logout also broadcasts `"disconnect"` on the login's
+`live_socket_id`, closing its open pages. Restarting the node empties the
+table and signs everyone out.
 
 ## Conditional children
 

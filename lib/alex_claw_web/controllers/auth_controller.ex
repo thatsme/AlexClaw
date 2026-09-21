@@ -3,7 +3,7 @@ defmodule AlexClawWeb.AuthController do
 
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
-  alias AlexClaw.Auth.Elevation
+  alias AlexClaw.Auth.{Elevation, Sessions}
   alias AlexClawWeb.Plugs.RateLimit
 
   plug(:put_root_layout, html: {AlexClawWeb.Layouts, :root})
@@ -11,7 +11,7 @@ defmodule AlexClawWeb.AuthController do
 
   @spec login(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def login(conn, _params) do
-    if get_session(conn, :authenticated) do
+    if Sessions.valid?(get_session(conn, :elevation_sid)) do
       redirect(conn, to: "/")
     else
       conn
@@ -36,13 +36,7 @@ defmodule AlexClawWeb.AuthController do
 
       Plug.Crypto.secure_compare(password, admin_password) ->
         AlexClaw.RateLimiter.clear(ip)
-
-        conn
-        |> configure_session(renew: true)
-        |> put_session(:authenticated, true)
-        |> put_session(:authenticated_at, System.system_time(:second))
-        |> put_session(:elevation_sid, Elevation.new_sid())
-        |> redirect(to: "/")
+        signed_in(conn, Elevation.new_sid())
 
       true ->
         AlexClaw.RateLimiter.record_failure(ip)
@@ -53,13 +47,37 @@ defmodule AlexClawWeb.AuthController do
     end
   end
 
+  # The login is opened on the server before the browser is told it holds one.
+  # live_socket_id names every LiveView this login opens, so logout can close
+  # them all.
+  defp signed_in(conn, sid) do
+    :ok = Sessions.open(sid)
+
+    conn
+    |> configure_session(renew: true)
+    |> put_session(:elevation_sid, sid)
+    |> put_session(:live_socket_id, Sessions.socket_id(sid))
+    |> redirect(to: "/")
+  end
+
   @spec logout(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def logout(conn, _params) do
-    Elevation.revoke(get_session(conn, :elevation_sid))
+    sid = get_session(conn, :elevation_sid)
+    Elevation.revoke(sid)
+    :ok = Sessions.close(sid)
+    disconnect(sid)
 
     conn
     |> clear_session()
     |> redirect(to: "/login")
+  end
+
+  # Pages already open for this login are closed, not left running on a
+  # session that no longer exists.
+  defp disconnect(nil), do: :ok
+
+  defp disconnect(sid) do
+    AlexClawWeb.Endpoint.broadcast(Sessions.socket_id(sid), "disconnect", %{})
   end
 
   defp escape_html(text) do

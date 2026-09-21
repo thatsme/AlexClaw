@@ -56,8 +56,7 @@ defmodule AlexClaw.Auth.TotpOrphanedFlagTest do
   defp open(conn, sid) do
     {:ok, _view, html} =
       conn
-      |> authenticate()
-      |> Plug.Conn.put_session(:elevation_sid, sid)
+      |> authenticate(sid)
       |> live("/services")
 
     html

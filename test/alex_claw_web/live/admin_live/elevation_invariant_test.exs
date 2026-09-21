@@ -61,6 +61,7 @@ defmodule AlexClawWeb.AdminLive.ElevationInvariantTest do
   # them.
   @gates [
     {:Elevation, :gate},
+    {:Elevation, :gated},
     {:Gate, :request},
     {:Launch, :start},
     {:ActionCode, :request}

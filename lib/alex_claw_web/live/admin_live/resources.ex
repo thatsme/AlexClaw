@@ -67,25 +67,53 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   @impl true
   def handle_event("save", params, socket) do
-    Elevation.gate(socket, "resource saved: #{params["name"]}", fn ->
-      editing = socket.assigns.editing
+    editing = socket.assigns.editing
 
-      editing
-      |> persist_resource(resource_attrs(params))
-      |> saved_resource(socket, editing)
-    end)
+    Elevation.gated(socket, "resource saved: #{params["name"]}",
+      write: fn -> persist_resource(editing, resource_attrs(params)) end,
+      ok: fn socket, _resource ->
+        action = if editing, do: "updated", else: "created"
+
+        socket
+        |> put_flash(:info, "Resource #{action}")
+        |> assign(
+          resources: list_resources(socket.assigns.type_filter),
+          show_form: false,
+          editing: nil
+        )
+      end,
+      error: &not_saved/2
+    )
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    Elevation.gate(socket, "resource deleted: id #{id}", fn -> delete_write(id, socket) end)
+    Elevation.gated(socket, "resource deleted: id #{id}",
+      write: fn ->
+        with {:ok, resource} <- fetch_resource(id), do: Resources.delete_resource(resource)
+      end,
+      ok: fn socket, _resource ->
+        socket
+        |> put_flash(:info, "Resource deleted")
+        |> assign(resources: list_resources(socket.assigns.type_filter))
+      end,
+      error: &not_saved/2
+    )
   end
 
   @impl true
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
-    Elevation.gate(socket, "resource enabled toggled: id #{id}", fn ->
-      toggle_enabled_write(id, socket)
-    end)
+    Elevation.gated(socket, "resource enabled toggled: id #{id}",
+      write: fn ->
+        with {:ok, resource} <- fetch_resource(id) do
+          Resources.update_resource(resource, %{enabled: !resource.enabled})
+        end
+      end,
+      ok: fn socket, _resource ->
+        assign(socket, resources: list_resources(socket.assigns.type_filter))
+      end,
+      error: &not_saved/2
+    )
   end
 
   @impl true
@@ -132,44 +160,6 @@ defmodule AlexClawWeb.AdminLive.Resources do
     Elevation.unlock(socket)
   end
 
-  defp delete_write(id, socket) do
-    case parse_id(id) do
-      {:ok, rid} ->
-        case Resources.get_resource(rid) do
-          {:ok, resource} ->
-            {:ok, _} = Resources.delete_resource(resource)
-
-            {:noreply,
-             socket
-             |> put_flash(:info, "Resource deleted")
-             |> assign(resources: list_resources(socket.assigns.type_filter))}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Resource not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
-  end
-
-  defp toggle_enabled_write(id, socket) do
-    case parse_id(id) do
-      {:ok, rid} ->
-        case Resources.get_resource(rid) do
-          {:ok, resource} ->
-            {:ok, _} = Resources.update_resource(resource, %{enabled: !resource.enabled})
-            {:noreply, assign(socket, resources: list_resources(socket.assigns.type_filter))}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Resource not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
-  end
-
   defp resource_attrs(params) do
     %{
       name: params["name"],
@@ -188,22 +178,16 @@ defmodule AlexClawWeb.AdminLive.Resources do
   defp persist_resource(nil, attrs), do: Resources.create_resource(attrs)
   defp persist_resource(resource, attrs), do: Resources.update_resource(resource, attrs)
 
-  defp saved_resource({:ok, _resource}, socket, editing) do
-    action = if editing, do: "updated", else: "created"
+  defp fetch_resource(id), do: id |> parse_id() |> fetched_resource()
 
-    {:noreply,
-     socket
-     |> put_flash(:info, "Resource #{action}")
-     |> assign(
-       resources: list_resources(socket.assigns.type_filter),
-       show_form: false,
-       editing: nil
-     )}
-  end
+  defp fetched_resource({:ok, rid}), do: Resources.get_resource(rid)
+  defp fetched_resource(:error), do: {:error, :invalid_id}
 
-  defp saved_resource({:error, changeset}, socket, _editing) do
-    {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
-  end
+  defp not_saved(socket, :invalid_id), do: socket
+  defp not_saved(socket, :not_found), do: put_flash(socket, :error, "Resource not found")
+
+  defp not_saved(socket, %Ecto.Changeset{} = changeset),
+    do: put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")
 
   @impl true
   def handle_info({:elevation, _state, _detail} = message, socket) do

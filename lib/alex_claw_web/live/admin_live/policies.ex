@@ -81,31 +81,16 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("create_policy", %{"policy" => params}, socket) do
-    Elevation.gate(socket, "policy created: #{params["name"]}", fn ->
-      config = parse_config(params["config_json"] || "{}")
-
-      attrs = %{
-        name: params["name"],
-        description: params["description"],
-        rule_type: params["rule_type"],
-        config: config,
-        priority: parse_int(params["priority"], 0),
-        enabled: params["enabled"] == "true"
-      }
-
-      case %Policy{} |> Policy.changeset(attrs) |> Repo.insert() do
-        {:ok, _policy} ->
-          PolicyEngine.reload_policies()
-
-          {:noreply,
-           socket
-           |> put_flash(:info, "Policy created")
-           |> assign(policies: list_policies(), form: default_form())}
-
-        {:error, _changeset} ->
-          {:noreply, put_flash(socket, :error, "Invalid policy")}
-      end
-    end)
+    Elevation.gated(socket, "policy created: #{params["name"]}",
+      write: fn -> %Policy{} |> Policy.changeset(policy_attrs(params)) |> Repo.insert() end,
+      after_commit: &reload_policies/1,
+      ok: fn socket, _policy ->
+        socket
+        |> put_flash(:info, "Policy created")
+        |> assign(policies: list_policies(), form: default_form())
+      end,
+      error: &invalid_policy/2
+    )
   end
 
   def handle_event("edit_policy", %{"id" => id}, socket) do
@@ -129,64 +114,55 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("update_policy", %{"policy" => params}, socket) do
-    Elevation.gate(socket, "policy updated: #{params["name"]}", fn ->
-      policy = Repo.get!(Policy, params["id"])
-      config = parse_config(params["config_json"] || "{}")
-
-      attrs = %{
-        name: params["name"],
-        description: params["description"],
-        rule_type: params["rule_type"],
-        config: config,
-        priority: parse_int(params["priority"], 0),
-        enabled: params["enabled"] == "true"
-      }
-
-      case policy |> Policy.changeset(attrs) |> Repo.update() do
-        {:ok, _} ->
-          PolicyEngine.reload_policies()
-
-          {:noreply,
-           socket
-           |> put_flash(:info, "Policy updated")
-           |> assign(editing: nil, policies: list_policies(), form: default_form())}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Invalid policy")}
-      end
-    end)
+    Elevation.gated(socket, "policy updated: #{params["name"]}",
+      write: fn ->
+        Policy
+        |> Repo.get!(params["id"])
+        |> Policy.changeset(policy_attrs(params))
+        |> Repo.update()
+      end,
+      after_commit: &reload_policies/1,
+      ok: fn socket, _policy ->
+        socket
+        |> put_flash(:info, "Policy updated")
+        |> assign(editing: nil, policies: list_policies(), form: default_form())
+      end,
+      error: &invalid_policy/2
+    )
   end
 
   def handle_event("toggle_policy", %{"id" => id}, socket) do
-    Elevation.gate(socket, "policy toggled: id #{id}", fn ->
-      policy = Repo.get!(Policy, id)
-      {:ok, _} = policy |> Policy.changeset(%{enabled: !policy.enabled}) |> Repo.update()
-      PolicyEngine.reload_policies()
-      {:noreply, assign(socket, policies: list_policies())}
-    end)
+    Elevation.gated(socket, "policy toggled: id #{id}",
+      write: fn ->
+        policy = Repo.get!(Policy, id)
+        policy |> Policy.changeset(%{enabled: !policy.enabled}) |> Repo.update()
+      end,
+      after_commit: &reload_policies/1,
+      ok: fn socket, _policy -> assign(socket, policies: list_policies()) end
+    )
   end
 
   def handle_event("delete_policy", %{"id" => id}, socket) do
-    Elevation.gate(socket, "policy deleted: id #{id}", fn ->
-      Repo.delete!(Repo.get!(Policy, id))
-      PolicyEngine.reload_policies()
-
-      {:noreply,
-       socket
-       |> put_flash(:info, "Policy deleted")
-       |> assign(policies: list_policies())}
-    end)
+    Elevation.gated(socket, "policy deleted: id #{id}",
+      write: fn -> Repo.delete(Repo.get!(Policy, id)) end,
+      after_commit: &reload_policies/1,
+      ok: fn socket, _policy ->
+        socket
+        |> put_flash(:info, "Policy deleted")
+        |> assign(policies: list_policies())
+      end
+    )
   end
 
   def handle_event("prune_audit", _, socket) do
-    Elevation.gate(socket, "authorization audit log pruned", fn ->
-      {count, _} = AuditLog.prune()
-
-      {:noreply,
-       socket
-       |> put_flash(:info, "Pruned #{count} old audit entries")
-       |> assign(audit_entries: AuditLog.recent(limit: 50))}
-    end)
+    Elevation.gated(socket, "authorization audit log pruned",
+      write: fn -> {:ok, AuditLog.prune()} end,
+      ok: fn socket, {count, _} ->
+        socket
+        |> put_flash(:info, "Pruned #{count} old audit entries")
+        |> assign(audit_entries: AuditLog.recent(limit: 50))
+      end
+    )
   end
 
   def handle_event("refresh_audit", _, socket) do
@@ -259,6 +235,23 @@ defmodule AlexClawWeb.AdminLive.Policies do
   rescue
     _ -> []
   end
+
+  defp policy_attrs(params) do
+    %{
+      name: params["name"],
+      description: params["description"],
+      rule_type: params["rule_type"],
+      config: parse_config(params["config_json"] || "{}"),
+      priority: parse_int(params["priority"], 0),
+      enabled: params["enabled"] == "true"
+    }
+  end
+
+  # The engine's cache is read from the database, so it is reloaded once the
+  # change is committed and not before.
+  defp reload_policies(_policy), do: PolicyEngine.reload_policies()
+
+  defp invalid_policy(socket, _reason), do: put_flash(socket, :error, "Invalid policy")
 
   defp parse_config(json_str) do
     case Jason.decode(json_str) do

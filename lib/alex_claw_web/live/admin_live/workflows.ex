@@ -100,18 +100,34 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("save_workflow", params, socket) do
-    Elevation.gate(socket, "workflow saved: #{params["name"]}", fn ->
-      editing = socket.assigns.editing
+    editing = socket.assigns.editing
 
-      editing
-      |> persist_workflow(workflow_attrs(params, editing))
-      |> saved_socket(socket)
-    end)
+    Elevation.gated(socket, "workflow saved: #{params["name"]}",
+      write: fn -> persist_workflow(editing, workflow_attrs(params, editing)) end,
+      after_commit: &sync_schedules/1,
+      ok: fn socket, saved ->
+        socket
+        |> put_flash(:info, "Workflow saved")
+        |> assign(workflows: Workflows.list_workflows(), editing: Workflows.get_workflow!(saved.id))
+      end,
+      error: &workflow_not_saved/2
+    )
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    Elevation.gate(socket, "workflow deleted: id #{id}", fn -> delete_write(id, socket) end)
+    Elevation.gated(socket, "workflow deleted: id #{id}",
+      write: fn ->
+        with {:ok, workflow} <- fetch_workflow(id), do: Workflows.delete_workflow(workflow)
+      end,
+      after_commit: &sync_schedules/1,
+      ok: fn socket, _workflow ->
+        socket
+        |> put_flash(:info, "Workflow deleted")
+        |> assign(workflows: Workflows.list_workflows())
+      end,
+      error: &workflow_not_saved/2
+    )
   end
 
   @impl true
@@ -124,9 +140,17 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("duplicate", %{"id" => id}, socket) do
-    Elevation.gate(socket, "workflow duplicated: id #{id}", fn ->
-      id |> parse_id() |> duplicate_parsed(socket)
-    end)
+    Elevation.gated(socket, "workflow duplicated: id #{id}",
+      write: fn ->
+        with {:ok, workflow} <- fetch_workflow(id), do: Workflows.duplicate_workflow(workflow)
+      end,
+      ok: fn socket, _copy ->
+        socket
+        |> put_flash(:info, "Workflow duplicated")
+        |> assign(workflows: Workflows.list_workflows())
+      end,
+      error: &not_duplicated/2
+    )
   end
 
   @impl true
@@ -146,13 +170,21 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("import_workflow", _params, socket) do
-    Elevation.gate(socket, "workflow imported", fn ->
-      socket
-      |> consume_uploaded_entries(:workflow_file, fn %{path: tmp_path}, _entry ->
-        {:ok, read_upload(File.read(tmp_path))}
-      end)
-      |> apply_import(socket)
-    end)
+    Elevation.gated(socket, "workflow imported",
+      write: fn ->
+        socket
+        |> consume_uploaded_entries(:workflow_file, fn %{path: tmp_path}, _entry ->
+          {:ok, read_upload(File.read(tmp_path))}
+        end)
+        |> import_upload()
+      end,
+      ok: fn socket, {workflow, warnings} ->
+        socket
+        |> put_flash(:info, imported_message(workflow, warnings))
+        |> assign(workflows: Workflows.list_workflows(), show_import_form: false)
+      end,
+      error: &not_imported/2
+    )
   end
 
   @impl true
@@ -162,9 +194,26 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("save_step", params, socket) do
-    Elevation.gate(socket, "workflow step saved: #{params["step_name"]}", fn ->
-      save_step_write(params, socket)
-    end)
+    step_id = socket.assigns.editing_step.id
+
+    Elevation.gated(socket, "workflow step saved: #{params["step_name"]}",
+      write: fn ->
+        step = AlexClaw.Repo.get!(AlexClaw.Workflows.WorkflowStep, step_id)
+
+        with {:ok, config} <- parse_config_json(params["step_config"]) do
+          Workflows.update_step(step, step_attrs(config, step, params))
+        end
+      end,
+      ok: fn socket, updated_step ->
+        workflow = Workflows.get_workflow!(socket.assigns.editing.id)
+        fresh_step = Enum.find(workflow.steps, &(&1.id == updated_step.id))
+
+        socket
+        |> put_flash(:info, "Step saved")
+        |> assign(editing: workflow, editing_step: fresh_step)
+      end,
+      error: &step_not_saved/2
+    )
   end
 
   @impl true
@@ -281,106 +330,72 @@ defmodule AlexClawWeb.AdminLive.Workflows do
 
   @impl true
   def handle_event("add_step", params, socket) do
-    Elevation.gate(socket, "workflow step added: #{params["step_skill"]}", fn ->
-      add_step_write(params, socket)
-    end)
+    workflow = socket.assigns.editing
+
+    Elevation.gated(socket, "workflow step added: #{params["step_skill"]}",
+      write: fn ->
+        with {:ok, config} <- parse_config_json(params["step_config"]) do
+          Workflows.add_step(workflow, new_step_attrs(config, params))
+        end
+      end,
+      ok: fn socket, _step ->
+        assign(socket, editing: Workflows.get_workflow!(workflow.id), adding_step: nil)
+      end,
+      error: &step_not_saved/2
+    )
   end
 
   @impl true
   def handle_event("remove_step", %{"id" => id}, socket) do
-    Elevation.gate(socket, "workflow step removed: id #{id}", fn ->
-      remove_step_write(id, socket)
-    end)
+    Elevation.gated(socket, "workflow step removed: id #{id}",
+      write: fn ->
+        with {:ok, step} <- fetch_step(id), do: Workflows.remove_step(step)
+      end,
+      ok: fn socket, _step ->
+        assign(socket,
+          editing: Workflows.get_workflow!(socket.assigns.editing.id),
+          editing_step: nil
+        )
+      end,
+      error: &step_not_saved/2
+    )
   end
 
   @impl true
   def handle_event("move_step_up", %{"id" => id}, socket) do
-    Elevation.gate(socket, "workflow step moved up: id #{id}", fn ->
-      move_step_up_write(id, socket)
-    end)
+    move_step(socket, id, :up, "workflow step moved up: id #{id}")
   end
 
   @impl true
   def handle_event("move_step_down", %{"id" => id}, socket) do
-    Elevation.gate(socket, "workflow step moved down: id #{id}", fn ->
-      move_step_down_write(id, socket)
-    end)
+    move_step(socket, id, :down, "workflow step moved down: id #{id}")
   end
 
   @impl true
   def handle_event("assign_resource", %{"resource_id" => resource_id}, socket) do
-    Elevation.gate(socket, "workflow resource assigned: id #{resource_id}", fn ->
-      case parse_id(resource_id) do
-        {:ok, rid} ->
-          workflow = socket.assigns.editing
-          Workflows.assign_resource(workflow, rid)
-          workflow = Workflows.get_workflow!(workflow.id)
+    workflow = socket.assigns.editing
 
-          {:noreply,
-           assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
-
-        :error ->
-          {:noreply, socket}
-      end
-    end)
+    Elevation.gated(socket, "workflow resource assigned: id #{resource_id}",
+      write: fn ->
+        with {:ok, rid} <- id_param(resource_id), do: Workflows.assign_resource(workflow, rid)
+      end,
+      ok: fn socket, _assignment -> refresh_resources(socket, workflow) end,
+      error: &workflow_not_saved/2
+    )
   end
 
   @impl true
   def handle_event("unassign_resource", %{"resource_id" => resource_id}, socket) do
-    Elevation.gate(socket, "workflow resource unassigned: id #{resource_id}", fn ->
-      case parse_id(resource_id) do
-        {:ok, rid} ->
-          workflow = socket.assigns.editing
-          Workflows.unassign_resource(workflow, rid)
-          workflow = Workflows.get_workflow!(workflow.id)
+    workflow = socket.assigns.editing
 
-          {:noreply,
-           assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))}
-
-        :error ->
-          {:noreply, socket}
-      end
-    end)
-  end
-
-  defp delete_write(id, socket) do
-    case parse_id(id) do
-      {:ok, wf_id} ->
-        case Workflows.get_workflow(wf_id) do
-          {:ok, workflow} ->
-            {:ok, _} = Workflows.delete_workflow(workflow)
-            Workflows.SchedulerSync.sync()
-
-            {:noreply,
-             socket
-             |> put_flash(:info, "Workflow deleted")
-             |> assign(workflows: Workflows.list_workflows())}
-
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Workflow not found")}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
-  end
-
-  defp save_step_write(params, socket) do
-    step = AlexClaw.Repo.get!(AlexClaw.Workflows.WorkflowStep, socket.assigns.editing_step.id)
-
-    params["step_config"]
-    |> parse_config_json()
-    |> save_step_config(step, params, socket)
-  end
-
-  defp save_step_config({:error, reason}, _step, _params, socket) do
-    {:noreply, put_flash(socket, :error, "Invalid config JSON: #{reason}")}
-  end
-
-  defp save_step_config({:ok, config}, step, params, socket) do
-    step
-    |> Workflows.update_step(step_attrs(config, step, params))
-    |> step_saved(socket)
+    Elevation.gated(socket, "workflow resource unassigned: id #{resource_id}",
+      write: fn ->
+        with {:ok, rid} <- id_param(resource_id),
+             do: {:ok, Workflows.unassign_resource(workflow, rid)}
+      end,
+      ok: fn socket, _removed -> refresh_resources(socket, workflow) end,
+      error: &workflow_not_saved/2
+    )
   end
 
   defp step_attrs(config, step, params) do
@@ -398,108 +413,17 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     |> maybe_put(:prompt_template, blank_to_nil(params["step_prompt_template"]))
   end
 
-  defp step_saved({:ok, updated_step}, socket) do
-    workflow = Workflows.get_workflow!(socket.assigns.editing.id)
-    fresh_step = Enum.find(workflow.steps, &(&1.id == updated_step.id))
-
-    {:noreply,
-     socket
-     |> put_flash(:info, "Step saved")
-     |> assign(editing: workflow, editing_step: fresh_step)}
-  end
-
-  defp step_saved({:error, changeset}, socket) do
-    {:noreply, put_flash(socket, :error, "Step error: #{inspect(changeset.errors)}")}
-  end
-
-  defp add_step_write(params, socket) do
-    workflow = socket.assigns.editing
-
-    case parse_config_json(params["step_config"]) do
-      {:ok, config} ->
-        config = merge_resilience_config(config, params)
-        routes = parse_routes_from_params(params, params["step_skill"])
-
-        attrs = %{
-          name: params["step_name"],
-          skill: params["step_skill"],
-          llm_tier: blank_to_nil(params["step_llm_tier"]),
-          llm_model: blank_to_nil(params["step_llm_model"]),
-          prompt_template: blank_to_nil(params["step_prompt_template"]),
-          config: config,
-          input_from: parse_input_from(params["step_input_from"]),
-          routes: routes
-        }
-
-        case Workflows.add_step(workflow, attrs) do
-          {:ok, _step} ->
-            workflow = Workflows.get_workflow!(workflow.id)
-            {:noreply, assign(socket, editing: workflow, adding_step: nil)}
-
-          {:error, changeset} ->
-            {:noreply, put_flash(socket, :error, "Step error: #{inspect(changeset.errors)}")}
-        end
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Invalid config JSON: #{reason}")}
-    end
-  end
-
-  defp remove_step_write(id, socket) do
-    case parse_id(id) do
-      {:ok, step_id} ->
-        case AlexClaw.Repo.get(AlexClaw.Workflows.WorkflowStep, step_id) do
-          nil ->
-            {:noreply, put_flash(socket, :error, "Step not found")}
-
-          step ->
-            {:ok, _} = Workflows.remove_step(step)
-            workflow = Workflows.get_workflow!(socket.assigns.editing.id)
-            {:noreply, assign(socket, editing: workflow, editing_step: nil)}
-        end
-
-      :error ->
-        {:noreply, socket}
-    end
-  end
-
-  defp move_step_up_write(id, socket) do
-    case parse_id(id) do
-      {:ok, step_id} -> reorder_step(socket, step_id, :up)
-      :error -> {:noreply, socket}
-    end
-  end
-
-  defp move_step_down_write(id, socket) do
-    case parse_id(id) do
-      {:ok, step_id} -> reorder_step(socket, step_id, :down)
-      :error -> {:noreply, socket}
-    end
-  end
-
-  defp duplicate_parsed(:error, socket), do: {:noreply, socket}
-
-  defp duplicate_parsed({:ok, wf_id}, socket) do
-    wf_id |> Workflows.get_workflow() |> duplicate_found(socket)
-  end
-
-  defp duplicate_found({:error, :not_found}, socket) do
-    {:noreply, put_flash(socket, :error, "Workflow not found")}
-  end
-
-  defp duplicate_found({:ok, workflow}, socket) do
-    workflow |> Workflows.duplicate_workflow() |> duplicate_result(socket)
-  end
-
-  defp duplicate_result({:ok, _new_wf}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(:info, "Workflow duplicated")
-     |> assign(workflows: Workflows.list_workflows())}
-  end
-
-  defp duplicate_result({:error, reason}, socket) do
-    {:noreply, put_flash(socket, :error, "Duplicate failed: #{inspect(reason)}")}
+  defp new_step_attrs(config, params) do
+    %{
+      name: params["step_name"],
+      skill: params["step_skill"],
+      llm_tier: blank_to_nil(params["step_llm_tier"]),
+      llm_model: blank_to_nil(params["step_llm_model"]),
+      prompt_template: blank_to_nil(params["step_prompt_template"]),
+      config: merge_resilience_config(config, params),
+      input_from: parse_input_from(params["step_input_from"]),
+      routes: parse_routes_from_params(params, params["step_skill"])
+    }
   end
 
   defp read_upload({:error, reason}), do: {:read_error, "Could not read file: #{inspect(reason)}"}
@@ -509,39 +433,6 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       {:ok, data} -> data
       {:error, _} -> {:parse_error, "Invalid JSON file"}
     end
-  end
-
-  defp apply_import([data], socket) when is_map(data) do
-    data |> Workflows.import_workflow() |> imported(socket)
-  end
-
-  defp apply_import([{:parse_error, msg}], socket), do: {:noreply, put_flash(socket, :error, msg)}
-  defp apply_import([{:read_error, msg}], socket), do: {:noreply, put_flash(socket, :error, msg)}
-
-  defp apply_import([], socket) do
-    {:noreply, put_flash(socket, :error, "No file selected")}
-  end
-
-  defp imported({:ok, workflow, []}, socket) do
-    flash_imported(socket, "Workflow '#{workflow.name}' imported successfully")
-  end
-
-  defp imported({:ok, workflow, warnings}, socket) do
-    flash_imported(
-      socket,
-      "Workflow '#{workflow.name}' imported. Warnings: #{Enum.join(warnings, "; ")}"
-    )
-  end
-
-  defp imported({:error, message}, socket) do
-    {:noreply, put_flash(socket, :error, "Import failed: #{message}")}
-  end
-
-  defp flash_imported(socket, msg) do
-    {:noreply,
-     socket
-     |> put_flash(:info, msg)
-     |> assign(workflows: Workflows.list_workflows(), show_import_form: false)}
   end
 
   defp edit_step(:error, socket), do: {:noreply, socket}
@@ -560,9 +451,21 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp load_step(nil, socket), do: {:noreply, put_flash(socket, :error, "Step not found")}
   defp load_step(step, socket), do: {:noreply, assign(socket, editing_step: step)}
 
-  defp reorder_step(socket, step_id, direction) do
+  defp move_step(socket, id, direction, detail) do
     workflow = socket.assigns.editing
-    steps = workflow.steps
+
+    Elevation.gated(socket, detail,
+      write: fn ->
+        with {:ok, step_id} <- id_param(id) do
+          Workflows.reorder_steps(workflow, reordered(workflow.steps, step_id, direction))
+        end
+      end,
+      ok: fn socket, _ -> assign(socket, editing: Workflows.get_workflow!(workflow.id)) end,
+      error: &step_not_saved/2
+    )
+  end
+
+  defp reordered(steps, step_id, direction) do
     idx = Enum.find_index(steps, &(&1.id == step_id))
 
     new_order =
@@ -577,10 +480,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
           steps
       end
 
-    step_ids = Enum.map(new_order, & &1.id)
-    Workflows.reorder_steps(workflow, step_ids)
-    workflow = Workflows.get_workflow!(workflow.id)
-    {:noreply, assign(socket, editing: workflow)}
+    Enum.map(new_order, & &1.id)
   end
 
   @impl true
@@ -679,18 +579,76 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp persist_workflow(nil, attrs), do: Workflows.create_workflow(attrs)
   defp persist_workflow(workflow, attrs), do: Workflows.update_workflow(workflow, attrs)
 
-  defp saved_socket({:ok, saved}, socket) do
-    Workflows.SchedulerSync.sync()
+  # Quantum's jobs are read from the database, so they are re-synced once the
+  # change is committed and not before.
+  defp sync_schedules(_result), do: Workflows.SchedulerSync.sync()
 
-    {:noreply,
-     socket
-     |> put_flash(:info, "Workflow saved")
-     |> assign(workflows: Workflows.list_workflows(), editing: Workflows.get_workflow!(saved.id))}
+  defp id_param(id), do: id |> parse_id() |> id_parsed()
+
+  defp id_parsed({:ok, id}), do: {:ok, id}
+  defp id_parsed(:error), do: {:error, :invalid_id}
+
+  defp fetch_workflow(id) do
+    with {:ok, wf_id} <- id_param(id), do: Workflows.get_workflow(wf_id)
   end
 
-  defp saved_socket({:error, changeset}, socket) do
-    {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
+  defp fetch_step(id) do
+    with {:ok, step_id} <- id_param(id) do
+      AlexClaw.Workflows.WorkflowStep
+      |> AlexClaw.Repo.get(step_id)
+      |> found_step()
+    end
   end
+
+  defp found_step(nil), do: {:error, :step_not_found}
+  defp found_step(step), do: {:ok, step}
+
+  defp refresh_resources(socket, workflow) do
+    workflow = Workflows.get_workflow!(workflow.id)
+    assign(socket, editing: workflow, api_endpoints: api_endpoints_for_workflow(workflow))
+  end
+
+  defp import_upload([data]) when is_map(data) do
+    case Workflows.import_workflow(data) do
+      {:ok, workflow, warnings} -> {:ok, {workflow, warnings}}
+      {:error, message} -> {:error, {:import_failed, message}}
+    end
+  end
+
+  defp import_upload([{:parse_error, msg}]), do: {:error, {:unreadable, msg}}
+  defp import_upload([{:read_error, msg}]), do: {:error, {:unreadable, msg}}
+  defp import_upload([]), do: {:error, {:unreadable, "No file selected"}}
+
+  defp imported_message(workflow, []), do: "Workflow '#{workflow.name}' imported successfully"
+
+  defp imported_message(workflow, warnings),
+    do: "Workflow '#{workflow.name}' imported. Warnings: #{Enum.join(warnings, "; ")}"
+
+  defp not_imported(socket, {:import_failed, message}),
+    do: put_flash(socket, :error, "Import failed: #{message}")
+
+  defp not_imported(socket, {:unreadable, message}), do: put_flash(socket, :error, message)
+
+  defp workflow_not_saved(socket, :invalid_id), do: socket
+  defp workflow_not_saved(socket, :not_found), do: put_flash(socket, :error, "Workflow not found")
+
+  defp workflow_not_saved(socket, %Ecto.Changeset{} = changeset),
+    do: put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")
+
+  defp not_duplicated(socket, :invalid_id), do: socket
+  defp not_duplicated(socket, :not_found), do: put_flash(socket, :error, "Workflow not found")
+
+  defp not_duplicated(socket, reason),
+    do: put_flash(socket, :error, "Duplicate failed: #{inspect(reason)}")
+
+  defp step_not_saved(socket, :invalid_id), do: socket
+  defp step_not_saved(socket, :step_not_found), do: put_flash(socket, :error, "Step not found")
+
+  defp step_not_saved(socket, %Ecto.Changeset{} = changeset),
+    do: put_flash(socket, :error, "Step error: #{inspect(changeset.errors)}")
+
+  defp step_not_saved(socket, reason) when is_binary(reason),
+    do: put_flash(socket, :error, "Invalid config JSON: #{reason}")
 
   @impl true
   def handle_info({:elevation, _state, _detail} = message, socket) do

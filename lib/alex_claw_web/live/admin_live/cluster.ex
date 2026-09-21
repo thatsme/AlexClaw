@@ -3,7 +3,7 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   use Phoenix.LiveView
   alias AlexClawWeb.Live.Elevation
 
-  alias AlexClaw.Cluster
+  alias AlexClaw.{Cluster, ControlPlane}
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -48,19 +48,53 @@ defmodule AlexClawWeb.AdminLive.Cluster do
 
   @impl true
   def handle_event("add_node", %{"name" => name, "label" => label}, socket) do
-    Elevation.gate(socket, "cluster node added: #{name}", fn ->
-      add_node_write(name, label, socket)
-    end)
+    Elevation.gated(socket, "cluster node added: #{name}",
+      write: fn -> Cluster.create_node(%{name: String.trim(name), label: String.trim(label)}) end,
+      ok: fn socket, _node ->
+        socket
+        |> put_flash(:info, "Node added")
+        |> assign(nodes: remote_nodes(socket.assigns.self_node), show_form: false)
+      end,
+      error: &not_added/2
+    )
   end
 
+  # Asking a node whether it answers is not something a transaction can hold.
+  # The intent is audited with the change; the answer, and the status it sets,
+  # are audited once known.
   @impl true
   def handle_event("connect", %{"id" => id}, socket) do
-    Elevation.gate(socket, "cluster node connect: id #{id}", fn -> connect_write(id, socket) end)
+    sid = socket.assigns.elevation_sid
+
+    Elevation.gated(socket, "cluster node connect: id #{id}",
+      write: fn -> {:ok, Cluster.get_node!(String.to_integer(id))} end,
+      after_commit: fn node ->
+        status = if Cluster.node_ping(node.name) == :pong, do: "connected", else: "disconnected"
+
+        ControlPlane.outcome(sid, "cluster node connect: id #{id} — #{status}", fn ->
+          Cluster.update_node(node, %{status: status, last_seen_at: DateTime.utc_now()})
+        end)
+      end,
+      ok: fn socket, _node -> assign(socket, nodes: remote_nodes(socket.assigns.self_node)) end
+    )
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    Elevation.gate(socket, "cluster node deleted: id #{id}", fn -> delete_write(id, socket) end)
+    sid = socket.assigns.elevation_sid
+
+    Elevation.gated(socket, "cluster node deleted: id #{id}",
+      write: fn -> Cluster.delete_node(Cluster.get_node!(String.to_integer(id))) end,
+      after_commit: fn node ->
+        answer = Cluster.node_ping(node.name)
+        ControlPlane.outcome(sid, "cluster node deleted: #{node.name} — ping #{answer}")
+      end,
+      ok: fn socket, node ->
+        socket
+        |> put_flash(:info, "Node '#{node.name}' removed")
+        |> assign(nodes: remote_nodes(socket.assigns.self_node))
+      end
+    )
   end
 
   def handle_event("unlock_editing", _params, socket) do
@@ -79,42 +113,15 @@ defmodule AlexClawWeb.AdminLive.Cluster do
     Elevation.unlock(socket)
   end
 
-  defp add_node_write(name, label, socket) do
-    case Cluster.create_node(%{name: String.trim(name), label: String.trim(label)}) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Node added")
-         |> assign(nodes: remote_nodes(socket.assigns.self_node), show_form: false)}
+  defp not_added(socket, %Ecto.Changeset{} = changeset) do
+    msg =
+      Enum.map_join(
+        Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end),
+        ", ",
+        fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end
+      )
 
-      {:error, changeset} ->
-        msg =
-          Enum.map_join(
-            Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end),
-            ", ",
-            fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end
-          )
-
-        {:noreply, put_flash(socket, :error, "Failed: #{msg}")}
-    end
-  end
-
-  defp connect_write(id, socket) do
-    node = Cluster.get_node!(String.to_integer(id))
-    status = if Cluster.node_ping(node.name) == :pong, do: "connected", else: "disconnected"
-    Cluster.update_node(node, %{status: status, last_seen_at: DateTime.utc_now()})
-    {:noreply, assign(socket, nodes: remote_nodes(socket.assigns.self_node))}
-  end
-
-  defp delete_write(id, socket) do
-    node = Cluster.get_node!(String.to_integer(id))
-    Cluster.node_ping(node.name)
-    Cluster.delete_node(node)
-
-    {:noreply,
-     socket
-     |> put_flash(:info, "Node '#{node.name}' removed")
-     |> assign(nodes: remote_nodes(socket.assigns.self_node))}
+    put_flash(socket, :error, "Failed: #{msg}")
   end
 
   defp remote_nodes(self_name) do

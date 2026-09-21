@@ -20,9 +20,11 @@ defmodule AlexClawWeb.Live.Elevation do
   import Phoenix.LiveView, only: [connected?: 1, put_flash: 3]
 
   alias AlexClaw.Auth.{AuditLog, CodeAttempts, CodeEntry, Elevation, Gate}
+  alias AlexClaw.ControlPlane
   alias Phoenix.LiveView.Socket
 
   @refusal "Unlock editing first"
+  @unrecorded "The change was not made: it could not be recorded in the audit log."
   @unconfigured "Admin changes require 2FA. Configure a gateway via environment " <>
                   "variables and run /setup 2fa."
 
@@ -52,6 +54,50 @@ defmodule AlexClawWeb.Live.Elevation do
   def gate(socket, detail, write) do
     decide(elevated?(socket), socket, detail, write)
   end
+
+  @doc """
+  Make one control-plane change from a page, through `AlexClaw.ControlPlane.gated/4`.
+
+  `change` names the parts:
+
+    * `:write` — the change itself, `(-> {:ok, result} | {:error, reason})`. It
+      runs inside the transaction with its audit row, so it touches the database
+      and nothing else.
+    * `:after_commit` — `(result -> any)`, for everything that is not the
+      database: caches, broadcasts, other nodes. Optional.
+    * `:ok` — `(socket, result -> socket)`, what the page shows once committed.
+    * `:error` — `(socket, reason -> socket)`, what it shows when the change was
+      not made. Optional; the default says so in a flash.
+
+  A refusal — no elevation, no second factor, or an audit row that could not be
+  written — is answered here, the same way on every page.
+  """
+  @spec gated(Socket.t(), String.t(), keyword()) :: {:noreply, Socket.t()}
+  def gated(socket, detail, change) do
+    sid(socket)
+    |> ControlPlane.gated(
+      detail,
+      Keyword.fetch!(change, :write),
+      Keyword.get(change, :after_commit, fn _result -> :ok end)
+    )
+    |> replied(socket, Keyword.fetch!(change, :ok), Keyword.get(change, :error, &not_made/2))
+  end
+
+  defp replied({:ok, result}, socket, ok, _error), do: {:noreply, ok.(socket, result)}
+
+  defp replied({:error, :not_elevated}, socket, _ok, _error),
+    do: {:noreply, socket |> refresh() |> put_flash(:error, @refusal)}
+
+  defp replied({:error, :no_second_factor}, socket, _ok, _error),
+    do: {:noreply, socket |> refresh() |> put_flash(:error, @unconfigured)}
+
+  defp replied({:error, :audit_failed}, socket, _ok, _error),
+    do: {:noreply, put_flash(socket, :error, @unrecorded)}
+
+  defp replied({:error, reason}, socket, _ok, error), do: {:noreply, error.(socket, reason)}
+
+  defp not_made(socket, reason),
+    do: put_flash(socket, :error, "Not saved: #{inspect(reason)}")
 
   @doc """
   Open the code field.

@@ -159,7 +159,8 @@ defmodule AlexClawWeb.Live.Elevation do
   The restore path refuses before any change is attempted, and a refusal
   nobody wrote down is a refusal nobody can review.
   """
-  @spec audit_refusal(Socket.t(), :not_elevated | :no_second_factor, String.t()) :: :ok
+  @spec audit_refusal(Socket.t(), :not_elevated | :no_second_factor | :disabled, String.t()) ::
+          :ok
   def audit_refusal(socket, reason, detail) do
     AuditLog.log_admin_refusal(fingerprint(socket), reason, detail)
   end

@@ -1,3 +1,15 @@
+# Its own project, deliberately. Without a name this file shared the project
+# `alexclaw` with docker-compose.yml, so the two stacks shared one network, and
+# the teardown that ends every test run — `docker compose ... down` — removed
+# it. With production stopped that succeeded, and production's database then
+# would not start: its container still pointed at a network that no longer
+# existed. With production running it failed only because production was still
+# attached, which is luck rather than protection.
+#
+# Named apart, the test stack gets alexclaw-test_default and nothing it tears
+# down can reach production.
+name: alexclaw-test
+
 services:
   db-test:
     container_name: alexclaw-db-test

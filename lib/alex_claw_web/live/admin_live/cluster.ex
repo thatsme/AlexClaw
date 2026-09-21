@@ -81,14 +81,8 @@ defmodule AlexClawWeb.AdminLive.Cluster do
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    sid = socket.assigns.elevation_sid
-
     Elevation.gated(socket, "cluster node deleted: id #{id}",
       write: fn -> Cluster.delete_node(Cluster.get_node!(String.to_integer(id))) end,
-      after_commit: fn node ->
-        answer = Cluster.node_ping(node.name)
-        ControlPlane.outcome(sid, "cluster node deleted: #{node.name} — ping #{answer}")
-      end,
       ok: fn socket, node ->
         socket
         |> put_flash(:info, "Node '#{node.name}' removed")

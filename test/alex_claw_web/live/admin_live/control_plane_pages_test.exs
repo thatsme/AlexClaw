@@ -182,16 +182,17 @@ defmodule AlexClawWeb.AdminLive.ControlPlanePagesTest do
       assert Repo.get!(AlexClaw.Cluster.ClusterNode, node.id).status == "disconnected"
     end
 
-    test "deleting a node audits the delete, then the ping after it", %{conn: conn, sid: sid} do
+    # Removing a node from the registry says nothing to the node, so there is
+    # no effect outside the database and no outcome row: one change, one row.
+    test "deleting a node is one change with one row", %{conn: conn, sid: sid} do
       {:ok, node} = Cluster.create_node(%{name: "gone@nowhere.invalid", label: "probe"})
       view = open(conn, sid, "/cluster")
 
       render_click(view, "delete", %{"id" => to_string(node.id)})
 
       refute Repo.get(AlexClaw.Cluster.ClusterNode, node.id)
-      assert [_intent] = rows("write", "cluster node deleted: id #{node.id}")
-      assert [outcome] = rows("outcome", "cluster node deleted: gone@nowhere.invalid")
-      assert outcome.reason =~ "ping pang"
+      assert [_row] = rows("write", "cluster node deleted: id #{node.id}")
+      assert rows("outcome", "gone@nowhere.invalid") == []
     end
   end
 end

@@ -3,6 +3,7 @@ defmodule AlexClaw.Release do
   Release tasks for running migrations and seeding in production.
   Called from entrypoint.sh before the app starts.
   """
+  alias AlexClaw.Config.Rekey
   alias AlexClaw.Database.Roles
 
   @app :alex_claw
@@ -44,6 +45,32 @@ defmodule AlexClaw.Release do
   defp connection_opts(repo) do
     Keyword.take(repo.config(), [:hostname, :port, :username, :password, :database, :ssl])
   end
+
+  @doc """
+  Re-encrypt the stored secrets for a new SECRET_KEY_BASE — see
+  `AlexClaw.Config.Rekey`. With the application stopped, and with
+  OLD_SECRET_KEY_BASE and the new SECRET_KEY_BASE both in the environment.
+  """
+  @spec rekey() :: :ok
+  def rekey do
+    load_app()
+    old = System.fetch_env!("OLD_SECRET_KEY_BASE")
+    new = System.fetch_env!("SECRET_KEY_BASE")
+
+    for repo <- repos() do
+      {:ok, result, _} =
+        Ecto.Migrator.with_repo(repo, fn _repo -> Rekey.run(old, new) end)
+
+      report_rekey(result)
+    end
+
+    :ok
+  end
+
+  defp report_rekey({:ok, count}),
+    do: IO.puts("Re-encrypted #{count} settings under the new SECRET_KEY_BASE.")
+
+  defp report_rekey({:error, reason}), do: raise("SECRET_KEY_BASE rotation refused: #{reason}")
 
   @spec seed_examples() :: [{:ok, any(), any()}]
   def seed_examples do

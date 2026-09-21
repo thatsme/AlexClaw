@@ -414,9 +414,14 @@ at the application level using **AES-256-GCM** before being stored in PostgreSQL
 `github.token`, `github.webhook_secret`, `google.oauth.client_secret`,
 `google.oauth.refresh_token`
 
-**Important:** If you change `SECRET_KEY_BASE`, all encrypted settings become
-unreadable. You will need to re-enter API keys and tokens via the admin UI
-or environment variables and restart.
+**Changing `SECRET_KEY_BASE` needs a rotation, not an edit.** Changed alone,
+it leaves every encrypted setting unreadable, the TOTP secret included. The
+rotation re-encrypts them from the old key to the new one in a single audited
+transaction, and changes nothing if any value cannot be decrypted with the
+old key: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
+
+LLM provider API keys (`llm_providers.api_key`) are stored in their own table,
+unencrypted. Encryption at rest does not cover them yet.
 
 ---
 

@@ -85,6 +85,7 @@ nav:
     - Multi-Node Swarm: deployment/clustering.md
     - Reverse Proxy & TLS: deployment/reverse-proxy.md
     - VPS Hardening: deployment/vps.md
+    - Upgrading to 0.3.34: deployment/upgrade-0.3.34.md
   - Reference:
     - Telegram Commands: reference/commands.md
     - Environment Variables: reference/env-vars.md

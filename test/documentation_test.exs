@@ -121,15 +121,21 @@ defmodule AlexClaw.DocumentationTest do
       |> Enum.map(fn [_, name] -> name end)
       |> Enum.uniq()
 
+    # The deployment reads some variables itself: the database owner's
+    # credentials reach only the migrate service, through the compose files,
+    # and the mix aliases that migrate the test database.
+    deployment = ["mix.exs" | Path.wildcard("docker-compose*.yml")] ++ Path.wildcard("db-init/*")
+
     sources =
       ["lib", "config"]
       |> Enum.flat_map(&Path.wildcard("#{&1}/**/*.{ex,exs}"))
+      |> Kernel.++(deployment)
       |> Enum.map_join("\n", &File.read!/1)
 
     unread = Enum.reject(documented, &String.contains?(sources, &1))
 
     assert unread == [],
-           "documented as environment variables but never read in lib/ or config/:\n  " <>
+           "documented as environment variables but never read in lib/, config/ or the deployment files:\n  " <>
              Enum.join(unread, "\n  ")
   end
 

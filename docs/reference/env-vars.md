@@ -34,8 +34,10 @@ the container.
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_HOSTNAME` | — | PostgreSQL host (required) |
-| `DATABASE_USERNAME` | — | PostgreSQL role (required) |
-| `DATABASE_PASSWORD` | — | PostgreSQL password (required) |
+| `DATABASE_USERNAME` | — | PostgreSQL application role the app connects as (required). Never the owner: the app refuses to start as a role that is a superuser, can create roles or databases, or owns a table |
+| `DATABASE_PASSWORD` | — | The application role's password (required) |
+| `DATABASE_OWNER_USERNAME` | `alexclaw` | PostgreSQL owner role. Seen only by the `migrate` service and the database container |
+| `DATABASE_OWNER_PASSWORD` | — | The owner's password (required by the `migrate` service) |
 | `POOL_SIZE` | `10` | Connection pool size |
 
 The database name is set by the compose file, not by an environment variable.

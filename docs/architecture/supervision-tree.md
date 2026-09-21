@@ -8,6 +8,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Repo                      # PostgreSQL connection pool (Ecto)
   ├── Phoenix.PubSub (AlexClaw.PubSub)   # Config changes, skill list, run events
   ├── Task.Supervisor (AlexClaw.TaskSupervisor)  # Supervised fire-and-forget work
+  ├── AlexClaw.Auth.AuditLoss            # Announces audit rows that could not be written
   ├── AlexClaw.Knowledge.EmbedThrottle   # Paces embedding calls against provider limits
   ├── AlexClaw.LLM.UsageTracker          # ETS owner for per-provider call counters
   ├── AlexClaw.Config.Loader             # Seeds config, loads it into the ETS cache
@@ -69,6 +70,13 @@ writes and everything else reads, so a write from elsewhere raises instead of
 quietly succeeding. Read-modify-writes on them happen inside the owner as a
 single call: counting a failed 2FA attempt, and redeeming a one-shot OAuth
 CSRF state.
+
+**A lost audit row is never silent.** When an audit row cannot be written, the
+event is logged at error level in the process that tried to write it.
+`AlexClaw.Auth.AuditLoss` then tells the operator over the gateways: the first
+loss at once, later ones counted and sent together at most once a minute, so a
+database outage produces one notice a minute rather than one per audited
+action. It starts right after `TaskSupervisor`, before anything that audits.
 
 ## Conditional children
 

@@ -10,7 +10,7 @@ defmodule AlexClaw.Auth.AuditLog do
 
   import Ecto.Query
 
-  alias AlexClaw.Auth.{AuditEntry, AuthContext, Principal}
+  alias AlexClaw.Auth.{AuditEntry, AuditLoss, AuthContext, Principal}
   alias AlexClaw.Repo
 
   @retention_days 30
@@ -226,9 +226,20 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
+  defp insert_entry(attrs) do
+    entry =
+      attrs
+      |> Map.merge(Principal.audit_fields())
+      |> Map.put(:inserted_at, DateTime.utc_now())
+
+    entry
+    |> write()
+    |> kept(entry)
+  end
+
   # Best effort by design: the action being audited has already happened, and
   # failing it now because its record could not be written would trade a lost
-  # row for a lost action.
+  # row for a lost action. A lost row is loud instead — see AuditLoss.
   #
   # The catch matters as much as the rescue. A database that has gone away exits
   # rather than raising, and an unguarded exit propagates to whoever called.
@@ -236,27 +247,21 @@ defmodule AlexClaw.Auth.AuditLog do
   # their own process for that reason — Elevation and CodeAttempts each start a
   # supervised task rather than insert inline. This is the defence in depth
   # behind that, and the whole of it for every other caller.
-  defp insert_entry(attrs) do
+  defp write(entry) do
     %AuditEntry{}
-    |> AuditEntry.changeset(
-      attrs
-      |> Map.merge(Principal.audit_fields())
-      |> Map.put(:inserted_at, DateTime.utc_now())
-    )
+    |> AuditEntry.changeset(entry)
     |> Repo.insert()
-    |> case do
-      {:ok, _entry} -> :ok
-      {:error, _changeset} -> :ok
-    end
   rescue
-    error ->
-      Logger.warning("Audit row not written: #{Exception.message(error)}")
-      :ok
+    error -> {:error, Exception.message(error)}
   catch
-    :exit, reason ->
-      Logger.warning("Audit row not written: #{inspect(reason)}")
-      :ok
+    :exit, reason -> {:error, reason}
   end
+
+  # Every way of not writing the row ends here, including the changeset that
+  # refused it — which used to be the one failure nobody heard about.
+  defp kept({:ok, _row}, _entry), do: :ok
+  defp kept({:error, %Ecto.Changeset{errors: errors}}, entry), do: AuditLoss.lost(entry, errors)
+  defp kept({:error, reason}, entry), do: AuditLoss.lost(entry, reason)
 
   defp maybe_filter_decision(query, nil), do: query
 

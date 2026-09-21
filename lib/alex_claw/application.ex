@@ -8,6 +8,8 @@ defmodule AlexClaw.Application do
       AlexClaw.Repo,
       {Phoenix.PubSub, name: AlexClaw.PubSub},
       {Task.Supervisor, name: AlexClaw.TaskSupervisor},
+      # Before anything that audits: a row lost at boot is announced too.
+      AlexClaw.Auth.AuditLoss,
       AlexClaw.Knowledge.EmbedThrottle,
       AlexClaw.LLM.UsageTracker,
       AlexClaw.Config.Loader,

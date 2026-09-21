@@ -291,6 +291,44 @@ defmodule AlexClaw.Database.RestoreTest do
     end
   end
 
+  # A file 0.3.34 wrote (test/fixtures/exports/v0.3.34.json, produced by the
+  # 0.3.34 code under the test SECRET_KEY_BASE) restores here unchanged: no
+  # release may write an export the next cannot restore. The fixture pins the
+  # schema version; a release that adds a migration must decide what a
+  # restore of the previous release's exports does, and change this test.
+  defp json_or_text("{" <> _ = value), do: Jason.decode!(value)
+  defp json_or_text(value), do: value
+
+  describe "an export written by 0.3.34" do
+    @v0_3_34 Path.expand("../../fixtures/exports/v0.3.34.json", __DIR__)
+
+    test "restores, with its credentials readable and encrypted at rest as they were" do
+      file = @v0_3_34 |> File.read!() |> Jason.decode!()
+
+      assert {:ok, _} = Restore.load(file)
+
+      provider = Repo.get_by!(AlexClaw.LLM.Provider, name: "fixture-provider")
+      assert provider.api_key == "sk-fixture"
+      assert provider.headers == %{"x-api-key" => "hdr-fixture"}
+
+      steps = Map.new(Repo.all(AlexClaw.Workflows.WorkflowStep), &{&1.name, &1.config})
+      assert steps["tg"]["bot_token"] == "123:fixture"
+      assert steps["api"]["headers"] == %{"authorization" => "Bearer fixture"}
+      setting = Repo.get_by!(AlexClaw.Config.Setting, key: "fixture.secret")
+      assert Crypto.decrypt(setting.value) == {:ok, "setting-secret"}
+
+      %{rows: [[stored_key]]} =
+        Repo.query!("SELECT api_key FROM llm_providers WHERE name = 'fixture-provider'")
+
+      assert Crypto.encrypted?(stored_key), "restored as stored, not in plain text"
+      # The same ciphertext, byte for byte; JSON compared decoded, since
+      # PostgreSQL spaces its jsonb text form.
+      [restored] = export()["tables"]["llm_providers"]["rows"]
+      [original] = file["tables"]["llm_providers"]["rows"]
+      assert Enum.map(restored, &json_or_text/1) == Enum.map(original, &json_or_text/1)
+    end
+  end
+
   describe "a file that does not fit changes nothing" do
     setup do
       fixtures()

@@ -100,7 +100,7 @@ defmodule AlexClawWeb.AdminLive.Database do
      put_flash(
        socket,
        :error,
-       "Admin changes require 2FA. Configure a gateway via environment variables and run /setup 2fa."
+       AlexClawWeb.Live.Elevation.unconfigured_message()
      )}
   end
 

@@ -394,16 +394,19 @@ WEB_AUTOMATOR_ENABLED=true
 WEB_AUTOMATOR_HOST=http://web-automator:6900
 ```
 
-Start with the web-automator profile:
+It is not built or started by a plain `docker compose up -d`. Start it with its profile:
 
 ```bash
-docker compose --profile web-automator up -d
+docker compose --profile web-automation up -d
 ```
+
+To include it every time, set `COMPOSE_PROFILES=web-automation` in `.env`.
 
 ### Verify
 
 ```bash
-curl http://localhost:6900/health
+docker compose --profile web-automation ps web-automator
+# STATUS shows (healthy) once its health check passes
 ```
 
 The noVNC web UI for recording sessions is available at `http://localhost:6080`.
@@ -528,7 +531,7 @@ There are two Docker Compose files:
 
 | File | Purpose |
 |---|---|
-| `docker-compose.yml` | **Single node** (default). One AlexClaw instance + DB + web-automator |
+| `docker-compose.yml` | **Single node** (default). One AlexClaw instance + DB; the web-automator is opt-in (`--profile web-automation`) |
 | `docker-compose_swarm.yml` | **Multi-node**. Two AlexClaw nodes + shared DB. Each node has its own port and node name |
 
 ### Single Node (default)

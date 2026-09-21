@@ -26,8 +26,12 @@ defmodule AlexClawWeb.Live.Elevation do
 
   @refusal "Unlock editing first"
   @unrecorded "The change was not made: it could not be recorded in the audit log."
-  @unconfigured "Admin changes require 2FA. Configure a gateway via environment " <>
-                  "variables and run /setup 2fa."
+  # 2FA is set up in the admin UI with the password alone; no gateway needed.
+  @unconfigured "Admin changes require 2FA. Set it up under Services → Two-factor authentication."
+
+  @doc "What a page says when a change is refused because 2FA is not set up."
+  @spec unconfigured_message() :: String.t()
+  def unconfigured_message, do: @unconfigured
 
   @doc """
   Assign what a gated page needs, and follow this session's elevation.

@@ -13,7 +13,13 @@ if config_env() == :prod do
         nil
 
       {key, _} when key in [nil, ""] ->
-        raise "SECRET_KEY_BASE not set. Generate with: mix phx.gen.secret"
+        raise "SECRET_KEY_BASE not set. Generate one with: openssl rand -base64 48"
+
+      # Phoenix's cookie store needs 64 bytes; shorter, the login page itself
+      # fails. It is also the key the stored secrets are encrypted with.
+      {key, _} when byte_size(key) < 64 ->
+        raise "SECRET_KEY_BASE is #{byte_size(key)} bytes; it must be at least 64. " <>
+                "Generate one with: openssl rand -base64 48"
 
       {key, _} ->
         key

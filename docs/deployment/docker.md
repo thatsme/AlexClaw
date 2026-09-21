@@ -8,7 +8,7 @@ AlexClaw runs as a Docker Compose stack with three services.
 |---|---|---|---|---|
 | `alexclaw-prod` | `alexclaw-prod` | Custom (Elixir release) | 5001 | Main application |
 | `db-prod` | `alexclaw-db-prod` | PostgreSQL 17 + pgvector | 5432 | Database |
-| `web-automator` | — | Custom (Python/Playwright) | 8000 | Browser automation sidecar (optional) |
+| `web-automator` | — | Custom (Python/Playwright) | 6080 (noVNC, loopback) | Browser automation sidecar, opt-in: `docker compose --profile web-automation up -d` |
 
 ## Starting
 

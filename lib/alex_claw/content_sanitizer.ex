@@ -8,7 +8,8 @@ defmodule AlexClaw.ContentSanitizer do
   2. Zero-width unicode removal — strip steganographic characters used to hide instructions
   3. HTML stripping — extract semantic text only (Floki-based)
   4. Size guard — enforce configurable max content length
-  5. Pattern matching — known injection phrases loaded from JSON at runtime
+  5. Pattern matching — known injection phrases, read at boot from
+     priv/injection_patterns.json; the application does not start without them
   6. Imperative tone heuristic — detect directive language (second person + imperative verbs)
      that doesn't match the surrounding content register
   7. Skill name mentions — flag external content referencing internal skill names
@@ -17,38 +18,6 @@ defmodule AlexClaw.ContentSanitizer do
   alias AlexClaw.Workflows.SkillRegistry
 
   @default_max_size 10_240
-  @patterns_file "/app/config/injection_patterns.json"
-
-  @fallback_patterns [
-    "ignore previous instructions",
-    "disregard your system",
-    "you are now",
-    "act as a",
-    "act as an",
-    "forget your",
-    "override your",
-    "new instructions",
-    "system prompt",
-    "you are dan",
-    "do anything now",
-    "freed from",
-    "no content filter",
-    "without refusal",
-    "unrestricted ai",
-    "no restrictions",
-    "jailbreak",
-    "ignore all previous",
-    "disregard all previous",
-    "pretend you are",
-    "simulate a",
-    "enter developer mode",
-    "developer mode enabled",
-    "bypass your",
-    "override safety",
-    "ignore safety",
-    "you must obey"
-  ]
-
   # Zero-width and invisible unicode characters used for steganographic injection
   @zero_width_chars [
     # zero-width space
@@ -263,31 +232,62 @@ defmodule AlexClaw.ContentSanitizer do
 
   # --- Layer 5-7: Pattern Matching + Imperative Tone + Skill Names ---
 
-  @doc """
-  Load injection patterns from JSON file, falling back to built-in patterns.
-  File is re-read on every call so updates take effect without restart.
-  """
-  @spec load_patterns() :: [Regex.t()]
-  def load_patterns do
-    path = Application.get_env(:alex_claw, :injection_patterns_file, @patterns_file)
+  # The patterns ship in the release (priv/) and are read once, at boot. A
+  # missing or unreadable file stops the start: a sanitizer quietly running on
+  # a shorter list nobody chose is worse than one that says it cannot run.
+  @patterns_key {__MODULE__, :patterns}
 
+  @doc "The file the injection patterns are read from."
+  @spec patterns_path() :: Path.t()
+  def patterns_path do
+    Application.get_env(:alex_claw, :injection_patterns_file) ||
+      Application.app_dir(:alex_claw, "priv/injection_patterns.json")
+  end
+
+  @doc """
+  Read the injection patterns from `path` and keep them for every check,
+  logging how many. Called at boot; raises, stopping the start, if the file
+  cannot be read or holds no valid patterns.
+  """
+  @spec load_patterns!(Path.t()) :: [String.t()]
+  def load_patterns!(path \\ patterns_path()) do
+    patterns = path |> read_patterns!() |> parsed_patterns!(path)
+    :persistent_term.put(@patterns_key, patterns)
+    Logger.info("[ContentSanitizer] Loaded #{length(patterns)} injection patterns from #{path}")
+    patterns
+  end
+
+  @doc "The injection patterns loaded at boot, lowercased."
+  @spec patterns() :: [String.t()]
+  def patterns, do: :persistent_term.get(@patterns_key)
+
+  defp read_patterns!(path) do
     case File.read(path) do
       {:ok, content} ->
-        case Jason.decode(content) do
-          {:ok, %{"patterns" => patterns}} when is_list(patterns) ->
-            patterns
+        content
 
-          {:ok, patterns} when is_list(patterns) ->
-            patterns
-
-          _ ->
-            Logger.warning("[ContentSanitizer] Invalid JSON in #{path}, using fallback patterns")
-            @fallback_patterns
-        end
-
-      {:error, _} ->
-        @fallback_patterns
+      {:error, reason} ->
+        raise "Injection patterns could not be read from #{path} (#{:file.format_error(reason)}). " <>
+                "The content sanitizer does not run without them."
     end
+  end
+
+  defp parsed_patterns!(content, path) do
+    case Jason.decode(content) do
+      {:ok, %{"patterns" => [_ | _] = patterns}} -> valid_patterns!(patterns, path)
+      _ -> invalid_patterns!(path)
+    end
+  end
+
+  defp valid_patterns!(patterns, path) do
+    if Enum.all?(patterns, &(is_binary(&1) and String.trim(&1) != "")),
+      do: Enum.map(patterns, &String.downcase/1),
+      else: invalid_patterns!(path)
+  end
+
+  defp invalid_patterns!(path) do
+    raise "Injection patterns in #{path} are not valid: expected " <>
+            ~s({"patterns": ["...", ...]}) <> " with at least one non-empty pattern."
   end
 
   defp strip_injection(text, skill_name) do
@@ -327,7 +327,7 @@ defmodule AlexClaw.ContentSanitizer do
     reasons = []
 
     # Check pattern match (Layer 5)
-    patterns = load_patterns()
+    patterns = patterns()
 
     reasons =
       if Enum.any?(patterns, &String.contains?(low, &1)) do

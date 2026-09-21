@@ -11,6 +11,10 @@ defmodule AlexClaw.Application do
     # does not start at all.
     PrivilegeCheck.run!()
 
+    # The content sanitizer's injection patterns, read once. Unreadable, the
+    # start stops here rather than running with fewer defences than shipped.
+    AlexClaw.ContentSanitizer.load_patterns!()
+
     children = [
       AlexClaw.Repo,
       {Phoenix.PubSub, name: AlexClaw.PubSub},

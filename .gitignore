@@ -65,9 +65,6 @@ priv/static/assets/
 
 # Database backups and SQL dumps (may contain secrets)
 *.sql
-# ...except test database fixtures: SQL written by hand, holding no data, and
-# needed by the test stack. Listed by path so no dump can slip through.
-!test/support/db/*.sql
 /backups/
 
 # Python (web-automator)

@@ -40,7 +40,9 @@ RUN mix compile && mix release
 # --- Test stage (used by docker-compose.test.yml) ---
 FROM elixir:1.19-otp-28-alpine AS test
 
-RUN apk add --no-cache build-base git
+# postgresql-client: backup_as_app_role_test runs pg_dump as the application
+# role, the way the backup download and the backup skill do.
+RUN apk add --no-cache build-base git postgresql-client
 
 WORKDIR /app
 ENV MIX_ENV=test

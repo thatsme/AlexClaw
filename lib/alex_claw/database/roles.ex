@@ -128,8 +128,15 @@ defmodule AlexClaw.Database.Roles do
         []
       )
 
+    # The bootstrap superuser also owns PostgreSQL's own catalogs; those are
+    # not the application's tables and would bury the ones that are.
     %{rows: owned} =
-      Postgrex.query!(conn, "SELECT tablename FROM pg_tables WHERE tableowner = current_user", [])
+      Postgrex.query!(
+        conn,
+        "SELECT tablename FROM pg_tables WHERE tableowner = current_user " <>
+          "AND schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY tablename",
+        []
+      )
 
     [
       super? && "#{name} is a superuser",

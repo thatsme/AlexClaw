@@ -120,6 +120,8 @@ defmodule AlexClaw.Database.RolesTest do
       assert text =~ "can create databases"
       assert text =~ "bypasses row-level security"
       assert text =~ "owns tables: " and text =~ "auth_audit_log"
+      # The application's tables, not PostgreSQL's own catalogs.
+      refute text =~ "pg_class"
     end
   end
 

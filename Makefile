@@ -28,11 +28,10 @@ test-down:
 
 test: test-elixir test-python
 
+# Runs the suite with a watchdog: a run where no test has started after 120s
+# is dumped (local-docs/erl_crash-*.dump) and stopped. See scripts/test-elixir.sh.
 test-elixir:
-	@echo "Building test image..."
-	@docker compose -f docker-compose.test.yml build --quiet test-elixir
-	docker compose -f docker-compose.test.yml run --rm test-elixir
-	@docker compose -f docker-compose.test.yml down
+	./scripts/test-elixir.sh
 
 test-python:
 	@echo "Building test image..."

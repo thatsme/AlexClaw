@@ -38,11 +38,12 @@ defmodule AlexClawWeb.ConnCase do
 
   @doc """
   Sign `conn` in as a live admin login, the way the login route does: the sid
-  is opened in `Sessions`, not merely written into the cookie.
-  Pass a sid to control it, as tests of elevation do.
+  is opened in `AlexClaw.Auth.Sessions`, not merely written into the cookie.
+  Pass a sid to control it, as tests of elevation do; a test that opens several
+  pages with one sid signs in once.
   """
   def authenticate(conn, sid \\ Elevation.new_sid()) do
-    :ok = Sessions.open(sid)
+    unless Sessions.valid?(sid), do: :ok = Sessions.open(sid)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})

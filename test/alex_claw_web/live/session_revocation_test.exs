@@ -40,7 +40,9 @@ defmodule AlexClawWeb.SessionRevocationTest do
     rendered = build_conn() |> authenticate(sid) |> get("/config")
     assert html_response(rendered, 200)
 
-    # Reopened as of nine hours ago: the same login, now past its eight hours.
+    # The same login, now past its eight hours: closed, and opened again as of
+    # nine hours ago, since a sid holds one row.
+    :ok = Sessions.close(sid)
     :ok = Sessions.open(sid, System.system_time(:second) - 9 * 60 * 60)
 
     assert {:error, {:redirect, %{to: "/login"}}} = live(rendered)

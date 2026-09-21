@@ -809,7 +809,7 @@ If you run two AlexClaw instances with the same `TELEGRAM_BOT_TOKEN` (e.g., dev 
 
 ### Locked out after changing SECRET_KEY_BASE
 
-Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes all encrypted config values (API keys, tokens) unreadable. Log in again with your `ADMIN_PASSWORD` and re-enter any API keys via Admin > Config (or set them in `.env` and restart). If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
+Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes all encrypted config values (API keys, tokens, the TOTP secret) unreadable. To change it deliberately, follow [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). If it was changed without a rotation, put the old value back and restart; failing that, log in with `ADMIN_PASSWORD` and re-enter the API keys via Admin > Config (or set them in `.env` and restart). If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
 
 ### Web automator noVNC behind HTTPS
 

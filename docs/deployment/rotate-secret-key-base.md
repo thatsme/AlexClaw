@@ -17,6 +17,7 @@ Requires 0.3.34 or later, which has the `migrate` service. Run every command fro
 ## 1. Back up
 
 ```bash
+mkdir -p ~/backups
 docker exec alexclaw-db-prod pg_dump -U <owner> -Fc alex_claw_prod \
   > ~/backups/alex_claw_prod-$(date +%Y%m%d-%H%M%S).dump
 ```

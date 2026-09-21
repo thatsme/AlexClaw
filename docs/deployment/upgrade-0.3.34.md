@@ -20,6 +20,7 @@ Every command is run from the directory holding `docker-compose.yml` and `.env`.
 Take a backup with the owner's credentials. It includes the schema and the audit log:
 
 ```bash
+mkdir -p ~/backups
 docker exec alexclaw-db-prod pg_dump -U <owner> -Fc alex_claw_prod \
   > ~/backups/alex_claw_prod-$(date +%Y%m%d-%H%M%S).dump
 ```
@@ -28,7 +29,13 @@ docker exec alexclaw-db-prod pg_dump -U <owner> -Fc alex_claw_prod \
 
 ## 1. Create the application role
 
-Do this once, as the current owner. Choose a new password; it must not be the owner's.
+Do this once, as the current owner. Generate a new password; it must not be the owner's:
+
+```bash
+openssl rand -hex 32
+```
+
+Paste it where the SQL below says `<application password>`. Hex digits need no escaping in the SQL string, but a password containing a single quote would.
 
 ```bash
 docker exec -i alexclaw-db-prod psql -U <owner> -d alex_claw_prod <<'SQL'
@@ -56,7 +63,11 @@ The owner's credentials reach only the `migrate` service and the database contai
 
 ## 3. Deploy 0.3.34
 
+Get the 0.3.34 code, then build and start:
+
 ```bash
+git fetch --tags
+git checkout v0.3.34
 docker compose up -d --build
 ```
 
@@ -92,24 +103,53 @@ If the log says `AlexClaw will not start on this database connection`, then `DAT
 
 ## Rolling back
 
-Stop the stack, restore `.env` to its single-role values, and deploy 0.3.33. The `alexclaw_app` role and its privileges do nothing unless `.env` names it. Dropping the role is optional.
+Stop the stack, restore `.env` to its single-role values, and deploy 0.3.33:
+
+```bash
+docker compose stop
+git checkout v0.3.33
+docker compose up -d --build
+```
+
+The `alexclaw_app` role and its privileges do nothing unless `.env` names it. Dropping the role is optional.
+
+**Upgrading again after a rollback:** skip step 1, since the role already exists and `CREATE ROLE` would fail with `role "alexclaw_app" already exists`. Start from step 2.
 
 ## Restoring after 0.3.34
 
-- **From the admin UI.** Database → **Export Data** writes the application's data as a JSON file, and **Restore** loads such a file. The restore replaces the application's data. It never touches the audit log or the current sign-ins, and it never runs anything from the file. Each restore asks for a code.
-- **A full restore**, schema and audit log included, is an operator step with the owner's credentials. Use it with a backup from **Download Backup**, the backup skill, or the command in *Before you start*:
+- **From the admin UI.** Database → **Export Data** writes the application's data as a JSON file, and **Restore** loads such a file. The restore replaces the application's data. It never touches the audit log or the current sign-ins, and it never runs anything from the file. Each restore asks for a code. Credentials stored in plain columns (LLM provider keys and headers, a Telegram Notify step's bot token) are written to the file encrypted under `SECRET_KEY_BASE`, so a file restores only on an installation with the same key.
+- **A full restore**, schema and audit log included, is an operator step with the owner's credentials. It **replaces the whole database** with the backup: take a fresh backup first if the current data may still be needed.
+
+  The backup can come from **Download Backup** (`.sql`), the backup skill (`.sql.gz`), or the command in *Before you start* (`.dump`). The database is recreated first, so the restore reproduces the backup exactly whatever version it was made on. `migrate` then brings the schema up to date and grants the application role its privileges:
 
   ```bash
-  # a .dump from pg_dump -Fc
-  docker exec -i alexclaw-db-prod pg_restore -U <owner> -d alex_claw_prod --clean --if-exists < backup.dump
+  docker compose stop alexclaw-prod
+  docker exec alexclaw-db-prod dropdb -U <owner> alex_claw_prod
+  docker exec alexclaw-db-prod createdb -U <owner> alex_claw_prod
 
-  # a .sql or .sql.gz from Download Backup or the backup skill
+  # a .dump (pg_dump -Fc)
+  docker exec -i alexclaw-db-prod pg_restore -U <owner> -d alex_claw_prod < backup.dump
+  # or a .sql
+  docker exec -i alexclaw-db-prod psql -U <owner> -d alex_claw_prod --single-transaction -v ON_ERROR_STOP=1 < backup.sql
+  # or a .sql.gz
   gunzip -c backup.sql.gz | docker exec -i alexclaw-db-prod \
-    psql -U <owner> -d alex_claw_prod --single-transaction
+    psql -U <owner> -d alex_claw_prod --single-transaction -v ON_ERROR_STOP=1
+
+  docker compose run --rm migrate
+  docker compose up -d
   ```
 
-  Then restart the stack, so that the `migrate` service grants the application role its privileges again.
+  Restoring over the existing database with `pg_restore --clean` is not enough for a backup made on an older version. It removes only the objects the backup contains, so tables added since stay behind, and `migrate` then fails when it tries to create them again.
 
 ## Multi-node (`docker-compose_swarm.yml`)
 
 The same steps apply. The swarm file has the same `migrate` service, and both nodes wait for it and connect as the application role.
+
+## What the upgrade was tested on
+
+The steps above were rehearsed from 0.3.29 on a copy of a production database, with the single-node `docker-compose.yml`: the upgrade, both checks in step 4, the rollback to 0.3.33, upgrading again after it, and the full restore of a backup from before the upgrade. On the upgraded copy, the admin UI's Export Data and Restore were run as a round trip with a two-factor code, and `SECRET_KEY_BASE` was rotated with [its procedure](rotate-secret-key-base.md); afterwards the settings and the TOTP secret decrypted under the new key, and an export made under the old one was refused.
+
+Not rehearsed:
+
+- **Multi-node**, with `docker-compose_swarm.yml`.
+- **The web-automator service.** The upgrade does not change it, but it was not running during the rehearsal.

@@ -355,7 +355,9 @@ The noVNC interface (port 6080) should never be exposed publicly.
 
 The `db_backup` core skill produces gzip-compressed `pg_dump` files on a
 host-mounted directory. Backups contain the **full database contents**
-including encrypted API keys and tokens (stored as AES-256-GCM ciphertext).
+including sensitive settings (stored as AES-256-GCM ciphertext) and the
+credentials that encryption at rest does not cover yet, in plain text (see
+[Encryption at Rest](#encryption-at-rest)).
 
 **Security considerations:**
 - Backup files should be stored on an encrypted filesystem or encrypted at
@@ -370,9 +372,11 @@ including encrypted API keys and tokens (stored as AES-256-GCM ciphertext).
 - A backup is made as the application role, which may read every table, so
   it holds the audit log too
 - To restore a backup — an operator step, with the database owner's
-  credentials: `gunzip -c backup.sql.gz | docker exec -i alexclaw-db-prod psql
-  -U <owner> -d alex_claw_prod --single-transaction`, then restart the stack so
-  the `migrate` service grants the application role its privileges again
+  credentials, that replaces the whole database: recreate the database, load
+  the backup with `psql --single-transaction -v ON_ERROR_STOP=1`, then run
+  `docker compose run --rm migrate` to bring the schema up to date and grant
+  the application role its privileges. The exact commands are in
+  [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md#restoring-after-0334)
 
 ---
 
@@ -398,8 +402,8 @@ database owner.
 
 ## Encryption at Rest
 
-Sensitive configuration values (API keys, tokens, OAuth secrets) are encrypted
-at the application level using **AES-256-GCM** before being stored in PostgreSQL.
+Sensitive settings (API keys, tokens, OAuth secrets held in the configuration)
+are encrypted at the application level using **AES-256-GCM** before being stored in PostgreSQL.
 
 - Encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256
 - Each value gets a unique 12-byte random IV — identical plaintext produces different ciphertext
@@ -420,8 +424,13 @@ rotation re-encrypts them from the old key to the new one in a single audited
 transaction, and changes nothing if any value cannot be decrypted with the
 old key: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
 
-LLM provider API keys (`llm_providers.api_key`) are stored in their own table,
-unencrypted. Encryption at rest does not cover them yet.
+**Not covered yet.** Credentials entered outside the settings are stored in
+plain text: an LLM provider's API key and extra headers
+(`llm_providers.api_key`, `llm_providers.headers`) and a Telegram Notify step's
+own bot token (`bot_token` in the step's configuration). Database backups hold
+them in plain text. **Export Data** writes them encrypted under the same key as
+the sensitive settings, and a restore decrypts them, so an export made under
+another `SECRET_KEY_BASE` is refused.
 
 ---
 

@@ -44,13 +44,13 @@ serves it. See
 
 Sensitive values are partially masked in the Config page (e.g., `sk-ant-...****`). The full value is only visible during edit.
 
+## Not Covered
+
+Credentials entered outside the settings are stored in plain text: an LLM provider's API key and extra headers, and a Telegram Notify step's own bot token. Database backups hold them in plain text. **Export Data** writes them encrypted under the same key as the sensitive settings, and a restore decrypts them.
+
 ## Key Rotation
 
-If you change `SECRET_KEY_BASE`:
-
-1. All encrypted values become unreadable
-2. Re-seed from environment variables, or
-3. Export values before rotating the key
+Changing `SECRET_KEY_BASE` alone makes every encrypted value unreadable, the TOTP secret included. Rotate it with the procedure in [Rotating SECRET_KEY_BASE](../deployment/rotate-secret-key-base.md), which re-encrypts every value from the old key to the new one in one audited transaction.
 
 !!! danger "Protect SECRET_KEY_BASE"
     This is the root key for all encryption. Store it securely in your `.env` file and never commit it to version control. Generate with `openssl rand -base64 64`.

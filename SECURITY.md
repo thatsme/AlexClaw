@@ -355,9 +355,8 @@ The noVNC interface (port 6080) should never be exposed publicly.
 
 The `db_backup` core skill produces gzip-compressed `pg_dump` files on a
 host-mounted directory. Backups contain the **full database contents**
-including sensitive settings (stored as AES-256-GCM ciphertext) and the
-credentials that encryption at rest does not cover yet, in plain text (see
-[Encryption at Rest](#encryption-at-rest)).
+including sensitive settings and stored credentials, as AES-256-GCM
+ciphertext (see [Encryption at Rest](#encryption-at-rest)).
 
 **Security considerations:**
 - Backup files should be stored on an encrypted filesystem or encrypted at
@@ -422,18 +421,31 @@ are encrypted at the application level using **AES-256-GCM** before being stored
 `google.oauth.refresh_token`
 
 **Changing `SECRET_KEY_BASE` needs a rotation, not an edit.** Changed alone,
-it leaves every encrypted setting unreadable, the TOTP secret included. The
-rotation re-encrypts them from the old key to the new one in a single audited
-transaction, and changes nothing if any value cannot be decrypted with the
-old key: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
+it leaves every encrypted value unreadable, the TOTP secret included, and the
+application refuses to start, naming each value it cannot decrypt (never the
+value itself). The rotation re-encrypts them from the old key to the new one
+in a single audited transaction, and changes nothing if any value cannot be
+decrypted with the old key: see
+[Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). A key
+lost for good has its own audited procedure there, which discards only the
+values that no longer decrypt.
 
-**Not covered yet.** Credentials entered outside the settings are stored in
-plain text: an LLM provider's API key and extra headers
-(`llm_providers.api_key`, `llm_providers.headers`) and a Telegram Notify step's
-own bot token (`bot_token` in the step's configuration). Database backups hold
-them in plain text. **Export Data** writes them encrypted under the same key as
-the sensitive settings, and a restore decrypts them, so an export made under
-another `SECRET_KEY_BASE` is refused.
+**Credentials outside the settings** are encrypted the same way: an LLM
+provider's API key and header values (`llm_providers.api_key`,
+`llm_providers.headers`), and the step configuration keys a skill declares
+secret — a Telegram Notify step's `bot_token`, an API Request step's
+`headers`. A skill whose configuration has a key with a name
+one of whose underscore-separated parts is `token`, `key`, `apikey`,
+`password`, `secret`, `credential`, `auth`, `authorization` or `headers` must declare it with
+`secret_config_keys/0`: a core skill that does not fails the build, and a
+dynamic skill that does not is refused at load. Values written before this
+existed are encrypted at the next boot, and a stored value that does not
+decrypt under the running key stops the boot. Seeded cloud providers read
+their key from its setting rather than holding a copy.
+
+**Export Data** writes every encrypted value as it is stored. A restore checks
+that each one decrypts under the running key before anything changes, so an
+export made under another `SECRET_KEY_BASE` is refused.
 
 ---
 

@@ -751,7 +751,7 @@ for anything that does not fit — several hostnames, or a proxy on plain HTTP:
 CHECK_ORIGIN=https://alexclaw.example.com,http://192.168.1.10:5001
 ```
 
-Unset, both `http://localhost:5001` and `http://127.0.0.1:5001` are accepted.
+Unset, both `http://localhost:<port>` and `http://127.0.0.1:<port>` are accepted, where `<port>` is `ADMIN_PORT` (5001 by default).
 
 ### Skill uploads or generated skills fail to save
 
@@ -793,6 +793,8 @@ If port 5001 is already in use (common on macOS — see [Step 4](#4-log-in)), se
 ADMIN_PORT=5002
 ```
 
+The admin UI is then at `http://127.0.0.1:5002`, and the LiveView socket accepts that origin.
+
 ### Container won't start
 
 ```bash
@@ -809,7 +811,9 @@ If you run two AlexClaw instances with the same `TELEGRAM_BOT_TOKEN` (e.g., dev 
 
 ### Locked out after changing SECRET_KEY_BASE
 
-Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes all encrypted config values (API keys, tokens, the TOTP secret) unreadable. To change it deliberately, follow [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). If it was changed without a rotation, put the old value back and restart; failing that, log in with `ADMIN_PASSWORD` and re-enter the API keys via Admin > Config (or set them in `.env` and restart). If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
+Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes every encrypted value (API keys, tokens, the TOTP secret) unreadable. To change it deliberately, follow [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
+
+If it was changed without a rotation, the application does not start: the log says `These stored values do not decrypt under this SECRET_KEY_BASE` and names each one, never its value. Put the old value back and restart. If the old value is lost for good, those values cannot be recovered. Follow [Lost key](docs/deployment/rotate-secret-key-base.md#lost-key) to discard exactly them, then enter them again. If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
 
 ### Web automator noVNC behind HTTPS
 

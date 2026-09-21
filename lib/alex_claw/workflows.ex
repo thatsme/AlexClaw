@@ -4,7 +4,15 @@ defmodule AlexClaw.Workflows do
   """
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Workflows.{SkillOutcome, Workflow, WorkflowResource, WorkflowRun, WorkflowStep}
+
+  alias AlexClaw.Workflows.{
+    SkillOutcome,
+    SkillRegistry,
+    Workflow,
+    WorkflowResource,
+    WorkflowRun,
+    WorkflowStep
+  }
 
   # --- Workflows ---
 
@@ -98,6 +106,14 @@ defmodule AlexClaw.Workflows do
 
   # --- Export / Import ---
 
+  # A shared workflow file carries no credential: every config key a skill
+  # declares secret is exported as this placeholder, string by string. An
+  # import leaves those values empty and marks the step as needing secrets in
+  # the workflow's metadata (keyed by step id, so it adds no column: a new
+  # column would make the previous release's data exports unrestorable).
+  @secret_placeholder "<secret not exported>"
+  @needs_secrets "steps_needing_secrets"
+
   @doc "Serialize a workflow definition (with steps and resource references) to a JSON-friendly map."
   @spec export_workflow(Workflow.t()) :: map()
   def export_workflow(%Workflow{} = workflow) do
@@ -112,41 +128,39 @@ defmodule AlexClaw.Workflows do
         "schedule" => workflow.schedule,
         "default_provider" => workflow.default_provider,
         "node" => workflow.node,
-        "metadata" => workflow.metadata
+        "metadata" => Map.delete(workflow.metadata || %{}, @needs_secrets)
       },
-      "steps" =>
-        workflow.steps
-        |> Enum.sort_by(& &1.position)
-        |> Enum.map(fn step ->
-          %{
-            "position" => step.position,
-            "name" => step.name,
-            "skill" => step.skill,
-            "llm_tier" => step.llm_tier,
-            "llm_model" => step.llm_model,
-            "prompt_template" => step.prompt_template,
-            "config" => step.config,
-            "input_from" => step.input_from,
-            "routes" => step.routes
-          }
-        end),
+      "steps" => workflow.steps |> Enum.sort_by(& &1.position) |> Enum.map(&export_step/1),
       "resources" =>
         Enum.map(workflow.workflow_resources, fn wr ->
-          resource = Enum.find(workflow.resources, &(&1.id == wr.resource_id))
-
-          %{
-            "name" => resource && resource.name,
-            "type" => resource && resource.type,
-            "url" => resource && resource.url,
-            "content" => resource && resource.content,
-            "metadata" => resource && resource.metadata,
-            "tags" => resource && resource.tags,
-            "enabled" => resource && resource.enabled,
-            "role" => wr.role
-          }
+          workflow.resources
+          |> Enum.find(&(&1.id == wr.resource_id))
+          |> export_resource()
+          |> Map.put("role", wr.role)
         end)
     }
   end
+
+  defp export_step(step) do
+    %{
+      "position" => step.position,
+      "name" => step.name,
+      "skill" => step.skill,
+      "llm_tier" => step.llm_tier,
+      "llm_model" => step.llm_model,
+      "prompt_template" => step.prompt_template,
+      "config" => redacted(step.config),
+      "input_from" => step.input_from,
+      "routes" => step.routes
+    }
+  end
+
+  @resource_fields ~w(name type url content metadata tags enabled)a
+
+  defp export_resource(nil), do: Map.new(@resource_fields, &{Atom.to_string(&1), nil})
+
+  defp export_resource(resource),
+    do: Map.new(@resource_fields, &{Atom.to_string(&1), Map.fetch!(resource, &1)})
 
   @doc "Import a workflow from a JSON-decoded map. Returns {:ok, workflow, warnings} or {:error, message}."
   @spec import_workflow(map()) :: {:ok, Workflow.t(), [String.t()]} | {:error, String.t()}
@@ -183,25 +197,10 @@ defmodule AlexClaw.Workflows do
 
     result =
       Repo.transaction(fn ->
-        case %Workflow{}
-             |> Workflow.changeset(%{
-               name: name,
-               description: wf_attrs["description"],
-               enabled: wf_attrs["enabled"] || false,
-               schedule: wf_attrs["schedule"],
-               default_provider: wf_attrs["default_provider"],
-               node: wf_attrs["node"],
-               metadata: wf_attrs["metadata"] || %{}
-             })
-             |> Repo.insert() do
-          {:ok, new_wf} ->
-            insert_imported_steps(new_wf, data["steps"])
-            warnings = link_imported_resources(new_wf, data["resources"] || [])
-            {new_wf, warnings}
-
-          {:error, changeset} ->
-            Repo.rollback(changeset_to_message(changeset))
-        end
+        %Workflow{}
+        |> Workflow.changeset(imported_attrs(wf_attrs, name))
+        |> Repo.insert()
+        |> imported(data)
       end)
 
     case result do
@@ -210,6 +209,28 @@ defmodule AlexClaw.Workflows do
       {:error, changeset} -> {:error, changeset_to_message(changeset)}
     end
   end
+
+  # An imported workflow is always disabled, whatever the file says: it runs
+  # nothing, on a schedule or otherwise, until someone enables it through the
+  # gated save.
+  defp imported_attrs(wf_attrs, name) do
+    %{
+      name: name,
+      description: wf_attrs["description"],
+      enabled: false,
+      schedule: wf_attrs["schedule"],
+      default_provider: wf_attrs["default_provider"],
+      node: wf_attrs["node"],
+      metadata: Map.delete(wf_attrs["metadata"] || %{}, @needs_secrets)
+    }
+  end
+
+  defp imported({:ok, new_wf}, data) do
+    new_wf |> insert_imported_steps(data["steps"]) |> mark_needing_secrets(new_wf)
+    {new_wf, link_imported_resources(new_wf, data["resources"] || [])}
+  end
+
+  defp imported({:error, changeset}, _data), do: Repo.rollback(changeset_to_message(changeset))
 
   defp resolve_import_name(base_name) do
     case Repo.get_by(Workflow, name: base_name) do
@@ -227,7 +248,9 @@ defmodule AlexClaw.Workflows do
   end
 
   defp insert_imported_steps(workflow, steps) do
-    Enum.each(steps, fn step ->
+    Enum.map(steps, fn step ->
+      {config, missing} = unredacted(step["config"] || %{})
+
       case %WorkflowStep{}
            |> WorkflowStep.changeset(%{
              workflow_id: workflow.id,
@@ -237,15 +260,87 @@ defmodule AlexClaw.Workflows do
              llm_tier: step["llm_tier"],
              llm_model: step["llm_model"],
              prompt_template: step["prompt_template"],
-             config: step["config"] || %{},
+             config: config,
              input_from: step["input_from"],
              routes: step["routes"] || []
            })
            |> Repo.insert() do
-        {:ok, _} -> :ok
+        {:ok, inserted} -> {inserted.id, missing}
         {:error, changeset} -> Repo.rollback(changeset_to_message(changeset))
       end
     end)
+  end
+
+  defp mark_needing_secrets(step_results, workflow) do
+    marks = for {id, [_ | _] = keys} <- step_results, into: %{}, do: {to_string(id), keys}
+    if marks != %{}, do: put_marks(workflow, marks)
+    :ok
+  end
+
+  defp put_marks(workflow, marks) do
+    metadata = workflow.metadata || %{}
+
+    metadata =
+      if marks == %{},
+        do: Map.delete(metadata, @needs_secrets),
+        else: Map.put(metadata, @needs_secrets, marks)
+
+    workflow |> Workflow.changeset(%{metadata: metadata}) |> Repo.update!()
+  end
+
+  defp redacted(nil), do: nil
+
+  defp redacted(config) do
+    secret = SkillRegistry.secret_config_keys()
+    Map.new(config, fn {k, v} -> {k, redact_if(to_string(k) in secret, v)} end)
+  end
+
+  defp redact_if(false, value), do: value
+  defp redact_if(true, value), do: redact(value)
+
+  defp redact(value) when value in [nil, ""], do: value
+  defp redact(value) when is_map(value), do: Map.new(value, fn {k, v} -> {k, redact(v)} end)
+  defp redact(value) when is_list(value), do: Enum.map(value, &redact/1)
+  defp redact(_value), do: @secret_placeholder
+
+  # The config with every placeholder emptied, and the declared keys that held one.
+  defp unredacted(config) when is_map(config) do
+    secret = SkillRegistry.secret_config_keys()
+    missing = for {k, v} <- config, to_string(k) in secret, placeholder?(v), do: to_string(k)
+
+    {Map.new(config, fn {k, v} -> {k, empty_if(to_string(k) in secret, v)} end),
+     Enum.sort(missing)}
+  end
+
+  defp unredacted(config), do: {config, []}
+
+  defp empty_if(true, value), do: emptied(value)
+  defp empty_if(false, value), do: value
+
+  defp placeholder?(@secret_placeholder), do: true
+
+  defp placeholder?(value) when is_map(value),
+    do: Enum.any?(value, fn {_k, v} -> placeholder?(v) end)
+
+  defp placeholder?(value) when is_list(value), do: Enum.any?(value, &placeholder?/1)
+  defp placeholder?(_value), do: false
+
+  defp emptied(@secret_placeholder), do: ""
+  defp emptied(value) when is_map(value), do: Map.new(value, fn {k, v} -> {k, emptied(v)} end)
+  defp emptied(value) when is_list(value), do: Enum.map(value, &emptied/1)
+  defp emptied(value), do: value
+
+  @doc """
+  The steps of `workflow` imported without their secrets: step id => the
+  config keys still to fill in. A step leaves the list once those keys hold
+  values again (`update_step/2`).
+  """
+  @spec steps_needing_secrets(Workflow.t()) :: %{integer() => [String.t()]}
+  def steps_needing_secrets(%Workflow{metadata: metadata}) do
+    for {id, keys} <- Map.get(metadata || %{}, @needs_secrets, %{}),
+        {n, ""} <- [Integer.parse(to_string(id))],
+        into: %{},
+        do: {n, keys}
   end
 
   defp link_imported_resources(workflow, resources) do
@@ -353,10 +448,34 @@ defmodule AlexClaw.Workflows do
   @spec update_step(WorkflowStep.t(), map()) ::
           {:ok, WorkflowStep.t()} | {:error, Ecto.Changeset.t()}
   def update_step(%WorkflowStep{} = step, attrs) do
-    step
-    |> WorkflowStep.changeset(attrs)
-    |> Repo.update()
+    with {:ok, updated} <- step |> WorkflowStep.changeset(attrs) |> Repo.update() do
+      clear_secret_mark(updated)
+      {:ok, updated}
+    end
   end
+
+  # A step imported without its secrets stops being marked once every key it
+  # was missing holds a value.
+  defp clear_secret_mark(step) do
+    workflow = Repo.get!(Workflow, step.workflow_id)
+    missing = Map.get(steps_needing_secrets(workflow), step.id, [])
+    unmark(missing != [] and Enum.all?(missing, &filled?(step.config[&1])), workflow, step.id)
+  end
+
+  defp unmark(false, _workflow, _id), do: :ok
+
+  defp unmark(true, workflow, id) do
+    marks = workflow.metadata |> Map.get(@needs_secrets, %{}) |> Map.delete(to_string(id))
+    put_marks(workflow, marks)
+  end
+
+  defp filled?(value) when value in [nil, ""], do: false
+
+  defp filled?(value) when is_map(value),
+    do: value != %{} and Enum.all?(value, fn {_k, v} -> filled?(v) end)
+
+  defp filled?(value) when is_list(value), do: Enum.all?(value, &filled?/1)
+  defp filled?(_value), do: true
 
   @spec remove_step(WorkflowStep.t()) :: {:ok, WorkflowStep.t()} | {:error, Ecto.Changeset.t()}
   def remove_step(%WorkflowStep{} = step) do

@@ -109,6 +109,11 @@ services:
       # Application
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # The origins the LiveView socket accepts: loopback on the published
+      # port, plus PHX_HOST behind a proxy; CHECK_ORIGIN replaces the list.
+      ADMIN_PORT: ${ADMIN_PORT:-5001}
+      PHX_HOST: ${PHX_HOST:-}
+      CHECK_ORIGIN: ${CHECK_ORIGIN:-}
 
       # Telegram
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}

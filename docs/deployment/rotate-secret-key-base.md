@@ -1,11 +1,11 @@
 # Rotating SECRET_KEY_BASE
 
-`SECRET_KEY_BASE` is more than a cookie-signing key in AlexClaw. Sensitive settings are stored encrypted with a key derived from it, the TOTP secret included. **Changing it without re-encrypting them makes them unreadable.** Two-factor authentication stops working, and so does every stored credential.
+`SECRET_KEY_BASE` is more than a cookie-signing key in AlexClaw. Sensitive settings and stored credentials (LLM provider keys and headers, step secrets) are encrypted with a key derived from it, the TOTP secret included. **Changing it without re-encrypting them makes them unreadable.** Two-factor authentication stops working, and so does every stored credential.
 
-The rotation re-encrypts every encrypted setting from the old key to the new one, in a single database transaction:
+The rotation re-encrypts every encrypted value from the old key to the new one, in a single database transaction:
 
 - every value is decrypted with the old key, re-encrypted with the new one, and checked to decrypt again before it is written;
-- if any value cannot be decrypted with the old key, **nothing is changed** and the rotation says which setting;
+- if any value cannot be decrypted with the old key, **nothing is changed** and the rotation says which setting or row;
 - every login is ended, and the rotation is recorded in the audit log.
 
 Running it a second time is refused: after a rotation the old key decrypts nothing.
@@ -54,7 +54,7 @@ docker compose run --rm --no-deps --entrypoint bin/alex_claw \
 # with docker-compose_swarm.yml: the same, with -f docker-compose_swarm.yml and node1
 ```
 
-On success it prints `Re-encrypted <n> settings under the new SECRET_KEY_BASE.`
+On success it prints `Re-encrypted <n> values under the new SECRET_KEY_BASE.`
 
 If it prints `SECRET_KEY_BASE rotation refused: ...`, nothing was changed. The usual cause is an old value that is not the one currently in `.env`. Do not continue to step 5.
 
@@ -69,10 +69,40 @@ docker compose up -d
 
 ## 6. Verify
 
-Sign in. Everyone has to, since every login was ended. Then unlock editing with a code from the authenticator: a code that works shows the TOTP secret decrypted under the new key. The audit log (Policies → Audit) shows `SECRET_KEY_BASE rotated: <n> encrypted settings re-encrypted, <m> logins ended`.
+Sign in. Everyone has to, since every login was ended. Then unlock editing with a code from the authenticator: a code that works shows the TOTP secret decrypted under the new key. The audit log (Policies → Audit) shows `SECRET_KEY_BASE rotated: <n> encrypted values re-encrypted, <m> logins ended`.
 
 ## If something goes wrong
 
 - **The rotation was refused**: nothing changed. Start the application with the unchanged `.env`.
-- **The application started with the new key before the rotation ran**: encrypted settings cannot be read, and 2FA fails. Stop the application, put the old key back in `.env`, and start again from step 3.
+- **The application does not start after the key changed**: the log says `These stored values do not decrypt under this SECRET_KEY_BASE` and names them. The key changed without a rotation. Put the old key back in `.env`, start, and rotate from step 1. Nothing is lost while the old key exists.
 - **The backup from step 1** restores the database as it was: see [Upgrading to 0.3.34](upgrade-0.3.34.md#restoring-after-0334).
+
+## Lost key
+
+This is not a rotation. It is for the case where the previous `SECRET_KEY_BASE` is gone for good, so the values encrypted under it can never be read again. The application refuses to start while any are stored, and names them.
+
+The procedure clears exactly those values: sensitive settings (the TOTP secret among them), provider API keys and header values, and step secrets. It keeps everything that still decrypts. It runs in a one-off application container, with the application stopped.
+
+1. **Back up**, as in step 1. The backup still holds the lost values, should the key turn up again.
+
+2. **Stop the application**, as in step 3.
+
+3. **List what would be discarded.** This changes nothing:
+
+   ```bash
+   docker compose run --rm --no-deps --entrypoint bin/alex_claw \
+     alexclaw-prod eval "AlexClaw.Release.discard_undecryptable()"
+   ```
+
+   It prints each value's location, never the value (for example `settings telegram.bot_token`, `llm_providers 3 api_key`, `workflow_steps 12 config.bot_token`), and the confirmation to use, `DISCARD <n>`.
+
+4. **Discard them** with that exact confirmation. Anything else, including a count that no longer matches, is refused with nothing changed:
+
+   ```bash
+   docker compose run --rm --no-deps --entrypoint bin/alex_claw \
+     alexclaw-prod eval 'AlexClaw.Release.discard_undecryptable("DISCARD <n>")'
+   ```
+
+   It clears the values in one transaction and writes an audit row naming them: `undecryptable values discarded (SECRET_KEY_BASE lost): ...`.
+
+5. **Start the application**, and enter the discarded credentials again: sensitive settings under Config, provider keys under LLM, step secrets in each workflow step. If the TOTP secret was discarded, set up two-factor authentication again under Services. Until then, admin changes stay read-only.

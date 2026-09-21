@@ -44,7 +44,12 @@ defmodule AlexClawWeb.Router do
     # Every page mounts through RequireSession, which asks the server whether
     # the login still stands. The plug above covers the first HTTP render; the
     # hook covers the websocket, which never passes through the plug.
-    live_session :authenticated, on_mount: AlexClawWeb.Live.RequireSession do
+    #
+    # The app layout is where the flash messages render. Without it every page's
+    # put_flash was set and never shown.
+    live_session :authenticated,
+      on_mount: AlexClawWeb.Live.RequireSession,
+      layout: {AlexClawWeb.Layouts, :app} do
       live("/", AdminLive.Dashboard)
       live("/chat", AdminLive.Chat)
       live("/forge", AdminLive.Forge)

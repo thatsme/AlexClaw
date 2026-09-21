@@ -8,7 +8,7 @@ defmodule AlexClawWeb.CoreComponents do
   @spec flash_group(map()) :: Phoenix.LiveView.Rendered.t()
   def flash_group(assigns) do
     ~H"""
-    <div class="fixed top-4 right-4 z-50 space-y-2">
+    <div id="flash-group" class="fixed top-4 right-4 z-50 space-y-2">
       <.flash :if={msg = Phoenix.Flash.get(@flash, :info)} kind={:info} message={msg} />
       <.flash :if={msg = Phoenix.Flash.get(@flash, :error)} kind={:error} message={msg} />
     </div>

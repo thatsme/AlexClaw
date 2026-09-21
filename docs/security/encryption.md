@@ -44,13 +44,25 @@ serves it. See
 
 Sensitive values are partially masked in the Config page (e.g., `sk-ant-...****`). The full value is only visible during edit.
 
-## Not Covered
+## Credentials Outside the Settings
 
-Credentials entered outside the settings are stored in plain text: an LLM provider's API key and extra headers, and a Telegram Notify step's own bot token. Database backups hold them in plain text. **Export Data** writes them encrypted under the same key as the sensitive settings, and a restore decrypts them.
+The same encryption covers credentials stored elsewhere:
+
+| Where | What |
+|---|---|
+| `llm_providers.api_key` | an LLM provider's API key |
+| `llm_providers.headers` | every header value (the header names stay readable) |
+| a workflow step's `config` | the keys its skill declares with `secret_config_keys/0`: `bot_token` (Telegram Notify), `headers` (API Request) |
+
+A skill whose configuration has a key with a name one of whose underscore-separated parts is `token`, `key`, `apikey`, `password`, `secret`, `credential`, `auth`, `authorization` or `headers` (so `api_key` and `auth_header` count, `keyword_count` does not) must declare it. A core skill that does not fails the build, and a dynamic skill that does not is refused at load.
+
+Values stored in plain text by an earlier release are encrypted at the next boot. A stored value that does not decrypt under the running `SECRET_KEY_BASE` stops the boot, naming the row and column. Seeded cloud providers (Gemini, Anthropic) hold no copy of their key; they read it from its setting.
+
+**Export Data** writes these values as they are stored, encrypted. A restore checks that every one decrypts under the running key before anything changes.
 
 ## Key Rotation
 
-Changing `SECRET_KEY_BASE` alone makes every encrypted value unreadable, the TOTP secret included. Rotate it with the procedure in [Rotating SECRET_KEY_BASE](../deployment/rotate-secret-key-base.md), which re-encrypts every value from the old key to the new one in one audited transaction.
+Changing `SECRET_KEY_BASE` alone makes every encrypted value unreadable, the TOTP secret included, and the application refuses to start, naming each value it cannot decrypt. Rotate it with the procedure in [Rotating SECRET_KEY_BASE](../deployment/rotate-secret-key-base.md), which re-encrypts every value from the old key to the new one in one audited transaction. If the previous key is lost for good, [Lost key](../deployment/rotate-secret-key-base.md#lost-key) discards exactly the values that no longer decrypt.
 
 !!! danger "Protect SECRET_KEY_BASE"
     This is the root key for all encryption. Store it securely in your `.env` file and never commit it to version control. Generate with `openssl rand -base64 64`.

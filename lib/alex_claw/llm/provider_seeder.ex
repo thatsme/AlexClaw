@@ -99,19 +99,18 @@ defmodule AlexClaw.LLM.ProviderSeeder do
   defp seeded({:error, changeset}, default),
     do: Logger.warning("Failed to seed #{default.name}: #{inspect(changeset.errors)}")
 
+  # The key stays in its setting and is not copied: the LLM client reads the
+  # setting for a provider that has no key of its own.
   defp build_attrs(%{config_key: config_key} = default) do
-    api_key = AlexClaw.Config.get(config_key) || ""
-
     %{
       name: default.name,
       type: default.type,
       tier: default.tier,
       model: default.model,
-      api_key: api_key,
       host: Map.get(default, :host),
       daily_limit: Map.get(default, :daily_limit),
       priority: default.priority,
-      enabled: api_key != ""
+      enabled: AlexClaw.Config.get(config_key) not in [nil, ""]
     }
   end
 

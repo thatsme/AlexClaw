@@ -20,6 +20,10 @@ defmodule AlexClaw.Skills.TelegramNotify do
   def step_fields, do: [:config]
 
   @impl true
+  @spec secret_config_keys() :: [String.t()]
+  def secret_config_keys, do: ["bot_token"]
+
+  @impl true
   @spec config_hint() :: String.t()
   def config_hint,
     do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|

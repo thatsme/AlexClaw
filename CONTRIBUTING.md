@@ -66,13 +66,19 @@ your right to use your own contributions however you wish.
 2. **Create a branch** — `git checkout -b feature/my-skill` or `fix/router-fallback`
 3. **Write your code** — follow the existing patterns in `lib/alex_claw/`
 4. **Add tests** — skills should have unit tests; use `ExUnit`
-5. **Run the suite** — `make down` first, then `make test-elixir`
+5. **Run the suite** — `make test-elixir`
 6. **Open a pull request** — describe what you built and why
 
 Tests run in the container defined by `docker-compose.test.yml`, against an
 isolated test database. Running `mix test` directly on the host is not
-supported — it connects to the wrong database or none at all. The production
-containers must be stopped first, since the test database binds the same port.
+supported — it connects to the wrong database or none at all. The test stack is
+its own compose project and publishes no ports, so it can run while the
+production containers are up.
+
+`make test-elixir` runs `scripts/test-elixir.sh`, which watches for a run that
+hangs before any test starts. If none has started within 120 seconds
+(`TEST_WATCHDOG_SECONDS`), it has the BEAM write a crash dump to
+`local-docs/erl_crash-<timestamp>.dump`, stops the run, and exits with status 124.
 
 ### Skill Contributions
 

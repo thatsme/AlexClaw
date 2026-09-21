@@ -21,6 +21,9 @@ defmodule AlexClaw.Application do
       AlexClaw.LLM.UsageTracker,
       AlexClaw.Config.Loader,
       AlexClaw.Workflows.SkillRegistry,
+      # Encrypts credentials still stored in plain text and checks the rest
+      # decrypt, before anything reads them; the boot stops if one fails.
+      AlexClaw.Database.EncryptCredentials,
       AlexClaw.Workflows.Registry,
       AlexClaw.LogBuffer,
       AlexClaw.Google.TokenManager,

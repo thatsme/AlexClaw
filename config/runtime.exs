@@ -27,12 +27,20 @@ if config_env() == :prod do
   # "Could not check origin for Phoenix.Socket transport."
   #
   # Both loopback spellings by default, because both are things an operator
-  # types. PHX_HOST adds the public origin behind a proxy; CHECK_ORIGIN replaces
-  # the list outright when neither fits.
+  # types, on the port the host publishes (ADMIN_PORT; the endpoint itself
+  # always listens on 5001 inside the container). PHX_HOST adds the public
+  # origin behind a proxy; CHECK_ORIGIN replaces the list outright when
+  # neither fits.
+  admin_port =
+    case Integer.parse(System.get_env("ADMIN_PORT") || "5001") do
+      {port, ""} when port in 1..65_535 -> port
+      _ -> raise "ADMIN_PORT must be a port number (1-65535)"
+    end
+
   check_origin =
     case System.get_env("CHECK_ORIGIN") do
       value when value in [nil, ""] ->
-        ["http://localhost:5001", "http://127.0.0.1:5001"] ++
+        ["http://localhost:#{admin_port}", "http://127.0.0.1:#{admin_port}"] ++
           case System.get_env("PHX_HOST") do
             host when host in [nil, ""] -> []
             host -> ["https://#{host}"]

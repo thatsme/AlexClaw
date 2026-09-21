@@ -73,6 +73,67 @@ defmodule AlexClaw.Config.RekeyTest do
     assert stored("rekey.api_token") == after_first
   end
 
+  describe "credentials stored outside the settings" do
+    defp raw(sql, id) do
+      %{rows: [[value]]} = Repo.query!(sql, [id])
+      value
+    end
+
+    defp credentials do
+      {:ok, provider} =
+        AlexClaw.LLM.create_provider(%{
+          name: "rekey-#{System.unique_integer([:positive])}",
+          type: "openai_compatible",
+          tier: "light",
+          model: "m",
+          api_key: "sk-rekey",
+          headers: %{"x-api-key" => "hdr-rekey"}
+        })
+
+      {:ok, workflow} = AlexClaw.Workflows.create_workflow(%{name: "rekey-wf"})
+
+      {:ok, step} =
+        AlexClaw.Workflows.add_step(workflow, %{
+          name: "tg",
+          skill: "telegram_notify",
+          config: %{"bot_token" => "123:rekey", "chat_id" => "1"}
+        })
+
+      {provider.id, step.id}
+    end
+
+    defp opens_under(key_base, ciphertext),
+      do: Crypto.decrypt_with(Crypto.key_for(key_base), ciphertext)
+
+    test "move to the new key with the settings, in the same count" do
+      {provider, step} = credentials()
+
+      assert {:ok, moved} = Rekey.run(@old, @new)
+      assert moved >= 5, "2 settings, the API key, one header value and the bot token"
+
+      api_key = raw("SELECT api_key FROM llm_providers WHERE id = $1", provider)
+      header = raw("SELECT headers FROM llm_providers WHERE id = $1", provider)["x-api-key"]
+      bot = raw("SELECT config FROM workflow_steps WHERE id = $1", step)["bot_token"]
+
+      assert opens_under(@new, api_key) == {:ok, "sk-rekey"}
+      assert opens_under(@new, header) == {:ok, "hdr-rekey"}
+      assert opens_under(@new, bot) == {:ok, "123:rekey"}
+      assert {:error, _} = opens_under(@old, api_key)
+      assert raw("SELECT config FROM workflow_steps WHERE id = $1", step)["chat_id"] == "1"
+    end
+
+    test "one the old key cannot decrypt refuses the whole rotation" do
+      {provider, _step} = credentials()
+      {:ok, foreign} = Crypto.encrypt_with(Crypto.key_for(String.duplicate("f", 64)), "x")
+      Repo.query!("UPDATE llm_providers SET api_key = $2 WHERE id = $1", [provider, foreign])
+      setting_before = stored("rekey.api_token")
+
+      assert {:error, message} = Rekey.run(@old, @new)
+      assert message =~ "llm_providers #{provider}: api_key cannot be decrypted"
+      assert stored("rekey.api_token") == setting_before
+    end
+  end
+
   test "the same key twice is refused" do
     assert {:error, message} = Rekey.run(@old, @old)
     assert message =~ "the same"

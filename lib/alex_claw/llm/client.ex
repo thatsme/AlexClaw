@@ -19,10 +19,14 @@ defmodule AlexClaw.LLM.Client do
   @spec resolve_api_key(Provider.t()) :: String.t()
   def resolve_api_key(%Provider{api_key: key}) when is_binary(key) and key != "", do: key
 
-  def resolve_api_key(%Provider{type: type}) do
+  def resolve_api_key(%Provider{type: type}), do: setting_api_key(type) || ""
+
+  @doc "The API key a provider type reads from the settings, if it has one."
+  @spec setting_api_key(String.t()) :: String.t() | nil
+  def setting_api_key(type) do
     case Map.get(@config_key_map, type) do
-      nil -> ""
-      config_key -> AlexClaw.Config.get(config_key) || ""
+      nil -> nil
+      config_key -> AlexClaw.Config.get(config_key)
     end
   end
 

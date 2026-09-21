@@ -6,8 +6,9 @@ defmodule AlexClaw.Database.DataExport do
       {"format": "alexclaw-data", "version": 1, "schema": <migration>,
        "tables": {"settings": {"columns": [...], "rows": [[...], ...]}, ...}}
 
-  Credentials held in plain columns are written encrypted — see
-  `AlexClaw.Database.Sealed`.
+  Encrypted values — sensitive settings and stored credentials — are written
+  as they are stored, encrypted: a file restores only under the
+  `SECRET_KEY_BASE` it was made with (`AlexClaw.Database.KeyCheck`).
 
   Text form, because it is exact for every type the schema uses — timestamps,
   JSON, arrays, bytea, pgvector — and a restore casts it back to the column's
@@ -18,13 +19,14 @@ defmodule AlexClaw.Database.DataExport do
   whole.
   """
 
-  alias AlexClaw.Database.{DataSet, Sealed}
+  alias AlexClaw.Database.DataSet
   alias AlexClaw.Repo
   alias Ecto.Adapters.SQL
 
   @format "alexclaw-data"
-  # 2: every string in a sealed JSON value encrypted in place, the form later
-  # releases store credentials in at rest, so they restore this format as is.
+  # 2 (0.3.34): every encrypted value as stored, strings encrypted in place, so
+  # a file restores unchanged on the release after. Version 1 was never
+  # released.
   @version 2
 
   @doc "The format name and version a restore expects."
@@ -72,7 +74,6 @@ defmodule AlexClaw.Database.DataExport do
     |> select_as_text(names)
     |> then(&SQL.stream(Repo, &1, [], max_rows: 500))
     |> Stream.flat_map(& &1.rows)
-    |> Stream.map(Sealed.sealer(table, names))
     |> Stream.with_index()
     |> Enum.reduce(emit.(opening, acc), fn {row, i}, acc ->
       emit.([if(i == 0, do: "", else: ","), Jason.encode!(row)], acc)

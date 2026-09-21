@@ -101,6 +101,72 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     |> Enum.sort_by(&elem(&1, 0))
   end
 
+  @doc """
+  The config keys registered skills declare secret, stored encrypted
+  (`AlexClaw.Encrypted.StepConfig`). The core skills' keys are known before
+  this process starts, so a step read during boot is still decrypted.
+  """
+  @spec secret_config_keys() :: [String.t()]
+  def secret_config_keys do
+    (Map.values(@core_skills) ++ registered_modules())
+    |> Enum.flat_map(&declared_secrets/1)
+    |> Enum.uniq()
+  end
+
+  @doc "The config keys `module` declares secret; none if it declares nothing."
+  @spec declared_secrets(module()) :: [String.t()]
+  def declared_secrets(module) do
+    Code.ensure_loaded(module)
+
+    if function_exported?(module, :secret_config_keys, 0),
+      do: module.secret_config_keys(),
+      else: []
+  end
+
+  # Whole underscore-separated segments, not substrings: `api_key` and
+  # `auth_header` name credentials, `keyword_count` does not.
+  @credential_segments ~w(token key apikey password secret credential auth authorization headers)
+
+  @doc """
+  Config keys of `module` named like a credential but not declared in
+  `secret_config_keys/0` — keys that would be stored in plain text. The config
+  keys are those of `config_scaffold/0` and every `config_presets/0` entry.
+  """
+  @spec undeclared_secrets(module()) :: [String.t()]
+  def undeclared_secrets(module) do
+    Code.ensure_loaded(module)
+    presets = extract_callback(module, :config_presets, %{})
+    configs = [extract_callback(module, :config_scaffold, %{}) | Map.values(presets)]
+
+    configs
+    |> Enum.flat_map(&Map.keys/1)
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&credential_name?/1)
+    |> Enum.uniq()
+    |> Kernel.--(declared_secrets(module))
+    |> Enum.sort()
+  end
+
+  @doc "Whether a config key's name, split on underscores, has a credential segment."
+  @spec credential_name?(String.t()) :: boolean()
+  def credential_name?(name) do
+    name
+    |> String.downcase()
+    |> String.split("_")
+    |> Enum.any?(&(&1 in @credential_segments))
+  end
+
+  @doc "The core skill modules."
+  @spec core_modules() :: [module()]
+  def core_modules, do: Map.values(@core_skills)
+
+  defp registered_modules do
+    case :ets.whereis(@ets_table) do
+      :undefined -> []
+      table -> :ets.select(table, [{{:_, :"$1", :_, :_, :_, :_}, [], [:"$1"]}])
+    end
+  end
+
   @doc "List all skills with type, permissions, routes, and external flag."
   @spec list_all_with_type() :: [
           {String.t(), module(), :core | :dynamic, :all | [atom()], [atom()], boolean()}
@@ -243,6 +309,11 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     do: "Module must be under AlexClaw.Skills.Dynamic.*, got #{module}"
 
   def describe_error(:missing_run_callback), do: "Module must export run/1"
+
+  def describe_error({:undeclared_secrets, keys}),
+    do:
+      "Config keys named like credentials must be listed in secret_config_keys/0, " <>
+        "so they are stored encrypted: #{Enum.join(keys, ", ")}"
 
   def describe_error({:unknown_permissions, invalid}),
     do: "Unknown permissions: #{inspect(invalid)}"
@@ -1113,8 +1184,15 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp validate_declaration(module, full_path, permissions) do
     case validate_external_declaration(module, full_path) do
-      :ok -> {:ok, module, permissions}
+      :ok -> validate_secrets(module, permissions)
       {:error, reason} -> reject_module(module, reason)
+    end
+  end
+
+  defp validate_secrets(module, permissions) do
+    case undeclared_secrets(module) do
+      [] -> {:ok, module, permissions}
+      keys -> reject_module(module, {:undeclared_secrets, keys})
     end
   end
 

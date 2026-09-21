@@ -3,7 +3,7 @@ defmodule AlexClaw.Release do
   Release tasks for running migrations and seeding in production.
   Called from entrypoint.sh before the app starts.
   """
-  alias AlexClaw.Config.Rekey
+  alias AlexClaw.Config.{Rekey, Undecryptable}
   alias AlexClaw.Database.Roles
 
   @app :alex_claw
@@ -68,9 +68,61 @@ defmodule AlexClaw.Release do
   end
 
   defp report_rekey({:ok, count}),
-    do: IO.puts("Re-encrypted #{count} settings under the new SECRET_KEY_BASE.")
+    do: IO.puts("Re-encrypted #{count} values under the new SECRET_KEY_BASE.")
 
   defp report_rekey({:error, reason}), do: raise("SECRET_KEY_BASE rotation refused: #{reason}")
+
+  @doc """
+  For a SECRET_KEY_BASE lost for good, with the application stopped: lists the
+  stored values that do not decrypt under the current key, and discards
+  nothing. `discard_undecryptable/1` with the confirmation printed here clears
+  exactly those values. See "Lost key" in docs/deployment/rotate-secret-key-base.md.
+  """
+  @spec discard_undecryptable() :: :ok
+  def discard_undecryptable do
+    load_app()
+
+    for repo <- repos() do
+      {:ok, entries, _} = Ecto.Migrator.with_repo(repo, fn _repo -> Undecryptable.list() end)
+      report_undecryptable(entries)
+    end
+
+    :ok
+  end
+
+  @doc "Clear the values `discard_undecryptable/0` listed, given its confirmation."
+  @spec discard_undecryptable(String.t()) :: :ok
+  def discard_undecryptable(confirmation) do
+    load_app()
+
+    for repo <- repos() do
+      {:ok, result, _} =
+        Ecto.Migrator.with_repo(repo, fn _repo -> Undecryptable.discard(confirmation) end)
+
+      report_discard(result)
+    end
+
+    :ok
+  end
+
+  defp report_undecryptable([]),
+    do: IO.puts("Every stored value decrypts under this SECRET_KEY_BASE. Nothing to discard.")
+
+  defp report_undecryptable(entries) do
+    IO.puts("These #{length(entries)} stored values do not decrypt under this SECRET_KEY_BASE:")
+    Enum.each(entries, &IO.puts("  " <> Undecryptable.describe(&1)))
+
+    IO.puts("""
+
+    Nothing was changed. If the previous SECRET_KEY_BASE is lost for good, discard them with:
+      AlexClaw.Release.discard_undecryptable("#{Undecryptable.confirmation(entries)}")
+    """)
+  end
+
+  defp report_discard({:ok, entries}),
+    do: IO.puts("Discarded #{length(entries)} undecryptable values; the audit log names them.")
+
+  defp report_discard({:error, reason}), do: raise("Nothing was discarded: #{reason}")
 
   @spec seed_examples() :: [{:ok, any(), any()}]
   def seed_examples do

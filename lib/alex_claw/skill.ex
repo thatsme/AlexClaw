@@ -26,6 +26,9 @@ defmodule AlexClaw.Skill do
   @callback config_presets() :: %{String.t() => map()}
   @callback prompt_presets() :: %{String.t() => String.t()}
   @callback config_help() :: String.t()
+  # Config keys holding credentials, stored encrypted (AlexClaw.Encrypted.StepConfig).
+  # A config key named like a credential must be listed, or the skill is refused.
+  @callback secret_config_keys() :: [String.t()]
   @callback prompt_help() :: String.t()
 
   @optional_callbacks description: 0,
@@ -39,5 +42,6 @@ defmodule AlexClaw.Skill do
                       config_presets: 0,
                       prompt_presets: 0,
                       config_help: 0,
+                      secret_config_keys: 0,
                       prompt_help: 0
 end

@@ -1,0 +1,146 @@
+{
+  "format": "alexclaw-data",
+  "schema": 20260921090000,
+  "tables": {
+    "llm_providers": {
+      "columns": [
+        "id",
+        "name",
+        "type",
+        "tier",
+        "host",
+        "model",
+        "api_key",
+        "daily_limit",
+        "headers",
+        "enabled",
+        "inserted_at",
+        "updated_at",
+        "priority",
+        "options"
+      ],
+      "rows": [
+        [
+          "1",
+          "fixture-provider",
+          "openai_compatible",
+          "light",
+          null,
+          "m",
+          "enc:Q/5xMhP514YDxbu3BL6+gEPtNFldLZbvoUBRhqIEFQDLc4gBc7c=",
+          null,
+          "{\"x-api-key\":\"enc:0uLNpVnIwkYHyxFehkEW1BMFGJrUY+BZ0lTYw66e+gbvXgIuah1C\"}",
+          "true",
+          "2026-09-21 12:03:16",
+          "2026-09-21 12:03:16",
+          "100",
+          "{}"
+        ]
+      ]
+    },
+    "settings": {
+      "columns": [
+        "id",
+        "key",
+        "value",
+        "type",
+        "description",
+        "category",
+        "inserted_at",
+        "updated_at",
+        "sensitive"
+      ],
+      "rows": [
+        [
+          "79",
+          "fixture.secret",
+          "enc:CmCRCxfTjUXzQqo1f7SyOCFq1MvfD+Pq8+ykMm0LgamVU8jitKz52RPx",
+          "string",
+          null,
+          "general",
+          "2026-09-21 12:03:16",
+          "2026-09-21 12:03:16",
+          "true"
+        ]
+      ]
+    },
+    "workflow_steps": {
+      "columns": [
+        "id",
+        "workflow_id",
+        "position",
+        "name",
+        "skill",
+        "llm_tier",
+        "llm_model",
+        "prompt_template",
+        "config",
+        "inserted_at",
+        "updated_at",
+        "input_from",
+        "routes"
+      ],
+      "rows": [
+        [
+          "1",
+          "1",
+          "1",
+          "tg",
+          "telegram_notify",
+          null,
+          null,
+          null,
+          "{\"bot_token\":\"enc:nvSvFupR6Glsp+TA5w8Hi7+pcsh70CQY5Ojd0gyrsmJE/ZdJNXqf\",\"chat_id\":\"9\"}",
+          "2026-09-21 12:03:16",
+          "2026-09-21 12:03:16",
+          null,
+          "[]"
+        ],
+        [
+          "2",
+          "1",
+          "2",
+          "api",
+          "api_request",
+          null,
+          null,
+          null,
+          "{\"headers\":{\"authorization\":\"enc:jPuEKZseuFrWqjKmo7j0UrYMpX4ljf8xyYHo4a7WB69eNHxyEiYy6f+f\"},\"url\":\"https://example.com\"}",
+          "2026-09-21 12:03:16",
+          "2026-09-21 12:03:16",
+          null,
+          "[]"
+        ]
+      ]
+    },
+    "workflows": {
+      "columns": [
+        "id",
+        "name",
+        "description",
+        "enabled",
+        "schedule",
+        "metadata",
+        "inserted_at",
+        "updated_at",
+        "default_provider",
+        "node"
+      ],
+      "rows": [
+        [
+          "1",
+          "fixture-workflow",
+          null,
+          "true",
+          null,
+          "{}",
+          "2026-09-21 12:03:16",
+          "2026-09-21 12:03:16",
+          null,
+          null
+        ]
+      ]
+    }
+  },
+  "version": 2
+}

@@ -770,7 +770,7 @@ Limits are adjustable at runtime from the Config UI without restart.
 ## Deployment Hardening
 
 - Run behind a reverse proxy with TLS — never expose port 5001 directly
-- Set a strong random `SECRET_KEY_BASE` (`mix phx.gen.secret`) — this is also the encryption key material for sensitive config values
+- Set a random `SECRET_KEY_BASE` of at least 64 bytes (`openssl rand -base64 48`); the application refuses a shorter one. It is also the encryption key material for stored secrets, so keep it with your backups and change it only by [rotation](docs/deployment/rotate-secret-key-base.md)
 - Set `ADMIN_PASSWORD` to a strong random value
 - Restrict PostgreSQL to localhost or internal network only
 - Built-in login rate limiting is active by default (configurable via Config UI)

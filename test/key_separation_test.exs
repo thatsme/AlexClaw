@@ -56,6 +56,37 @@ defmodule AlexClaw.KeySeparationTest do
     end
   end
 
+  # Phoenix's cookie store needs 64 bytes: shorter, the login page fails with
+  # an error that does not name the variable. The boot says it instead.
+  describe "a SECRET_KEY_BASE shorter than 64 bytes" do
+    test "is refused, naming its length and how to generate one" do
+      for key <- ["CHANGE_ME", String.duplicate("k", 63)], command <- ["start", "eval"] do
+        error =
+          assert_raise RuntimeError, fn ->
+            runtime_config(%{"SECRET_KEY_BASE" => key, "RELEASE_COMMAND" => command})
+          end
+
+        assert error.message =~ "#{byte_size(key)} bytes; it must be at least 64"
+        assert error.message =~ "openssl rand -base64 48"
+      end
+    end
+
+    test "the .env.example placeholder is one of them" do
+      [placeholder] =
+        for line <- File.read!(".env.example") |> String.split("\n"),
+            String.starts_with?(line, "SECRET_KEY_BASE="),
+            do: String.replace_prefix(line, "SECRET_KEY_BASE=", "")
+
+      assert byte_size(placeholder) < 64
+    end
+
+    test "64 bytes, as openssl rand -base64 48 gives, is accepted" do
+      key = 48 |> :crypto.strong_rand_bytes() |> Base.encode64()
+      assert byte_size(key) == 64
+      assert runtime_config(%{"SECRET_KEY_BASE" => key, "RELEASE_COMMAND" => "start"}) == key
+    end
+  end
+
   describe "the runtime configuration without SECRET_KEY_BASE" do
     test "is accepted for an eval, with no key configured" do
       assert runtime_config(%{"SECRET_KEY_BASE" => nil, "RELEASE_COMMAND" => "eval"}) == nil

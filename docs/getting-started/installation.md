@@ -19,7 +19,7 @@ Edit `.env` with your settings:
 ```bash
 # Required
 DATABASE_PASSWORD=your_secure_db_password
-SECRET_KEY_BASE=$(mix phx.gen.secret)   # or use: openssl rand -base64 64
+SECRET_KEY_BASE=$(openssl rand -base64 48)   # at least 64 bytes; shorter is refused
 ADMIN_PASSWORD=your_admin_password
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
@@ -45,13 +45,13 @@ docker compose up -d
 
 ## Services
 
-The `docker-compose.yml` starts three services:
+The `docker-compose.yml` starts two services, and a third on request:
 
 | Service | Container Name | Description | Port |
 |---|---|---|---|
 | `alexclaw-prod` | `alexclaw-prod` | Main application (Elixir release) | 5001 |
 | `db-prod` | `alexclaw-db-prod` | PostgreSQL 17 with pgvector | 5432 |
-| `web-automator` | — | Playwright sidecar for browser automation (optional) | 8000 |
+| `web-automator` | — | Playwright sidecar for browser automation, opt-in: `docker compose --profile web-automation up -d` | 6080 (noVNC, loopback) |
 
 ## Building from Source
 

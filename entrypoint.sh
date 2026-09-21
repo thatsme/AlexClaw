@@ -27,8 +27,9 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-echo "Running migrations..."
-bin/alex_claw eval "AlexClaw.Release.migrate()"
+# Migrations are not run here. They run in the one-shot `migrate` service, as
+# the database owner, before this container starts; this container connects as
+# the application role, which may not run DDL — see AlexClaw.Database.Roles.
 
 echo "Checking for first-boot seeding..."
 bin/alex_claw eval "AlexClaw.Release.seed_examples()"

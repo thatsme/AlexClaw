@@ -1,11 +1,11 @@
 # Rotating SECRET_KEY_BASE
 
-`SECRET_KEY_BASE` is more than a cookie-signing key in AlexClaw. Sensitive settings are stored encrypted with a key derived from it, the TOTP secret included. **Changing it without re-encrypting them makes them unreadable.** Two-factor authentication stops working, and so does every stored credential.
+`SECRET_KEY_BASE` is more than a cookie-signing key in AlexClaw. Sensitive settings and stored credentials (LLM provider keys and headers, step secrets) are encrypted with a key derived from it, the TOTP secret included. **Changing it without re-encrypting them makes them unreadable.** Two-factor authentication stops working, and so does every stored credential.
 
-The rotation re-encrypts every encrypted setting from the old key to the new one, in a single database transaction:
+The rotation re-encrypts every encrypted value from the old key to the new one, in a single database transaction:
 
 - every value is decrypted with the old key, re-encrypted with the new one, and checked to decrypt again before it is written;
-- if any value cannot be decrypted with the old key, **nothing is changed** and the rotation says which setting;
+- if any value cannot be decrypted with the old key, **nothing is changed** and the rotation says which setting or row;
 - every login is ended, and the rotation is recorded in the audit log.
 
 Running it a second time is refused: after a rotation the old key decrypts nothing.
@@ -54,7 +54,7 @@ docker compose run --rm --no-deps --entrypoint bin/alex_claw \
 # with docker-compose_swarm.yml: the same, with -f docker-compose_swarm.yml and node1
 ```
 
-On success it prints `Re-encrypted <n> settings under the new SECRET_KEY_BASE.`
+On success it prints `Re-encrypted <n> values under the new SECRET_KEY_BASE.`
 
 If it prints `SECRET_KEY_BASE rotation refused: ...`, nothing was changed. The usual cause is an old value that is not the one currently in `.env`. Do not continue to step 5.
 
@@ -69,7 +69,7 @@ docker compose up -d
 
 ## 6. Verify
 
-Sign in. Everyone has to, since every login was ended. Then unlock editing with a code from the authenticator: a code that works shows the TOTP secret decrypted under the new key. The audit log (Policies → Audit) shows `SECRET_KEY_BASE rotated: <n> encrypted settings re-encrypted, <m> logins ended`.
+Sign in. Everyone has to, since every login was ended. Then unlock editing with a code from the authenticator: a code that works shows the TOTP secret decrypted under the new key. The audit log (Policies → Audit) shows `SECRET_KEY_BASE rotated: <n> encrypted values re-encrypted, <m> logins ended`.
 
 ## If something goes wrong
 

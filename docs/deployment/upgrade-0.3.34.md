@@ -117,7 +117,7 @@ The `alexclaw_app` role and its privileges do nothing unless `.env` names it. Dr
 
 ## Restoring after 0.3.34
 
-- **From the admin UI.** Database → **Export Data** writes the application's data as a JSON file, and **Restore** loads such a file. The restore replaces the application's data. It never touches the audit log or the current sign-ins, and it never runs anything from the file. Each restore asks for a code. Credentials stored in plain columns (LLM provider keys and headers, a Telegram Notify step's bot token) are written to the file encrypted under `SECRET_KEY_BASE`, so a file restores only on an installation with the same key.
+- **From the admin UI.** Database → **Export Data** writes the application's data as a JSON file, and **Restore** loads such a file. The restore replaces the application's data. It never touches the audit log or the current sign-ins, and it never runs anything from the file. Each restore asks for a code. Encrypted values (sensitive settings, and from 0.3.35 every stored credential) are written to the file encrypted under `SECRET_KEY_BASE`, so a file restores only on an installation with the same key.
 - **A full restore**, schema and audit log included, is an operator step with the owner's credentials. It **replaces the whole database** with the backup: take a fresh backup first if the current data may still be needed.
 
   The backup can come from **Download Backup** (`.sql`), the backup skill (`.sql.gz`), or the command in *Before you start* (`.dump`). The database is recreated first, so the restore reproduces the backup exactly whatever version it was made on. `migrate` then brings the schema up to date and grants the application role its privileges:

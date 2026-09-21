@@ -18,8 +18,8 @@ defmodule AlexClaw.Database.Restore do
   audited on both sides: a row before anything runs — no restore without it —
   and a row saying how it ended.
 
-  Credentials the export sealed are decrypted before anything is written —
-  see `AlexClaw.Database.Sealed` — so a file made under another
+  Every encrypted value in the file is checked to decrypt before anything is
+  written — see `AlexClaw.Database.KeyCheck` — so a file made under another
   `SECRET_KEY_BASE` is refused whole.
 
   A full backup, schema and audit log included, is restored by an operator
@@ -27,7 +27,7 @@ defmodule AlexClaw.Database.Restore do
   """
 
   alias AlexClaw.Auth.{AuditLog, Principal}
-  alias AlexClaw.Database.{DataExport, DataSet, Sealed}
+  alias AlexClaw.Database.{DataExport, DataSet, KeyCheck}
   alias AlexClaw.Repo
 
   @staging_prefix "alexclaw-restore-"
@@ -165,27 +165,27 @@ defmodule AlexClaw.Database.Restore do
         {:error, "#{table} holds a row that is not a list of #{length(live)} text values"}
 
       true ->
-        unsealed(table, live, rows)
+        checked(table, live, rows)
     end
   end
 
   defp table_plan(table, _entry), do: {:error, "#{table} is not a table entry"}
 
-  # Credentials the export sealed are decrypted before anything is written, so
+  # Encrypted values must decrypt under this key before anything is written, so
   # a file made under another SECRET_KEY_BASE is refused whole.
-  defp unsealed(table, live, rows) do
+  defp checked(table, live, rows) do
     names = Enum.map(live, &elem(&1, 0))
 
     rows
-    |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
-      planned(Sealed.unseal(table, names, row), acc)
-    end)
-    |> reversed()
-    |> unsealed_plan(table, live)
+    |> Enum.find_value(:ok, &refusal(KeyCheck.check(table, names, &1)))
+    |> checked_plan(table, live, rows)
   end
 
-  defp unsealed_plan({:ok, rows}, table, live), do: {:ok, {table, live, rows}}
-  defp unsealed_plan({:error, reason}, table, _live), do: {:error, "#{table}: #{reason}"}
+  defp refusal(:ok), do: nil
+  defp refusal(error), do: error
+
+  defp checked_plan(:ok, table, live, rows), do: {:ok, {table, live, rows}}
+  defp checked_plan({:error, reason}, table, _live, _rows), do: {:error, "#{table}: #{reason}"}
 
   defp row?(row, width) when is_list(row) and length(row) == width,
     do: Enum.all?(row, &(is_binary(&1) or is_nil(&1)))

@@ -14,7 +14,7 @@ defmodule AlexClaw.Database.RestoreTest do
 
   alias AlexClaw.Auth.{AdminSession, AuditEntry, AuditLog, Elevation, Sessions}
   alias AlexClaw.Config.Crypto
-  alias AlexClaw.Database.{DataExport, DataSet, Restore, Sealed}
+  alias AlexClaw.Database.{DataExport, DataSet, Restore}
   alias AlexClaw.Dispatcher.AuthCommands
   alias AlexClaw.{LLM, Message, RecordingGateway, Workflows}
 
@@ -23,19 +23,6 @@ defmodule AlexClaw.Database.RestoreTest do
     |> DataExport.write(fn data, acc -> [acc, data] end)
     |> IO.iodata_to_binary()
     |> Jason.decode!()
-  end
-
-  # The tables of an export with every sealed value decrypted. Sealing draws a
-  # fresh IV each time, so two exports of the same data compare only opened.
-  defp opened(export) do
-    Map.new(export["tables"], fn {table, %{"columns" => names, "rows" => rows} = entry} ->
-      {table, %{entry | "rows" => Enum.map(rows, &open_row(table, names, &1))}}
-    end)
-  end
-
-  defp open_row(table, names, row) do
-    {:ok, opened} = Sealed.unseal(table, names, row)
-    opened
   end
 
   defp vector(value), do: "[" <> Enum.map_join(1..768, ",", fn _ -> value end) <> "]"
@@ -76,7 +63,7 @@ defmodule AlexClaw.Database.RestoreTest do
 
       assert {:ok, message} = Restore.load(original)
       assert message =~ "Restore completed"
-      assert opened(export()) == opened(original)
+      assert export()["tables"] == original["tables"]
     end
 
     test "never touches the audit log or the sign-ins" do
@@ -124,7 +111,7 @@ defmodule AlexClaw.Database.RestoreTest do
     end
   end
 
-  describe "credentials in plain columns" do
+  describe "credentials stored outside the settings" do
     defp provider(attrs) do
       {:ok, provider} =
         LLM.create_provider(
@@ -158,7 +145,7 @@ defmodule AlexClaw.Database.RestoreTest do
       step
     end
 
-    test "are encrypted in the export and decrypted by the restore" do
+    test "are exported encrypted, as stored, and restored readable" do
       p = provider(%{api_key: "sk-plain-key", headers: %{"x-api-key" => "hdr-secret"}})
       step = telegram_step(%{"bot_token" => "123:bot-secret", "chat_id" => "42"})
       original = export()
@@ -231,7 +218,7 @@ defmodule AlexClaw.Database.RestoreTest do
     end
 
     # The restore runs under a different SECRET_KEY_BASE than the export did.
-    test "sealed under another key are refused, and nothing changes" do
+    test "encrypted under another key are refused, and nothing changes" do
       p = provider(%{api_key: "sk-original"})
       original = export()
 
@@ -248,7 +235,7 @@ defmodule AlexClaw.Database.RestoreTest do
 
     # Settings are exported as stored, encrypted; a file from another key
     # would otherwise restore a TOTP secret nothing can decrypt.
-    test "an encrypted setting from another key is refused, even with no sealed column set" do
+    test "an encrypted setting from another key is refused" do
       {:ok, _} = AlexClaw.Config.set("restore.sealed", "mine", sensitive: true)
       original = export()
 
@@ -275,7 +262,7 @@ defmodule AlexClaw.Database.RestoreTest do
       assert AlexClaw.Config.get("restore.sealed") == "mine"
     end
 
-    test "a sealed key that was tampered with is refused" do
+    test "a step secret that was tampered with is refused" do
       step = telegram_step(%{"bot_token" => "t", "chat_id" => "1"})
       original = export()
       config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
@@ -310,7 +297,7 @@ defmodule AlexClaw.Database.RestoreTest do
       {:ok, original: export()}
     end
 
-    defp unchanged!(original), do: assert(opened(export()) == opened(original))
+    defp unchanged!(original), do: assert(export()["tables"] == original["tables"])
 
     test "one holding the audit log", %{original: original} do
       bad = put_in(original, ["tables", "auth_audit_log"], %{"columns" => [], "rows" => []})
@@ -426,7 +413,7 @@ defmodule AlexClaw.Database.RestoreTest do
       end)
 
       refute File.exists?(path)
-      assert opened(export()) == opened(original)
+      assert export()["tables"] == original["tables"]
     end
 
     test "a restore challenge answered on a gateway runs the restore" do

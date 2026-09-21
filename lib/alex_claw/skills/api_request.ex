@@ -27,6 +27,12 @@ defmodule AlexClaw.Skills.ApiRequest do
   @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 
+  # Request headers carry the credentials an API asks for (Authorization,
+  # x-api-key), so the whole map is stored encrypted.
+  @impl true
+  @spec secret_config_keys() :: [String.t()]
+  def secret_config_keys, do: ["headers"]
+
   @impl true
   @spec config_hint() :: String.t()
   def config_hint, do: ~s|{"method": "GET", "url": "https://...", "headers": {}, "body": ""}|

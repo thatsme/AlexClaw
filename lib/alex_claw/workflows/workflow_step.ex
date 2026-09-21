@@ -15,7 +15,7 @@ defmodule AlexClaw.Workflows.WorkflowStep do
     field(:llm_tier, :string)
     field(:llm_model, :string)
     field(:prompt_template, :string)
-    field(:config, :map, default: %{})
+    field(:config, AlexClaw.Encrypted.StepConfig, default: %{})
     field(:input_from, :integer)
     field(:routes, {:array, :map}, default: [])
 

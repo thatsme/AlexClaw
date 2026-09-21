@@ -68,7 +68,7 @@ defmodule AlexClaw.Release do
   end
 
   defp report_rekey({:ok, count}),
-    do: IO.puts("Re-encrypted #{count} settings under the new SECRET_KEY_BASE.")
+    do: IO.puts("Re-encrypted #{count} values under the new SECRET_KEY_BASE.")
 
   defp report_rekey({:error, reason}), do: raise("SECRET_KEY_BASE rotation refused: #{reason}")
 

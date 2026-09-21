@@ -139,7 +139,7 @@ Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-co
 - **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup via Telegram or Discord (`/setup 2fa`, `/confirm 2fa`). Mandatory for: skill management (Admin UI and gateway), workflows marked `Requires 2FA`, and shell commands — these fail closed, refusing the action when 2FA is not configured rather than running unprotected. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
-- **Encryption at rest** — API keys and tokens held in the settings are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime. LLM provider keys are not covered yet; see [SECURITY.md](SECURITY.md#encryption-at-rest)
+- **Encryption at rest** — API keys and tokens, in the settings, on LLM providers and in workflow steps, are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime; see [SECURITY.md](SECURITY.md#encryption-at-rest)
 - **Sensitive key masking** — API keys and tokens show partial values in the admin UI
 - **Agent authorization layer** — Context-aware PolicyEngine with HMAC capability tokens, chain-depth enforcement, process isolation for dynamic skills, configurable policy rules (rate_limit, time_window, chain_restriction, permission_override, mcp_restriction), and persistent audit logging
 - **MCP Bearer token auth** — MCP endpoint requires `Authorization: Bearer <token>` validated against `mcp.api_key` via constant-time comparison. Policy-based tool restrictions allow blocking specific tools for MCP clients. Sensitive config values are redacted in MCP resource responses
@@ -343,7 +343,7 @@ priv/repo/
 
 - **Semantic search requires an embedding provider.** Vector search works when at least one embedding-capable provider is configured (Gemini, Ollama, or OpenAI-compatible). Without one, memory falls back to keyword search. Configure via `embedding.provider` and `embedding.model` in the admin UI.
 - **Single-user only.** There is no multi-user access control. The authentication model assumes one trusted operator.
-- **Sensitive config encrypted at rest.** API keys and tokens held in the settings are AES-256-GCM encrypted in PostgreSQL using `SECRET_KEY_BASE` as key material. LLM provider keys and headers are stored in plain text for now. Changing `SECRET_KEY_BASE` takes a rotation that re-encrypts the settings: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md) and [SECURITY.md](SECURITY.md#encryption-at-rest).
+- **Credentials encrypted at rest.** API keys and tokens, in the settings, on LLM providers and in workflow steps, are AES-256-GCM encrypted in PostgreSQL using `SECRET_KEY_BASE` as key material. Changing `SECRET_KEY_BASE` takes a rotation that re-encrypts them: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md) and [SECURITY.md](SECURITY.md#encryption-at-rest).
 - **Web Automator is experimental.** The browser automation sidecar (`web_automation` skill) is under heavy development. APIs, config format, and recording workflow may change without notice.
 - **Forge is pre-alpha.** See below.
 

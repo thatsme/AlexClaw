@@ -13,6 +13,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.LLM.UsageTracker          # ETS owner for per-provider call counters
   ├── AlexClaw.Config.Loader             # Seeds config, loads it into the ETS cache
   ├── AlexClaw.Workflows.SkillRegistry   # ETS owner for the skill catalogue
+  ├── AlexClaw.Database.EncryptCredentials  # Boot step: encrypts stored credentials; stops the boot if one fails
   ├── AlexClaw.Workflows.Registry        # Tracks in-flight workflow runs
   ├── AlexClaw.LogBuffer                 # In-memory ring buffer for recent logs
   ├── AlexClaw.Google.TokenManager       # OAuth2 token lifecycle (cache + refresh)

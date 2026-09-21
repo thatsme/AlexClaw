@@ -210,11 +210,14 @@ defmodule AlexClaw.Workflows do
     end
   end
 
+  # An imported workflow is always disabled, whatever the file says: it runs
+  # nothing, on a schedule or otherwise, until someone enables it through the
+  # gated save.
   defp imported_attrs(wf_attrs, name) do
     %{
       name: name,
       description: wf_attrs["description"],
-      enabled: wf_attrs["enabled"] || false,
+      enabled: false,
       schedule: wf_attrs["schedule"],
       default_provider: wf_attrs["default_provider"],
       node: wf_attrs["node"],

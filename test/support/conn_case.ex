@@ -5,6 +5,7 @@ defmodule AlexClawWeb.ConnCase do
   """
   use ExUnit.CaseTemplate
 
+  alias AlexClaw.Auth.{Elevation, Sessions}
   alias Ecto.Adapters.SQL.Sandbox
 
   using do
@@ -35,12 +36,18 @@ defmodule AlexClawWeb.ConnCase do
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 
-  @doc "Set session to authenticated for the given conn."
-  def authenticate(conn) do
+  @doc """
+  Sign `conn` in as a live admin login, the way the login route does: the sid
+  is opened in `Sessions`, not merely written into the cookie.
+  Pass a sid to control it, as tests of elevation do.
+  """
+  def authenticate(conn, sid \\ Elevation.new_sid()) do
+    :ok = Sessions.open(sid)
+
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
-    |> Plug.Conn.put_session(:authenticated, true)
-    |> Plug.Conn.put_session(:authenticated_at, System.system_time(:second))
+    |> Plug.Conn.put_session(:elevation_sid, sid)
+    |> Plug.Conn.put_session(:live_socket_id, Sessions.socket_id(sid))
   end
 
   defp ensure_ets_table(name) do

@@ -27,6 +27,9 @@ defmodule AlexClaw.Application do
       # as ChallengeStore: a page must never be served that cannot ask it.
       AlexClaw.Auth.Elevation,
       AlexClaw.Auth.CodeAttempts,
+      # Owns the live-login table. Before the endpoint: no request or mount may
+      # be judged before there is something to judge it against.
+      AlexClaw.Auth.Sessions,
       {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,

@@ -2,53 +2,57 @@ defmodule AlexClawWeb.SecurityHardeningTest do
   use AlexClawWeb.ConnCase, async: false
   @moduletag :integration
 
+  alias AlexClaw.Auth.{Elevation, Sessions}
   alias AlexClaw.Config
   alias AlexClawWeb.Plugs.RateLimit
 
   describe "session expiration" do
-    test "redirects to login when session has no authenticated_at timestamp", %{conn: conn} do
+    # A cookie that says it is signed in, with no login behind it on the server:
+    # what an old cookie, or one written by hand, looks like now.
+    test "redirects to login when the cookie claims a login the server never opened", %{
+      conn: conn
+    } do
       conn =
         conn
         |> init_test_session(%{})
         |> put_session(:authenticated, true)
-        # no :authenticated_at — simulates pre-hardening session
+        |> put_session(:authenticated_at, System.system_time(:second))
+        |> put_session(:elevation_sid, Elevation.new_sid())
         |> get("/")
 
       assert redirected_to(conn) == "/login"
     end
 
-    test "redirects to login when session is older than 8 hours", %{conn: conn} do
-      nine_hours_ago = System.system_time(:second) - 9 * 60 * 60
+    test "redirects to login when the login is older than 8 hours", %{conn: conn} do
+      sid = Elevation.new_sid()
+      :ok = Sessions.open(sid, System.system_time(:second) - 9 * 60 * 60)
 
       conn =
         conn
         |> init_test_session(%{})
-        |> put_session(:authenticated, true)
-        |> put_session(:authenticated_at, nine_hours_ago)
+        |> put_session(:elevation_sid, sid)
         |> get("/")
 
       assert redirected_to(conn) == "/login"
     end
 
-    test "allows access when session is fresh", %{conn: conn} do
+    test "allows access when the login is fresh", %{conn: conn} do
       conn = conn |> authenticate() |> get("/metrics")
       assert conn.status == 200
     end
 
-    test "clears session on expiration", %{conn: conn} do
-      expired_at = System.system_time(:second) - 9 * 60 * 60
+    test "clears the session on expiration", %{conn: conn} do
+      sid = Elevation.new_sid()
+      :ok = Sessions.open(sid, System.system_time(:second) - 9 * 60 * 60)
 
       conn =
         conn
         |> init_test_session(%{})
-        |> put_session(:authenticated, true)
-        |> put_session(:authenticated_at, expired_at)
+        |> put_session(:elevation_sid, sid)
         |> get("/")
 
       assert redirected_to(conn) == "/login"
-      # Session should be cleared — follow redirect and verify no access
-      conn = get(recycle(conn), "/metrics")
-      assert redirected_to(conn) == "/login"
+      assert get_session(conn, :elevation_sid) == nil
     end
   end
 

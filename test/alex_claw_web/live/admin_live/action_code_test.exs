@@ -47,8 +47,7 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
   defp open(conn, sid, page) do
     {:ok, view, _html} =
       conn
-      |> authenticate()
-      |> Plug.Conn.put_session(:elevation_sid, sid)
+      |> authenticate(sid)
       |> live(page)
 
     view

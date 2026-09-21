@@ -44,8 +44,7 @@ defmodule AlexClawWeb.AdminLive.WebCodeEntryTest do
   defp open(conn, sid, page \\ "/config") do
     {:ok, view, html} =
       conn
-      |> authenticate()
-      |> Plug.Conn.put_session(:elevation_sid, sid)
+      |> authenticate(sid)
       |> live(page)
 
     {view, html}

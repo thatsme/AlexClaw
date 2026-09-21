@@ -13,15 +13,29 @@ defmodule AlexClaw.Database.RestoreTest do
   import ExUnit.CaptureLog
 
   alias AlexClaw.Auth.{AdminSession, AuditEntry, AuditLog, Elevation, Sessions}
-  alias AlexClaw.Database.{DataExport, DataSet, Restore}
+  alias AlexClaw.Config.Crypto
+  alias AlexClaw.Database.{DataExport, DataSet, Restore, Sealed}
   alias AlexClaw.Dispatcher.AuthCommands
-  alias AlexClaw.{Message, RecordingGateway, Workflows}
+  alias AlexClaw.{LLM, Message, RecordingGateway, Workflows}
 
   defp export do
     ""
     |> DataExport.write(fn data, acc -> [acc, data] end)
     |> IO.iodata_to_binary()
     |> Jason.decode!()
+  end
+
+  # The tables of an export with every sealed value decrypted. Sealing draws a
+  # fresh IV each time, so two exports of the same data compare only opened.
+  defp opened(export) do
+    Map.new(export["tables"], fn {table, %{"columns" => names, "rows" => rows} = entry} ->
+      {table, %{entry | "rows" => Enum.map(rows, &open_row(table, names, &1))}}
+    end)
+  end
+
+  defp open_row(table, names, row) do
+    {:ok, opened} = Sealed.unseal(table, names, row)
+    opened
   end
 
   defp vector(value), do: "[" <> Enum.map_join(1..768, ",", fn _ -> value end) <> "]"
@@ -62,7 +76,7 @@ defmodule AlexClaw.Database.RestoreTest do
 
       assert {:ok, message} = Restore.load(original)
       assert message =~ "Restore completed"
-      assert export()["tables"] == original["tables"]
+      assert opened(export()) == opened(original)
     end
 
     test "never touches the audit log or the sign-ins" do
@@ -110,13 +124,165 @@ defmodule AlexClaw.Database.RestoreTest do
     end
   end
 
+  describe "credentials in plain columns" do
+    defp provider(attrs) do
+      {:ok, provider} =
+        LLM.create_provider(
+          Map.merge(
+            %{
+              name: "sealed-#{System.unique_integer([:positive])}",
+              type: "openai_compatible",
+              tier: "light",
+              model: "m"
+            },
+            attrs
+          )
+        )
+
+      provider
+    end
+
+    defp exported(export, table, id, column) do
+      %{"columns" => names, "rows" => rows} = export["tables"][table]
+      index = Enum.find_index(names, &(&1 == column))
+      row = Enum.find(rows, &(hd(&1) == to_string(id)))
+      Enum.at(row, index)
+    end
+
+    defp telegram_step(config) do
+      workflow = fixtures()
+
+      {:ok, step} =
+        Workflows.add_step(workflow, %{name: "tg", skill: "telegram_notify", config: config})
+
+      step
+    end
+
+    test "are encrypted in the export and decrypted by the restore" do
+      p = provider(%{api_key: "sk-plain-key", headers: %{"x-api-key" => "hdr-secret"}})
+      step = telegram_step(%{"bot_token" => "123:bot-secret", "chat_id" => "42"})
+      original = export()
+      text = Jason.encode!(original)
+
+      for secret <- ["sk-plain-key", "hdr-secret", "123:bot-secret"], do: refute(text =~ secret)
+      assert Crypto.encrypted?(exported(original, "llm_providers", p.id, "api_key"))
+      assert Crypto.encrypted?(exported(original, "llm_providers", p.id, "headers"))
+
+      config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
+      assert Crypto.encrypted?(config["bot_token"])
+      assert config["chat_id"] == "42"
+
+      Repo.query!("UPDATE llm_providers SET api_key = 'changed'")
+      assert {:ok, _} = Restore.load(original)
+
+      restored = Repo.get!(AlexClaw.LLM.Provider, p.id)
+      assert restored.api_key == "sk-plain-key"
+      assert restored.headers == %{"x-api-key" => "hdr-secret"}
+
+      assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"] ==
+               "123:bot-secret"
+    end
+
+    test "that are nil or empty stay so" do
+      none = provider(%{api_key: nil})
+      # Ecto casts "" to nil, so the empty string is written directly.
+      empty = provider(%{api_key: nil})
+      Repo.query!("UPDATE llm_providers SET api_key = '' WHERE id = $1", [empty.id])
+      step = telegram_step(%{"bot_token" => "", "chat_id" => "1"})
+      original = export()
+
+      assert exported(original, "llm_providers", none.id, "api_key") == nil
+      assert exported(original, "llm_providers", empty.id, "api_key") == ""
+
+      assert Jason.decode!(exported(original, "workflow_steps", step.id, "config"))["bot_token"] ==
+               ""
+
+      assert {:ok, _} = Restore.load(original)
+      assert Repo.get!(AlexClaw.LLM.Provider, none.id).api_key == nil
+      assert Repo.get!(AlexClaw.LLM.Provider, empty.id).api_key == ""
+    end
+
+    # The restore runs under a different SECRET_KEY_BASE than the export did.
+    test "sealed under another key are refused, and nothing changes" do
+      p = provider(%{api_key: "sk-original"})
+      original = export()
+
+      {:ok, foreign} =
+        Crypto.encrypt_with(Crypto.key_for(String.duplicate("another-key-base", 4)), "sk-foreign")
+
+      bad = replace_value(original, "llm_providers", p.id, "api_key", foreign)
+
+      assert {:error, message} = Restore.load(bad)
+      assert message =~ "llm_providers"
+      assert message =~ "SECRET_KEY_BASE"
+      assert Repo.get!(AlexClaw.LLM.Provider, p.id).api_key == "sk-original"
+    end
+
+    # Settings are exported as stored, encrypted; a file from another key
+    # would otherwise restore a TOTP secret nothing can decrypt.
+    test "an encrypted setting from another key is refused, even with no sealed column set" do
+      {:ok, _} = AlexClaw.Config.set("restore.sealed", "mine", sensitive: true)
+      original = export()
+
+      {:ok, foreign} =
+        Crypto.encrypt_with(Crypto.key_for(String.duplicate("another-key-base", 4)), "theirs")
+
+      bad =
+        update_in(original, ["tables", "settings"], fn %{"columns" => names, "rows" => rows} = e ->
+          key = Enum.find_index(names, &(&1 == "key"))
+          value = Enum.find_index(names, &(&1 == "value"))
+
+          rows =
+            Enum.map(rows, fn row ->
+              if Enum.at(row, key) == "restore.sealed",
+                do: List.replace_at(row, value, foreign),
+                else: row
+            end)
+
+          %{e | "rows" => rows}
+        end)
+
+      assert {:error, message} = Restore.load(bad)
+      assert message =~ "settings"
+      assert AlexClaw.Config.get("restore.sealed") == "mine"
+    end
+
+    test "a sealed key that was tampered with is refused" do
+      step = telegram_step(%{"bot_token" => "t", "chat_id" => "1"})
+      original = export()
+      config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
+      tampered = Jason.encode!(%{config | "bot_token" => "enc:" <> Base.encode64("short")})
+      bad = replace_value(original, "workflow_steps", step.id, "config", tampered)
+
+      assert {:error, message} = Restore.load(bad)
+      assert message =~ "workflow_steps"
+      assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"] == "t"
+    end
+
+    defp replace_value(export, table, id, column, value) do
+      update_in(export, ["tables", table], fn %{"columns" => names, "rows" => rows} = entry ->
+        index = Enum.find_index(names, &(&1 == column))
+
+        key = to_string(id)
+
+        rows =
+          Enum.map(rows, fn
+            [^key | _] = row -> List.replace_at(row, index, value)
+            row -> row
+          end)
+
+        %{entry | "rows" => rows}
+      end)
+    end
+  end
+
   describe "a file that does not fit changes nothing" do
     setup do
       fixtures()
       {:ok, original: export()}
     end
 
-    defp unchanged!(original), do: assert(export()["tables"] == original["tables"])
+    defp unchanged!(original), do: assert(opened(export()) == opened(original))
 
     test "one holding the audit log", %{original: original} do
       bad = put_in(original, ["tables", "auth_audit_log"], %{"columns" => [], "rows" => []})
@@ -226,7 +392,7 @@ defmodule AlexClaw.Database.RestoreTest do
       end)
 
       refute File.exists?(path)
-      assert export()["tables"] == original["tables"]
+      assert opened(export()) == opened(original)
     end
 
     test "a restore challenge answered on a gateway runs the restore" do

@@ -18,12 +18,16 @@ defmodule AlexClaw.Database.Restore do
   audited on both sides: a row before anything runs — no restore without it —
   and a row saying how it ended.
 
+  Credentials the export sealed are decrypted before anything is written —
+  see `AlexClaw.Database.Sealed` — so a file made under another
+  `SECRET_KEY_BASE` is refused whole.
+
   A full backup, schema and audit log included, is restored by an operator
   with the database owner's credentials; see the upgrade guide.
   """
 
   alias AlexClaw.Auth.{AuditLog, Principal}
-  alias AlexClaw.Database.{DataExport, DataSet}
+  alias AlexClaw.Database.{DataExport, DataSet, Sealed}
   alias AlexClaw.Repo
 
   @staging_prefix "alexclaw-restore-"
@@ -161,11 +165,27 @@ defmodule AlexClaw.Database.Restore do
         {:error, "#{table} holds a row that is not a list of #{length(live)} text values"}
 
       true ->
-        {:ok, {table, live, rows}}
+        unsealed(table, live, rows)
     end
   end
 
   defp table_plan(table, _entry), do: {:error, "#{table} is not a table entry"}
+
+  # Credentials the export sealed are decrypted before anything is written, so
+  # a file made under another SECRET_KEY_BASE is refused whole.
+  defp unsealed(table, live, rows) do
+    names = Enum.map(live, &elem(&1, 0))
+
+    rows
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
+      planned(Sealed.unseal(table, names, row), acc)
+    end)
+    |> reversed()
+    |> unsealed_plan(table, live)
+  end
+
+  defp unsealed_plan({:ok, rows}, table, live), do: {:ok, {table, live, rows}}
+  defp unsealed_plan({:error, reason}, table, _live), do: {:error, "#{table}: #{reason}"}
 
   defp row?(row, width) when is_list(row) and length(row) == width,
     do: Enum.all?(row, &(is_binary(&1) or is_nil(&1)))

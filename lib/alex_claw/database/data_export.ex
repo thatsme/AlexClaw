@@ -6,6 +6,9 @@ defmodule AlexClaw.Database.DataExport do
       {"format": "alexclaw-data", "version": 1, "schema": <migration>,
        "tables": {"settings": {"columns": [...], "rows": [[...], ...]}, ...}}
 
+  Credentials held in plain columns are written encrypted — see
+  `AlexClaw.Database.Sealed`.
+
   Text form, because it is exact for every type the schema uses — timestamps,
   JSON, arrays, bytea, pgvector — and a restore casts it back to the column's
   type as the live catalog states it. Rows are in primary-key order, so a row
@@ -15,7 +18,7 @@ defmodule AlexClaw.Database.DataExport do
   whole.
   """
 
-  alias AlexClaw.Database.DataSet
+  alias AlexClaw.Database.{DataSet, Sealed}
   alias AlexClaw.Repo
   alias Ecto.Adapters.SQL
 
@@ -67,6 +70,7 @@ defmodule AlexClaw.Database.DataExport do
     |> select_as_text(names)
     |> then(&SQL.stream(Repo, &1, [], max_rows: 500))
     |> Stream.flat_map(& &1.rows)
+    |> Stream.map(Sealed.sealer(table, names))
     |> Stream.with_index()
     |> Enum.reduce(emit.(opening, acc), fn {row, i}, acc ->
       emit.([if(i == 0, do: "", else: ","), Jason.encode!(row)], acc)

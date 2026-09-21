@@ -16,14 +16,11 @@ defmodule AlexClawWeb.AdminLive.ElevationInvariantTest do
 
   # The pages whose changes are control-plane changes, each of which must still
   # make them through gated/3.
-  @control_plane ~w(config policies llm resources cluster workflows)
+  @control_plane ~w(config policies llm resources cluster workflows memory)
 
   # A write outside gated/3, deliberately: {file, function, write} => why.
   # Each entry has to say why — "operational" is not a reason, it is a category.
   @allowed %{
-    {"memory.ex", :handle_event, {:Repo, :delete}} =>
-      "Deletes an entry from the agent's memory: content it recalls, not a setting " <>
-        "that decides what it does unattended.",
     {"services.ex", :handle_event, {:Config, :delete}} =>
       "Discards a 2FA enrolment that was never confirmed. No second factor exists " <>
         "yet to elevate with, and the secret it removes grants nothing.",

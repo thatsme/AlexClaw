@@ -145,6 +145,28 @@ defmodule AlexClawWeb.AdminLive.ControlPlanePagesTest do
     end
   end
 
+  describe "memory" do
+    test "deleting an entry is an audited change", %{conn: conn, sid: sid} do
+      {:ok, entry} = AlexClaw.Memory.store(:fact, "pages memory probe", source: "test")
+      view = open(conn, sid, "/memory")
+
+      render_click(view, "delete", %{"id" => to_string(entry.id)})
+
+      refute Repo.get(AlexClaw.Memory.Entry, entry.id)
+      assert [_row] = rows("write", "memory entry deleted: id #{entry.id}")
+    end
+
+    test "is refused without an elevation, and the entry stays", %{conn: conn} do
+      {:ok, entry} = AlexClaw.Memory.store(:fact, "pages memory kept", source: "test")
+      view = open(conn, Elevation.new_sid(), "/memory")
+
+      render_click(view, "delete", %{"id" => to_string(entry.id)})
+
+      assert Repo.get(AlexClaw.Memory.Entry, entry.id)
+      assert [_refusal] = rows("deny", "memory entry deleted: id #{entry.id}")
+    end
+  end
+
   describe "an effect outside the database" do
     # Discovery fetches the API and writes back to the resource, so asking for
     # it is audited like any change, and started only after that row commits.

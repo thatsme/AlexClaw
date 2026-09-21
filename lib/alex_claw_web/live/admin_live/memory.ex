@@ -2,10 +2,13 @@ defmodule AlexClawWeb.AdminLive.Memory do
   @moduledoc "LiveView page for browsing, searching, and filtering stored memory entries."
 
   use Phoenix.LiveView
+  alias AlexClawWeb.Live.Elevation
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
+    socket = Elevation.assign_elevation(socket, session)
+
     {:ok,
      assign(socket,
        page_title: "Memory",
@@ -40,26 +43,57 @@ defmodule AlexClawWeb.AdminLive.Memory do
      assign(socket, filter_kind: kind, entries: AlexClaw.Memory.recent(limit: 50, kind: kind))}
   end
 
+  # What the agent remembers shapes what it answers, so removing a memory is a
+  # change like any other: audited, and behind an elevation.
   @impl true
   def handle_event("delete", %{"id" => id_str}, socket) do
-    case parse_id(id_str) do
-      {:ok, id} ->
-        AlexClaw.Repo.delete(%AlexClaw.Memory.Entry{id: id})
+    Elevation.gated(socket, "memory entry deleted: id #{id_str}",
+      write: fn ->
+        with {:ok, entry} <- fetch_entry(id_str), do: AlexClaw.Repo.delete(entry)
+      end,
+      ok: fn socket, _entry ->
+        socket
+        |> put_flash(:info, "Memory entry deleted")
+        |> assign(entries: AlexClaw.Memory.recent(limit: 50, kind: socket.assigns.filter_kind))
+      end,
+      error: &not_deleted/2
+    )
+  end
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Memory entry deleted")
-         |> assign(entries: AlexClaw.Memory.recent(limit: 50, kind: socket.assigns.filter_kind))}
+  def handle_event("unlock_editing", _params, socket), do: Elevation.open_entry(socket)
 
-      :error ->
-        {:noreply, socket}
+  def handle_event("submit_code", %{"code" => code}, socket),
+    do: Elevation.submit_code(socket, code)
+
+  def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
+  def handle_event("request_gateway_code", _params, socket), do: Elevation.unlock(socket)
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
+  end
+
+  defp fetch_entry(id_str) do
+    with {:ok, id} <- parse_id(id_str) do
+      AlexClaw.Memory.Entry
+      |> AlexClaw.Repo.get(id)
+      |> found_entry()
     end
   end
+
+  defp found_entry(nil), do: {:error, :not_found}
+  defp found_entry(entry), do: {:ok, entry}
+
+  defp not_deleted(socket, :invalid_id), do: socket
+  defp not_deleted(socket, :not_found), do: put_flash(socket, :error, "Memory entry not found")
+
+  defp not_deleted(socket, reason),
+    do: put_flash(socket, :error, "Not deleted: #{inspect(reason)}")
 
   defp parse_id(id) when is_binary(id) do
     case Integer.parse(id) do
       {i, ""} -> {:ok, i}
-      _ -> :error
+      _ -> {:error, :invalid_id}
     end
   end
 end

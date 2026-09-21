@@ -141,6 +141,19 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
       assert staged_files() == ctx.already_staged
     end
 
+    # 2FA is set up in the admin UI; the refusal once sent people to configure
+    # a gateway, which is not needed.
+    test "the refusal says where to set 2FA up", ctx do
+      {view, _html} = open(ctx.conn, ctx.sid)
+      upload_dump(view)
+
+      render_click(view, "restore", %{})
+      flash = view |> element("#flash-group") |> render()
+
+      assert flash =~ "Services → Two-factor authentication"
+      refute flash =~ "gateway"
+    end
+
     test "the refusal is recorded with its reason", ctx do
       {view, _html} = open(ctx.conn, ctx.sid)
       upload_dump(view)

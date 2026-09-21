@@ -20,25 +20,97 @@ defmodule AlexClaw.Database.Roles do
 
   @identifier ~r/\A[a-z_][a-z0-9_]{0,62}\z/
 
+  @full ~w(SELECT INSERT UPDATE DELETE TRUNCATE)
+
+  # One decision per table. A table added by a migration and missing here fails
+  # the grant step, and the test that compares this map with the schema.
+  @privileges %{
+    # Append-only: rows leave only through prune_auth_audit_log().
+    "auth_audit_log" => ~w(SELECT INSERT),
+    # The migrator's bookkeeping; the application only reads it.
+    "schema_migrations" => ~w(SELECT),
+    "admin_sessions" => @full,
+    "auth_policies" => @full,
+    "auth_recovery_codes" => @full,
+    "cluster_nodes" => @full,
+    "dynamic_skills" => @full,
+    "knowledge_entries" => @full,
+    "llm_providers" => @full,
+    "llm_usage" => @full,
+    "memories" => @full,
+    "reasoning_sessions" => @full,
+    "reasoning_steps" => @full,
+    "resources" => @full,
+    "settings" => @full,
+    "skill_outcomes" => @full,
+    "workflow_resources" => @full,
+    "workflow_runs" => @full,
+    "workflow_steps" => @full,
+    "workflows" => @full
+  }
+
   @doc """
   Grant `role` exactly the application's privileges. Run as the owner.
+
+  Every table gets the privileges `privileges/0` names for it and nothing more:
+  each is revoked in full and then granted, so a broader grant made by hand is
+  not left behind. A table the map has no decision for fails the step — a table
+  nobody decided about is not granted by default.
 
   The role name is interpolated, since SQL cannot bind an identifier, so it is
   checked against a plain identifier pattern first and refused otherwise.
   """
   @spec grant(DBConnection.conn(), String.t()) :: :ok
   def grant(conn, role) do
-    role |> identifier!() |> statements() |> Enum.each(&Postgrex.query!(conn, &1, []))
-  end
+    role = identifier!(role)
+    :ok = decided!(tables(conn))
 
-  defp statements(role) do
-    [
-      "GRANT USAGE ON SCHEMA public TO #{role}",
-      "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public TO #{role}",
-      "REVOKE UPDATE, DELETE, TRUNCATE ON auth_audit_log FROM #{role}",
-      "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM #{role}",
+    ["GRANT USAGE ON SCHEMA public TO #{role}"]
+    |> Kernel.++(
+      Enum.flat_map(@privileges, fn {table, privileges} ->
+        table_grants(table, privileges, role)
+      end)
+    )
+    |> Kernel.++([
       "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO #{role}",
       "GRANT EXECUTE ON FUNCTION prune_auth_audit_log() TO #{role}"
+    ])
+    |> Enum.each(&Postgrex.query!(conn, &1, []))
+  end
+
+  @doc """
+  What the application role may do to each table. Every table in the schema
+  has an entry, by decision: see the test that fails the build when one is
+  missing.
+  """
+  @spec privileges() :: %{String.t() => [String.t()]}
+  def privileges, do: @privileges
+
+  @doc "The tables in the schema, as the connection sees them."
+  @spec tables(DBConnection.conn()) :: [String.t()]
+  def tables(conn) do
+    %{rows: rows} =
+      Postgrex.query!(conn, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'", [])
+
+    List.flatten(rows)
+  end
+
+  defp decided!(tables) do
+    case tables -- Map.keys(@privileges) do
+      [] ->
+        :ok
+
+      undecided ->
+        raise ArgumentError, "no privilege decision for tables: #{Enum.join(undecided, ", ")}"
+    end
+  end
+
+  defp table_grants(table, [], role), do: ["REVOKE ALL ON #{table} FROM #{role}"]
+
+  defp table_grants(table, privileges, role) do
+    [
+      "REVOKE ALL ON #{table} FROM #{role}",
+      "GRANT #{Enum.join(privileges, ", ")} ON #{table} TO #{role}"
     ]
   end
 

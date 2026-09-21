@@ -123,6 +123,53 @@ defmodule AlexClaw.Database.RolesTest do
     end
   end
 
+  describe "the privilege map" do
+    # A table nobody decided about must not reach production with whatever
+    # privileges it happens to get.
+    test "has a decision for every table in the schema" do
+      assert Roles.tables(app_connection()) -- Map.keys(Roles.privileges()) == []
+    end
+
+    test "decides nothing about a table that does not exist" do
+      assert Map.keys(Roles.privileges()) -- Roles.tables(app_connection()) == []
+    end
+
+    test "grant/2 fails on a table it has no decision for" do
+      owner = owner_connection()
+
+      Postgrex.transaction(owner, fn conn ->
+        Postgrex.query!(conn, "CREATE TABLE undecided_probe (id int)", [])
+
+        assert_raise ArgumentError, ~r/no privilege decision for tables: undecided_probe/, fn ->
+          Roles.grant(conn, "alexclaw_app")
+        end
+
+        Postgrex.rollback(conn, :done)
+      end)
+    end
+
+    test "grant/2 takes away a broader privilege granted by hand" do
+      owner = owner_connection()
+
+      Postgrex.transaction(owner, fn conn ->
+        Postgrex.query!(conn, "GRANT ALL ON auth_audit_log TO alexclaw_app", [])
+        :ok = Roles.grant(conn, "alexclaw_app")
+
+        %{rows: [[delete?, insert?]]} =
+          Postgrex.query!(
+            conn,
+            "SELECT has_table_privilege('alexclaw_app', 'auth_audit_log', 'DELETE'), " <>
+              "has_table_privilege('alexclaw_app', 'auth_audit_log', 'INSERT')",
+            []
+          )
+
+        refute delete?
+        assert insert?
+        Postgrex.rollback(conn, :done)
+      end)
+    end
+  end
+
   test "grant/2 refuses a role name that is not a plain identifier" do
     assert_raise ArgumentError, ~r/not a plain role name/, fn ->
       Roles.grant(owner_connection(), "alexclaw_app; DROP TABLE settings")

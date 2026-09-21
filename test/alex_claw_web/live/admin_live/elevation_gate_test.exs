@@ -14,7 +14,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
 
   setup do
     sid = Elevation.new_sid()
-    on_exit(fn -> Elevation.revoke(sid) end)
+    on_exit(fn -> AlexClaw.SandboxCleanup.run(fn -> Elevation.revoke(sid) end) end)
 
     {:ok, sid: sid, fixtures: fixtures()}
   end

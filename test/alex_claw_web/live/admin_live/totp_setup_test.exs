@@ -23,7 +23,7 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
     AlexClaw.Config.delete("auth.totp.last_used_at")
 
     on_exit(fn ->
-      Elevation.revoke(sid)
+      AlexClaw.SandboxCleanup.run(fn -> Elevation.revoke(sid) end)
       CodeAttempts.reset()
     end)
 

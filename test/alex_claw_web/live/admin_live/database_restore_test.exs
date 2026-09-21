@@ -18,7 +18,7 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
     already_staged = staged_files()
 
     on_exit(fn ->
-      Elevation.revoke(sid)
+      AlexClaw.SandboxCleanup.run(fn -> Elevation.revoke(sid) end)
 
       for file <- staged_files() -- already_staged do
         File.rm(Path.join(System.tmp_dir!(), file))

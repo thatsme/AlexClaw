@@ -133,28 +133,61 @@ defmodule AlexClaw.Config do
   @spec enabled?(String.t()) :: boolean()
   def enabled?(key), do: get(key) in [true, "true"]
 
-  @doc "Set a config value. Persists to DB and updates ETS cache."
+  @doc """
+  Set a config value: `persist/3`, then `publish/1`.
+
+  For callers outside the control plane. A control-plane change persists inside
+  `AlexClaw.ControlPlane.gated/4` and publishes after it commits.
+  """
   @spec set(String.t(), config_value(), set_opts()) ::
           {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
   def set(key, value, opts \\ []) do
+    with {:ok, setting} <- persist(key, value, opts) do
+      :ok = publish(key)
+      {:ok, setting}
+    end
+  end
+
+  @doc """
+  Write a config value to the database, and nothing else.
+
+  Safe inside a transaction: no cache is touched and nobody is told, so a
+  rollback leaves nothing to undo. Follow it with `publish/1` once committed.
+  """
+  @spec persist(String.t(), config_value(), set_opts()) ::
+          {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
+  def persist(key, value, opts \\ []) do
     type = Keyword.get(opts, :type, "string")
     existing_record = Repo.get_by(Setting, key: key)
     sensitive = sensitive_flag(Keyword.fetch(opts, :sensitive), existing_record)
-    encoded = encode_value(value, type)
 
     attrs = %{
       key: key,
-      value: db_value(encoded, sensitive),
+      value: db_value(encode_value(value, type), sensitive),
       type: type,
       description: Keyword.get(opts, :description),
       category: Keyword.get(opts, :category, "general"),
       sensitive: sensitive
     }
 
-    existing_record
-    |> upsert_setting(attrs)
-    |> cache_setting(key, encoded)
+    upsert_setting(existing_record, attrs)
   end
+
+  @doc """
+  Make the cache and subscribers agree with what the database holds for `key`.
+
+  Reads the committed row rather than trusting what the caller meant to write,
+  so it is correct after a rollback, harmless when repeated, and repairs a cache
+  that has drifted. A key the cache deliberately does not hold is announced as
+  changed, never with its value.
+  """
+  @spec publish(String.t()) :: :ok
+  def publish(key) when key in @uncached_keys do
+    :ets.delete(@table, key)
+    broadcast_change(key, nil)
+  end
+
+  def publish(key), do: cached(Repo.get_by(Setting, key: key), key)
 
   defp sensitive_flag({:ok, val}, _existing_record), do: val
 
@@ -168,32 +201,36 @@ defmodule AlexClaw.Config do
   defp upsert_setting(nil, attrs), do: %Setting{} |> Setting.changeset(attrs) |> Repo.insert()
   defp upsert_setting(existing, attrs), do: existing |> Setting.changeset(attrs) |> Repo.update()
 
-  defp cache_setting({:ok, %Setting{key: key} = setting}, key, _encoded)
-       when key in @uncached_keys do
-    {:ok, setting}
-  end
-
-  defp cache_setting({:ok, setting}, key, encoded) do
-    # ETS gets the plaintext value, alongside the flag that decides who may see it
-    cast = cast_value(%{setting | value: encoded})
-    :ets.insert(@table, {key, cast, setting.sensitive})
-    broadcast_change(key, cast)
-    {:ok, setting}
-  end
-
-  defp cache_setting(error, _key, _encoded), do: error
-
-  @doc "Delete a config key."
-  @spec delete(String.t()) :: :ok
-  def delete(key) do
-    case Repo.get_by(Setting, key: key) do
-      nil -> :ok
-      setting -> Repo.delete(setting)
-    end
-
+  defp cached(nil, key) do
     :ets.delete(@table, key)
     broadcast_change(key, nil)
-    :ok
+  end
+
+  # ETS gets the plaintext value, alongside the flag that decides who may see it
+  defp cached(%Setting{} = setting, key) do
+    value = setting |> decrypt_setting() |> cast_value()
+    :ets.insert(@table, {key, value, setting.sensitive})
+    broadcast_change(key, value)
+  end
+
+  @doc "Delete a config key: `remove/1`, then `publish/1`."
+  @spec delete(String.t()) :: :ok
+  def delete(key) do
+    {:ok, _removed} = remove(key)
+    publish(key)
+  end
+
+  @doc """
+  Delete a config key from the database, and nothing else. Safe inside a
+  transaction; follow it with `publish/1` once committed.
+  """
+  @spec remove(String.t()) :: {:ok, :removed | :absent} | {:error, Ecto.Changeset.t()}
+  def remove(key), do: removed(Repo.get_by(Setting, key: key))
+
+  defp removed(nil), do: {:ok, :absent}
+
+  defp removed(setting) do
+    with {:ok, _setting} <- Repo.delete(setting), do: {:ok, :removed}
   end
 
   @doc "List all settings, optionally filtered by category."

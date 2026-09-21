@@ -3,9 +3,21 @@ import Config
 config :alex_claw, :skills_dir, System.get_env("SKILLS_DIR", "/app/skills")
 
 if config_env() == :prod do
+  # The migrate service runs an eval with the database owner's credentials and,
+  # by design, without SECRET_KEY_BASE: the two never share a container. An
+  # eval serves nothing to sign, and anything there that tries to encrypt or
+  # decrypt raises (AlexClaw.Config.Crypto). Every other command needs the key.
   secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise "SECRET_KEY_BASE not set. Generate with: mix phx.gen.secret"
+    case {System.get_env("SECRET_KEY_BASE"), System.get_env("RELEASE_COMMAND")} do
+      {key, "eval"} when key in [nil, ""] ->
+        nil
+
+      {key, _} when key in [nil, ""] ->
+        raise "SECRET_KEY_BASE not set. Generate with: mix phx.gen.secret"
+
+      {key, _} ->
+        key
+    end
 
   # Explicit, rather than inherited from url: [host: ...]. Phoenix falls back to
   # that host when check_origin is unset, which made the endpoint accept

@@ -51,9 +51,9 @@ services:
       DATABASE_PASSWORD: "${DATABASE_OWNER_PASSWORD:?not set - the database owner's password}"
       DATABASE_HOSTNAME: db-prod
       DATABASE_APP_USERNAME: "${DATABASE_USERNAME:?not set - the application role}"
-      # Required by the release's runtime configuration, which evaluates in
-      # full before any eval.
-      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      # No SECRET_KEY_BASE, deliberately: the owner's credentials and the key
+      # that decrypts the stored secrets never share a container. The runtime
+      # configuration accepts its absence for an eval only.
       CLUSTER_COOKIE: "${CLUSTER_COOKIE:?not set - generate one with: openssl rand -base64 32}"
       RELEASE_TMP: /tmp
       ERL_CRASH_DUMP: /tmp/erl_crash.dump

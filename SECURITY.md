@@ -395,7 +395,10 @@ database owner.
 - Every table's privileges are an explicit decision. A table added without
   one fails the migration step, and the build
 - Migrations run in a one-shot `migrate` service with the owner's credentials,
-  which no other application container receives
+  which no other application container receives. That service is never given
+  `SECRET_KEY_BASE`: the owner's credentials and the key that decrypts the
+  stored secrets never share a container, and a test fails the build if a
+  compose file puts them together
 - Upgrading an existing installation: [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md)
 
 ---

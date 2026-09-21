@@ -12,7 +12,7 @@ Running it a second time is refused: after a rotation the old key decrypts nothi
 
 What else changes with the key: everyone signs in again, because session cookies and page tokens are signed with it. Recovery codes are unaffected.
 
-Requires 0.3.34 or later, which has the `migrate` service. Run every command from the directory holding `docker-compose.yml` and `.env`.
+Requires 0.3.34 or later. Run every command from the directory holding `docker-compose.yml` and `.env`.
 
 ## 1. Back up
 
@@ -41,16 +41,17 @@ docker compose stop alexclaw-prod
 
 ## 4. Re-encrypt
 
-`read -rs` keeps both values out of the shell history:
+The rotation runs in a one-off application container, as the application role. It is never run in the `migrate` service: that one holds the database owner's credentials, and those never share a container with the key. `read -rs` keeps both values out of the shell history:
 
 ```bash
 read -rs OLD_SECRET_KEY_BASE   # paste the current value, then Enter
 read -rs NEW_SECRET_KEY_BASE   # paste the new value, then Enter
 
-docker compose run --rm --no-deps \
+docker compose run --rm --no-deps --entrypoint bin/alex_claw \
   -e OLD_SECRET_KEY_BASE="$OLD_SECRET_KEY_BASE" \
   -e SECRET_KEY_BASE="$NEW_SECRET_KEY_BASE" \
-  migrate bin/alex_claw eval "AlexClaw.Release.rekey()"
+  alexclaw-prod eval "AlexClaw.Release.rekey()"
+# with docker-compose_swarm.yml: the same, with -f docker-compose_swarm.yml and node1
 ```
 
 On success it prints `Re-encrypted <n> settings under the new SECRET_KEY_BASE.`

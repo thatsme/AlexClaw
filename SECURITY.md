@@ -10,6 +10,22 @@ Coordinated disclosure: 90 days before public disclosure requested
 
 ---
 
+## Published Advisories
+
+| Advisory | Severity | Affected | Fixed |
+|---|---|---|---|
+| [GHSA-c3fr-cqf2-r6pc](https://github.com/thatsme/AlexClaw/security/advisories/GHSA-c3fr-cqf2-r6pc) — MCP bearer token grants shell command execution without 2FA | High (7.2) | `< 0.3.22` | `0.3.26` |
+
+The fix began in 0.3.22 and is complete from 0.3.26: a database seeded before
+0.3.26 kept the original shell allowlist, because a configured row takes
+precedence over the compiled default.
+
+The recommended minimum is **0.3.29**. The advisory's mitigations rely on
+two-factor authentication, and in 0.3.28 and earlier a restart erased the 2FA
+secret.
+
+---
+
 ## Authentication
 
 AlexClaw includes built-in session-based authentication. The web interface
@@ -243,6 +259,11 @@ The MCP endpoint (`/mcp`) exposes AlexClaw skills, workflows, and data to extern
 **Resource filtering:** Sensitive config values (API keys, OAuth tokens) are redacted in MCP resource responses — only `[REDACTED]` is returned for settings marked `sensitive: true`.
 
 **Audit logging:** All MCP tool invocations are logged to `auth_audit_log` with caller `mcp:<tool_name>`, visible in Admin > Policies > Audit Log.
+
+**Advisory:** before 0.3.22 the bearer token alone reached the `shell` and
+`coder` skills with no second factor. See
+[GHSA-c3fr-cqf2-r6pc](https://github.com/thatsme/AlexClaw/security/advisories/GHSA-c3fr-cqf2-r6pc);
+the `mcp_restriction` denials described above are part of that fix.
 
 **Hardening recommendations:**
 - The `/mcp` endpoint must be behind TLS — never transmit Bearer tokens over plain HTTP

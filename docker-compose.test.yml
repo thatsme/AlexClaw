@@ -18,6 +18,10 @@ services:
       POSTGRES_USER: alexclaw
       POSTGRES_PASSWORD: testpass
       POSTGRES_DB: alex_claw_test
+    volumes:
+      # The application role, as production has it: the suite connects as it,
+      # so a privilege the application lacks fails here rather than there.
+      - ./test/support/db/create_app_role.sql:/docker-entrypoint-initdb.d/01_app_role.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U alexclaw -d alex_claw_test"]
       interval: 3s
@@ -34,8 +38,11 @@ services:
         condition: service_healthy
     environment:
       MIX_ENV: test
-      DATABASE_USERNAME: alexclaw
-      DATABASE_PASSWORD: testpass
+      DATABASE_USERNAME: alexclaw_app
+      DATABASE_PASSWORD: apptest
+      # The owner, for creating and migrating only — see the ecto.* aliases.
+      DATABASE_OWNER_USERNAME: alexclaw
+      DATABASE_OWNER_PASSWORD: testpass
       DATABASE_HOSTNAME: db-test
       DATABASE_NAME: alex_claw_test
       SECRET_KEY_BASE: test_secret_key_base_that_is_at_least_64_bytes_long_for_phoenix_to_accept_it

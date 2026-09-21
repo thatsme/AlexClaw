@@ -751,7 +751,7 @@ for anything that does not fit — several hostnames, or a proxy on plain HTTP:
 CHECK_ORIGIN=https://alexclaw.example.com,http://192.168.1.10:5001
 ```
 
-Unset, both `http://localhost:5001` and `http://127.0.0.1:5001` are accepted.
+Unset, both `http://localhost:<port>` and `http://127.0.0.1:<port>` are accepted, where `<port>` is `ADMIN_PORT` (5001 by default).
 
 ### Skill uploads or generated skills fail to save
 
@@ -792,6 +792,8 @@ If port 5001 is already in use (common on macOS — see [Step 4](#4-log-in)), se
 ```
 ADMIN_PORT=5002
 ```
+
+The admin UI is then at `http://127.0.0.1:5002`, and the LiveView socket accepts that origin.
 
 ### Container won't start
 

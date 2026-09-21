@@ -24,7 +24,11 @@ defmodule AlexClaw.CheckOriginTest do
   # runtime.exs refuses to produce a production configuration without a cluster
   # cookie, so one is supplied here. It is not what this test is about.
   defp origins(env) do
-    env = Map.put_new(env, "CLUSTER_COOKIE", "Zm9vYmFyYmF6cXV4")
+    env =
+      env
+      |> Map.put_new("CLUSTER_COOKIE", "Zm9vYmFyYmF6cXV4")
+      |> Map.put_new("ADMIN_PORT", nil)
+
     original = Enum.map(env, fn {k, _v} -> {k, System.get_env(k)} end)
     Enum.each(env, fn {k, v} -> put(k, v) end)
 
@@ -74,6 +78,39 @@ defmodule AlexClaw.CheckOriginTest do
 
     refute "http://127.0.0.1:5001" in accepted,
            "an explicit list is the whole list, or it is not explicit"
+  end
+
+  # ADMIN_PORT moves the published port; the origin the browser sends moves
+  # with it. With the list fixed at :5001, every button on a :5002 install
+  # did nothing.
+  test "ADMIN_PORT=5002 is accepted on both loopback spellings, and :5001 no longer is" do
+    accepted = origins(%{"ADMIN_PORT" => "5002", "CHECK_ORIGIN" => nil, "PHX_HOST" => nil})
+
+    assert "http://127.0.0.1:5002" in accepted
+    assert "http://localhost:5002" in accepted
+    refute "http://127.0.0.1:5001" in accepted
+  end
+
+  test "ADMIN_PORT keeps PHX_HOST's origin and yields to CHECK_ORIGIN" do
+    with_host =
+      origins(%{
+        "ADMIN_PORT" => "5002",
+        "CHECK_ORIGIN" => nil,
+        "PHX_HOST" => "alexclaw.example.com"
+      })
+
+    assert "https://alexclaw.example.com" in with_host
+
+    explicit = origins(%{"ADMIN_PORT" => "5002", "CHECK_ORIGIN" => "https://one.example.com"})
+    assert explicit == ["https://one.example.com"]
+  end
+
+  test "an ADMIN_PORT that is not a port stops the boot" do
+    for bad <- ["", "abc", "0", "-1", "65536", "5002x"] do
+      assert_raise RuntimeError, ~r/ADMIN_PORT/, fn ->
+        origins(%{"ADMIN_PORT" => bad, "CHECK_ORIGIN" => nil})
+      end
+    end
   end
 
   test "blank entries and stray whitespace are dropped, not accepted" do

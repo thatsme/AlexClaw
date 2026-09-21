@@ -92,6 +92,10 @@ services:
       DATABASE_HOSTNAME: db-prod
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # The published port above: the origin the browser sends.
+      ADMIN_PORT: "5001"
+      PHX_HOST: ${PHX_HOST:-}
+      CHECK_ORIGIN: ${CHECK_ORIGIN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -144,6 +148,10 @@ services:
       DATABASE_HOSTNAME: db-prod
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # The published port above: the origin the browser sends.
+      ADMIN_PORT: "5002"
+      PHX_HOST: ${PHX_HOST:-}
+      CHECK_ORIGIN: ${CHECK_ORIGIN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

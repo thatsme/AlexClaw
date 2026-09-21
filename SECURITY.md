@@ -69,14 +69,12 @@ instance where nothing can.
 
 ### What elevation does not cover
 
-**Database restore is challenged every time**, and refused outright where no
-code can be asked for. Restoring an uploaded SQL file
-runs arbitrary SQL against the live database as the application's own user,
-which reaches the settings and policy tables without passing through either. It
-therefore asks for a code per restore and is never covered by an existing
-elevation: authority earned for editing a setting is not authority to replace
-the database. The upload is staged on disk while the code is outstanding, and
-discarded whether the restore runs or not.
+**Database restore is not offered in the admin UI.** Until 0.3.34, restoring
+the database is an operator procedure, run from the host with the database
+owner's credentials (see [Database Backups](#database-backups)). The Database page shows no
+restore form. A restore request sent to the page anyway, and a restore challenge
+raised by an earlier version and answered after the upgrade, are refused and
+recorded in the audit log.
 
 **Running a workflow follows the workflow's own rule.** A workflow marked
 `requires_2fa` is challenged when it is run, from the Workflows page and the
@@ -163,7 +161,7 @@ backups deserve the care the rest of this document describes.
 
 With no TOTP configured, nothing can elevate — so the control plane is
 **read-only**. Every configuration change, policy edit, provider or resource
-change, cluster change, workflow edit and database restore is refused, recorded
+change, cluster change and workflow edit is refused, recorded
 in the audit log as `no_second_factor`, and answered with what to do about it.
 There is no state in which a control-plane write proceeds on the admin password
 alone, and no environment variable that disables the gate.
@@ -696,8 +694,8 @@ processing sensitive information.
 **An elevation is bounded by time, not by action.**
 Within its fifteen minutes, an elevated session may make any control-plane
 change the pages expose, not only the one the code was requested for. The
-per-action exceptions are the two named above: a database restore, and running
-a workflow marked `requires_2fa`.
+per-action exception is the one named above: running a workflow marked
+`requires_2fa`.
 
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures

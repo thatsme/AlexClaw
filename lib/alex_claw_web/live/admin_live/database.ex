@@ -1,13 +1,10 @@
 defmodule AlexClawWeb.AdminLive.Database do
-  @moduledoc "LiveView page for database backup downloads, SQL restore uploads, and table inspection."
+  @moduledoc "LiveView page for database backup downloads and table inspection."
 
   use Phoenix.LiveView
 
-  alias AlexClaw.Auth.Elevation
   alias AlexClaw.Database.Restore
-  alias AlexClawWeb.Live.ActionCode
-
-  @max_upload_size 100_000_000
+  alias AlexClawWeb.Live.{ActionCode, Elevation}
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -16,7 +13,7 @@ defmodule AlexClawWeb.AdminLive.Database do
 
     socket =
       socket
-      |> AlexClawWeb.Live.Elevation.assign_elevation(session)
+      |> Elevation.assign_elevation(session)
       |> ActionCode.assign_action_code()
 
     {:ok,
@@ -26,11 +23,6 @@ defmodule AlexClawWeb.AdminLive.Database do
        restoring: false,
        restore_result: nil,
        tables: list_tables()
-     )
-     |> allow_upload(:dump_file,
-       accept: :any,
-       max_entries: 1,
-       max_file_size: @max_upload_size
      )}
   end
 
@@ -40,26 +32,15 @@ defmodule AlexClawWeb.AdminLive.Database do
   end
 
   def handle_info({:elevation, _state, _detail} = message, socket) do
-    {:noreply, AlexClawWeb.Live.Elevation.handle_broadcast(socket, message)}
+    {:noreply, Elevation.handle_broadcast(socket, message)}
   end
 
   @impl true
-  @spec handle_event(String.t(), map(), Phoenix.LiveView.Socket.t()) ::
-          {:noreply, Phoenix.LiveView.Socket.t()}
-  def handle_event("validate_upload", _params, socket) do
-    {:noreply, socket}
-  end
-
-  @impl true
-  # A restore is arbitrary SQL against the live database, so it is challenged
-  # every time rather than covered by an elevation window. An unlock earned for
-  # editing a setting is not authority to replace the database.
+  # Restore is an operator procedure until 0.3.34. The form is gone from the
+  # page; an event sent anyway is refused and recorded, never performed.
   def handle_event("restore", _params, socket) do
-    socket
-    |> consume_uploaded_entries(:dump_file, fn %{path: path}, entry ->
-      {:ok, {Restore.stage(path), entry.client_name}}
-    end)
-    |> staged(socket)
+    Elevation.audit_refusal(socket, :disabled, "database restore")
+    {:noreply, put_flash(socket, :error, Restore.refusal())}
   end
 
   @impl true
@@ -73,59 +54,6 @@ defmodule AlexClawWeb.AdminLive.Database do
 
   def handle_event("cancel_action_code", _params, socket) do
     ActionCode.cancel(socket)
-  end
-
-  defp staged([{{:ok, path}, filename}], socket) do
-    challenge(Elevation.configured?(), path, filename, socket)
-  end
-
-  defp staged([{{:error, reason}, _filename}], socket) do
-    {:noreply, put_flash(socket, :error, "Could not stage the upload: #{inspect(reason)}")}
-  end
-
-  defp staged([], socket), do: {:noreply, put_flash(socket, :error, "No file uploaded")}
-
-  # A restore replaces the live database, so it is refused outright where no
-  # code can be asked for. There is no password-only path to it.
-  defp challenge(false, path, filename, socket) do
-    Restore.discard(path)
-
-    AlexClawWeb.Live.Elevation.audit_refusal(
-      socket,
-      :no_second_factor,
-      "database restore from #{filename}"
-    )
-
-    {:noreply,
-     put_flash(
-       socket,
-       :error,
-       "Admin changes require 2FA. Configure a gateway via environment variables and run /setup 2fa."
-     )}
-  end
-
-  # The action carries the session's fingerprint, never the sid: it waits in
-  # the challenge store for the code, and names who asked in the audit rows.
-  defp challenge(true, path, filename, socket) do
-    ActionCode.request(
-      socket,
-      %{
-        type: :database_restore,
-        path: path,
-        filename: filename,
-        session: session_print(socket.assigns.elevation_sid)
-      },
-      "Restore the database from #{filename} — this replaces live data"
-    )
-  end
-
-  defp session_print(sid) when is_binary(sid), do: AlexClaw.Auth.Elevation.fingerprint(sid)
-  defp session_print(_sid), do: "unidentified"
-
-  defp restored(socket, {:ok, message}) do
-    socket
-    |> put_flash(:info, message)
-    |> assign(restoring: false, restore_result: message, tables: list_tables())
   end
 
   defp restored(socket, {:error, message}) do
@@ -154,12 +82,4 @@ defmodule AlexClawWeb.AdminLive.Database do
         []
     end
   end
-
-  defp format_size(bytes) when bytes < 1024, do: "#{bytes} B"
-  defp format_size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1024, 1)} KB"
-  defp format_size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
-
-  defp upload_error_message(:too_large), do: "File too large (max 100 MB)"
-  defp upload_error_message(:not_accepted), do: "Only .sql and .dump files accepted"
-  defp upload_error_message(err), do: "Error: #{inspect(err)}"
 end

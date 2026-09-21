@@ -15,48 +15,11 @@
 
   <div class="bg-gray-900 rounded-lg border border-gray-800 p-6">
     <h2 class="text-lg font-semibold text-gray-300 mb-2">Restore</h2>
-    <p class="text-sm text-gray-500 mb-4">Upload a .sql dump file to restore the database. This will replace existing data.</p>
-
-    <form id="restore-form" phx-submit="restore" phx-change="validate_upload" class="space-y-4">
-      <div class="flex items-center space-x-4">
-        <label class="flex-1">
-          <div class="relative">
-            <.live_file_input upload={@uploads.dump_file}
-              class="block w-full text-sm text-gray-400
-                file:mr-4 file:py-2 file:px-4 file:rounded
-                file:border-0 file:text-sm file:font-semibold
-                file:bg-gray-800 file:text-gray-300
-                hover:file:bg-gray-700 file:cursor-pointer" />
-          </div>
-        </label>
-      </div>
-
-      <%= for entry <- @uploads.dump_file.entries do %>
-        <div class="flex items-center space-x-3 text-sm">
-          <span class="text-gray-300">{entry.client_name}</span>
-          <span class="text-gray-500">({format_size(entry.client_size)})</span>
-          <button type="button" phx-click="cancel-upload" phx-value-ref={entry.ref}
-            class="text-red-500 hover:text-red-400 text-xs">&times;</button>
-        </div>
-        <%= for err <- upload_errors(@uploads.dump_file, entry) do %>
-          <p class="text-red-400 text-sm">{upload_error_message(err)}</p>
-        <% end %>
-      <% end %>
-
-      <div class="flex items-center space-x-3">
-        <button type="submit"
-          disabled={@uploads.dump_file.entries == [] || @restoring}
-          class={[
-            "px-4 py-2 text-white text-sm rounded transition",
-            if(@uploads.dump_file.entries == [] || @restoring,
-              do: "bg-gray-700 cursor-not-allowed",
-              else: "bg-red-700 hover:bg-red-600")
-          ]}>
-          {if @restoring, do: "Restoring...", else: "Restore Database"}
-        </button>
-        <span :if={@restoring} class="text-yellow-400 text-sm animate-pulse">Processing, please wait...</span>
-      </div>
-    </form>
+    <p class="text-sm text-gray-500">
+      Restore is an operator procedure until 0.3.34. It is run from the host with the
+      database owner's credentials; see the release notes.
+    </p>
+    <p :if={@restore_result} class="text-sm text-red-400 mt-2">{@restore_result}</p>
   </div>
 
   <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">

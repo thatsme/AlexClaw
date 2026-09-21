@@ -1,77 +1,72 @@
 defmodule AlexClaw.Database.RestoreTest do
   @moduledoc """
-  Staging and discarding an uploaded dump.
-
-  That a file is staged out of the upload's temporary directory and discarded
-  on refusal. `run/2` writes audit rows, so it is tested with a database in
-  `AlexClaw.Database.RestoreAuditTest`.
+  Restore from the admin UI is disabled until 0.3.34. Every path that reaches
+  `Restore.run/2` is refused, audited as refused, and leaves no staged file —
+  including a restore challenge raised before the upgrade and answered after it.
   """
-  use ExUnit.Case, async: true
+  use AlexClaw.DataCase, async: false
+  @moduletag :integration
 
+  alias AlexClaw.Auth.AuditEntry
   alias AlexClaw.Database.Restore
+  alias AlexClaw.Dispatcher.AuthCommands
+  alias AlexClaw.{Message, RecordingGateway}
 
-  defp uploaded(contents) do
-    path = Path.join(System.tmp_dir!(), "upload-#{System.unique_integer([:positive])}.sql")
-    File.write!(path, contents)
-    on_exit(fn -> File.rm(path) end)
+  defp staged_file do
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "alexclaw-restore-test-#{System.unique_integer([:positive])}.sql"
+      )
+
+    File.write!(path, "SELECT 1;")
     path
   end
 
-  describe "stage/1" do
-    test "copies the upload somewhere it will outlive the request" do
-      source = uploaded("SELECT 1;")
-
-      {:ok, staged} = Restore.stage(source)
-
-      assert File.read!(staged) == "SELECT 1;"
-      refute staged == source
-      Restore.discard(staged)
-    end
-
-    test "leaves the original alone" do
-      source = uploaded("SELECT 1;")
-
-      {:ok, staged} = Restore.stage(source)
-
-      assert File.exists?(source)
-      Restore.discard(staged)
-    end
-
-    test "gives each upload its own path" do
-      source = uploaded("SELECT 1;")
-
-      {:ok, first} = Restore.stage(source)
-      {:ok, second} = Restore.stage(source)
-
-      refute first == second
-      Restore.discard(first)
-      Restore.discard(second)
-    end
-
-    test "reports a source that is not there" do
-      assert {:error, :enoent} = Restore.stage("/nonexistent/upload.sql")
-    end
-
-    test "stages an empty file rather than deciding it is not worth staging" do
-      {:ok, staged} = Restore.stage(uploaded(""))
-
-      assert File.read!(staged) == ""
-      Restore.discard(staged)
-    end
+  defp refusals(fragment) do
+    Repo.all(
+      from(e in AuditEntry, where: e.decision == "deny" and like(e.reason, ^"%#{fragment}%"))
+    )
   end
 
-  describe "discard/1" do
-    test "removes a staged file" do
-      {:ok, staged} = Restore.stage(uploaded("SELECT 1;"))
+  test "run/2 refuses, records the refusal, and discards the file" do
+    path = staged_file()
 
-      assert :ok = Restore.discard(staged)
-      refute File.exists?(staged)
-    end
+    assert Restore.run(path, %{filename: "dump.sql", session: "fp-refused"}) ==
+             {:error, Restore.refusal()}
 
-    # Discarding runs on the refusal path and after a restore, so it has to
-    # tolerate a file that is already gone.
-    test "is a no-op for a file that is already gone" do
-      assert :ok = Restore.discard("/nonexistent/staged.sql")
-    end
+    refute File.exists?(path)
+    assert [row] = refusals("database restore from dump.sql")
+    assert row.caller == "admin:fp-refused"
+    assert row.reason =~ "disabled"
+  end
+
+  test "the refusal says restore is an operator procedure" do
+    assert Restore.refusal() =~ "operator procedure"
+  end
+
+  test "a restore challenge answered on a gateway after the upgrade is refused" do
+    RecordingGateway.install()
+    path = staged_file()
+
+    AuthCommands.execute_2fa_action(
+      %{type: :database_restore, path: path, filename: "pending.sql", session: "fp-pending"},
+      %Message{
+        text: "",
+        chat_id: "1",
+        from: "t",
+        timestamp: DateTime.utc_now(),
+        raw: %{},
+        gateway: :test
+      }
+    )
+
+    refute File.exists?(path)
+    assert [_row] = refusals("database restore from pending.sql")
+    assert Enum.any?(RecordingGateway.sent(), &(&1 =~ "operator procedure"))
+  end
+
+  test "discard/1 tolerates a file that is already gone" do
+    assert Restore.discard("/nonexistent/staged.sql") == :ok
   end
 end

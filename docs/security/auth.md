@@ -4,9 +4,18 @@
 
 All routes except `/login`, `/health`, and `/mcp` require an authenticated session.
 
-- Session-based authentication using Phoenix sessions
 - Password stored as `ADMIN_PASSWORD` environment variable (seeded to DB on first boot)
-- Sessions expire based on configurable timeout
+- Each login is a row in the `admin_sessions` table, checked on every request and
+  every LiveView connection, on whichever node serves it. The cookie holds an
+  identifier; the table holds only its SHA-256.
+- A login lasts eight hours from sign-in, busy or idle.
+- Changing `ADMIN_PASSWORD` ends every login: each row records a keyed
+  fingerprint of the password it was opened with.
+- Logout ends that login and closes its open pages.
+- Redeeming a recovery code, or turning 2FA off, ends every other login. Turning
+  2FA off from a gateway ends all of them. Each is recorded in the audit log.
+- **Sign out everywhere** (Services page, needs editing unlocked) ends every
+  login, including the one that asked.
 
 ## Login Rate Limiting
 

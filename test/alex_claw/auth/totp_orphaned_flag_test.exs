@@ -30,7 +30,7 @@ defmodule AlexClaw.Auth.TotpOrphanedFlagTest do
     Config.delete("auth.totp.pending_secret")
     Config.set("auth.totp.enabled", "false", type: "boolean", category: "auth")
 
-    on_exit(fn -> Elevation.revoke(sid) end)
+    on_exit(fn -> AlexClaw.SandboxCleanup.run(fn -> Elevation.revoke(sid) end) end)
 
     {:ok, sid: sid}
   end

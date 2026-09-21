@@ -12,7 +12,7 @@ defmodule AlexClaw.Auth.CodeEntry do
   answer.
   """
 
-  alias AlexClaw.Auth.{AuditLog, CodeAttempts, Elevation, SecondFactor}
+  alias AlexClaw.Auth.{AuditLog, CodeAttempts, Elevation, SecondFactor, Sessions}
 
   @type method :: :web | :gateway
   @type failure :: :locked_session | :locked_instance | :invalid_code | :not_configured
@@ -59,8 +59,18 @@ defmodule AlexClaw.Auth.CodeEntry do
   defp accept(sid, method, factor) do
     CodeAttempts.record_success(sid)
     AuditLog.log_code_attempt(:accepted, fingerprint(sid), method, factor)
+    accepted(factor, sid)
+  end
+
+  # A recovery code is what an operator reaches for when the authenticator is
+  # gone — lost, or in someone else's hands. Any other login may be that someone,
+  # so every login except the one that just proved itself is ended.
+  defp accepted(:recovery_code, sid) do
+    {:ok, _closed} = Sessions.close_others(sid, "recovery code redeemed")
     :ok
   end
+
+  defp accepted(_factor, _sid), do: :ok
 
   # A wrong code is reported as a wrong code, even when it is the one that trips
   # a lock. The lock is state the caller can read — the page shows it, and the

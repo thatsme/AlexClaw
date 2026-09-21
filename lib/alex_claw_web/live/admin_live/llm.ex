@@ -65,16 +65,35 @@ defmodule AlexClawWeb.AdminLive.LLM do
 
   @impl true
   def handle_event("save_provider", params, socket) do
-    Elevation.gate(socket, "llm provider saved: #{params["name"]}", fn ->
-      save_provider_write(params, socket)
-    end)
+    editing = socket.assigns.editing
+
+    Elevation.gated(socket, "llm provider saved: #{params["name"]}",
+      write: fn -> save_provider(editing, provider_attrs(params)) end,
+      ok: fn socket, _provider ->
+        action = if editing, do: "updated", else: "added"
+
+        socket
+        |> put_flash(:info, "Provider #{action}")
+        |> assign(show_form: false, editing: nil)
+        |> assign_data()
+      end,
+      error: &not_saved/2
+    )
   end
 
   @impl true
   def handle_event("delete_provider", %{"id" => id}, socket) do
-    Elevation.gate(socket, "llm provider deleted: id #{id}", fn ->
-      delete_provider_write(id, socket)
-    end)
+    Elevation.gated(socket, "llm provider deleted: id #{id}",
+      write: fn ->
+        with {:ok, provider} <- fetch_provider(id), do: LLM.delete_provider(provider)
+      end,
+      ok: fn socket, _provider ->
+        socket
+        |> put_flash(:info, "Provider deleted")
+        |> assign_data()
+      end,
+      error: &not_saved/2
+    )
   end
 
   @impl true
@@ -106,8 +125,8 @@ defmodule AlexClawWeb.AdminLive.LLM do
     Elevation.unlock(socket)
   end
 
-  defp save_provider_write(params, socket) do
-    attrs = %{
+  defp provider_attrs(params) do
+    %{
       name: params["name"],
       type: params["type"],
       tier: params["tier"],
@@ -119,48 +138,23 @@ defmodule AlexClawWeb.AdminLive.LLM do
       enabled: params["enabled"] == "true",
       options: parse_options(params)
     }
-
-    result =
-      case socket.assigns.editing do
-        nil -> LLM.create_provider(attrs)
-        provider -> LLM.update_provider(provider, drop_blank_api_key(attrs, provider))
-      end
-
-    case result do
-      {:ok, _} ->
-        action = if socket.assigns.editing, do: "updated", else: "added"
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Provider #{action}")
-         |> assign(show_form: false, editing: nil)
-         |> assign_data()}
-
-      {:error, changeset} ->
-        {:noreply, put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")}
-    end
   end
 
-  defp delete_provider_write(id, socket) do
-    case parse_id(id) do
-      {:ok, provider_id} ->
-        case LLM.get_provider(provider_id) do
-          {:ok, provider} ->
-            {:ok, _} = LLM.delete_provider(provider)
+  defp save_provider(nil, attrs), do: LLM.create_provider(attrs)
 
-            {:noreply,
-             socket
-             |> put_flash(:info, "Provider deleted")
-             |> assign_data()}
+  defp save_provider(provider, attrs),
+    do: LLM.update_provider(provider, drop_blank_api_key(attrs, provider))
 
-          {:error, :not_found} ->
-            {:noreply, put_flash(socket, :error, "Provider not found")}
-        end
+  defp fetch_provider(id), do: id |> parse_id() |> fetched_provider()
 
-      :error ->
-        {:noreply, socket}
-    end
-  end
+  defp fetched_provider({:ok, provider_id}), do: LLM.get_provider(provider_id)
+  defp fetched_provider(:error), do: {:error, :invalid_id}
+
+  defp not_saved(socket, :invalid_id), do: socket
+  defp not_saved(socket, :not_found), do: put_flash(socket, :error, "Provider not found")
+
+  defp not_saved(socket, %Ecto.Changeset{} = changeset),
+    do: put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")
 
   defp test_provider({:error, :not_found}, socket) do
     {:noreply, put_flash(socket, :error, "Provider not found")}

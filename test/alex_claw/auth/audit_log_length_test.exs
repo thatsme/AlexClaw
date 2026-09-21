@@ -17,7 +17,7 @@ defmodule AlexClaw.Auth.AuditLogLengthTest do
   test "a 10,000-character reason is stored and read back intact" do
     assert String.length(@long) == 10_000
 
-    assert AuditLog.log_admin_write("fp-long", @long) == :ok
+    assert AuditLog.record_admin_write("fp-long", @long) == :ok
     assert stored(@long).reason == @long
   end
 

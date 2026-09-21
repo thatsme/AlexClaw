@@ -3,9 +3,10 @@ defmodule AlexClawWeb.Live.Elevation do
   The elevation gate as the admin pages use it.
 
   Hiding a button is not a check — the browser can send the event regardless —
-  so every control-plane handler runs its write inside `gate/3` on the server.
-  It answers three questions in order: is elevation enforced on this instance,
-  does this session hold one, and what should the audit row say.
+  so every control-plane handler makes its change through `gated/3` on the
+  server, which hands it to `AlexClaw.ControlPlane.gated/4`: the elevation is
+  checked there, and the change and its audit row are one transaction. This
+  module turns the answer into what the page shows.
 
   With no second factor configured nothing can elevate, so every control-plane
   write is refused and the pages say how to make elevation possible. There is no
@@ -20,9 +21,11 @@ defmodule AlexClawWeb.Live.Elevation do
   import Phoenix.LiveView, only: [connected?: 1, put_flash: 3]
 
   alias AlexClaw.Auth.{AuditLog, CodeAttempts, CodeEntry, Elevation, Gate}
+  alias AlexClaw.ControlPlane
   alias Phoenix.LiveView.Socket
 
   @refusal "Unlock editing first"
+  @unrecorded "The change was not made: it could not be recorded in the audit log."
   @unconfigured "Admin changes require 2FA. Configure a gateway via environment " <>
                   "variables and run /setup 2fa."
 
@@ -42,16 +45,48 @@ defmodule AlexClawWeb.Live.Elevation do
   end
 
   @doc """
-  Perform a control-plane write, or refuse it.
+  Make one control-plane change from a page, through `AlexClaw.ControlPlane.gated/4`.
 
-  `detail` is what the audit row will say — the key and the old and new values
-  for a setting, the name and id for a record. Mask secrets before passing them
-  in; `describe_setting/3` does that for configuration.
+  `change` names the parts:
+
+    * `:write` — the change itself, `(-> {:ok, result} | {:error, reason})`. It
+      runs inside the transaction with its audit row, so it touches the database
+      and nothing else.
+    * `:after_commit` — `(result -> any)`, for everything that is not the
+      database: caches, broadcasts, other nodes. Optional.
+    * `:ok` — `(socket, result -> socket)`, what the page shows once committed.
+    * `:error` — `(socket, reason -> socket)`, what it shows when the change was
+      not made. Optional; the default says so in a flash.
+
+  A refusal — no elevation, no second factor, or an audit row that could not be
+  written — is answered here, the same way on every page.
   """
-  @spec gate(Socket.t(), String.t(), (-> {:noreply, Socket.t()})) :: {:noreply, Socket.t()}
-  def gate(socket, detail, write) do
-    decide(elevated?(socket), socket, detail, write)
+  @spec gated(Socket.t(), String.t(), keyword()) :: {:noreply, Socket.t()}
+  def gated(socket, detail, change) do
+    sid(socket)
+    |> ControlPlane.gated(
+      detail,
+      Keyword.fetch!(change, :write),
+      Keyword.get(change, :after_commit, fn _result -> :ok end)
+    )
+    |> replied(socket, Keyword.fetch!(change, :ok), Keyword.get(change, :error, &not_made/2))
   end
+
+  defp replied({:ok, result}, socket, ok, _error), do: {:noreply, ok.(socket, result)}
+
+  defp replied({:error, :not_elevated}, socket, _ok, _error),
+    do: {:noreply, socket |> refresh() |> put_flash(:error, @refusal)}
+
+  defp replied({:error, :no_second_factor}, socket, _ok, _error),
+    do: {:noreply, socket |> refresh() |> put_flash(:error, @unconfigured)}
+
+  defp replied({:error, :audit_failed}, socket, _ok, _error),
+    do: {:noreply, put_flash(socket, :error, @unrecorded)}
+
+  defp replied({:error, reason}, socket, _ok, error), do: {:noreply, error.(socket, reason)}
+
+  defp not_made(socket, reason),
+    do: put_flash(socket, :error, "Not saved: #{inspect(reason)}")
 
   @doc """
   Open the code field.
@@ -121,8 +156,8 @@ defmodule AlexClawWeb.Live.Elevation do
   @doc """
   Record a refusal for a write that is gated per action rather than by window.
 
-  The restore path refuses before it reaches `gate/3`, and a refusal nobody
-  wrote down is a refusal nobody can review.
+  The restore path refuses before any change is attempted, and a refusal
+  nobody wrote down is a refusal nobody can review.
   """
   @spec audit_refusal(Socket.t(), :not_elevated | :no_second_factor, String.t()) :: :ok
   def audit_refusal(socket, reason, detail) do
@@ -154,35 +189,6 @@ defmodule AlexClawWeb.Live.Elevation do
 
   defp refusal_message(:not_configured),
     do: "No second factor is configured yet."
-
-  defp decide(true, socket, detail, write) do
-    AuditLog.log_admin_write(fingerprint(socket), detail)
-    write.()
-  end
-
-  # Two ways to hold no elevation, and they need different answers: one session
-  # can unlock, the other is on an instance where nothing can.
-  defp decide(false, socket, detail, _write) do
-    refuse(Elevation.configured?(), socket, detail)
-  end
-
-  defp refuse(true, socket, detail) do
-    AuditLog.log_admin_refusal(fingerprint(socket), :not_elevated, detail)
-
-    {:noreply,
-     socket
-     |> refresh()
-     |> put_flash(:error, @refusal)}
-  end
-
-  defp refuse(false, socket, detail) do
-    AuditLog.log_admin_refusal(fingerprint(socket), :no_second_factor, detail)
-
-    {:noreply,
-     socket
-     |> refresh()
-     |> put_flash(:error, @unconfigured)}
-  end
 
   defp request_unlock(sid, socket) when is_binary(sid) do
     %{type: :elevate, sid: sid}
@@ -223,8 +229,6 @@ defmodule AlexClawWeb.Live.Elevation do
 
   defp sid(%{assigns: %{elevation_sid: sid}}), do: sid
   defp sid(_socket), do: nil
-
-  defp elevated?(socket), do: Elevation.elevated?(sid(socket))
 
   defp fingerprint(socket), do: print(sid(socket))
 

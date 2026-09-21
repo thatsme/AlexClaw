@@ -1,5 +1,7 @@
 defmodule AlexClaw.Auth.PolicyEngineTest do
-  use ExUnit.Case, async: true
+  # A denial is audited, so the engine needs a database to write to — or the
+  # rows it writes are lost, loudly, on every run.
+  use AlexClaw.DataCase, async: true
   @moduletag :unit
 
   alias AlexClaw.Auth.{AuthContext, PolicyEngine}

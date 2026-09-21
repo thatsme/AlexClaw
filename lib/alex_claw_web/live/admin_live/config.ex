@@ -107,44 +107,59 @@ defmodule AlexClawWeb.AdminLive.Config do
   end
 
   defp save_setting(false, params, socket) do
-    Elevation.gate(socket, setting_change(params), fn ->
-      key = params["key"]
-      value = params["value"]
+    params
+    |> keeps_secret?(socket)
+    |> save_value(params, socket)
+  end
 
-      # For sensitive fields, empty value keeps current UNLESS explicitly clearing
-      if sensitive_key?(key) && (value == "" || is_nil(value)) && socket.assigns.editing &&
-           params["_clear"] != "true" do
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           "Setting '#{key}' unchanged (submit empty to keep current, use Clear to erase)"
-         )
-         |> assign(show_form: false, editing: nil)}
-      else
-        AlexClaw.Config.set(key, value || "",
-          type: params["type"],
-          description: params["description"],
-          category: params["category"] |> to_string() |> String.trim() |> String.downcase(),
-          sensitive: sensitive_key?(key)
-        )
+  # For sensitive fields, an empty value keeps the current one unless the form
+  # explicitly clears it. Nothing changes, so nothing is gated or audited.
+  defp keeps_secret?(params, socket) do
+    sensitive_key?(params["key"]) and params["value"] in ["", nil] and
+      socket.assigns.editing != nil and params["_clear"] != "true"
+  end
 
-        # When enabling a gateway, auto-assign it to the current node
-        auto_assign_gateway_node(key, value)
+  defp save_value(true, params, socket) do
+    {:noreply,
+     socket
+     |> put_flash(
+       :info,
+       "Setting '#{params["key"]}' unchanged (submit empty to keep current, use Clear to erase)"
+     )
+     |> assign(show_form: false, editing: nil)}
+  end
 
+  defp save_value(false, params, socket) do
+    key = params["key"]
+    value = params["value"]
+
+    Elevation.gated(socket, setting_change(params),
+      write: fn ->
+        with {:ok, _setting} <-
+               AlexClaw.Config.persist(key, value || "",
+                 type: params["type"],
+                 description: params["description"],
+                 category: params["category"] |> to_string() |> String.trim() |> String.downcase(),
+                 sensitive: sensitive_key?(key)
+               ),
+             {:ok, assigned} <- assign_gateway_node(key, value) do
+          {:ok, [key | assigned]}
+        end
+      end,
+      after_commit: fn keys -> Enum.each(keys, &AlexClaw.Config.publish/1) end,
+      ok: fn socket, _keys ->
         settings = AlexClaw.Config.list()
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Setting '#{key}' saved")
-         |> assign(
-           settings: settings,
-           grouped: group_by_category(settings),
-           show_form: false,
-           editing: nil
-         )}
+        socket
+        |> put_flash(:info, "Setting '#{key}' saved")
+        |> assign(
+          settings: settings,
+          grouped: group_by_category(settings),
+          show_form: false,
+          editing: nil
+        )
       end
-    end)
+    )
   end
 
   defp gateway_managed?(key) when is_binary(key), do: String.starts_with?(key, "auth.totp.")
@@ -165,17 +180,17 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   # Deleting auth.totp.enabled disables 2FA exactly as setting it to false does.
   defp delete_setting(false, key, socket) do
-    Elevation.gate(socket, "#{key}: deleted", fn ->
-      AlexClaw.Config.delete(key)
+    Elevation.gated(socket, "#{key}: deleted",
+      write: fn -> AlexClaw.Config.remove(key) end,
+      after_commit: fn _removed -> AlexClaw.Config.publish(key) end,
+      ok: fn socket, _removed ->
+        settings = AlexClaw.Config.list()
 
-      {:noreply,
-       socket
-       |> put_flash(:info, "Setting '#{key}' deleted")
-       |> assign(
-         settings: AlexClaw.Config.list(),
-         grouped: group_by_category(AlexClaw.Config.list())
-       )}
-    end)
+        socket
+        |> put_flash(:info, "Setting '#{key}' deleted")
+        |> assign(settings: settings, grouped: group_by_category(settings))
+      end
+    )
   end
 
   defp sensitive_key?(key) do
@@ -252,16 +267,26 @@ defmodule AlexClawWeb.AdminLive.Config do
     |> Enum.map(& &1.name)
   end
 
-  defp auto_assign_gateway_node(key, value) when value in ["true", true] do
-    # telegram.enabled → telegram.node, discord.enabled → discord.node
-    if String.ends_with?(key, ".enabled") do
-      node_key = String.replace(key, ".enabled", ".node")
-      category = key |> String.split(".") |> hd()
-      AlexClaw.Config.set(node_key, to_string(node()), category: category)
+  # Enabling a gateway assigns it to this node — telegram.enabled sets
+  # telegram.node — in the same transaction as the setting itself. Answers the
+  # further keys it wrote, for publishing after commit.
+  defp assign_gateway_node(key, value) when value in ["true", true] do
+    assign_node(String.ends_with?(key, ".enabled"), key)
+  end
+
+  defp assign_gateway_node(_key, _value), do: {:ok, []}
+
+  defp assign_node(true, key) do
+    node_key = String.replace(key, ".enabled", ".node")
+    category = key |> String.split(".") |> hd()
+
+    with {:ok, _setting} <-
+           AlexClaw.Config.persist(node_key, to_string(node()), category: category) do
+      {:ok, [node_key]}
     end
   end
 
-  defp auto_assign_gateway_node(_key, _value), do: :ok
+  defp assign_node(false, _key), do: {:ok, []}
 
   defp cluster_node_names do
     Enum.uniq([to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)])

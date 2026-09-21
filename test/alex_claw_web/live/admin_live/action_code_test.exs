@@ -19,7 +19,7 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
     sid = Elevation.new_sid()
 
     on_exit(fn ->
-      Elevation.revoke(sid)
+      AlexClaw.SandboxCleanup.run(fn -> Elevation.revoke(sid) end)
       CodeAttempts.reset()
       Challenge.drop_for_session(sid)
     end)

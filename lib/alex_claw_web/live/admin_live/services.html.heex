@@ -1,4 +1,5 @@
 <div class="space-y-8">
+  <AlexClawWeb.CoreComponents.elevation_bar elevation={@elevation} />
 
   <div class="bg-gray-900 rounded-lg border border-gray-800 p-6 space-y-4">
     <div class="flex items-start justify-between gap-4">
@@ -84,6 +85,19 @@
       </form>
     </div>
 
+
+    <div class="space-y-2 border-t border-gray-800 pt-4">
+      <p class="text-xs text-gray-500">
+        Ends every admin login on every node, this one included. Needs editing unlocked.
+      </p>
+      <button
+        phx-click="sign_out_everywhere"
+        data-confirm="Sign out every admin session, including this one?"
+        class="px-3 py-1.5 bg-red-900 hover:bg-red-800 text-red-200 text-xs rounded transition"
+      >
+        Sign out everywhere
+      </button>
+    </div>
 
     <div :if={@recovery_codes} class="bg-amber-950 border border-amber-800 rounded-lg p-4 space-y-3">
       <p class="text-amber-100 text-sm font-semibold">

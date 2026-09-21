@@ -4,7 +4,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.{Challenge, CodeEntry, RecoveryCodes, TOTP}
+  alias AlexClaw.Auth.{Challenge, CodeEntry, RecoveryCodes, Sessions, TOTP}
   alias AlexClaw.Config
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
@@ -121,6 +121,24 @@ defmodule AlexClawWeb.AdminLive.Services do
   def handle_event("regenerate_recovery_codes", %{"code" => code}, socket) do
     {:noreply, regenerated(CodeEntry.verify(sid(socket), code, :web), socket)}
   end
+
+  # Ends every admin login, this one included, on every node. A change like any
+  # other: behind an elevation, and audited with the delete.
+  def handle_event("sign_out_everywhere", _params, socket) do
+    Elevation.gated(socket, "all admin sessions signed out",
+      write: &Sessions.remove_all/0,
+      after_commit: &Sessions.disconnect/1,
+      ok: fn socket, _socket_ids -> redirect(socket, to: "/login") end
+    )
+  end
+
+  def handle_event("unlock_editing", _params, socket), do: Elevation.open_entry(socket)
+
+  def handle_event("submit_code", %{"code" => code}, socket),
+    do: Elevation.submit_code(socket, code)
+
+  def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
+  def handle_event("request_gateway_code", _params, socket), do: Elevation.unlock(socket)
 
   defp reembed_detail(0), do: "Nothing to re-embed"
   defp reembed_detail(total), do: "Re-embedding #{total} entries in background..."
@@ -331,9 +349,13 @@ defmodule AlexClawWeb.AdminLive.Services do
     assign(socket, totp_message: "That code is not valid. The codes are unchanged.")
   end
 
+  # With the second factor gone, every other login was made under a guarantee
+  # that no longer holds: they are ended, and this one — which just proved
+  # itself with a code — is kept.
   defp disabled(:ok, socket) do
     TOTP.disable()
     RecoveryCodes.discard()
+    {:ok, _closed} = Sessions.close_others(sid(socket), "two-factor authentication disabled")
 
     socket
     |> assign(services: build_services(), totp_message: nil, recovery: RecoveryCodes.status())

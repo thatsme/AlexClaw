@@ -3,9 +3,15 @@ defmodule AlexClaw.Auth.Sessions do
   Which admin logins are live, decided on the server.
 
   A login is identified by the `elevation_sid` placed in the Plug session at
-  login. This table is the only answer to "is that login still good": it is
-  opened when the password is accepted, dropped at logout, and good for eight
-  hours from the moment it was opened, busy or idle.
+  login. The `admin_sessions` table is the only answer to "is that login still
+  good", and every node reads the same one. A login is valid while all of
+  these hold:
+
+    * it was opened here and has not been closed;
+    * it is younger than eight hours, busy or idle;
+    * the admin password is still the one it was opened with. Each row carries
+      a keyed fingerprint of that password, so changing the password ends
+      every login at once.
 
   The session a request or a LiveView carries is never the answer on its own.
   A LiveView mounts from a copy of the session signed into the page, which
@@ -14,17 +20,19 @@ defmodule AlexClaw.Auth.Sessions do
   request and every LiveView mount asks here instead, with the sid the copy
   holds.
 
-  Restarting the node empties the table, which signs everyone out. That is the
-  intended consequence of keeping the decision on the server.
+  The sid itself is never stored. Rows hold its SHA-256; reading the table
+  signs nobody in.
 
-  The table is `:protected`: this process writes, everyone reads, and a write
-  from anywhere else raises rather than quietly opening a login.
+  This process only sweeps: every ten minutes it deletes the rows that have
+  expired, so the table holds live logins and not a history of them.
   """
   use GenServer
 
-  alias AlexClaw.Auth.Elevation
+  import Ecto.Query
 
-  @table :admin_sessions
+  alias AlexClaw.Auth.AdminSession
+  alias AlexClaw.{ControlPlane, Repo}
+
   @max_age_seconds 8 * 60 * 60
   @sweep_interval :timer.minutes(10)
 
@@ -34,31 +42,102 @@ defmodule AlexClaw.Auth.Sessions do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
   @doc """
-  Open a login for `sid`, as of `opened_at` (now, unless given).
+  Open a login for `sid`, as of `opened_at` (now, unless given), under the
+  current admin password.
 
   The moment is a parameter so that an old login can be made without waiting
   eight hours for one.
   """
   @spec open(String.t(), integer()) :: :ok
   def open(sid, opened_at \\ now()) when is_binary(sid) do
-    GenServer.call(__MODULE__, {:open, sid, opened_at})
+    {:ok, _row} =
+      %AdminSession{}
+      |> AdminSession.changeset(%{
+        token_hash: hash(sid),
+        password_fingerprint: password_fingerprint(),
+        inserted_at: DateTime.from_unix!(opened_at)
+      })
+      |> Repo.insert()
+
+    :ok
   end
 
   @doc "End `sid`'s login now. A sid holding none is not an error."
   @spec close(String.t() | nil) :: :ok
   def close(nil), do: :ok
-  def close(sid) when is_binary(sid), do: GenServer.call(__MODULE__, {:close, sid})
+
+  def close(sid) when is_binary(sid) do
+    Repo.delete_all(from(s in AdminSession, where: s.token_hash == ^hash(sid)))
+    :ok
+  end
 
   @doc """
-  Whether `sid` is a live login: opened here, not closed, and younger than
-  eight hours. The two-argument form judges against a given moment.
+  Whether `sid` is a live login. The two-argument form judges against a given
+  moment, which is what makes the expiry boundary testable.
   """
   @spec valid?(String.t() | nil) :: boolean()
   def valid?(sid), do: valid?(sid, now())
 
   @spec valid?(String.t() | nil, integer()) :: boolean()
-  def valid?(sid, now) when is_binary(sid), do: live?(:ets.lookup(@table, sid), now)
+  def valid?(sid, now) when is_binary(sid) and sid != "" do
+    cutoff = DateTime.from_unix!(now - @max_age_seconds)
+    fingerprint = password_fingerprint()
+
+    Repo.exists?(
+      from(s in AdminSession,
+        where:
+          s.token_hash == ^hash(sid) and s.inserted_at > ^cutoff and
+            s.password_fingerprint == ^fingerprint
+      )
+    )
+  end
+
   def valid?(_sid, _now), do: false
+
+  @doc """
+  End every login except `keep` — the session that is still trusted — and
+  close their open pages. `nil` keeps none: the event came from somewhere with
+  no web session at all, such as a gateway command.
+
+  Recorded as an outcome of `reason` in the same transaction as the delete.
+  """
+  @spec close_others(String.t() | nil, String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def close_others(keep, reason) do
+    with {:ok, socket_ids} <-
+           ControlPlane.outcome(keep, "other admin sessions signed out: #{reason}", fn ->
+             remove(others(keep))
+           end) do
+      disconnect(socket_ids)
+      {:ok, length(socket_ids)}
+    end
+  end
+
+  @doc """
+  Delete every login and answer the socket ids of their pages. The database
+  only: for use inside `ControlPlane.gated/4`, with `disconnect/1` after commit.
+  """
+  @spec remove_all() :: {:ok, [String.t()]}
+  def remove_all, do: remove(AdminSession)
+
+  @doc "Close the open pages of the given logins."
+  @spec disconnect([String.t()]) :: :ok
+  def disconnect(socket_ids) do
+    Enum.each(socket_ids, fn id ->
+      Phoenix.PubSub.broadcast(AlexClaw.PubSub, id, %Phoenix.Socket.Broadcast{
+        topic: id,
+        event: "disconnect",
+        payload: %{}
+      })
+    end)
+  end
+
+  @doc "Delete the logins that expired by `now`. Answers how many."
+  @spec sweep(integer()) :: non_neg_integer()
+  def sweep(now \\ now()) do
+    cutoff = DateTime.from_unix!(now - @max_age_seconds)
+    {count, _} = Repo.delete_all(from(s in AdminSession, where: s.inserted_at <= ^cutoff))
+    count
+  end
 
   @doc "How long a login lasts, in seconds."
   @spec max_age_seconds() :: pos_integer()
@@ -70,40 +149,50 @@ defmodule AlexClaw.Auth.Sessions do
   a place for the credential itself.
   """
   @spec socket_id(String.t()) :: String.t()
-  def socket_id(sid), do: "admin_session:" <> Elevation.fingerprint(sid)
+  def socket_id(sid), do: sid |> hash() |> socket_id_for()
 
   # --- Server ---
 
   @impl true
   def init(_opts) do
-    :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
     schedule_sweep()
     {:ok, %{}}
   end
 
   @impl true
-  def handle_call({:open, sid, opened_at}, _from, state) do
-    :ets.insert(@table, {sid, opened_at})
-    {:reply, :ok, state}
-  end
-
-  def handle_call({:close, sid}, _from, state) do
-    :ets.delete(@table, sid)
-    {:reply, :ok, state}
-  end
-
-  @impl true
   def handle_info(:sweep, state) do
-    :ets.select_delete(@table, [{{:_, :"$1"}, [{:"=<", :"$1", now() - @max_age_seconds}], [true]}])
-
+    sweep()
     schedule_sweep()
     {:noreply, state}
   end
 
   # --- Internals ---
 
-  defp live?([{_sid, opened_at}], now), do: now - opened_at < @max_age_seconds
-  defp live?([], _now), do: false
+  defp others(nil), do: AdminSession
+  defp others(keep), do: from(s in AdminSession, where: s.token_hash != ^hash(keep))
+
+  defp remove(query) do
+    {_count, hashes} = Repo.delete_all(select(query, [s], s.token_hash))
+    {:ok, Enum.map(hashes, &socket_id_for/1)}
+  end
+
+  # Same fingerprint as AlexClaw.Auth.Elevation.fingerprint/1: the first 16 hex
+  # characters of the sid's SHA-256 — which is what the row already holds.
+  defp socket_id_for(token_hash) do
+    "admin_session:" <> (token_hash |> Base.encode16(case: :lower) |> binary_part(0, 16))
+  end
+
+  defp hash(sid), do: :crypto.hash(:sha256, sid)
+
+  # Keyed, so the column is not an offline-crackable hash of the password.
+  defp password_fingerprint do
+    password = Application.get_env(:alex_claw, :admin_password) || ""
+    :crypto.mac(:hmac, :sha256, secret_key_base(), "admin-password:" <> password)
+  end
+
+  defp secret_key_base do
+    :alex_claw |> Application.fetch_env!(AlexClawWeb.Endpoint) |> Keyword.fetch!(:secret_key_base)
+  end
 
   defp schedule_sweep, do: Process.send_after(self(), :sweep, @sweep_interval)
 

@@ -2,7 +2,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.Auth.{Challenge, Elevation, TOTP}
+  alias AlexClaw.Auth.{Challenge, Elevation, Sessions, TOTP}
   alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
@@ -125,8 +125,14 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     disable_verified(msg, TOTP.verify(code))
   end
 
+  # From a gateway there is no web login to keep: every one of them was made
+  # under a second factor that no longer exists, so all of them are ended.
   defp disable_verified(msg, true) do
     TOTP.disable()
+
+    {:ok, _closed} =
+      Sessions.close_others(nil, "two-factor authentication disabled from a gateway")
+
     Gateway.send_message("2FA disabled.", chat_id: msg.chat_id, gateway: msg.gateway)
   end
 
@@ -234,11 +240,18 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
 
   # Arbitrary SQL against the live database, so it is never covered by an
   # elevation window — only by a code answered for this restore. The staged
-  # file is consumed either way: Restore.run/1 deletes it.
-  def execute_2fa_action(%{type: :database_restore, path: path, filename: filename}, _msg) do
+  # file is consumed either way: Restore.run/2 deletes it.
+  #
+  # A restore challenge raised before sessions were carried on the action has no
+  # :session, and is recorded as unidentified rather than refused on the spot.
+  def execute_2fa_action(
+        %{type: :database_restore, path: path, filename: filename} = action,
+        _msg
+      ) do
     Gateway.send_message("Restoring the database from #{filename}...")
 
-    {status, message} = Restore.run(path)
+    {status, message} =
+      Restore.run(path, %{filename: filename, session: Map.get(action, :session, "unidentified")})
 
     Phoenix.PubSub.broadcast(
       AlexClaw.PubSub,

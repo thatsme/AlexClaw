@@ -53,7 +53,7 @@ defmodule AlexClaw.Auth.PrincipalTest do
     end
 
     test "carry the principal on an admin write" do
-      :ok = AuditLog.log_admin_write("fingerprint", "shell.whitelist: 'a' → 'b'")
+      :ok = AuditLog.record_admin_write("fingerprint", "shell.whitelist: 'a' → 'b'")
 
       row = latest("write")
       assert row.principal == "owner"

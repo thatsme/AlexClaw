@@ -107,6 +107,52 @@ defmodule AlexClaw.Auth.AuditLog do
   end
 
   @doc """
+  Write the row for a control-plane change, and say whether it was written.
+
+  Unlike the `log_*` functions this is not best effort: it is called inside the
+  change's own transaction by `AlexClaw.ControlPlane.gated/4`, and a row that
+  could not be written refuses the change. The loss is still reported, like any
+  other.
+  """
+  @spec record_admin_write(String.t(), String.t()) :: :ok | {:error, term()}
+  def record_admin_write(session_fingerprint, detail) do
+    Logger.info("Admin write by #{session_fingerprint}: #{detail}", auth: :admin_write)
+    record(admin_entry(session_fingerprint, "write", detail))
+  end
+
+  @doc """
+  Write the row for what a control-plane change actually did outside the
+  database — a node answering a ping or not — after the change was committed.
+  """
+  @spec record_admin_outcome(String.t(), String.t()) :: :ok | {:error, term()}
+  def record_admin_outcome(session_fingerprint, detail) do
+    record(admin_entry(session_fingerprint, "outcome", detail))
+  end
+
+  defp admin_entry(session_fingerprint, decision, detail) do
+    stamp(%{
+      caller: "admin:" <> session_fingerprint,
+      caller_type: "admin",
+      permission: "admin.control_plane",
+      decision: decision,
+      reason: detail
+    })
+  end
+
+  defp record(entry) do
+    entry
+    |> write()
+    |> recorded(entry)
+  end
+
+  defp recorded({:ok, _row}, _entry), do: :ok
+
+  defp recorded({:error, reason}, entry) do
+    kept({:error, reason}, entry)
+    {:error, reason}
+  end
+
+  @doc """
   Record one second-factor attempt.
 
   `method` says where the code came from — typed into the admin UI, or sent to
@@ -227,14 +273,18 @@ defmodule AlexClaw.Auth.AuditLog do
   end
 
   defp insert_entry(attrs) do
-    entry =
-      attrs
-      |> Map.merge(Principal.audit_fields())
-      |> Map.put(:inserted_at, DateTime.utc_now())
+    entry = stamp(attrs)
 
     entry
     |> write()
     |> kept(entry)
+  end
+
+  # Whose authority, and when: added to every row, whichever path writes it.
+  defp stamp(attrs) do
+    attrs
+    |> Map.merge(Principal.audit_fields())
+    |> Map.put(:inserted_at, DateTime.utc_now())
   end
 
   # Best effort by design: the action being audited has already happened, and

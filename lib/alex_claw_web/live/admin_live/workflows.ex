@@ -108,7 +108,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
       ok: fn socket, saved ->
         socket
         |> put_flash(:info, "Workflow saved")
-        |> assign(workflows: Workflows.list_workflows(), editing: Workflows.get_workflow!(saved.id))
+        |> assign(
+          workflows: Workflows.list_workflows(),
+          editing: Workflows.get_workflow!(saved.id)
+        )
       end,
       error: &workflow_not_saved/2
     )

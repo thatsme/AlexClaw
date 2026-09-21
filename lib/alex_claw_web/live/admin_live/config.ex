@@ -139,7 +139,8 @@ defmodule AlexClawWeb.AdminLive.Config do
                AlexClaw.Config.persist(key, value || "",
                  type: params["type"],
                  description: params["description"],
-                 category: params["category"] |> to_string() |> String.trim() |> String.downcase(),
+                 category:
+                   params["category"] |> to_string() |> String.trim() |> String.downcase(),
                  sensitive: sensitive_key?(key)
                ),
              {:ok, assigned} <- assign_gateway_node(key, value) do

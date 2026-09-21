@@ -65,3 +65,26 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose -f docker-compose.test.yml down
+
+  # Releases are made here and nowhere else: only on a push to main, only once
+  # the job above has passed format, Credo and the full suite on this commit,
+  # and only when .github/release-notes/v<version>.md is committed for a
+  # version that has no tag yet. See .github/scripts/release.sh.
+  release:
+    name: Tag and publish
+    needs: elixir
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The tags, to see whether this version was released already.
+          fetch-depth: 0
+
+      - name: Release this version if it is new and has notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release.sh

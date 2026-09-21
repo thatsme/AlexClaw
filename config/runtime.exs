@@ -46,6 +46,11 @@ if config_env() == :prod do
 
   config :alex_claw, admin_password: System.get_env("ADMIN_PASSWORD")
 
+  # The running application must connect as its own restricted role, never as
+  # the database owner: the boot stops otherwise. Unconditional, by design —
+  # see AlexClaw.Database.PrivilegeCheck.
+  config :alex_claw, enforce_db_privileges: true
+
   config :alex_claw, AlexClaw.Gateway,
     telegram_token: System.get_env("TELEGRAM_BOT_TOKEN"),
     chat_id: System.get_env("TELEGRAM_CHAT_ID"),

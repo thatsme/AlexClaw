@@ -2,8 +2,15 @@ defmodule AlexClaw.Application do
   @moduledoc "OTP application supervisor for AlexClaw."
   use Application
 
+  alias AlexClaw.Database.PrivilegeCheck
+
   @impl true
   def start(_type, _args) do
+    # Before anything starts: an instance connected as the database owner would
+    # run with every power the role separation takes away. In production it
+    # does not start at all.
+    PrivilegeCheck.run!()
+
     children = [
       AlexClaw.Repo,
       {Phoenix.PubSub, name: AlexClaw.PubSub},

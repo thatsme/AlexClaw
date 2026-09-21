@@ -212,9 +212,11 @@ defmodule AlexClaw.Auth.AuditLog do
 
   # --- Internals ---
 
+  # The caller is inspected without limits: inspect/1 cuts a string at 4096
+  # characters, and an audit row must hold what happened, not most of it.
   defp persist(%AuthContext{} = ctx, decision, reason) do
     insert_entry(%{
-      caller: inspect(ctx.caller),
+      caller: inspect(ctx.caller, limit: :infinity, printable_limit: :infinity),
       caller_type: to_string(ctx.caller_type),
       permission: to_string(ctx.permission),
       decision: decision,

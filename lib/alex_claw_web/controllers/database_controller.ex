@@ -4,6 +4,8 @@ defmodule AlexClawWeb.DatabaseController do
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
 
+  alias AlexClaw.Database.DataExport
+
   @spec download(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def download(conn, _params) do
     db_config = db_connection_env()
@@ -29,6 +31,27 @@ defmodule AlexClawWeb.DatabaseController do
       |> send_chunked(200)
 
     stream_port(conn, port)
+  end
+
+  @doc """
+  The application's data as a restore file: JSON values, never SQL — see
+  `AlexClaw.Database.DataExport`. Streamed, so it is never held whole.
+  """
+  @spec export(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def export(conn, _params) do
+    timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d_%H%M%S")
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> put_resp_header(
+      "content-disposition",
+      ~s(attachment; filename="alexclaw_data_#{timestamp}.json")
+    )
+    |> send_chunked(200)
+    |> DataExport.write(fn data, conn ->
+      {:ok, conn} = chunk(conn, data)
+      conn
+    end)
   end
 
   defp stream_port(conn, port) do

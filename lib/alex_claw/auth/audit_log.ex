@@ -67,11 +67,9 @@ defmodule AlexClaw.Auth.AuditLog do
 
   `reason` separates the two refusals that look alike in a log and are not:
   `:not_elevated` is a session that can unlock and has not, `:no_second_factor`
-  is an instance where nothing can unlock until 2FA is configured. `:disabled`
-  is an action the instance does not offer at all.
+  is an instance where nothing can unlock until 2FA is configured.
   """
-  @spec log_admin_refusal(String.t(), :not_elevated | :no_second_factor | :disabled, String.t()) ::
-          :ok
+  @spec log_admin_refusal(String.t(), :not_elevated | :no_second_factor, String.t()) :: :ok
   def log_admin_refusal(session_fingerprint, reason, detail) do
     Logger.warning("Admin write refused (#{reason}) for #{session_fingerprint}: #{detail}",
       auth: :denied

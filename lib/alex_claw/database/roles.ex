@@ -72,7 +72,7 @@ defmodule AlexClaw.Database.Roles do
       end)
     )
     |> Kernel.++([
-      "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO #{role}",
+      "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO #{role}",
       "GRANT EXECUTE ON FUNCTION prune_auth_audit_log() TO #{role}"
     ])
     |> Enum.each(&Postgrex.query!(conn, &1, []))

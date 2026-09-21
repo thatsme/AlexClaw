@@ -64,6 +64,7 @@ defmodule AlexClawWeb.Router do
     end
 
     get("/database/download", DatabaseController, :download)
+    get("/database/export", DatabaseController, :export)
     get("/workflows/:id/export", WorkflowExportController, :export)
     get("/metrics", MetricsController, :index)
   end

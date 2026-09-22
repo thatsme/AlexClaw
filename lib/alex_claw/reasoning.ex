@@ -149,14 +149,22 @@ defmodule AlexClaw.Reasoning do
     })
   end
 
-  @spec increment_iteration(Session.t()) :: {:ok, Session.t()} | {:error, Ecto.Changeset.t()}
-  def increment_iteration(%Session{} = session) do
-    update_session(session, %{iteration_count: session.iteration_count + 1})
-  end
+  # Both counters are incremented in the database rather than from the struct
+  # the loop holds. That copy keeps the count it was loaded with, so every call
+  # wrote the same 1, and finished sessions reported one iteration and one LLM
+  # call however long they had run.
+  @spec increment_iteration(Session.t()) :: :ok
+  def increment_iteration(%Session{id: id}), do: bump(id, :iteration_count)
 
-  @spec increment_llm_calls(Session.t()) :: {:ok, Session.t()} | {:error, Ecto.Changeset.t()}
-  def increment_llm_calls(%Session{} = session) do
-    update_session(session, %{total_llm_calls: session.total_llm_calls + 1})
+  @spec increment_llm_calls(Session.t()) :: :ok
+  def increment_llm_calls(%Session{id: id}), do: bump(id, :total_llm_calls)
+
+  defp bump(id, field) do
+    Session
+    |> where([s], s.id == ^id)
+    |> Repo.update_all(inc: [{field, 1}])
+
+    :ok
   end
 
   # --- Steps ---

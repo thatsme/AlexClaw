@@ -27,6 +27,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor
   ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
   ├── AlexClaw.Skills.ForgeGuard         # One skill generation at a time
+  ├── AlexClaw.LLM.LocalLock             # One local model call at a time
   ├── AlexClaw.Reasoning.Supervisor      # DynamicSupervisor — reasoning sessions
   ├── AlexClaw.MCP.Server                # MCP server (Streamable HTTP)
   ├── AlexClaw.Cluster.Manager           # Node registration and remote triggers
@@ -55,13 +56,16 @@ a registered process name, not a module.
 `Reasoning.Supervisor` manage a variable number of children: one per running
 skill, per circuit breaker, and per reasoning session.
 
-**One skill generation at a time.** Generating a skill is a chain of
-local-model calls, and a local model shares the host's memory and GPU with
-everything else. `AlexClaw.Skills.ForgeGuard` holds a single lock that the
-Forge page and the Coder skill take before generating; a second request is
-refused rather than queued. The lock is released when its holder finishes or
-exits. Each generation is also capped at five attempts and at
-`forge.time_budget_seconds` across all of them.
+**One local model call at a time.** A local model server holds its weights in
+the host's memory, so work that drives one must not run twice at once.
+`AlexClaw.Lock` holds a single holder and releases when that process exits;
+two are started from it. `AlexClaw.LLM.LocalLock` is taken around every
+completion sent to a `local`-tier provider — a second is refused with
+`{:error, :local_model_busy}`, and embeddings are not held there.
+`AlexClaw.Skills.ForgeGuard` is taken by the Forge page and the Coder skill
+around a whole generation, which is also capped at five attempts and at
+`forge.time_budget_seconds` across all of them. Neither queues: a queued run
+only brings the same load back later.
 
 **Every ETS table has a supervised owner.** `Config.Loader`, `SkillRegistry`,
 `UsageTracker`, `RateLimiter.Server`, `LogBuffer`, `ChallengeStore`,

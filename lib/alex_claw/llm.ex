@@ -34,21 +34,61 @@ defmodule AlexClaw.LLM do
   @spec get_provider!(integer()) :: Provider.t()
   def get_provider!(id), do: AlexClaw.Repo.get!(Provider, id)
 
-  @doc "Create a new LLM provider."
+  @doc "Create a new LLM provider. Refuses a second enabled local provider."
   @spec create_provider(map()) :: {:ok, Provider.t()} | {:error, Ecto.Changeset.t()}
   def create_provider(attrs) do
     %Provider{}
     |> Provider.changeset(attrs)
+    |> only_one_local()
     |> AlexClaw.Repo.insert()
   end
 
-  @doc "Update an existing provider."
+  @doc "Update an existing provider. Refuses a second enabled local provider."
   @spec update_provider(Provider.t(), map()) :: {:ok, Provider.t()} | {:error, Ecto.Changeset.t()}
   def update_provider(%Provider{} = provider, attrs) do
     provider
     |> Provider.changeset(attrs)
+    |> only_one_local()
     |> AlexClaw.Repo.update()
   end
+
+  @doc """
+  The enabled local provider, if there is one. At most one may be enabled:
+  every local provider is a model server on this host, and two of them each
+  holding a model is what a machine runs out of memory for.
+  """
+  @spec enabled_local(integer() | nil) :: Provider.t() | nil
+  def enabled_local(except_id \\ nil) do
+    Provider
+    |> where([p], p.tier == "local" and p.enabled == true)
+    |> without_id(except_id)
+    |> order_by([p], asc: p.priority, asc: p.name)
+    |> limit(1)
+    |> AlexClaw.Repo.one()
+  end
+
+  defp without_id(query, nil), do: query
+  defp without_id(query, id), do: where(query, [p], p.id != ^id)
+
+  defp only_one_local(changeset) do
+    enabled? = Ecto.Changeset.get_field(changeset, :enabled)
+    tier = Ecto.Changeset.get_field(changeset, :tier)
+    id = Ecto.Changeset.get_field(changeset, :id)
+
+    refuse_second_local(changeset, enabled? and tier == "local" and enabled_local(id))
+  end
+
+  defp refuse_second_local(changeset, %Provider{} = other) do
+    Ecto.Changeset.add_error(
+      changeset,
+      :enabled,
+      "cannot be enabled: #{other.name} is the enabled local provider, and only one may run " <>
+        "at a time — each is a model server holding its model in this machine's memory. " <>
+        "Disable #{other.name} first."
+    )
+  end
+
+  defp refuse_second_local(changeset, _none), do: changeset
 
   @doc "Delete a provider."
   @spec delete_provider(Provider.t()) :: {:ok, Provider.t()} | {:error, Ecto.Changeset.t()}

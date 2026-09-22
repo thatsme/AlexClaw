@@ -12,33 +12,26 @@ defmodule AlexClaw.Skills.ForgeGuard do
   is released when that process exits, so a crashed or closed Forge cannot
   hold it.
   """
-  use GenServer
-
   alias AlexClaw.Config
+  alias AlexClaw.Lock
 
   @max_attempts 5
   @default_budget_seconds 600
 
-  @spec start_link(term()) :: GenServer.on_start()
-  def start_link(_arg), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
+  @spec child_spec(term()) :: Supervisor.child_spec()
+  def child_spec(_arg), do: Lock.child_spec(name: __MODULE__, busy: :forge_busy)
 
   @doc "Take the generation lock for `owner`. Not re-entrant: an owner holding it is refused too."
   @spec acquire(pid()) :: :ok | {:error, :forge_busy}
-  def acquire(owner \\ self()), do: GenServer.call(__MODULE__, {:acquire, owner})
+  def acquire(owner \\ self()), do: Lock.acquire(__MODULE__, owner)
 
   @doc "Release the lock if `owner` holds it."
   @spec release(pid()) :: :ok
-  def release(owner \\ self()), do: GenServer.call(__MODULE__, {:release, owner})
+  def release(owner \\ self()), do: Lock.release(__MODULE__, owner)
 
   @doc "Run `fun` holding the lock, or refuse with `{:error, :forge_busy}`."
   @spec run((-> result)) :: result | {:error, :forge_busy} when result: term()
-  def run(fun) do
-    with :ok <- acquire() do
-      result = fun.()
-      release()
-      result
-    end
-  end
+  def run(fun), do: Lock.run(__MODULE__, fun)
 
   @doc "The attempts a generation may make: the request, within 1..#{@max_attempts}."
   @spec attempts(term()) :: pos_integer()
@@ -65,25 +58,4 @@ defmodule AlexClaw.Skills.ForgeGuard do
 
   defp positive(n) when is_integer(n) and n > 0, do: n
   defp positive(_), do: @default_budget_seconds
-
-  @impl true
-  def init(nil), do: {:ok, nil}
-
-  @impl true
-  def handle_call({:acquire, owner}, _from, nil) do
-    {:reply, :ok, {owner, Process.monitor(owner)}}
-  end
-
-  def handle_call({:acquire, _owner}, _from, held), do: {:reply, {:error, :forge_busy}, held}
-
-  def handle_call({:release, owner}, _from, {owner, ref}) do
-    Process.demonitor(ref, [:flush])
-    {:reply, :ok, nil}
-  end
-
-  def handle_call({:release, _owner}, _from, state), do: {:reply, :ok, state}
-
-  @impl true
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, {_owner, ref}), do: {:noreply, nil}
-  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state), do: {:noreply, state}
 end

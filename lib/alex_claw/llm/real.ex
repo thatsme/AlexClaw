@@ -6,7 +6,7 @@ defmodule AlexClaw.LLM.Real do
   import Ecto.Query
 
   alias AlexClaw.LLM
-  alias AlexClaw.LLM.{Client, Embedding, Provider, Window}
+  alias AlexClaw.LLM.{Client, Embedding, LocalLock, Provider, Window}
 
   @impl true
   def complete(prompt, opts), do: complete_with({:prompt, prompt}, opts)
@@ -56,19 +56,43 @@ defmodule AlexClaw.LLM.Real do
   # else is the answer. A 4xx is about the request and would be refused again
   # or, worse, taken on by a larger model; a prompt too large for the provider
   # is refused before it is sent, for the same reason.
+  #
+  # And a local provider is never the fallback for another local one, whatever
+  # the failure: the second server loads its own model beside the first, which
+  # is what took the host down. A cloud provider after a local failure is fine
+  # — it costs this machine nothing.
   defp first_answer(providers, source, system) do
-    Enum.reduce_while(providers, {:error, :no_available_model}, fn provider, _last ->
-      attempt(provider, source, system)
-    end)
+    providers
+    |> Enum.reduce_while({:no_available_model, false}, &step(&1, source, system, &2))
+    |> answer()
   end
 
-  defp attempt(provider, source, system) do
+  defp answer({:ok, _text} = result), do: result
+  defp answer({reason, _local_failed}), do: {:error, reason}
+
+  defp step(%Provider{tier: "local"} = provider, _source, _system, {reason, true}) do
+    Logger.warning(
+      "#{provider.name} not tried: a local provider already failed this call",
+      provider: provider.name
+    )
+
+    {:cont, {reason, true}}
+  end
+
+  defp step(provider, source, system, {_reason, local_failed}) do
+    attempt(provider, source, system, local_failed)
+  end
+
+  defp attempt(provider, source, system, local_failed) do
     with {:ok, prompt} <- prompt_for(source, provider, system),
          :ok <- Window.fits(provider, prompt, system) do
-      provider |> call(prompt, system) |> answered(provider)
+      provider |> call(prompt, system) |> answered(provider, local_failed)
     else
-      {:error, {:does_not_fit, tokens}} -> too_large(provider, tokens + Window.estimate(system))
-      {:error, %{prompt_tokens: needed}} -> too_large(provider, needed)
+      {:error, {:does_not_fit, tokens}} ->
+        too_large(provider, tokens + Window.estimate(system), local_failed)
+
+      {:error, %{prompt_tokens: needed}} ->
+        too_large(provider, needed, local_failed)
     end
   end
 
@@ -76,7 +100,7 @@ defmodule AlexClaw.LLM.Real do
   defp prompt_for({:prompt, prompt}, _provider, _system), do: {:ok, prompt}
   defp prompt_for({:build, build}, provider, system), do: build.(Window.budget(provider, system))
 
-  defp too_large(provider, needed) do
+  defp too_large(provider, needed, local_failed) do
     window = Window.tokens(provider)
 
     Logger.warning(
@@ -85,34 +109,42 @@ defmodule AlexClaw.LLM.Real do
       provider: provider.name
     )
 
-    {:halt,
-     {:error,
-      {:prompt_too_large, [%{provider: provider.name, window: window, prompt_tokens: needed}]}}}
+    entry = %{provider: provider.name, window: window, prompt_tokens: needed}
+    {:halt, {{:prompt_too_large, [entry]}, local_failed}}
   end
 
-  defp call(provider, prompt, system) do
+  # One local call at a time: several at once only queue inside the model
+  # server, each holding its own context in the host's memory.
+  defp call(%Provider{tier: "local"} = provider, prompt, system),
+    do: LocalLock.run(fn -> dispatch(provider, prompt, system) end)
+
+  defp call(provider, prompt, system), do: dispatch(provider, prompt, system)
+
+  defp dispatch(provider, prompt, system) do
     Logger.info("LLM call: #{provider.name} (#{provider.model})", provider: provider.name)
     Client.call_provider(provider, prompt, system)
   end
 
-  defp answered({:ok, _} = result, provider) do
+  defp answered({:ok, _} = result, provider, _local_failed) do
     LLM.track_usage(provider.id)
     {:halt, result}
   end
 
-  defp answered({:error, reason} = failure, provider),
-    do: handed_on(transient?(reason), failure, provider)
+  defp answered({:error, reason}, provider, local_failed) do
+    failed_local = local_failed or provider.tier == "local"
+    handed_on(transient?(reason), reason, provider, failed_local)
+  end
 
-  defp handed_on(true, {:error, reason} = failure, provider) do
+  defp handed_on(true, reason, provider, local_failed) do
     Logger.warning(
       "LLM call to #{provider.name} failed, trying the next provider: #{inspect(reason)}",
       provider: provider.name
     )
 
-    {:cont, failure}
+    {:cont, {reason, local_failed}}
   end
 
-  defp handed_on(false, failure, _provider), do: {:halt, failure}
+  defp handed_on(false, reason, _provider, local_failed), do: {:halt, {reason, local_failed}}
 
   @transient_transport [:timeout, :econnrefused]
 

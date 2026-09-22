@@ -25,6 +25,9 @@ defmodule AlexClaw.FailureText do
       end)
   end
 
+  defp error_message(:local_model_busy),
+    do: "a local model call is already running — only one runs at a time"
+
   defp error_message({tag, inner}) when is_atom(tag), do: prefixed(tag, error_message(inner))
   defp error_message(%{"message" => message}) when is_binary(message), do: message
   defp error_message(%{"error" => error}), do: error_message(error)

@@ -7,6 +7,8 @@ defmodule AlexClawWeb.GitHubWebhookController do
 
   alias AlexClaw.Config
   alias AlexClaw.Skills.GitHubSecurityReview
+  alias AlexClaw.Workflows
+  alias AlexClaw.Workflows.Executor
 
   @spec handle(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def handle(conn, params) do
@@ -59,7 +61,12 @@ defmodule AlexClawWeb.GitHubWebhookController do
     repo_name = repo["full_name"]
     pr_number = pr["number"]
     Logger.info("GitHub PR ##{pr_number} #{action} on #{repo_name}", skill: :github)
-    GitHubSecurityReview.review_pr(repo_name, pr_number)
+
+    review(
+      %{"mode" => "specific_pr", "repo" => repo_name, "pr_number" => pr_number},
+      "pull request ##{pr_number} on #{repo_name}",
+      fn -> GitHubSecurityReview.review_pr(repo_name, pr_number) end
+    )
   end
 
   defp dispatch_event("push", %{"ref" => ref, "after" => sha, "repository" => repo})
@@ -77,10 +84,41 @@ defmodule AlexClawWeb.GitHubWebhookController do
         skill: :github
       )
 
-      GitHubSecurityReview.review_commit(repo_name, sha)
+      review(
+        %{"mode" => "specific_commit", "repo" => repo_name, "commit_sha" => sha},
+        "commit #{String.slice(sha, 0, 8)} on #{repo_name}",
+        fn -> GitHubSecurityReview.review_commit(repo_name, sha) end
+      )
     else
       Logger.debug("GitHub push to #{branch} — not in watched branches, skipping", skill: :github)
     end
+  end
+
+  # With github.review_workflow naming an enabled workflow, the event runs it:
+  # the workflow fetches the diff, reviews it and delivers the result. Without
+  # one, the diff itself is sent, as before — no review, just the change.
+  defp review(step_config, what, send_diff) do
+    case review_workflow() do
+      nil -> send_diff.()
+      workflow -> start_workflow(workflow, step_config, what)
+    end
+  end
+
+  defp review_workflow do
+    case String.trim(Config.get("github.review_workflow", "") || "") do
+      "" -> nil
+      name -> Enum.find(Workflows.list_workflows(), &(&1.name == name and &1.enabled))
+    end
+  end
+
+  defp start_workflow(workflow, step_config, what) do
+    Logger.info("GitHub review workflow '#{workflow.name}' for #{what}", skill: :github)
+
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      Executor.run_with_input(workflow.id, what, step_config)
+    end)
+
+    :ok
   end
 
   defp dispatch_event(event, _params) do

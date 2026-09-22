@@ -56,13 +56,30 @@ defmodule AlexClaw.LLM.WindowTest do
         |> Plug.Conn.resp(200, Jason.encode!(body))
       end)
 
-      lm = %{type: "openai_compatible", host: "http://localhost:#{bypass.port}"}
+      lm = %{type: "openai_compatible", tier: "local", host: "http://localhost:#{bypass.port}"}
       assert Window.tokens(provider(Map.put(lm, :model, "default"))) == 8192
       assert Window.tokens(provider(Map.put(lm, :model, "qwen3-14b"))) == 8192
       assert Window.tokens(provider(Map.put(lm, :model, "other"))) == nil
 
       Bypass.down(bypass)
       assert Window.tokens(provider(Map.put(lm, :model, "default"))) == nil
+    end
+
+    test "a server outside the local tier is not asked" do
+      bypass = Bypass.open()
+
+      Bypass.stub(bypass, "GET", "/api/v0/models", fn conn ->
+        Plug.Conn.resp(conn, 500, "this server must not be asked")
+      end)
+
+      cloud = %{
+        type: "openai_compatible",
+        tier: "light",
+        model: "default",
+        host: "http://localhost:#{bypass.port}"
+      }
+
+      assert Window.tokens(provider(cloud)) == nil
     end
 
     test "the answer's reserve is num_predict or max_tokens, else 2048" do

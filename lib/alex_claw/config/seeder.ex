@@ -91,6 +91,9 @@ defmodule AlexClaw.Config.Seeder do
     {"github.webhook_secret", "", "string", "github", "GitHub webhook HMAC-SHA256 secret", true},
     {"github.default_repo", "", "string", "github",
      "Default repo for workflow steps (owner/repo format, e.g. myuser/myrepo)", false},
+    {"github.review_workflow", "", "string", "github",
+     "Workflow run for a GitHub webhook event, by name (empty = send the diff itself, unreviewed)",
+     false},
     {"github.watched_branches", "main,master", "string", "github",
      "Comma-separated branch names to review on push events", false},
 

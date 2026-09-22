@@ -156,19 +156,29 @@ defmodule AlexClaw.ReasoningTest do
     end
   end
 
+  # Counted in the database: called twice with the same struct, as the loop
+  # does, these used to leave the count at 1 however many calls were made.
   describe "increment_iteration/1" do
-    test "increments iteration_count" do
+    test "counts every call, given the same stale struct" do
       {:ok, session} = Reasoning.create_session(%{goal: "test"})
-      assert {:ok, updated} = Reasoning.increment_iteration(session)
-      assert updated.iteration_count == 1
+
+      assert :ok = Reasoning.increment_iteration(session)
+      assert :ok = Reasoning.increment_iteration(session)
+
+      assert {:ok, reloaded} = Reasoning.get_session(session.id)
+      assert reloaded.iteration_count == 2
     end
   end
 
   describe "increment_llm_calls/1" do
-    test "increments total_llm_calls" do
+    test "counts every call, given the same stale struct" do
       {:ok, session} = Reasoning.create_session(%{goal: "test"})
-      assert {:ok, updated} = Reasoning.increment_llm_calls(session)
-      assert updated.total_llm_calls == 1
+
+      assert :ok = Reasoning.increment_llm_calls(session)
+      assert :ok = Reasoning.increment_llm_calls(session)
+
+      assert {:ok, reloaded} = Reasoning.get_session(session.id)
+      assert reloaded.total_llm_calls == 2
     end
   end
 

@@ -92,10 +92,26 @@ defmodule AlexClaw.LLM.ProviderSeeder do
 
   defp seed_provider(default) do
     %Provider{}
-    |> Provider.changeset(build_attrs(default))
+    |> Provider.changeset(default |> build_attrs() |> at_most_one_local())
     |> Repo.insert()
     |> seeded(default)
   end
+
+  # Both local providers are seeded, but only the first asked for is enabled:
+  # two model servers each holding a model is more than this kind of machine
+  # has. The other is there to be switched to, from Admin > LLM Providers.
+  defp at_most_one_local(%{tier: "local", enabled: true, name: name} = attrs) do
+    case AlexClaw.LLM.enabled_local() do
+      nil ->
+        attrs
+
+      other ->
+        Logger.info("Seeded #{name} disabled: #{other.name} is the enabled local provider")
+        %{attrs | enabled: false}
+    end
+  end
+
+  defp at_most_one_local(attrs), do: attrs
 
   defp seeded({:ok, provider}, _default), do: Logger.info("Seeded LLM provider: #{provider.name}")
 

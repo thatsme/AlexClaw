@@ -83,7 +83,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
     case SkillAPI.llm_complete(
            AlexClaw.Skills.Coder,
            prompt,
-           Keyword.merge(llm_opts, system: @system_prompt)
+           Keyword.merge(llm_opts, system: @system_prompt, thinking: false)
          ) do
       {:ok, response} ->
         Logger.info("Forge raw response (first 500 chars): #{String.slice(response, 0, 500)}")

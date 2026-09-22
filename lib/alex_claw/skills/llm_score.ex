@@ -68,7 +68,8 @@ defmodule AlexClaw.Skills.LlmScore do
       threshold,
       parse_int(config["max_items"], @default_max_items),
       # Scoring defaults to the :light tier unless the step names one.
-      llm_opts(args, :light)
+      # A thinking model reasons in prose first; scores come one number per line.
+      Keyword.put(llm_opts(args, :light), :thinking, false)
     )
   end
 

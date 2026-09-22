@@ -14,11 +14,24 @@ defmodule AlexClaw.LLM.Real do
 
     case candidates(Keyword.get(opts, :provider, nil), opts) do
       {:ok, providers} ->
-        first_answer(providers, prompt, system)
+        providers |> Enum.map(&with_call_options(&1, opts)) |> first_answer(prompt, system)
 
       {:error, reason} ->
         Logger.warning("No available model: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  # `thinking: false` in the call's options overrides the provider's setting:
+  # a caller that needs a strict format (a code block, one number per line) asks
+  # a thinking model to answer directly rather than reason in prose first.
+  defp with_call_options(provider, opts) do
+    case Keyword.fetch(opts, :thinking) do
+      {:ok, thinking} ->
+        %{provider | options: Map.put(provider.options || %{}, "thinking", thinking)}
+
+      :error ->
+        provider
     end
   end
 

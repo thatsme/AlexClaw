@@ -211,13 +211,16 @@ defmodule AlexClaw.LLM.Client do
         [%{role: "user", content: prompt}]
       end
 
-    ollama_opts =
+    {thinking, ollama_opts} =
       options
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Map.new(fn {k, v} -> {to_string(k), v} end)
+      |> Map.pop("thinking")
 
     body = %{model: model, messages: messages, stream: false}
     body = if ollama_opts == %{}, do: body, else: Map.put(body, :options, ollama_opts)
+    # Ollama takes thinking as a top-level field, not a model option.
+    body = if thinking == false, do: Map.put(body, :think, false), else: body
 
     case Req.post(url, json: body, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"message" => %{"content" => text}}}} ->

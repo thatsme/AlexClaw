@@ -49,8 +49,9 @@ defmodule AlexClaw.Config.Seeder do
     {"embedding.provider", "", "string", "embedding",
      "Provider name for embeddings (empty = auto-detect: Gemini > Ollama > OpenAI-compatible)",
      false},
-    {"embedding.model", "gemini-embedding-001", "string", "embedding",
-     "Embedding model name (Gemini: gemini-embedding-001, Ollama: nomic-embed-text)", false},
+    {"embedding.model", "", "string", "embedding",
+     "Embedding model name (empty = the provider's default: gemini-embedding-001 on Gemini, " <>
+       "nomic-embed-text on Ollama; an OpenAI-compatible provider needs one named)", false},
 
     # Skill defaults (per-skill LLM tier/provider for chat invocation)
     {"skill.research.tier", "medium", "string", "skill.research",

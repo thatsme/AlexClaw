@@ -248,15 +248,15 @@ defmodule AlexClaw.MemoryTest do
   describe "reembed_all/1" do
     test "an entry embedded under the fallback model is not immediately stale" do
       # embedding.model is unset here, which is the case the bug needs: the write
-      # path falls back to "text-embedding-004" while the staleness check compared
-      # against "". The two must agree, or every entry is stale the moment it is
-      # embedded and reembed_all re-embeds the whole table on every run.
+      # path falls back to the provider's default model while the staleness check
+      # once compared against "". The two must agree, or every entry is stale the
+      # moment it is embedded and reembed_all re-embeds the whole table on every run.
       assert AlexClaw.Config.get("embedding.model") == nil
 
       bypass = Bypass.open()
       vector = List.duplicate(0.1, 768)
 
-      Bypass.expect(bypass, "POST", "/v1beta/models/text-embedding-004:embedContent", fn conn ->
+      Bypass.expect(bypass, "POST", "/v1beta/models/gemini-embedding-001:embedContent", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.resp(200, Jason.encode!(%{"embedding" => %{"values" => vector}}))
@@ -280,7 +280,8 @@ defmodule AlexClaw.MemoryTest do
 
       stored = AlexClaw.Repo.get(Entry, entry.id)
       assert stored.embedding != nil
-      assert stored.embedding_model == "text-embedding-004"
+      assert stored.embedding_model == "gemini-embedding-001"
+      assert stored.embedding_model == AlexClaw.LLM.Embedding.model()
 
       assert {:ok, 0} = Memory.reembed_all()
 

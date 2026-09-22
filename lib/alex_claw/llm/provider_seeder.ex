@@ -126,7 +126,9 @@ defmodule AlexClaw.LLM.ProviderSeeder do
       host: if(host == "", do: nil, else: host),
       daily_limit: Map.get(default, :daily_limit),
       priority: default.priority,
-      enabled: host != ""
+      # Enabled only when asked for: LMSTUDIO_HOST has a default, so a host
+      # alone said nothing, and an unasked-for provider took the local tier.
+      enabled: AlexClaw.Config.enabled?(default.enabled_key) and host != ""
     }
   end
 end

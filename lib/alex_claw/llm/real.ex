@@ -6,19 +6,15 @@ defmodule AlexClaw.LLM.Real do
   import Ecto.Query
 
   alias AlexClaw.LLM
-  alias AlexClaw.LLM.{Client, Provider}
+  alias AlexClaw.LLM.{Client, Embedding, Provider}
 
   @impl true
   def complete(prompt, opts) do
     system = Keyword.get(opts, :system, nil)
-    provider_name = Keyword.get(opts, :provider, nil)
 
-    case resolve_provider(provider_name, opts) do
-      {:ok, provider} ->
-        Logger.info("LLM call: #{provider.name} (#{provider.model})", provider: provider.name)
-        result = Client.call_provider(provider, prompt, system)
-        if match?({:ok, _}, result), do: LLM.track_usage(provider.id)
-        result
+    case candidates(Keyword.get(opts, :provider, nil), opts) do
+      {:ok, providers} ->
+        first_answer(providers, prompt, system)
 
       {:error, reason} ->
         Logger.warning("No available model: #{inspect(reason)}")
@@ -26,93 +22,88 @@ defmodule AlexClaw.LLM.Real do
     end
   end
 
+  # A provider that fails — down, no model loaded, an error status — hands the
+  # call to the next candidate. The last failure is what the caller sees.
+  defp first_answer(providers, prompt, system) do
+    Enum.reduce_while(providers, {:error, :no_available_model}, fn provider, _last ->
+      provider |> call(prompt, system) |> answered(provider)
+    end)
+  end
+
+  defp call(provider, prompt, system) do
+    Logger.info("LLM call: #{provider.name} (#{provider.model})", provider: provider.name)
+    Client.call_provider(provider, prompt, system)
+  end
+
+  defp answered({:ok, _} = result, provider) do
+    LLM.track_usage(provider.id)
+    {:halt, result}
+  end
+
+  defp answered({:error, reason} = error, provider) do
+    Logger.warning(
+      "LLM call to #{provider.name} failed, trying the next provider: #{inspect(reason)}",
+      provider: provider.name
+    )
+
+    {:cont, error}
+  end
+
   @impl true
   def embed(text, opts) when is_binary(text) do
-    case resolve_embedding_provider(opts) do
-      {:ok, provider} ->
-        model = AlexClaw.Config.get("embedding.model") || "text-embedding-004"
-        result = Client.call_embedding(provider, text, model)
-        if match?({:ok, _}, result), do: LLM.track_usage(provider.id)
-        result
-
+    with {:ok, provider} <- Embedding.provider(opts),
+         {:ok, model} <- embedding_model(provider) do
+      result = Client.call_embedding(provider, text, model)
+      if match?({:ok, _}, result), do: LLM.track_usage(provider.id)
+      result
+    else
       {:error, reason} ->
-        Logger.warning("No embedding provider available: #{inspect(reason)}")
+        Logger.warning("No embedding available: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  defp resolve_provider(nil, opts), do: select_model(Keyword.get(opts, :tier, :light))
-  defp resolve_provider("auto", opts), do: resolve_provider(nil, opts)
-  defp resolve_provider("", opts), do: resolve_provider(nil, opts)
+  # Anthropic has no embedding API; the client says so in its own words.
+  defp embedding_model(%Provider{type: "anthropic"}), do: {:ok, nil}
 
-  defp resolve_provider(name, _opts) when is_binary(name) do
+  defp embedding_model(provider) do
+    case Embedding.model_for(provider) do
+      nil -> {:error, {:no_embedding_model, provider.name}}
+      model -> {:ok, model}
+    end
+  end
+
+  # A named provider is the only candidate: asking for it by name means that one.
+  defp candidates(name, opts) when name in [nil, "", "auto"],
+    do: select_models(Keyword.get(opts, :tier, :light))
+
+  defp candidates(name, _opts) when is_binary(name) do
     case AlexClaw.Repo.one(from(p in Provider, where: p.name == ^name and p.enabled == true)) do
       nil -> {:error, {:unknown_provider, name}}
-      provider -> {:ok, provider}
+      provider -> {:ok, [provider]}
     end
   end
 
-  defp resolve_embedding_provider(opts) do
-    case Keyword.get(opts, :provider) do
-      name when is_binary(name) and name != "" ->
-        resolve_provider(name, [])
+  # The tier's providers by priority, then the local tier's: a call that finds
+  # no answer in its tier falls back to local models. At limit is skipped.
+  defp select_models(tier) do
+    tier_providers = enabled_in(Atom.to_string(tier))
+    local = if tier == :local, do: [], else: enabled_in("local")
 
-      _ ->
-        configured = AlexClaw.Config.get("embedding.provider")
-
-        if configured && configured != "" do
-          resolve_provider(configured, [])
-        else
-          auto_detect_embedding_provider()
-        end
+    case Enum.filter(tier_providers ++ local, &within_limit?/1) do
+      [] when tier_providers == [] and local == [] -> {:error, :no_available_model}
+      [] -> {:error, :all_providers_at_limit}
+      providers -> {:ok, providers}
     end
   end
 
-  defp auto_detect_embedding_provider do
-    query =
+  defp enabled_in(tier) do
+    AlexClaw.Repo.all(
       from(p in Provider,
-        where: p.enabled == true,
+        where: p.enabled == true and p.tier == ^tier,
         order_by: [asc: p.priority, asc: p.name]
       )
-
-    providers = AlexClaw.Repo.all(query)
-
-    result =
-      Enum.find(providers, &(&1.type == "gemini")) ||
-        Enum.find(providers, &(&1.type == "ollama")) ||
-        Enum.find(providers, &(&1.type in ["openai_compatible", "custom"]))
-
-    case result do
-      nil -> {:error, :no_embedding_provider}
-      provider -> {:ok, provider}
-    end
-  end
-
-  defp select_model(tier) do
-    tier_str = Atom.to_string(tier)
-
-    providers =
-      AlexClaw.Repo.all(
-        from(p in Provider,
-          where: p.enabled == true and p.tier == ^tier_str,
-          order_by: [asc: p.priority, asc: p.name]
-        )
-      )
-
-    case providers do
-      [] ->
-        if tier != :local do
-          select_model(:local)
-        else
-          {:error, :no_available_model}
-        end
-
-      providers ->
-        case Enum.find(providers, &within_limit?/1) do
-          nil -> {:error, :all_providers_at_limit}
-          provider -> {:ok, provider}
-        end
-    end
+    )
   end
 
   defp within_limit?(%Provider{daily_limit: nil}), do: true

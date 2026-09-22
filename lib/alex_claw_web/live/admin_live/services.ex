@@ -292,8 +292,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp initial_status("embeddings") do
-    model = Config.get("embedding.model")
-    if model && model != "", do: :configured, else: :not_configured
+    if AlexClaw.LLM.Embedding.model(), do: :configured, else: :not_configured
   end
 
   defp initial_status(_), do: :error
@@ -468,7 +467,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check("embeddings") do
-    model = Config.get("embedding.model")
+    model = AlexClaw.LLM.Embedding.model()
 
     if !model || model == "" do
       %{status: :not_configured, detail: "No embedding model configured"}

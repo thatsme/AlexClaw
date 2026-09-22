@@ -370,10 +370,12 @@ defmodule AlexClaw.Workflows.Executor do
     route_for(step.routes, step, branch, steps)
   end
 
-  # No routes defined — fall through to the next position on success and halt on
-  # error, which is how linear workflows behaved before branching existed.
+  # No routes defined — fall through to the next position on success. An error
+  # ends the run, and so does an empty result: nothing downstream has anything
+  # to work on, and a notify step would only deliver the emptiness. A workflow
+  # that wants to report "nothing found" routes on_empty explicitly.
   defp route_for(routes, step, branch, steps) when routes == [] or is_nil(routes) do
-    if branch == :on_error, do: nil, else: next_position(step.position, steps)
+    if branch in [:on_error, :on_empty], do: nil, else: next_position(step.position, steps)
   end
 
   defp route_for(routes, _step, branch, _steps) do
@@ -513,11 +515,41 @@ defmodule AlexClaw.Workflows.Executor do
   end
 
   defp notify_failure(workflow, step_name, reason, gateways) do
-    msg =
-      "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`"
+    msg = "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{failure_text(reason)}`"
 
     Enum.each(gateways, fn gw -> gw.send_message(msg, []) end)
   end
+
+  @doc """
+  A failure reason as an operator reads it on a gateway: the message an error
+  carries (an LLM provider's reply, for one), prefixed by what failed, rather
+  than the raw term.
+  """
+  @spec failure_text(term()) :: String.t()
+  def failure_text(reason) do
+    reason
+    |> error_message()
+    |> Kernel.||(inspect(reason))
+    |> String.slice(0, 300)
+  end
+
+  defp error_message({source, status, body}) when is_atom(source) and is_integer(status),
+    do: with_status(error_message(body), status)
+
+  defp error_message({tag, inner}) when is_atom(tag), do: prefixed(tag, error_message(inner))
+  defp error_message(%{"message" => message}) when is_binary(message), do: message
+  defp error_message(%{"error" => error}), do: error_message(error)
+  defp error_message(message) when is_binary(message), do: message
+  defp error_message(atom) when is_atom(atom) and not is_nil(atom), do: humanized(atom)
+  defp error_message(_other), do: nil
+
+  defp with_status(nil, status), do: "HTTP #{status}"
+  defp with_status(message, status), do: "HTTP #{status}: #{message}"
+
+  defp prefixed(_tag, nil), do: nil
+  defp prefixed(tag, message), do: "#{humanized(tag)}: #{message}"
+
+  defp humanized(atom), do: atom |> Atom.to_string() |> String.replace("_", " ")
 
   # Detect which gateways a workflow targets based on its notify steps
   defp workflow_gateways(steps) do

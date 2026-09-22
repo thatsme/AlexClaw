@@ -42,4 +42,18 @@ defmodule AlexClaw.LLM.ProviderSeederTest do
 
     refute seeded("Claude Haiku").enabled
   end
+
+  # LMSTUDIO_HOST has a default, so a host alone used to enable LM Studio on
+  # every install, where it took the local tier without being asked for.
+  test "LM Studio is seeded disabled unless it is enabled" do
+    {:ok, _} = AlexClaw.Config.set("llm.lmstudio_enabled", "false")
+    {:ok, _} = AlexClaw.Config.set("llm.lmstudio_host", "http://host.docker.internal:1234")
+    ProviderSeeder.seed()
+    refute seeded("LM Studio").enabled
+
+    Repo.delete_all(Provider)
+    {:ok, _} = AlexClaw.Config.set("llm.lmstudio_enabled", "true")
+    ProviderSeeder.seed()
+    assert seeded("LM Studio").enabled
+  end
 end

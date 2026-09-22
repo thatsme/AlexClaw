@@ -704,10 +704,14 @@ defmodule AlexClaw.Reasoning.Loop do
     Work completed:
     #{completed}
 
+    Results gathered:
+    #{gathered_results(state)}
+
     Your accumulated understanding:
     #{state.working_memory}
 
-    Write a clear, complete answer to the goal based on everything you have gathered.
+    Write a clear, complete answer to the goal based on the results gathered.
+    Where they answer the goal, use them over anything you remember.
     Do NOT say what you still need to do. Do NOT describe your process.
     Just answer the goal directly.
 
@@ -1436,6 +1440,30 @@ defmodule AlexClaw.Reasoning.Loop do
     end)
     |> case do
       "" -> "None yet."
+      text -> text
+    end
+  end
+
+  # The final answer is written from these outputs. Without them the model had
+  # only step names and statuses, and answered from what it remembered: a run
+  # that found Elixir v1.20.4 reported v1.16.0. The outputs share one budget,
+  # so a long plan cannot push the prompt past a local model's window.
+  @summary_results_chars 6_000
+
+  defp gathered_results(state) do
+    outputs =
+      state.session_id
+      |> Reasoning.list_steps()
+      |> Enum.filter(&(&1.phase == "execute" and &1.skill_output))
+
+    each = div(@summary_results_chars, max(length(outputs), 1))
+
+    outputs
+    |> Enum.map_join("\n\n", fn step ->
+      "Step #{step.iteration} (#{step.skill_name}):\n#{String.slice(step.skill_output, 0, each)}"
+    end)
+    |> case do
+      "" -> "None."
       text -> text
     end
   end

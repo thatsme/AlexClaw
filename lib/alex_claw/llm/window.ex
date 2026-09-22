@@ -9,9 +9,11 @@ defmodule AlexClaw.LLM.Window do
     * `context_window` in the provider's options, when set, is the window;
     * Ollama: `num_ctx` in its options, else Ollama's own default of 4096 —
       `/api/show` reports the model's maximum, not the window it runs with;
-    * an OpenAI-compatible server: the context length LM Studio reports for
-      the loaded model (`/api/v0/models`); unknown for other servers, which
-      refuse an overlong prompt with an error rather than cutting it;
+    * a local-tier OpenAI-compatible server: the context length LM Studio
+      reports for the loaded model (`/api/v0/models`). Unknown for other
+      servers — including OpenAI-compatible ones outside the local tier, which
+      are not asked: they refuse an overlong prompt with an error rather than
+      cutting it, and a call to them costs nothing on this host;
     * Gemini and Anthropic: their published windows.
 
   Token counts are estimated at three bytes per token, on the high side, so
@@ -28,14 +30,20 @@ defmodule AlexClaw.LLM.Window do
 
   @doc """
   The provider's context window in tokens, or nil when it cannot be known.
-  With `discover: false`, an OpenAI-compatible server is not asked: it refuses
-  an overlong prompt with an error, so only a builder trimming its context to
-  a budget needs to know its window in advance.
+  A local-tier OpenAI-compatible server is asked for it (see `discoverable?/1`);
+  `discover: false` skips even that.
   """
   @spec tokens(Provider.t(), keyword()) :: pos_integer() | nil
   def tokens(%Provider{} = provider, opts \\ []) do
     option(provider, "context_window") || by_type(provider, Keyword.get(opts, :discover, true))
   end
+
+  @doc "Whether this provider's server is asked for its window."
+  @spec discoverable?(Provider.t()) :: boolean()
+  def discoverable?(%Provider{type: type, tier: "local"}),
+    do: type in ["openai_compatible", "custom"]
+
+  def discoverable?(%Provider{}), do: false
 
   @doc "Tokens kept free for the answer: num_predict or max_tokens, else #{@default_reserve}."
   @spec reserve(Provider.t()) :: pos_integer()
@@ -68,7 +76,7 @@ defmodule AlexClaw.LLM.Window do
   """
   @spec fits(Provider.t(), String.t(), String.t() | nil) :: :ok | {:error, map()}
   def fits(provider, prompt, system) do
-    case tokens(provider, discover: provider.tier == "local") do
+    case tokens(provider) do
       nil ->
         :ok
 
@@ -107,9 +115,10 @@ defmodule AlexClaw.LLM.Window do
   defp by_type(%Provider{type: "ollama"} = provider, _discover),
     do: option(provider, "num_ctx") || @ollama_default
 
-  defp by_type(%Provider{type: type} = provider, true)
-       when type in ["openai_compatible", "custom"],
-       do: reported(provider)
+  defp by_type(%Provider{type: type} = provider, discover)
+       when type in ["openai_compatible", "custom"] do
+    if discover and discoverable?(provider), do: reported(provider)
+  end
 
   defp by_type(%Provider{type: type}, _discover), do: Map.get(@published, type)
 

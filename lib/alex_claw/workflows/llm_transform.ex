@@ -17,6 +17,10 @@ defmodule AlexClaw.Workflows.LLMTransform do
 
   require Logger
 
+  alias AlexClaw.LLM.Window
+
+  @trimmed_note "\n\n[input trimmed to fit the model's context window]"
+
   @impl true
   @spec step_fields() :: [atom()]
   def step_fields, do: [:llm_tier, :llm_model, :prompt_template]
@@ -62,16 +66,54 @@ defmodule AlexClaw.Workflows.LLMTransform do
     transform(args[:prompt_template] || args[:prompt] || "", args)
   end
 
-  defp transform("", args), do: {:ok, to_string_safe(args[:input]) || "", :on_success}
+  # A step with no template used to return its input unchanged, which reads as a
+  # step that worked: a reasoning plan ended with an llm_transform that handed
+  # back the changelog it was given, and nothing was ever summarized.
+  defp transform("", _args), do: {:error, :no_prompt_template}
 
   defp transform(template, args) do
-    prompt = interpolate_template(template, args)
-    Logger.info("LLM Transform: #{String.slice(prompt, 0, 100)}...")
+    build = &fitted_prompt(template, args, &1)
 
-    case AlexClaw.LLM.complete(prompt, transform_opts(args)) do
+    case AlexClaw.LLM.complete_fitted(build, transform_opts(args)) do
       {:ok, response} -> {:ok, response, :on_success}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @doc """
+  The prompt for one provider's budget: the template always, and as much of the
+  input as is left. A diff or a page longer than the window is cut here, where
+  it can be said, rather than by the model's server. `{:error, {:does_not_fit,
+  tokens}}` when the template alone is larger than the budget.
+  """
+  @spec fitted_prompt(String.t(), map(), non_neg_integer() | :unlimited) ::
+          {:ok, String.t()} | {:error, {:does_not_fit, non_neg_integer()}}
+  def fitted_prompt(template, args, :unlimited),
+    do: {:ok, logged(interpolate_template(template, args, to_string_safe(args[:input])))}
+
+  def fitted_prompt(template, args, budget) do
+    input = to_string_safe(args[:input])
+    mandatory = Window.estimate(interpolate_template(template, args, ""))
+
+    case budget - mandatory do
+      room when room <= 0 -> {:error, {:does_not_fit, mandatory}}
+      room -> {:ok, logged(interpolate_template(template, args, within(input, room)))}
+    end
+  end
+
+  # Three bytes per token, the estimate Window uses, and a line saying what was cut.
+  defp within(input, room) do
+    allowed = room * 3 - byte_size(@trimmed_note)
+
+    case byte_size(input) > allowed do
+      false -> input
+      true -> String.slice(input, 0, max(allowed, 0)) <> @trimmed_note
+    end
+  end
+
+  defp logged(prompt) do
+    Logger.info("LLM Transform: #{String.slice(prompt, 0, 100)}...")
+    prompt
   end
 
   defp transform_opts(args) do
@@ -81,9 +123,9 @@ defmodule AlexClaw.Workflows.LLMTransform do
   defp put_provider(opts, provider) when provider in [nil, ""], do: opts
   defp put_provider(opts, provider), do: Keyword.put(opts, :provider, provider)
 
-  defp interpolate_template(template, args) do
+  defp interpolate_template(template, args, input) do
     template
-    |> String.replace("{input}", to_string_safe(args[:input]))
+    |> String.replace("{input}", input)
     |> String.replace("{resources}", format_resources(args[:resources]))
   end
 

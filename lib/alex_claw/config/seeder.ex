@@ -48,6 +48,8 @@ defmodule AlexClaw.Config.Seeder do
     # LLM - limits on local providers
     {"llm.local_timeout_seconds", "240", "integer", "llm",
      "Max seconds one call to a local-tier provider may take before it is abandoned", false},
+    {"forge.time_budget_seconds", "600", "integer", "forge",
+     "Max seconds one skill generation may take across all of its attempts", false},
 
     # Embeddings
     {"embedding.provider", "", "string", "embedding",

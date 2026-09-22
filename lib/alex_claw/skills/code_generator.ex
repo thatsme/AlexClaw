@@ -7,6 +7,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @runtime_timeout_ms 10_000
 
   alias AlexClaw.Auth.SafeExecutor
+  alias AlexClaw.LLM.Window
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.SkillRegistry
 
@@ -58,6 +59,8 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   @filler_words ~w(a an the that which returns gets fetches creates makes builds generates is are was were will would should could can do does did have has had been being be for from with into onto upon about above below between through during before after since until of in on at to by and or but not skill skills)
 
+  @chunk_separator "\n---\n"
+
   @spec system_prompt() :: String.t()
   def system_prompt, do: @system_prompt
 
@@ -65,40 +68,74 @@ defmodule AlexClaw.Skills.CodeGenerator do
   @spec generate_step(String.t(), String.t(), String.t(), String.t(), String.t() | nil) ::
           {:ok, map()} | {:error, term(), String.t() | nil}
   def generate_step(goal, skill_name, context_source, provider, error_context) do
-    kb_context = gather_knowledge(goal, context_source)
+    chunks = gather_knowledge_chunks(goal, context_source)
+    build = &fitted_prompt(goal, skill_name, chunks, error_context, &1)
 
-    Logger.info(
-      "Forge context: #{String.length(kb_context)} chars for goal '#{String.slice(goal, 0, 60)}'"
-    )
+    AlexClaw.Skills.Coder
+    |> SkillAPI.llm_complete_fitted(build, llm_opts(provider))
+    |> load_response(skill_name)
+  end
 
-    prompt = build_prompt(goal, skill_name, kb_context, error_context)
-    Logger.info("Forge prompt: #{String.length(prompt)} chars total")
+  @doc """
+  The attempt after a failed one. Code that failed is repaired: the model gets
+  that code and its error, with the skill contract as the system prompt, and no
+  knowledge-base context — see `repair_prompt/4`. A failure that left no code
+  (no code block, a failed call) is a fresh generation with the error as a hint.
+  """
+  @spec retry_step(String.t(), String.t(), String.t(), String.t(), {term(), String.t() | nil}) ::
+          {:ok, map()} | {:error, term(), String.t() | nil}
+  def retry_step(goal, skill_name, context_source, provider, {reason, nil}),
+    do: generate_step(goal, skill_name, context_source, provider, error_to_hint(reason))
 
-    llm_opts =
-      case provider do
-        "auto" -> [tier: :local]
-        name -> [provider: name]
-      end
+  def retry_step(goal, skill_name, _context_source, provider, {reason, code}) do
+    prompt = repair_prompt(goal, skill_name, code, error_to_hint(reason))
 
-    case SkillAPI.llm_complete(
-           AlexClaw.Skills.Coder,
-           prompt,
-           Keyword.merge(llm_opts, system: @system_prompt, thinking: false)
-         ) do
-      {:ok, response} ->
-        Logger.info("Forge raw response (first 500 chars): #{String.slice(response, 0, 500)}")
+    AlexClaw.Skills.Coder
+    |> SkillAPI.llm_complete(prompt, llm_opts(provider))
+    |> load_response(skill_name)
+  end
 
-        case extract_code(response) do
-          {:ok, code} ->
-            try_load(code, skill_name)
+  defp llm_opts("auto"), do: [tier: :local, system: @system_prompt, thinking: false]
+  defp llm_opts(name), do: [provider: name, system: @system_prompt, thinking: false]
 
-          :no_code_block ->
-            {:error, :no_code_block, nil}
-        end
+  defp load_response({:ok, response}, skill_name) do
+    Logger.info("Forge raw response (first 500 chars): #{String.slice(response, 0, 500)}")
 
-      {:error, reason} ->
-        {:error, {:llm_failed, reason}, nil}
+    case extract_code(response) do
+      {:ok, code} -> try_load(code, skill_name)
+      :no_code_block -> {:error, :no_code_block, nil}
     end
+  end
+
+  defp load_response({:error, reason}, _skill_name), do: {:error, {:llm_failed, reason}, nil}
+
+  @max_section_chars 2_000
+
+  @doc """
+  The prompt for repairing generated code: the goal, the module name, the
+  failing code and its error, the goal and the error each capped at
+  #{@max_section_chars} characters. Its size is the code's plus a bounded
+  remainder, whatever the knowledge base holds.
+  """
+  @spec repair_prompt(String.t(), String.t(), String.t(), String.t()) :: String.t()
+  def repair_prompt(goal, skill_name, code, error) do
+    module_name = "AlexClaw.Skills.Dynamic.#{Macro.camelize(skill_name)}"
+
+    """
+    Fix the module #{module_name} below. It was generated for this goal:
+
+    #{String.slice(goal, 0, @max_section_chars)}
+
+    It failed with:
+
+    #{String.slice(error, 0, @max_section_chars)}
+
+    ```elixir
+    #{code}
+    ```
+
+    Return the whole corrected module. Remember: module name must be #{module_name}
+    """
   end
 
   # Generated code is staged, judged, and only then loaded. It never reaches the
@@ -173,11 +210,63 @@ defmodule AlexClaw.Skills.CodeGenerator do
   # Not contained: the file stays in pending and the violations become the retry
   # hint. If the model cannot get inside the envelope, the caller asks for a code.
 
+  @doc """
+  The prompt for one provider's budget: the mandatory part — the goal, the
+  module name, the last error — always, then knowledge-base chunks in priority
+  order while they fit. A chunk is included whole or not at all. When even the
+  mandatory part exceeds the budget, `{:error, {:does_not_fit, tokens}}`.
+  """
+  @spec fitted_prompt(
+          String.t(),
+          String.t(),
+          [String.t()],
+          String.t() | nil,
+          non_neg_integer() | :unlimited
+        ) ::
+          {:ok, String.t()} | {:error, {:does_not_fit, non_neg_integer()}}
+  def fitted_prompt(goal, skill_name, chunks, error_context, :unlimited) do
+    {:ok, build_prompt(goal, skill_name, Enum.join(chunks, @chunk_separator), error_context)}
+  end
+
+  def fitted_prompt(goal, skill_name, chunks, error_context, budget) do
+    mandatory = Window.estimate(build_prompt(goal, skill_name, "", error_context))
+
+    if mandatory > budget do
+      {:error, {:does_not_fit, mandatory}}
+    else
+      kept = chunks_within(chunks, budget - mandatory)
+
+      Logger.info(
+        "Forge context: #{length(kept)} of #{length(chunks)} knowledge chunks fit a budget of #{budget} tokens",
+        skill: :coder
+      )
+
+      {:ok, build_prompt(goal, skill_name, Enum.join(kept, @chunk_separator), error_context)}
+    end
+  end
+
+  # In priority order; a chunk too large is skipped, a smaller one after it may fit.
+  defp chunks_within(chunks, room) do
+    {kept, _room} =
+      Enum.reduce(chunks, {[], room}, fn chunk, {kept, left} ->
+        cost = Window.estimate(chunk) + Window.estimate(@chunk_separator)
+        if cost <= left, do: {[chunk | kept], left - cost}, else: {kept, left}
+      end)
+
+    Enum.reverse(kept)
+  end
+
   @doc "Gather RAG context from the knowledge base based on the goal."
   @spec gather_knowledge(String.t(), String.t()) :: String.t()
   def gather_knowledge(goal, context_source \\ "both") do
+    goal |> gather_knowledge_chunks(context_source) |> Enum.join(@chunk_separator)
+  end
+
+  @doc "Knowledge-base chunks for the goal, most important first: the skill template, then examples, then docs."
+  @spec gather_knowledge_chunks(String.t(), String.t()) :: [String.t()]
+  def gather_knowledge_chunks(goal, context_source \\ "both") do
     if context_source == "none" do
-      ""
+      []
     else
       # Always include skill template and behaviour — these are critical for correct generation
       template_chunks = fetch_by_source(~w(self:skill_template self:skill_behaviour))
@@ -190,7 +279,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
       (template_chunks ++ skill_chunks ++ goal_chunks ++ erlang_chunks ++ elixir_chunks)
       |> Enum.uniq_by(& &1.id)
-      |> Enum.map_join("\n---\n", & &1.content)
+      |> Enum.map(& &1.content)
     end
   end
 
@@ -363,7 +452,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
   end
 
   @spec search_kb(String.t(), non_neg_integer(), keyword()) :: [map()]
-  defp search_kb(query, limit, opts \\ []) do
+  defp search_kb(query, limit, opts) do
     case SkillAPI.knowledge_search(
            AlexClaw.Skills.Coder,
            query,

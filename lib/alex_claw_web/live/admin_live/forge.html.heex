@@ -108,7 +108,7 @@
     </label>
     <div class="flex items-center gap-1">
       <label class="text-xs text-gray-500">Retries:</label>
-      <input type="number" value={@max_retries} min="1" max="20"
+      <input type="number" value={@max_retries} min="1" max={ForgeGuard.max_attempts()}
         phx-change="set_retries" phx-debounce="500" name="max_retries"
         class="w-12 bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-white text-xs text-center" />
     </div>

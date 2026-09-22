@@ -9,7 +9,7 @@ defmodule AlexClaw.Skills.Coder do
 
   alias AlexClaw.Auth.Gate
   alias AlexClaw.Gateway.Router
-  alias AlexClaw.Skills.{CodeGenerator, SkillAPI}
+  alias AlexClaw.Skills.{CodeGenerator, ForgeGuard, SkillAPI}
 
   @impl true
   @spec description() :: String.t()
@@ -52,7 +52,7 @@ defmodule AlexClaw.Skills.Coder do
   @spec config_help() :: String.t()
   def config_help,
     do:
-      "goal: natural language description of the skill to generate. create_workflow: if true, creates a workflow with the generated skill. max_retries: number of LLM retries on failure (default 3)."
+      "goal: natural language description of the skill to generate. create_workflow: if true, creates a workflow with the generated skill. max_retries: number of generation attempts (default 5, at most 5)."
 
   @default_max_retries 5
 
@@ -83,8 +83,12 @@ defmodule AlexClaw.Skills.Coder do
     end
   end
 
+  # One generation at a time, a bounded number of attempts, and a time budget
+  # across them all: see ForgeGuard. A second request is refused, not queued.
   defp do_generate(goal, skill_name, config, max_retries) do
-    case generation_loop(goal, skill_name, max_retries, nil, nil) do
+    job = %{goal: goal, skill_name: skill_name, deadline: ForgeGuard.deadline()}
+
+    case ForgeGuard.run(fn -> generation_loop(job, ForgeGuard.attempts(max_retries), nil) end) do
       {:ok, result} -> generated(result, skill_name, config["create_workflow"])
       {:needs_approval, violations} -> request_approval(skill_name, violations)
       {:error, _reason} = err -> err
@@ -128,33 +132,40 @@ defmodule AlexClaw.Skills.Coder do
     end
   end
 
-  # The last failure is carried structurally, not just as a hint string: when the
-  # model never gets inside the containment envelope the caller needs the
-  # violations to ask for a code.
-  defp generation_loop(_goal, _skill_name, 0, _hint, {:not_contained, violations}) do
-    {:needs_approval, violations}
+  # The last failure is carried structurally, with its code, not just as a hint
+  # string: a retry repairs that code, and when the model never gets inside the
+  # containment envelope the caller needs the violations to ask for a code.
+  defp generation_loop(job, attempts_left, last) when attempts_left > 0 do
+    if ForgeGuard.expired?(job.deadline),
+      do: gave_up(last, {:time_budget_spent, ForgeGuard.budget_seconds()}),
+      else: job |> step(last) |> stepped(job, attempts_left)
   end
 
-  defp generation_loop(_goal, _skill_name, 0, _hint, last_reason) do
-    {:error, {:generation_failed, last_reason}}
+  defp generation_loop(_job, 0, last), do: gave_up(last, nil)
+
+  defp step(job, nil),
+    do: CodeGenerator.generate_step(job.goal, job.skill_name, "both", "auto", nil)
+
+  defp step(job, last),
+    do: CodeGenerator.retry_step(job.goal, job.skill_name, "both", "auto", last)
+
+  defp stepped({:ok, result}, _job, _attempts_left) do
+    Logger.info("Coder: generated skill #{result.name}", skill: :coder)
+    {:ok, result}
   end
 
-  defp generation_loop(goal, skill_name, retries_left, error_context, _last_reason) do
-    case CodeGenerator.generate_step(goal, skill_name, "both", "auto", error_context) do
-      {:ok, result} ->
-        Logger.info("Coder: generated skill #{result.name}", skill: :coder)
-        {:ok, result}
+  defp stepped({:error, reason, code}, job, attempts_left) do
+    Logger.warning(
+      "Coder: generation failed (#{attempts_left - 1} attempts left): #{inspect(reason)}",
+      skill: :coder
+    )
 
-      {:error, reason, _code} ->
-        Logger.warning(
-          "Coder: generation failed (#{retries_left - 1} retries left): #{inspect(reason)}",
-          skill: :coder
-        )
-
-        hint = CodeGenerator.error_to_hint(reason)
-        generation_loop(goal, skill_name, retries_left - 1, hint, reason)
-    end
+    generation_loop(job, attempts_left - 1, {reason, code})
   end
+
+  defp gave_up({{:not_contained, violations}, _code}, _why), do: {:needs_approval, violations}
+  defp gave_up({reason, _code}, nil), do: {:error, {:generation_failed, reason}}
+  defp gave_up(_last, why), do: {:error, {:generation_failed, why}}
 
   defp create_skill_workflow(skill_name) do
     with {:ok, workflow} <-

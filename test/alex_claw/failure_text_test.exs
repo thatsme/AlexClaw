@@ -36,4 +36,20 @@ defmodule AlexClaw.FailureTextTest do
     assert text =~ "{1, 2, 3"
     assert FailureText.describe(nil) == "nil"
   end
+
+  test "a prompt too large for its provider names the provider and its window" do
+    reason =
+      {:llm_failed,
+       {:prompt_too_large, [%{provider: "LM Studio", window: 8192, prompt_tokens: 9100}]}}
+
+    assert FailureText.describe(reason) ==
+             "llm failed: prompt too large for LM Studio (window 8192, needs ~9100 tokens)"
+  end
+
+  test "an unknown window is said to be unknown" do
+    reason = {:prompt_too_large, [%{provider: "X", window: nil, prompt_tokens: 10}]}
+
+    assert FailureText.describe(reason) ==
+             "prompt too large for X (window unknown, needs ~10 tokens)"
+  end
 end

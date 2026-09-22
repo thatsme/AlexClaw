@@ -63,7 +63,10 @@ defmodule AlexClaw.LLM.ProviderSeeder do
       model_key: "llm.ollama_model",
       host_key: "llm.ollama_host",
       enabled_key: "llm.ollama_enabled",
-      priority: 50
+      priority: 50,
+      # Ollama's own default window is 4096 tokens, and it cuts a longer prompt
+      # silently. Forge's prompt alone is about 8000.
+      options: %{"num_ctx" => 16_384}
     },
     %{
       name: "LM Studio",
@@ -126,6 +129,7 @@ defmodule AlexClaw.LLM.ProviderSeeder do
       host: if(host == "", do: nil, else: host),
       daily_limit: Map.get(default, :daily_limit),
       priority: default.priority,
+      options: Map.get(default, :options, %{}),
       # Enabled only when asked for: LMSTUDIO_HOST has a default, so a host
       # alone said nothing, and an unasked-for provider took the local tier.
       enabled: AlexClaw.Config.enabled?(default.enabled_key) and host != ""

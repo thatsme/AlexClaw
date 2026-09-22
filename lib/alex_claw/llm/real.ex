@@ -6,15 +6,31 @@ defmodule AlexClaw.LLM.Real do
   import Ecto.Query
 
   alias AlexClaw.LLM
-  alias AlexClaw.LLM.{Client, Embedding, Provider}
+  alias AlexClaw.LLM.{Client, Embedding, Provider, Window}
 
   @impl true
-  def complete(prompt, opts) do
+  def complete(prompt, opts), do: complete_with({:prompt, prompt}, opts)
+
+  @doc """
+  Complete a prompt built for each candidate provider's window: `build` gets
+  the tokens the prompt may use (`:unlimited` when the window is unknown) and
+  answers `{:ok, prompt}`, or `{:error, {:does_not_fit, tokens}}` when even its
+  mandatory part is larger. A prompt is never sent to a provider it does not
+  fit, nor handed to the next one: the error names the provider's window.
+  """
+  @spec complete_fitted(
+          (non_neg_integer() | :unlimited -> {:ok, String.t()} | {:error, term()}),
+          keyword()
+        ) :: {:ok, String.t()} | {:error, term()}
+  @impl true
+  def complete_fitted(build, opts), do: complete_with({:build, build}, opts)
+
+  defp complete_with(source, opts) do
     system = Keyword.get(opts, :system, nil)
 
     case candidates(Keyword.get(opts, :provider, nil), opts) do
       {:ok, providers} ->
-        providers |> Enum.map(&with_call_options(&1, opts)) |> first_answer(prompt, system)
+        providers |> Enum.map(&with_call_options(&1, opts)) |> first_answer(source, system)
 
       {:error, reason} ->
         Logger.warning("No available model: #{inspect(reason)}")
@@ -35,12 +51,43 @@ defmodule AlexClaw.LLM.Real do
     end
   end
 
-  # A provider that fails — down, no model loaded, an error status — hands the
-  # call to the next candidate. The last failure is what the caller sees.
-  defp first_answer(providers, prompt, system) do
+  # Only a transient failure — a timeout, a refused connection, a 5xx — hands
+  # the call to the next candidate: another server may not share it. Anything
+  # else is the answer. A 4xx is about the request and would be refused again
+  # or, worse, taken on by a larger model; a prompt too large for the provider
+  # is refused before it is sent, for the same reason.
+  defp first_answer(providers, source, system) do
     Enum.reduce_while(providers, {:error, :no_available_model}, fn provider, _last ->
-      provider |> call(prompt, system) |> answered(provider)
+      attempt(provider, source, system)
     end)
+  end
+
+  defp attempt(provider, source, system) do
+    with {:ok, prompt} <- prompt_for(source, provider, system),
+         :ok <- Window.fits(provider, prompt, system) do
+      provider |> call(prompt, system) |> answered(provider)
+    else
+      {:error, {:does_not_fit, tokens}} -> too_large(provider, tokens + Window.estimate(system))
+      {:error, %{prompt_tokens: needed}} -> too_large(provider, needed)
+    end
+  end
+
+  # A built prompt learns the provider's budget first; a given one is only checked.
+  defp prompt_for({:prompt, prompt}, _provider, _system), do: {:ok, prompt}
+  defp prompt_for({:build, build}, provider, system), do: build.(Window.budget(provider, system))
+
+  defp too_large(provider, needed) do
+    window = Window.tokens(provider)
+
+    Logger.warning(
+      "Prompt of ~#{needed} tokens does not fit #{provider.name} (window #{window}, " <>
+        "#{Window.reserve(provider)} kept for the answer) — refused before the call",
+      provider: provider.name
+    )
+
+    {:halt,
+     {:error,
+      {:prompt_too_large, [%{provider: provider.name, window: window, prompt_tokens: needed}]}}}
   end
 
   defp call(provider, prompt, system) do
@@ -53,14 +100,29 @@ defmodule AlexClaw.LLM.Real do
     {:halt, result}
   end
 
-  defp answered({:error, reason} = error, provider) do
+  defp answered({:error, reason} = failure, provider),
+    do: handed_on(transient?(reason), failure, provider)
+
+  defp handed_on(true, {:error, reason} = failure, provider) do
     Logger.warning(
       "LLM call to #{provider.name} failed, trying the next provider: #{inspect(reason)}",
       provider: provider.name
     )
 
-    {:cont, error}
+    {:cont, failure}
   end
+
+  defp handed_on(false, failure, _provider), do: {:halt, failure}
+
+  @transient_transport [:timeout, :econnrefused]
+
+  defp transient?({_source, status, _body}) when is_integer(status) and status >= 500, do: true
+
+  defp transient?({_source, %Req.TransportError{reason: reason}})
+       when reason in @transient_transport,
+       do: true
+
+  defp transient?(_reason), do: false
 
   @impl true
   def embed(text, opts) when is_binary(text) do

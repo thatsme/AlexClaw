@@ -242,7 +242,7 @@ See `.env.example` for the full list of bootstrap variables.
 | `heavy` | Claude Opus | Deep reasoning (explicit only) |
 | `local` | LM Studio, Ollama | Privacy-sensitive content, offline use, zero cost |
 
-All providers live in the database and can be added, removed, or reconfigured from the admin UI. The defaults above are seeded on first boot. The router selects by priority within each tier (lower priority number = preferred), tracks daily usage, and falls back to the next available provider. A fully local deployment with no API keys is supported — enable a local provider and all tiers will fall back to it.
+All providers live in the database and can be added, removed, or reconfigured from the admin UI. The defaults above are seeded on first boot. The router selects by priority within each tier (lower priority number = preferred), tracks daily usage, and falls back to the next available provider when one times out, refuses the connection or answers with a server error. A fully local deployment with no API keys is supported — enable a local provider and all tiers will fall back to it.
 
 **Per-skill defaults:** Each skill has a configurable default tier (e.g. `skill.research.tier`), set from the admin UI or directly via chat: `/research --tier local` saves the default for future calls. When a query includes `--tier`, it overrides the saved default for that single call. Use `--tier` without a query to save, or with a query to override.
 

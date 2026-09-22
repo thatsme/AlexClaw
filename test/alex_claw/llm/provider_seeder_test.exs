@@ -8,7 +8,7 @@ defmodule AlexClaw.LLM.ProviderSeederTest do
 
   import Ecto.Query
 
-  alias AlexClaw.LLM.{Client, Provider, ProviderSeeder}
+  alias AlexClaw.LLM.{Client, Provider, ProviderSeeder, Window}
 
   defp seeded(name) do
     Repo.one!(from(p in Provider, where: p.name == ^name))
@@ -55,5 +55,13 @@ defmodule AlexClaw.LLM.ProviderSeederTest do
     {:ok, _} = AlexClaw.Config.set("llm.lmstudio_enabled", "true")
     ProviderSeeder.seed()
     assert seeded("LM Studio").enabled
+  end
+
+  test "Ollama is seeded with a 16k window, not Ollama's silent 4096 default" do
+    {:ok, _} = AlexClaw.Config.set("llm.ollama_enabled", "true")
+    {:ok, _} = AlexClaw.Config.set("llm.ollama_host", "http://localhost:11434")
+    ProviderSeeder.seed()
+    assert seeded("Ollama").options == %{"num_ctx" => 16_384}
+    assert Window.tokens(seeded("Ollama")) == 16_384
   end
 end

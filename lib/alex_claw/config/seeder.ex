@@ -45,6 +45,10 @@ defmodule AlexClaw.Config.Seeder do
     {"llm.lmstudio_host", &__MODULE__.env/1, "string", "llm", "LM Studio API host URL", false},
     {"llm.lmstudio_model", &__MODULE__.env/1, "string", "llm", "LM Studio model name", false},
 
+    # LLM - limits on local providers
+    {"llm.local_timeout_seconds", "240", "integer", "llm",
+     "Max seconds one call to a local-tier provider may take before it is abandoned", false},
+
     # Embeddings
     {"embedding.provider", "", "string", "embedding",
      "Provider name for embeddings (empty = auto-detect: Gemini > Ollama > OpenAI-compatible)",

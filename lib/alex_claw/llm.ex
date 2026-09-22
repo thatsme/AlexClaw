@@ -70,6 +70,21 @@ defmodule AlexClaw.LLM do
   def complete(prompt, opts \\ []), do: impl().complete(prompt, opts)
 
   @doc """
+  Complete a prompt built for each candidate provider's context window, so a
+  long context is trimmed by its builder rather than cut by the model's server.
+  `build` receives the tokens the prompt may use (`:unlimited` when the window
+  is unknown) and answers `{:ok, prompt}` or `{:error, {:does_not_fit, tokens}}`.
+  Fails with `{:prompt_too_large, [%{provider, window, prompt_tokens}]}` when
+  the prompt does not fit the provider it was built for; it is not handed to
+  another. See `AlexClaw.LLM.Window`.
+  """
+  @spec complete_fitted(
+          (non_neg_integer() | :unlimited -> {:ok, String.t()} | {:error, term()}),
+          complete_opts()
+        ) :: llm_result()
+  def complete_fitted(build, opts \\ []), do: impl().complete_fitted(build, opts)
+
+  @doc """
   Generate a 768-dimension embedding for the given text.
 
   Resolves an embedding provider via config (`embedding.provider`) or auto-detects

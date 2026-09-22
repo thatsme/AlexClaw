@@ -56,7 +56,7 @@ defmodule AlexClaw.LLM.Client do
 
     if host == "",
       do: {:error, :host_not_set},
-      else: call_ollama(host, p.model, p.options || %{}, prompt, system)
+      else: call_ollama(host, p.model, p.options || %{}, prompt, system, receive_timeout(p))
   end
 
   def call_provider(%Provider{type: type} = p, prompt, system)
@@ -65,17 +65,21 @@ defmodule AlexClaw.LLM.Client do
 
     if host == "",
       do: {:error, :host_not_set},
-      else:
-        call_openai_compatible(
-          host,
-          p.model,
-          p.api_key,
-          p.headers,
-          p.options || %{},
-          prompt,
-          system
-        )
+      else: call_openai_compatible(p, prompt, system, receive_timeout(p))
   end
+
+  @remote_timeout_ms 600_000
+  @default_local_timeout_seconds 240
+
+  # A local model shares the host with everything else: a call it cannot finish
+  # in `llm.local_timeout_seconds` is abandoned rather than left to hold the GPU.
+  defp receive_timeout(%Provider{tier: "local"}),
+    do: local_timeout_seconds(AlexClaw.Config.get("llm.local_timeout_seconds")) * 1000
+
+  defp receive_timeout(_provider), do: @remote_timeout_ms
+
+  defp local_timeout_seconds(n) when is_integer(n) and n > 0, do: n
+  defp local_timeout_seconds(_), do: @default_local_timeout_seconds
 
   # --- Provider Embedding Calls ---
 
@@ -201,7 +205,7 @@ defmodule AlexClaw.LLM.Client do
 
   # --- Ollama ---
 
-  defp call_ollama(host, model, options, prompt, system) do
+  defp call_ollama(host, model, options, prompt, system, timeout) do
     url = "#{host}/api/chat"
 
     messages =
@@ -222,7 +226,7 @@ defmodule AlexClaw.LLM.Client do
     # Ollama takes thinking as a top-level field, not a model option.
     body = if thinking == false, do: Map.put(body, :think, false), else: body
 
-    case Req.post(url, json: body, receive_timeout: 600_000) do
+    case Req.post(url, json: body, receive_timeout: timeout) do
       {:ok, %{status: 200, body: %{"message" => %{"content" => text}}}} ->
         {:ok, text}
 
@@ -236,13 +240,13 @@ defmodule AlexClaw.LLM.Client do
 
   # --- OpenAI Compatible (LM Studio, GROQ, custom) ---
 
-  defp call_openai_compatible(host, model, api_key, extra_headers, options, prompt, system) do
-    url = "#{host}/v1/chat/completions"
-    body = openai_body(model, options, chat_messages(prompt, system))
-    headers = openai_headers(extra_headers, api_key)
+  defp call_openai_compatible(%Provider{} = p, prompt, system, timeout) do
+    url = "#{p.host}/v1/chat/completions"
+    body = openai_body(p.model, p.options || %{}, chat_messages(prompt, system))
+    headers = openai_headers(p.headers, p.api_key)
 
     url
-    |> Req.post(json: body, headers: headers, receive_timeout: 600_000)
+    |> Req.post(json: body, headers: headers, receive_timeout: timeout)
     |> openai_response()
   end
 

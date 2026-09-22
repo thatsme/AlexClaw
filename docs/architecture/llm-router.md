@@ -17,7 +17,32 @@ Every LLM call in AlexClaw declares a **tier requirement**. The router selects t
 2. Order by `priority` (lower number = preferred)
 3. Check daily usage limits (if configured)
 4. Select first available provider
-5. If no provider available for the tier, fall back to `local` tier
+5. After the tier's providers, try the `local` tier
+
+A provider hands the call to the next candidate only on a transient failure:
+a timeout, a refused connection or a 5xx answer. Any other failure is the
+answer. A 4xx is about the request itself — sent elsewhere it would be refused
+again or, worse, taken on by a larger model. A provider named explicitly is
+the only one tried.
+
+### Context window
+
+A prompt is measured against the provider's context window before it is sent,
+and refused with `{:prompt_too_large, [%{provider, window, prompt_tokens}]}`
+when it does not fit. It is not handed to another provider. The window is
+`context_window` in the provider's options when set; otherwise `num_ctx` for
+Ollama (Ollama's default, 4096, without it), the loaded model's context as
+LM Studio reports it for a local OpenAI-compatible server, and the published
+window for Gemini and Anthropic. Callers that can trim their prompt —
+Forge's knowledge-base context — use `LLM.complete_fitted/2`, which builds the
+prompt for the provider's budget.
+
+### Timeouts
+
+A call to a `local`-tier provider is abandoned after
+`llm.local_timeout_seconds` (default 240) and counts as a transient failure.
+A local model shares the host's memory and GPU; a call it cannot finish is not
+left running. Other providers wait up to 10 minutes.
 
 ```elixir
 # A skill requests a tier, not a specific model
@@ -74,4 +99,4 @@ LLM provider selection can be configured at three levels (most specific wins):
 
 ## Fully Local Deployment
 
-A deployment with no cloud API keys is supported. Enable a local provider (Ollama or LM Studio) and all tiers fall back to it. Zero external API calls.
+A deployment with no cloud API keys is supported. Enable a local provider (Ollama or LM Studio) and every tier reaches it. Zero external API calls.

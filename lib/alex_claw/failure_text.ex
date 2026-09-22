@@ -18,6 +18,13 @@ defmodule AlexClaw.FailureText do
   defp error_message({source, status, body}) when is_atom(source) and is_integer(status),
     do: with_status(error_message(body), status)
 
+  defp error_message({:prompt_too_large, [_ | _] = providers}) do
+    "prompt too large for " <>
+      Enum.map_join(providers, ", ", fn p ->
+        "#{p.provider} (window #{p.window || "unknown"}, needs ~#{p.prompt_tokens} tokens)"
+      end)
+  end
+
   defp error_message({tag, inner}) when is_atom(tag), do: prefixed(tag, error_message(inner))
   defp error_message(%{"message" => message}) when is_binary(message), do: message
   defp error_message(%{"error" => error}), do: error_message(error)

@@ -25,6 +25,8 @@ defmodule AlexClaw.LLM.ThinkingOptionTest do
 
   defp capture(bypass, path, reply) do
     test = self()
+    # A local server is asked for its window before the call; this one is not LM Studio.
+    Bypass.stub(bypass, "GET", "/api/v0/models", &Plug.Conn.resp(&1, 404, ""))
 
     Bypass.expect(bypass, "POST", path, fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)

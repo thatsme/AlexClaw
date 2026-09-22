@@ -6,6 +6,7 @@ defmodule AlexClaw.Memory do
   """
   require Logger
   import Ecto.Query
+  alias AlexClaw.LLM.Embedding
   alias AlexClaw.Memory.Entry
   alias AlexClaw.RAG.Chunker
   alias AlexClaw.RAG.QueryRewriter
@@ -260,7 +261,7 @@ defmodule AlexClaw.Memory do
   # check comparing against "" — every entry was stale the moment it was
   # embedded, and reembed_all/1 re-embedded the whole table on every run.
   defp current_embedding_model do
-    AlexClaw.Config.get("embedding.model") || @default_embedding_model
+    Embedding.model() || @default_embedding_model
   end
 
   defp sandbox_allow(caller) do

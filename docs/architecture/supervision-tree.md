@@ -26,6 +26,7 @@ AlexClaw.Application (one_for_one)
   ├── Registry (AlexClaw.CircuitBreakerRegistry)  # Per-skill breaker registry
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor
   ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
+  ├── AlexClaw.Skills.ForgeGuard         # One skill generation at a time
   ├── AlexClaw.Reasoning.Supervisor      # DynamicSupervisor — reasoning sessions
   ├── AlexClaw.MCP.Server                # MCP server (Streamable HTTP)
   ├── AlexClaw.Cluster.Manager           # Node registration and remote triggers
@@ -53,6 +54,14 @@ a registered process name, not a module.
 **DynamicSupervisors** — `SkillSupervisor`, `CircuitBreakerSupervisor` and
 `Reasoning.Supervisor` manage a variable number of children: one per running
 skill, per circuit breaker, and per reasoning session.
+
+**One skill generation at a time.** Generating a skill is a chain of
+local-model calls, and a local model shares the host's memory and GPU with
+everything else. `AlexClaw.Skills.ForgeGuard` holds a single lock that the
+Forge page and the Coder skill take before generating; a second request is
+refused rather than queued. The lock is released when its holder finishes or
+exits. Each generation is also capped at five attempts and at
+`forge.time_budget_seconds` across all of them.
 
 **Every ETS table has a supervised owner.** `Config.Loader`, `SkillRegistry`,
 `UsageTracker`, `RateLimiter.Server`, `LogBuffer`, `ChallengeStore`,

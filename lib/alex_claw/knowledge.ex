@@ -8,6 +8,7 @@ defmodule AlexClaw.Knowledge do
   require Logger
   import Ecto.Query
   alias AlexClaw.Knowledge.{EmbedThrottle, Entry}
+  alias AlexClaw.LLM.Embedding
   alias AlexClaw.RAG.{Chunker, QueryRewriter}
   alias AlexClaw.Repo
   alias Ecto.Adapters.SQL.Sandbox
@@ -263,7 +264,7 @@ defmodule AlexClaw.Knowledge do
   # check comparing against "" — every entry was stale the moment it was
   # embedded, and reembed_all/1 re-embedded the whole table on every run.
   defp current_embedding_model do
-    AlexClaw.Config.get("embedding.model") || @default_embedding_model
+    Embedding.model() || @default_embedding_model
   end
 
   defp embed_inserted_chunk({:ok, chunk_entry}, _idx), do: async_embed(chunk_entry)

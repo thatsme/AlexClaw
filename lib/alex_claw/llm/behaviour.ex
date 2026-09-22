@@ -9,4 +9,10 @@ defmodule AlexClaw.LLM.Behaviour do
 
   @callback embed(text :: String.t(), opts :: keyword()) ::
               {:ok, list(float())} | {:error, term()}
+
+  # A prompt built to fit each candidate provider's context window.
+  @callback complete_fitted(
+              build :: (non_neg_integer() | :unlimited -> {:ok, String.t()} | {:error, term()}),
+              opts :: keyword()
+            ) :: {:ok, String.t()} | {:error, term()}
 end

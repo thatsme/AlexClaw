@@ -370,10 +370,12 @@ defmodule AlexClaw.Workflows.Executor do
     route_for(step.routes, step, branch, steps)
   end
 
-  # No routes defined — fall through to the next position on success and halt on
-  # error, which is how linear workflows behaved before branching existed.
+  # No routes defined — fall through to the next position on success. An error
+  # ends the run, and so does an empty result: nothing downstream has anything
+  # to work on, and a notify step would only deliver the emptiness. A workflow
+  # that wants to report "nothing found" routes on_empty explicitly.
   defp route_for(routes, step, branch, steps) when routes == [] or is_nil(routes) do
-    if branch == :on_error, do: nil, else: next_position(step.position, steps)
+    if branch in [:on_error, :on_empty], do: nil, else: next_position(step.position, steps)
   end
 
   defp route_for(routes, _step, branch, _steps) do
@@ -514,7 +516,7 @@ defmodule AlexClaw.Workflows.Executor do
 
   defp notify_failure(workflow, step_name, reason, gateways) do
     msg =
-      "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{String.slice(inspect(reason), 0, 200)}`"
+      "❌ *#{workflow.name}* failed at _#{step_name}_\n`#{AlexClaw.FailureText.describe(reason)}`"
 
     Enum.each(gateways, fn gw -> gw.send_message(msg, []) end)
   end

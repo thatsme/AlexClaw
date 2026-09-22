@@ -94,7 +94,38 @@ defmodule AlexClaw.ContentSanitizer do
   @spec sanitize(any(), keyword()) :: any()
   def sanitize(content, opts \\ [])
 
+  # A skill's output is often a JSON document — rss_fetch returns its items as
+  # a JSON array. Sanitizing the serialized text broke it: the document has no
+  # sentence breaks, so one hit stripped all of it, and the size guard cut it
+  # mid-structure. JSON is sanitized value by value and stays JSON.
   def sanitize(content, opts) when is_binary(content) do
+    skill_name = Keyword.get(opts, :skill, "unknown")
+
+    Logger.info(
+      "[ContentSanitizer] Raw input from skill '#{skill_name}' (#{byte_size(content)} bytes): " <>
+        String.slice(content, 0, 500)
+    )
+
+    content |> Jason.decode() |> sanitized(content, opts)
+  end
+
+  def sanitize(content, _opts), do: content
+
+  defp sanitized({:ok, document}, _content, opts) when is_list(document) or is_map(document),
+    do: document |> sanitize_values(opts) |> Jason.encode!()
+
+  defp sanitized(_not_json, content, opts), do: sanitize_text(content, opts)
+
+  defp sanitize_values(map, opts) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {k, sanitize_values(v, opts)} end)
+
+  defp sanitize_values(list, opts) when is_list(list),
+    do: Enum.map(list, &sanitize_values(&1, opts))
+
+  defp sanitize_values(text, opts) when is_binary(text), do: sanitize_text(text, opts)
+  defp sanitize_values(other, _opts), do: other
+
+  defp sanitize_text(content, opts) do
     max_size = Keyword.get(opts, :max_size, @default_max_size)
     skill_name = Keyword.get(opts, :skill, "unknown")
 
@@ -102,17 +133,9 @@ defmodule AlexClaw.ContentSanitizer do
     |> detect_hidden_html(skill_name)
     |> strip_zero_width(skill_name)
     |> strip_html()
-    |> tap(fn cleaned ->
-      Logger.info(
-        "[ContentSanitizer] Raw input from skill '#{skill_name}' (#{byte_size(cleaned)} bytes): " <>
-          String.slice(cleaned, 0, 500)
-      )
-    end)
     |> enforce_size(max_size)
     |> strip_injection(skill_name)
   end
-
-  def sanitize(content, _opts), do: content
 
   # --- Layer 1: Hidden HTML Detection ---
 
@@ -348,7 +371,7 @@ defmodule AlexClaw.ContentSanitizer do
     skill_names = skill_name_list()
 
     reasons =
-      if Enum.any?(skill_names, &String.contains?(low, &1)) do
+      if Enum.any?(skill_names, &mentions_skill?(low, &1)) do
         ["skill_mention" | reasons]
       else
         reasons
@@ -383,6 +406,20 @@ defmodule AlexClaw.ContentSanitizer do
   end
 
   # --- Helpers ---
+
+  # An identifier such as web_fetch is unambiguous as a whole word. A plain word
+  # — research, shell, coder — is ordinary English ("researchers", "encoder",
+  # "in a nutshell"); only "the shell skill" or "skill research" refers to ours.
+  defp mentions_skill?(text, name) do
+    escaped = Regex.escape(name)
+
+    pattern =
+      if String.contains?(name, "_"),
+        do: ~r/\b#{escaped}\b/,
+        else: ~r/\b#{escaped}\s+(skill|tool)\b|\b(skill|tool)\s+#{escaped}\b/
+
+    Regex.match?(pattern, text)
+  end
 
   defp skill_name_list do
     SkillRegistry.list_skills()

@@ -351,6 +351,8 @@ defmodule AlexClaw.LLMTest do
       })
 
       AlexClaw.Config.set("embedding.provider", "Custom Embedder")
+      # An OpenAI-compatible provider has no default embedding model.
+      AlexClaw.Config.set("embedding.model", "embed-model")
 
       assert {:ok, result} = LLM.embed("test text")
       assert length(result) == 768

@@ -33,7 +33,8 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   alias AlexClaw.Config
 
   @max_diff_bytes 24_000
-  @github_api "https://api.github.com"
+  # Configurable so the diff fetch can be tested against a local server.
+  defp github_api, do: Application.get_env(:alex_claw, :github_api_base, "https://api.github.com")
 
   @impl true
   @spec step_fields() :: [atom()]
@@ -123,7 +124,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
           Logger.warning("PR fetch failed: #{inspect(reason)}", skill: :github)
 
           AlexClaw.Gateway.send_message(
-            "⚠️ Failed to fetch PR ##{pr_number}: #{inspect(reason)}",
+            "⚠️ Failed to fetch PR ##{pr_number}: #{AlexClaw.FailureText.describe(reason)}",
             opts
           )
       end
@@ -145,7 +146,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
           Logger.warning("Commit fetch failed: #{inspect(reason)}", skill: :github)
 
           AlexClaw.Gateway.send_message(
-            "⚠️ Failed to fetch commit `#{String.slice(sha, 0, 8)}`: #{inspect(reason)}",
+            "⚠️ Failed to fetch commit `#{String.slice(sha, 0, 8)}`: #{AlexClaw.FailureText.describe(reason)}",
             opts
           )
       end
@@ -243,7 +244,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
     Logger.info("Fetching compare #{short_base}...#{short_head} on #{repo}", skill: :github)
 
     with {:ok, compare_data} <-
-           github_get("#{@github_api}/repos/#{repo}/compare/#{base_sha}...#{head_sha}", token),
+           github_get("#{github_api()}/repos/#{repo}/compare/#{base_sha}...#{head_sha}", token),
          {:ok, diff} <- fetch_compare_diff(repo, base_sha, head_sha, token) do
       files = compare_data["files"] || []
 
@@ -300,25 +301,25 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   defp fetch_open_prs(repo, token, per_page) do
     github_get(
-      "#{@github_api}/repos/#{repo}/pulls?state=open&sort=created&direction=desc&per_page=#{per_page}",
+      "#{github_api()}/repos/#{repo}/pulls?state=open&sort=created&direction=desc&per_page=#{per_page}",
       token
     )
   end
 
   defp fetch_recent_commits(repo, token, per_page) do
-    github_get("#{@github_api}/repos/#{repo}/commits?per_page=#{per_page}", token)
+    github_get("#{github_api()}/repos/#{repo}/commits?per_page=#{per_page}", token)
   end
 
   defp fetch_compare_diff(repo, base, head, token) do
     github_get_raw(
-      "#{@github_api}/repos/#{repo}/compare/#{base}...#{head}",
+      "#{github_api()}/repos/#{repo}/compare/#{base}...#{head}",
       [{"accept", "application/vnd.github.v3.diff"}],
       token
     )
   end
 
   defp fetch_pr_meta(repo, pr_number, token) do
-    case github_get("#{@github_api}/repos/#{repo}/pulls/#{pr_number}", token) do
+    case github_get("#{github_api()}/repos/#{repo}/pulls/#{pr_number}", token) do
       {:ok, body} ->
         {:ok,
          %{
@@ -339,14 +340,14 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   defp fetch_pr_diff(repo, pr_number, token) do
     github_get_raw(
-      "#{@github_api}/repos/#{repo}/pulls/#{pr_number}",
+      "#{github_api()}/repos/#{repo}/pulls/#{pr_number}",
       [{"accept", "application/vnd.github.v3.diff"}],
       token
     )
   end
 
   defp fetch_commit_meta(repo, sha, token) do
-    case github_get("#{@github_api}/repos/#{repo}/commits/#{sha}", token) do
+    case github_get("#{github_api()}/repos/#{repo}/commits/#{sha}", token) do
       {:ok, body} ->
         {:ok,
          %{
@@ -365,7 +366,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   defp fetch_commit_diff(repo, sha, token) do
     github_get_raw(
-      "#{@github_api}/repos/#{repo}/commits/#{sha}",
+      "#{github_api()}/repos/#{repo}/commits/#{sha}",
       [{"accept", "application/vnd.github.v3.diff"}],
       token
     )
@@ -391,8 +392,13 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
     end
   end
 
+  # The extra headers replace the defaults of the same name: two Accept headers
+  # made GitHub answer with the JSON one, and the diff never came.
   defp github_get_raw(url, extra_headers, token) do
-    case Req.get(url, headers: github_headers(token) ++ extra_headers, receive_timeout: 15_000) do
+    overridden = Enum.map(extra_headers, fn {name, _} -> String.downcase(name) end)
+    base = Enum.reject(github_headers(token), fn {name, _} -> name in overridden end)
+
+    case Req.get(url, headers: base ++ extra_headers, receive_timeout: 15_000) do
       {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
       {:ok, %{status: status, body: body}} -> {:error, {:github_api, status, body}}
       {:error, reason} -> {:error, {:http, reason}}

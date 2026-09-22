@@ -6,19 +6,31 @@ defmodule AlexClaw.LLM.Real do
   import Ecto.Query
 
   alias AlexClaw.LLM
-  alias AlexClaw.LLM.{Client, Provider}
+  alias AlexClaw.LLM.{Client, Embedding, Provider, Window}
 
   @impl true
-  def complete(prompt, opts) do
-    system = Keyword.get(opts, :system, nil)
-    provider_name = Keyword.get(opts, :provider, nil)
+  def complete(prompt, opts), do: complete_with({:prompt, prompt}, opts)
 
-    case resolve_provider(provider_name, opts) do
-      {:ok, provider} ->
-        Logger.info("LLM call: #{provider.name} (#{provider.model})", provider: provider.name)
-        result = Client.call_provider(provider, prompt, system)
-        if match?({:ok, _}, result), do: LLM.track_usage(provider.id)
-        result
+  @doc """
+  Complete a prompt built for each candidate provider's window: `build` gets
+  the tokens the prompt may use (`:unlimited` when the window is unknown) and
+  answers `{:ok, prompt}`, or `{:error, {:does_not_fit, tokens}}` when even its
+  mandatory part is larger. A prompt is never sent to a provider it does not
+  fit, nor handed to the next one: the error names the provider's window.
+  """
+  @spec complete_fitted(
+          (non_neg_integer() | :unlimited -> {:ok, String.t()} | {:error, term()}),
+          keyword()
+        ) :: {:ok, String.t()} | {:error, term()}
+  @impl true
+  def complete_fitted(build, opts), do: complete_with({:build, build}, opts)
+
+  defp complete_with(source, opts) do
+    system = Keyword.get(opts, :system, nil)
+
+    case candidates(Keyword.get(opts, :provider, nil), opts) do
+      {:ok, providers} ->
+        providers |> Enum.map(&with_call_options(&1, opts)) |> first_answer(source, system)
 
       {:error, reason} ->
         Logger.warning("No available model: #{inspect(reason)}")
@@ -26,93 +38,147 @@ defmodule AlexClaw.LLM.Real do
     end
   end
 
+  # `thinking: false` in the call's options overrides the provider's setting:
+  # a caller that needs a strict format (a code block, one number per line) asks
+  # a thinking model to answer directly rather than reason in prose first.
+  defp with_call_options(provider, opts) do
+    case Keyword.fetch(opts, :thinking) do
+      {:ok, thinking} ->
+        %{provider | options: Map.put(provider.options || %{}, "thinking", thinking)}
+
+      :error ->
+        provider
+    end
+  end
+
+  # Only a transient failure — a timeout, a refused connection, a 5xx — hands
+  # the call to the next candidate: another server may not share it. Anything
+  # else is the answer. A 4xx is about the request and would be refused again
+  # or, worse, taken on by a larger model; a prompt too large for the provider
+  # is refused before it is sent, for the same reason.
+  defp first_answer(providers, source, system) do
+    Enum.reduce_while(providers, {:error, :no_available_model}, fn provider, _last ->
+      attempt(provider, source, system)
+    end)
+  end
+
+  defp attempt(provider, source, system) do
+    with {:ok, prompt} <- prompt_for(source, provider, system),
+         :ok <- Window.fits(provider, prompt, system) do
+      provider |> call(prompt, system) |> answered(provider)
+    else
+      {:error, {:does_not_fit, tokens}} -> too_large(provider, tokens + Window.estimate(system))
+      {:error, %{prompt_tokens: needed}} -> too_large(provider, needed)
+    end
+  end
+
+  # A built prompt learns the provider's budget first; a given one is only checked.
+  defp prompt_for({:prompt, prompt}, _provider, _system), do: {:ok, prompt}
+  defp prompt_for({:build, build}, provider, system), do: build.(Window.budget(provider, system))
+
+  defp too_large(provider, needed) do
+    window = Window.tokens(provider)
+
+    Logger.warning(
+      "Prompt of ~#{needed} tokens does not fit #{provider.name} (window #{window}, " <>
+        "#{Window.reserve(provider)} kept for the answer) — refused before the call",
+      provider: provider.name
+    )
+
+    {:halt,
+     {:error,
+      {:prompt_too_large, [%{provider: provider.name, window: window, prompt_tokens: needed}]}}}
+  end
+
+  defp call(provider, prompt, system) do
+    Logger.info("LLM call: #{provider.name} (#{provider.model})", provider: provider.name)
+    Client.call_provider(provider, prompt, system)
+  end
+
+  defp answered({:ok, _} = result, provider) do
+    LLM.track_usage(provider.id)
+    {:halt, result}
+  end
+
+  defp answered({:error, reason} = failure, provider),
+    do: handed_on(transient?(reason), failure, provider)
+
+  defp handed_on(true, {:error, reason} = failure, provider) do
+    Logger.warning(
+      "LLM call to #{provider.name} failed, trying the next provider: #{inspect(reason)}",
+      provider: provider.name
+    )
+
+    {:cont, failure}
+  end
+
+  defp handed_on(false, failure, _provider), do: {:halt, failure}
+
+  @transient_transport [:timeout, :econnrefused]
+
+  defp transient?({_source, status, _body}) when is_integer(status) and status >= 500, do: true
+
+  defp transient?({_source, %Req.TransportError{reason: reason}})
+       when reason in @transient_transport,
+       do: true
+
+  defp transient?(_reason), do: false
+
   @impl true
   def embed(text, opts) when is_binary(text) do
-    case resolve_embedding_provider(opts) do
-      {:ok, provider} ->
-        model = AlexClaw.Config.get("embedding.model") || "text-embedding-004"
-        result = Client.call_embedding(provider, text, model)
-        if match?({:ok, _}, result), do: LLM.track_usage(provider.id)
-        result
-
+    with {:ok, provider} <- Embedding.provider(opts),
+         {:ok, model} <- embedding_model(provider) do
+      result = Client.call_embedding(provider, text, model)
+      if match?({:ok, _}, result), do: LLM.track_usage(provider.id)
+      result
+    else
       {:error, reason} ->
-        Logger.warning("No embedding provider available: #{inspect(reason)}")
+        Logger.warning("No embedding available: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  defp resolve_provider(nil, opts), do: select_model(Keyword.get(opts, :tier, :light))
-  defp resolve_provider("auto", opts), do: resolve_provider(nil, opts)
-  defp resolve_provider("", opts), do: resolve_provider(nil, opts)
+  # Anthropic has no embedding API; the client says so in its own words.
+  defp embedding_model(%Provider{type: "anthropic"}), do: {:ok, nil}
 
-  defp resolve_provider(name, _opts) when is_binary(name) do
+  defp embedding_model(provider) do
+    case Embedding.model_for(provider) do
+      nil -> {:error, {:no_embedding_model, provider.name}}
+      model -> {:ok, model}
+    end
+  end
+
+  # A named provider is the only candidate: asking for it by name means that one.
+  defp candidates(name, opts) when name in [nil, "", "auto"],
+    do: select_models(Keyword.get(opts, :tier, :light))
+
+  defp candidates(name, _opts) when is_binary(name) do
     case AlexClaw.Repo.one(from(p in Provider, where: p.name == ^name and p.enabled == true)) do
       nil -> {:error, {:unknown_provider, name}}
-      provider -> {:ok, provider}
+      provider -> {:ok, [provider]}
     end
   end
 
-  defp resolve_embedding_provider(opts) do
-    case Keyword.get(opts, :provider) do
-      name when is_binary(name) and name != "" ->
-        resolve_provider(name, [])
+  # The tier's providers by priority, then the local tier's: a call that finds
+  # no answer in its tier falls back to local models. At limit is skipped.
+  defp select_models(tier) do
+    tier_providers = enabled_in(Atom.to_string(tier))
+    local = if tier == :local, do: [], else: enabled_in("local")
 
-      _ ->
-        configured = AlexClaw.Config.get("embedding.provider")
-
-        if configured && configured != "" do
-          resolve_provider(configured, [])
-        else
-          auto_detect_embedding_provider()
-        end
+    case Enum.filter(tier_providers ++ local, &within_limit?/1) do
+      [] when tier_providers == [] and local == [] -> {:error, :no_available_model}
+      [] -> {:error, :all_providers_at_limit}
+      providers -> {:ok, providers}
     end
   end
 
-  defp auto_detect_embedding_provider do
-    query =
+  defp enabled_in(tier) do
+    AlexClaw.Repo.all(
       from(p in Provider,
-        where: p.enabled == true,
+        where: p.enabled == true and p.tier == ^tier,
         order_by: [asc: p.priority, asc: p.name]
       )
-
-    providers = AlexClaw.Repo.all(query)
-
-    result =
-      Enum.find(providers, &(&1.type == "gemini")) ||
-        Enum.find(providers, &(&1.type == "ollama")) ||
-        Enum.find(providers, &(&1.type in ["openai_compatible", "custom"]))
-
-    case result do
-      nil -> {:error, :no_embedding_provider}
-      provider -> {:ok, provider}
-    end
-  end
-
-  defp select_model(tier) do
-    tier_str = Atom.to_string(tier)
-
-    providers =
-      AlexClaw.Repo.all(
-        from(p in Provider,
-          where: p.enabled == true and p.tier == ^tier_str,
-          order_by: [asc: p.priority, asc: p.name]
-        )
-      )
-
-    case providers do
-      [] ->
-        if tier != :local do
-          select_model(:local)
-        else
-          {:error, :no_available_model}
-        end
-
-      providers ->
-        case Enum.find(providers, &within_limit?/1) do
-          nil -> {:error, :all_providers_at_limit}
-          provider -> {:ok, provider}
-        end
-    end
+    )
   end
 
   defp within_limit?(%Provider{daily_limit: nil}), do: true

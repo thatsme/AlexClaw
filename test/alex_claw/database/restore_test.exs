@@ -16,7 +16,7 @@ defmodule AlexClaw.Database.RestoreTest do
   alias AlexClaw.Config.Crypto
   alias AlexClaw.Database.{DataExport, DataSet, Restore}
   alias AlexClaw.Dispatcher.AuthCommands
-  alias AlexClaw.{LLM, Message, RecordingGateway, Workflows}
+  alias AlexClaw.{LLM, Message, RecordingGateway, SandboxCleanup, Workflows}
 
   defp export do
     ""
@@ -291,6 +291,28 @@ defmodule AlexClaw.Database.RestoreTest do
     end
   end
 
+  # Each sequence a restore may set, with its value now: {sequence, last_value, is_called}.
+  defp sequences do
+    restored = DataSet.tables()
+
+    %{rows: serials} =
+      Repo.query!("""
+      SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND column_default LIKE 'nextval(%'
+      """)
+
+    for [table, column] <- serials, table in restored do
+      %{rows: [[sequence]]} =
+        Repo.query!("SELECT pg_get_serial_sequence($1, $2)", ["public." <> table, column])
+
+      %{rows: [[value, called]]} = Repo.query!("SELECT last_value, is_called FROM #{sequence}")
+      {sequence, value, called}
+    end
+  end
+
+  defp put_back({sequence, value, called}),
+    do: Repo.query!("SELECT setval($1::text::regclass, $2, $3)", [sequence, value, called])
+
   # A file 0.3.34 wrote (test/fixtures/exports/v0.3.34.json, produced by the
   # 0.3.34 code under the test SECRET_KEY_BASE) restores here unchanged: no
   # release may write an export the next cannot restore. The fixture pins the
@@ -301,6 +323,15 @@ defmodule AlexClaw.Database.RestoreTest do
 
   describe "an export written by 0.3.34" do
     @v0_3_34 Path.expand("../../fixtures/exports/v0.3.34.json", __DIR__)
+
+    # The restore sets each sequence to the file's highest id, and a sequence is
+    # not rolled back with the sandbox: after this test settings_id_seq stayed at
+    # the fixture's 79 while the seeded rows went past it, and the next insert
+    # anywhere in the suite collided. Every sequence is put back as it was.
+    setup do
+      kept = sequences()
+      on_exit(fn -> SandboxCleanup.run(fn -> Enum.each(kept, &put_back/1) end) end)
+    end
 
     test "restores, with its credentials readable and encrypted at rest as they were" do
       file = @v0_3_34 |> File.read!() |> Jason.decode!()

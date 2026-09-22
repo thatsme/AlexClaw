@@ -45,12 +45,19 @@ defmodule AlexClaw.Config.Seeder do
     {"llm.lmstudio_host", &__MODULE__.env/1, "string", "llm", "LM Studio API host URL", false},
     {"llm.lmstudio_model", &__MODULE__.env/1, "string", "llm", "LM Studio model name", false},
 
+    # LLM - limits on local providers
+    {"llm.local_timeout_seconds", "240", "integer", "llm",
+     "Max seconds one call to a local-tier provider may take before it is abandoned", false},
+    {"forge.time_budget_seconds", "600", "integer", "forge",
+     "Max seconds one skill generation may take across all of its attempts", false},
+
     # Embeddings
     {"embedding.provider", "", "string", "embedding",
      "Provider name for embeddings (empty = auto-detect: Gemini > Ollama > OpenAI-compatible)",
      false},
-    {"embedding.model", "gemini-embedding-001", "string", "embedding",
-     "Embedding model name (Gemini: gemini-embedding-001, Ollama: nomic-embed-text)", false},
+    {"embedding.model", "", "string", "embedding",
+     "Embedding model name (empty = the provider's default: gemini-embedding-001 on Gemini, " <>
+       "nomic-embed-text on Ollama; an OpenAI-compatible provider needs one named)", false},
 
     # Skill defaults (per-skill LLM tier/provider for chat invocation)
     {"skill.research.tier", "medium", "string", "skill.research",

@@ -239,6 +239,19 @@ defmodule AlexClaw.Gateway.Telegram do
     end
   end
 
+  # Telegram refuses a message over 4096 characters outright, so an overlong
+  # one arrived as nothing at all. It is cut, and says so.
+  @max_message 4096
+  @cut_note "\n… (message truncated)"
+
+  @doc false
+  @spec fit(String.t()) :: String.t()
+  def fit(text) when is_binary(text) do
+    if String.length(text) <= @max_message,
+      do: text,
+      else: String.slice(text, 0, @max_message - String.length(@cut_note)) <> @cut_note
+  end
+
   defp do_send_html(token, chat_id, text) do
     do_send(token, chat_id, text, "HTML")
   end
@@ -249,6 +262,7 @@ defmodule AlexClaw.Gateway.Telegram do
 
   defp do_send(token, chat_id, text, parse_mode) do
     url = "#{@telegram_api}#{token}/sendMessage"
+    text = fit(text)
 
     case Req.post(url, json: %{chat_id: chat_id, text: text, parse_mode: parse_mode}) do
       {:ok, %{status: 200}} ->

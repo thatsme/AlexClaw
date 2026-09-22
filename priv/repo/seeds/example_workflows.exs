@@ -114,9 +114,17 @@ IO.puts("--- Creating 'Tech News Digest' workflow ---")
 {:ok, _} =
   Workflows.add_step(news_wf, %{
     name: "Collect News",
-    skill: "rss_collector",
+    skill: "rss_fetch",
     position: 1,
-    config: %{"threshold" => 0.3, "force" => false},
+    config: %{"max_items" => 30, "recent_hours" => 24}
+  })
+
+{:ok, _} =
+  Workflows.add_step(news_wf, %{
+    name: "Score",
+    skill: "llm_score",
+    position: 2,
+    config: %{"interests" => "technology, software, security, world news", "threshold" => 0.3, "max_items" => 10},
     llm_tier: "light"
   })
 
@@ -124,7 +132,7 @@ IO.puts("--- Creating 'Tech News Digest' workflow ---")
   Workflows.add_step(news_wf, %{
     name: "Summarize",
     skill: "llm_transform",
-    position: 2,
+    position: 3,
     prompt_template: """
     Summarize the following news items into a concise digest.
     Group by topic (tech, security, world news).
@@ -141,11 +149,11 @@ IO.puts("--- Creating 'Tech News Digest' workflow ---")
   Workflows.add_step(news_wf, %{
     name: "Deliver to Telegram",
     skill: "telegram_notify",
-    position: 3,
+    position: 4,
     config: %{}
   })
 
-IO.puts("  + Created workflow: #{news_wf.name} (3 steps)")
+IO.puts("  + Created workflow: #{news_wf.name} (4 steps)")
 
 # Assign feeds to the news digest workflow
 Enum.each(feed_resources, fn resource ->
@@ -172,10 +180,9 @@ IO.puts("\n--- Creating 'Web Research' workflow ---")
 {:ok, _} =
   Workflows.add_step(research_wf, %{
     name: "Search",
-    skill: "web_search",
+    skill: "web_search_fetch",
     position: 1,
-    config: %{"query" => "latest developments in Elixir and BEAM ecosystem"},
-    llm_tier: "light"
+    config: %{"query" => "latest developments in Elixir and BEAM ecosystem", "max_results" => 3}
   })
 
 {:ok, _} =
@@ -270,9 +277,17 @@ IO.puts("\n--- Creating 'Financial Markets Recap' workflow ---")
 {:ok, _} =
   Workflows.add_step(fin_wf, %{
     name: "Collect Financial News",
-    skill: "rss_collector",
+    skill: "rss_fetch",
     position: 1,
-    config: %{"threshold" => 0.3, "force" => false},
+    config: %{"max_items" => 30, "recent_hours" => 24}
+  })
+
+{:ok, _} =
+  Workflows.add_step(fin_wf, %{
+    name: "Score",
+    skill: "llm_score",
+    position: 2,
+    config: %{"interests" => "markets, economy, central banks, finance", "threshold" => 0.3, "max_items" => 10},
     llm_tier: "light"
   })
 
@@ -280,7 +295,7 @@ IO.puts("\n--- Creating 'Financial Markets Recap' workflow ---")
   Workflows.add_step(fin_wf, %{
     name: "Market Recap",
     skill: "llm_transform",
-    position: 2,
+    position: 3,
     prompt_template: """
     You are a financial analyst. Summarize the following market news into a concise daily recap.
 
@@ -302,11 +317,11 @@ IO.puts("\n--- Creating 'Financial Markets Recap' workflow ---")
   Workflows.add_step(fin_wf, %{
     name: "Deliver to Telegram",
     skill: "telegram_notify",
-    position: 3,
+    position: 4,
     config: %{}
   })
 
-IO.puts("  + Created workflow: #{fin_wf.name} (3 steps)")
+IO.puts("  + Created workflow: #{fin_wf.name} (4 steps)")
 
 # Assign financial feeds to workflow
 Enum.each(fin_feed_resources, fn resource ->

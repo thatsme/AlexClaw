@@ -39,6 +39,19 @@ defmodule AlexClaw.Skills.SkillAPI do
     end
   end
 
+  @doc "Complete a prompt built to fit the chosen provider's context window. See `AlexClaw.LLM.complete_fitted/2`."
+  @spec llm_complete_fitted(
+          skill_mod(),
+          (non_neg_integer() | :unlimited -> {:ok, String.t()} | {:error, term()}),
+          keyword()
+        ) ::
+          {:ok, String.t()} | {:error, term()}
+  def llm_complete_fitted(skill_module, build, opts \\ []) do
+    with :ok <- check_permission(skill_module, :llm) do
+      AlexClaw.LLM.complete_fitted(build, opts)
+    end
+  end
+
   @doc "Get the system prompt from Identity, with optional context."
   @spec system_prompt(skill_mod(), map()) :: {:ok, String.t()} | {:error, :permission_denied}
   def system_prompt(skill_module, context \\ %{}) do

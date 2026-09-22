@@ -68,7 +68,8 @@ defmodule AlexClaw.Skills.LlmScore do
       threshold,
       parse_int(config["max_items"], @default_max_items),
       # Scoring defaults to the :light tier unless the step names one.
-      llm_opts(args, :light)
+      # A thinking model reasons in prose first; scores come one number per line.
+      Keyword.put(llm_opts(args, :light), :thinking, false)
     )
   end
 
@@ -166,13 +167,22 @@ defmodule AlexClaw.Skills.LlmScore do
     |> Enum.map(&parse_score_line/1)
   end
 
+  # "0.8", "1. 0.8", "2) 0.8" and "0.8 — relevant" all read 0.8. A list number
+  # is only stripped when whitespace follows it: stripping "0." from "0.1" read
+  # it as 1.0, and "1.0" as 0.
   defp parse_score_line(line) do
     line
     |> String.trim()
-    |> String.replace(~r/^[\d]+[\.\):\-\s]+/, "")
-    |> String.replace(~r/[^\d\.]/, "")
-    |> Float.parse()
+    |> String.replace(~r/^\d+[\.\):]\s+/, "")
+    |> first_number()
     |> normalize_score()
+  end
+
+  defp first_number(text) do
+    case Regex.run(~r/\d+(?:\.\d+)?/, text) do
+      [number] -> Float.parse(number)
+      nil -> :error
+    end
   end
 
   # A model that answers on a 0-10 scale despite the instruction is rescaled

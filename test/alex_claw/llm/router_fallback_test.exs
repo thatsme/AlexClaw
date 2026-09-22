@@ -9,17 +9,17 @@ defmodule AlexClaw.LLM.RouterFallbackTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.{Config, LLM}
+  alias AlexClaw.{Config, LLM, ProviderHelper}
+  alias AlexClaw.LLM.LocalLock
 
+  # Straight to the database: AlexClaw.LLM refuses a second enabled local
+  # provider, and these tests describe what the router does when one exists.
   defp provider(name, tier, priority, bypass) do
-    {:ok, p} =
-      LLM.create_provider(%{
+    p =
+      ProviderHelper.insert!(%{
         name: name,
-        type: "openai_compatible",
         tier: tier,
-        model: "m",
         host: "http://localhost:#{bypass.port}",
-        enabled: true,
         priority: priority
       })
 
@@ -103,7 +103,7 @@ defmodule AlexClaw.LLM.RouterFallbackTest do
     assert LLM.complete("hi", tier: :light) == {:ok, "from second"}
   end
 
-  test "a local call past llm.local_timeout_seconds is abandoned and handed over", %{
+  test "a local call past llm.local_timeout_seconds is abandoned, and no other local is tried", %{
     second: second
   } do
     {:ok, _} = Config.set("llm.local_timeout_seconds", "1", type: "integer")
@@ -112,26 +112,67 @@ defmodule AlexClaw.LLM.RouterFallbackTest do
     {:ok, silent} = :gen_tcp.listen(0, active: false)
     {:ok, silent_port} = :inet.port(silent)
 
-    {:ok, _} =
-      LLM.create_provider(%{
-        name: "slow",
-        type: "ollama",
-        tier: "local",
-        model: "m",
-        host: "http://localhost:#{silent_port}",
-        enabled: true,
-        priority: 1
-      })
+    ProviderHelper.insert!(%{
+      name: "slow",
+      type: "ollama",
+      host: "http://localhost:#{silent_port}",
+      priority: 1
+    })
 
     provider("quick", "local", 2, second)
-    answers(second, 200, "from quick")
+    answers(second, 200, "must not be used")
 
     {micros, result} = :timer.tc(fn -> LLM.complete("hi", tier: :local) end)
     Config.delete("llm.local_timeout_seconds")
     :gen_tcp.close(silent)
 
-    assert result == {:ok, "from quick"}
+    assert {:error, {:ollama, %Req.TransportError{reason: :timeout}}} = result
     assert micros < 1_900_000, "the slow call was waited out instead of abandoned"
+
+    second_port = second.port
+    refute_received {:called, ^second_port}
+  end
+
+  # Two local providers are two model servers on this host. The second loading
+  # its own model beside the first is what froze the machine, so a local
+  # provider is never the fallback for another one, whatever the failure.
+  test "a local provider is never the fallback for another local provider", %{
+    first: first,
+    second: second
+  } do
+    provider("local-one", "local", 1, first)
+    provider("local-two", "local", 2, second)
+    answers(first, 503, "overloaded")
+    answers(second, 200, "must not be used")
+
+    assert {:error, {:openai_compat, 503, _}} = LLM.complete("hi", tier: :local)
+
+    first_port = first.port
+    second_port = second.port
+    assert_received {:called, ^first_port}
+    refute_received {:called, ^second_port}
+  end
+
+  test "a local call while another is in flight is refused, not queued", %{first: first} do
+    provider("local-one", "local", 1, first)
+    answers(first, 200, "must not be used")
+    test = self()
+
+    holder =
+      spawn(fn ->
+        send(test, {:acquired, LocalLock.acquire()})
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert_receive {:acquired, :ok}
+    assert LLM.complete("hi", tier: :local) == {:error, :local_model_busy}
+
+    first_port = first.port
+    refute_received {:called, ^first_port}
+    send(holder, :stop)
   end
 
   test "when every candidate fails transiently, the last failure is the answer", %{

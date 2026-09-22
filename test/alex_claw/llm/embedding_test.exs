@@ -9,19 +9,12 @@ defmodule AlexClaw.LLM.EmbeddingTest do
 
   alias AlexClaw.LLM
   alias AlexClaw.LLM.Embedding
+  alias AlexClaw.ProviderHelper
 
+  # Straight to the database: these describe which model a provider embeds with,
+  # and several local rows at once is more than AlexClaw.LLM allows to be enabled.
   defp provider(name, type) do
-    {:ok, p} =
-      LLM.create_provider(%{
-        name: name,
-        type: type,
-        tier: "local",
-        model: "m",
-        host: "http://h",
-        enabled: true
-      })
-
-    p
+    ProviderHelper.insert!(%{name: name, type: type, tier: "local", model: "m", host: "http://h"})
   end
 
   test "empty embedding.model means the provider's default" do

@@ -48,6 +48,7 @@ defmodule AlexClaw.Application do
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,
       AlexClaw.Skills.ForgeGuard,
+      AlexClaw.LLM.LocalLock,
       AlexClaw.Reasoning.Supervisor,
       {AlexClaw.MCP.Server, transport: {:streamable_http, start: true}},
       AlexClaw.Cluster.Manager,

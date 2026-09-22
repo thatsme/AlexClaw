@@ -9,6 +9,7 @@ defmodule AlexClaw.LLM.WindowTest do
 
   alias AlexClaw.LLM
   alias AlexClaw.LLM.{Provider, Window}
+  alias AlexClaw.ProviderHelper
 
   defp provider(attrs) do
     struct(Provider, Map.merge(%{name: "p", type: "ollama", model: "m", options: %{}}, attrs))
@@ -91,17 +92,15 @@ defmodule AlexClaw.LLM.WindowTest do
 
   describe "the router" do
     defp served(name, priority, bypass, options) do
-      {:ok, _} =
-        LLM.create_provider(%{
-          name: name,
-          type: "ollama",
-          tier: "local",
-          model: "m",
-          host: "http://localhost:#{bypass.port}",
-          enabled: true,
-          priority: priority,
-          options: options
-        })
+      # Straight to the database: two enabled local providers are refused by
+      # AlexClaw.LLM, and the router still has to behave if a database holds them.
+      ProviderHelper.insert!(%{
+        name: name,
+        type: "ollama",
+        host: "http://localhost:#{bypass.port}",
+        priority: priority,
+        options: options
+      })
 
       Bypass.stub(bypass, "POST", "/api/chat", fn conn ->
         conn
@@ -125,16 +124,12 @@ defmodule AlexClaw.LLM.WindowTest do
     test "a local LM Studio's loaded window is checked before the call" do
       lm = Bypass.open()
 
-      {:ok, _} =
-        LLM.create_provider(%{
-          name: "lm",
-          type: "openai_compatible",
-          tier: "local",
-          model: "default",
-          host: "http://localhost:#{lm.port}",
-          enabled: true,
-          priority: 1
-        })
+      ProviderHelper.insert!(%{
+        name: "lm",
+        model: "default",
+        host: "http://localhost:#{lm.port}",
+        priority: 1
+      })
 
       Bypass.stub(lm, "GET", "/api/v0/models", fn conn ->
         body = %{"data" => [%{"id" => "q", "type" => "llm", "loaded_context_length" => 8192}]}
@@ -164,17 +159,13 @@ defmodule AlexClaw.LLM.WindowTest do
       ollama = Bypass.open()
       test = self()
 
-      {:ok, _} =
-        LLM.create_provider(%{
-          name: "ollama",
-          type: "ollama",
-          tier: "local",
-          model: "m",
-          host: "http://localhost:#{ollama.port}",
-          enabled: true,
-          priority: 1,
-          options: %{"num_ctx" => 8192, "num_predict" => 2048}
-        })
+      ProviderHelper.insert!(%{
+        name: "ollama",
+        type: "ollama",
+        host: "http://localhost:#{ollama.port}",
+        priority: 1,
+        options: %{"num_ctx" => 8192, "num_predict" => 2048}
+      })
 
       Bypass.stub(ollama, "POST", "/api/chat", fn conn ->
         send(test, :ollama_called)

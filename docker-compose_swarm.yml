@@ -78,6 +78,10 @@ services:
         BUILD_NUMBER: ${BUILD_NUMBER:-0}
     hostname: node1.local
     restart: unless-stopped
+    # A ceiling, so a node can never take the host down with it. Local models
+    # run on the host, outside this limit.
+    mem_limit: 2g
+    cpus: 2.0
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -134,6 +138,10 @@ services:
         BUILD_NUMBER: ${BUILD_NUMBER:-0}
     hostname: node2.local
     restart: unless-stopped
+    # A ceiling, so a node can never take the host down with it. Local models
+    # run on the host, outside this limit.
+    mem_limit: 2g
+    cpus: 2.0
     depends_on:
       migrate:
         condition: service_completed_successfully

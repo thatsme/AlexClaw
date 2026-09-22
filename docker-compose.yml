@@ -85,6 +85,11 @@ services:
         BUILD_NUMBER: ${BUILD_NUMBER:-0}
     hostname: node1.local
     restart: unless-stopped
+    # A ceiling, so the app can never take the host down with it. The app sits
+    # near 200 MiB; the headroom is for compiling generated skills and bursts.
+    # Local models run on the host, outside this limit.
+    mem_limit: 2g
+    cpus: 2.0
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -164,6 +169,9 @@ services:
     profiles: ["web-automation"]
     build: ./web-automator
     restart: unless-stopped
+    # A ceiling for the automation browser, which a heavy page can inflate.
+    mem_limit: 2g
+    cpus: 2.0
     ports:
       # noVNC gives unauthenticated control of the automation browser, so it is
       # bound to loopback. Reach it over an SSH tunnel rather than the LAN:

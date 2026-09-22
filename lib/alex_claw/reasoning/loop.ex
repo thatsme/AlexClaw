@@ -1239,9 +1239,11 @@ defmodule AlexClaw.Reasoning.Loop do
     })
   end
 
+  # Every phase asks for JSON, so a thinking model is told to answer directly:
+  # with thinking on, qwen3 spent the planning budget reasoning in prose.
   defp call_llm(prompt, system, state) do
     tier = state.config.llm_tier
-    LLM.complete(prompt, tier: tier, system: system)
+    LLM.complete(prompt, tier: tier, system: system, thinking: false)
   end
 
   defp spawn_llm_task(fun) do

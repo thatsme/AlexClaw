@@ -13,6 +13,7 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
 
   alias AlexClaw.{LLM, RecordingGateway}
   alias AlexClaw.Scenarios.RssDigest
+  alias AlexClaw.Skills.CircuitBreaker
 
   @titles [
     "Elixir 1.19 released with faster compilation",
@@ -25,7 +26,7 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
     # purpose, and a scenario must start from closed circuits.
     Enum.each(
       ~w(rss_fetch llm_score llm_transform telegram_notify),
-      &AlexClaw.Skills.CircuitBreaker.reset/1
+      &CircuitBreaker.reset/1
     )
 
     feed = Bypass.open()

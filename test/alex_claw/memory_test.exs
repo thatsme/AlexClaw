@@ -2,6 +2,7 @@ defmodule AlexClaw.MemoryTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
+  alias AlexClaw.LLM.Embedding
   alias AlexClaw.Memory
   alias AlexClaw.Memory.Entry
 
@@ -281,7 +282,7 @@ defmodule AlexClaw.MemoryTest do
       stored = AlexClaw.Repo.get(Entry, entry.id)
       assert stored.embedding != nil
       assert stored.embedding_model == "gemini-embedding-001"
-      assert stored.embedding_model == AlexClaw.LLM.Embedding.model()
+      assert stored.embedding_model == Embedding.model()
 
       assert {:ok, 0} = Memory.reembed_all()
 

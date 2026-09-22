@@ -9,6 +9,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
   alias AlexClaw.Google.TokenManager
+  alias AlexClaw.LLM.Embedding
   alias AlexClawWeb.Live.Elevation
   alias Ecto.Adapters.SQL
   alias Nostrum.Api.Message
@@ -292,7 +293,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp initial_status("embeddings") do
-    if AlexClaw.LLM.Embedding.model(), do: :configured, else: :not_configured
+    if Embedding.model(), do: :configured, else: :not_configured
   end
 
   defp initial_status(_), do: :error
@@ -467,7 +468,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp live_check("embeddings") do
-    model = AlexClaw.LLM.Embedding.model()
+    model = Embedding.model()
 
     if !model || model == "" do
       %{status: :not_configured, detail: "No embedding model configured"}

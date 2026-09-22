@@ -136,6 +136,41 @@ defmodule AlexClaw.Reasoning.LoopTest do
     end
   end
 
+  describe "the final answer" do
+    # A run that found Elixir v1.20.4 answered v1.16.0: the summary prompt
+    # carried step names and statuses, not what the steps returned.
+    test "is written from what the steps returned" do
+      goal = unique_goal("grounded")
+      test = self()
+
+      Mox.stub(LLM.Mock, :complete, fn prompt, opts ->
+        case phase_from_system(opts) do
+          :planning ->
+            {:ok, plan_response([echo_step("find the version")])}
+
+          :execution ->
+            {:ok, execution_response("the latest release is v1.20.4")}
+
+          :evaluation ->
+            {:ok, evaluation_response("good")}
+
+          :forced_summary ->
+            send(test, {:summary_prompt, prompt})
+            {:ok, ~s|{"answer": "v1.20.4", "working_memory": "done"}|}
+
+          other ->
+            flunk("Unexpected LLM phase: #{inspect(other)}")
+        end
+      end)
+
+      {:ok, pid} = Loop.start(goal, default_opts())
+      assert :ok = await_loop_done(pid, 10_000)
+
+      assert_received {:summary_prompt, prompt}
+      assert prompt =~ "the latest release is v1.20.4"
+    end
+  end
+
   describe "human-in-the-loop" do
     test "ask_user → steer → :resuming → re-plan → completion", %{counter_table: ct} do
       goal = unique_goal("steer-replan")

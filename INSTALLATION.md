@@ -134,6 +134,31 @@ Send `/help` to see all available commands.
 
 ---
 
+## Container Networks
+
+`docker-compose.yml` gives its two networks fixed subnets:
+
+| Network | Subnet | Who is on it |
+|---|---|---|
+| `default` | `10.213.61.0/24` | the database, `migrate` (`10.213.61.11`), AlexClaw (`10.213.61.10`) |
+| `automation` | `10.213.62.0/24` | AlexClaw and the web-automator sidecar |
+
+The database accepts network connections only from AlexClaw's and `migrate`'s
+pinned addresses, listed in `db-init/pg_hba.conf`; anything else is refused before
+a password is asked for. Manual backups and restores therefore run inside the
+database container, over its own socket — `docker compose exec db-prod pg_dump …`,
+`docker compose exec db-prod psql …` — as every command in these guides does.
+
+If either subnet collides with a network you already use (a LAN, a VPN, another
+Docker network), change it in `docker-compose.yml`, and change with it the pinned
+`ipv4_address` of `alexclaw-prod` and `migrate` and the two `host` lines of
+`db-init/pg_hba.conf`. They must match, or AlexClaw cannot reach its database.
+Changing a subnet needs `docker compose down` before `docker compose up -d`:
+Docker does not change an existing network in place. `down` without `-v` keeps
+the data.
+
+---
+
 ## Getting Your Telegram Bot Token
 
 1. Open Telegram and search for [@BotFather](https://t.me/BotFather)

@@ -51,10 +51,25 @@ services:
       DATABASE_NAME: alex_claw_test
       SECRET_KEY_BASE: test_secret_key_base_that_is_at_least_64_bytes_long_for_phoenix_to_accept_it
 
+  # Runs under the production sidecar's constraints (test/compose_hardening_test.exs),
+  # so the suite — real Chromium included — proves the browser works that way.
+  # The test dependencies are in the image's `test` stage, pinned.
   test-python:
-    build: ./web-automator
+    build:
+      context: ./web-automator
+      target: test
     entrypoint: ["sh", "-c"]
-    command: ["pip install pytest pytest-asyncio httpx && cd /app && python -m pytest tests/ -v"]
+    command: ["cd /app && python -m pytest tests/ -v -p no:cacheprovider"]
     working_dir: /app
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ./web-automator/tests:/app/tests

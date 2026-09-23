@@ -13,9 +13,14 @@ services:
       # fresh volume. An existing volume ignores both.
       DATABASE_APP_USERNAME: "${DATABASE_USERNAME:?not set - the application role}"
       DATABASE_APP_PASSWORD: "${DATABASE_PASSWORD:?not set - the application role's password}"
+    # Network connections only from the app and the migrate job, by their
+    # pinned addresses below: another network's traffic can arrive from the
+    # default network's gateway on some engines, so a subnet rule is not enough.
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db-init/01-app-role.sh:/docker-entrypoint-initdb.d/01-app-role.sh:ro
+      - ./db-init/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DATABASE_OWNER_USERNAME:-alexclaw}"]
       interval: 5s
@@ -43,6 +48,10 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    networks:
+      default:
+        # Named in db-init/pg_hba.conf: change both together.
+        ipv4_address: 10.213.61.11
     depends_on:
       db-prod:
         condition: service_healthy
@@ -93,8 +102,10 @@ services:
     # The database is on `default`; the web-automator only on `automation`.
     # The app is the one service on both.
     networks:
-      - default
-      - automation
+      default:
+        # Named in db-init/pg_hba.conf: change both together.
+        ipv4_address: 10.213.61.10
+      automation: {}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -181,6 +192,16 @@ services:
     # A ceiling for the automation browser, which a heavy page can inflate.
     mem_limit: 2g
     cpus: 2.0
+    # As little as possible: not root, no capabilities, no privilege gain, and
+    # nothing writable but a tmpfs /tmp (browser profile, X socket, downloads).
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       # noVNC gives unauthenticated control of the automation browser, so it is
       # bound to loopback. Reach it over an SSH tunnel rather than the LAN:
@@ -199,8 +220,23 @@ services:
       timeout: 5s
       retries: 3
 
+# Fixed subnets, so db-init/pg_hba.conf can name the database's clients.
+# Chosen to stay clear of common home LANs (192.168.x), Tailscale (100.64.0.0/10)
+# and Docker's automatic pool (172.17-31.x). If they collide with a network of
+# yours, change them here and the pinned addresses with them — alexclaw-prod,
+# migrate, and the two lines of db-init/pg_hba.conf.
 networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.213.61.0/24
+          # Addresses given out automatically come from the upper half, away
+          # from the pinned ones.
+          ip_range: 10.213.61.128/25
   automation:
+    ipam:
+      config:
+        - subnet: 10.213.62.0/24
 
 volumes:
   pgdata:

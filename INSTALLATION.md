@@ -392,7 +392,18 @@ Add to your `.env`:
 ```bash
 WEB_AUTOMATOR_ENABLED=true
 WEB_AUTOMATOR_HOST=http://web-automator:6900
+WEB_AUTOMATOR_TOKEN=<output of: openssl rand -hex 32>
 ```
+
+`WEB_AUTOMATOR_TOKEN` is passed to both AlexClaw and the sidecar. The sidecar
+answers every route except `/health` only with `Authorization: Bearer <token>`;
+without a configured token it refuses them all, and AlexClaw sends it nothing.
+
+The sidecar sits on its own `automation` network, shared with AlexClaw and not
+with the database. During a replay, its browser reaches the internet only
+through a filtering proxy that refuses loopback, private, link-local and other
+internal addresses, including hosts on the local network and Tailscale
+addresses (`100.64.0.0/10`). A recording session's browser is not filtered.
 
 It is not built or started by a plain `docker compose up -d`. Start it with its profile:
 

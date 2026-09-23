@@ -336,7 +336,8 @@ class Recorder:
                 url=None,
             )
             self.actions.append(action)
-            logger.info("[DOM %s] %s", action.action_type.upper(), action.description)
+            # Not the description: the page builds it with the typed value.
+            logger.info("[DOM %s] %s", action.action_type.upper(), action.selector)
         except Exception as e:
             logger.warning("Failed to parse DOM action: %s", e)
 

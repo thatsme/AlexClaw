@@ -50,17 +50,12 @@ defmodule AlexClaw.Skills.WebAutomation do
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
-    if enabled?() do
-      config = args[:config] || %{}
-      resources = args[:resources] || []
+    config = args[:config] || %{}
+    resources = args[:resources] || []
 
-      case config["action"] do
-        "record" -> record(config)
-        "play" -> play(config, resources)
-        _ -> play(config, resources)
-      end
-    else
-      {:error, :web_automator_disabled}
+    case config["action"] do
+      "record" -> record(config)
+      _ -> play(config, resources)
     end
   end
 
@@ -139,19 +134,15 @@ defmodule AlexClaw.Skills.WebAutomation do
 
   defp preview_entry(other), do: String.slice(inspect(other), 0, 500)
 
-  @doc "Get sidecar status."
+  @doc "Get sidecar status. Short timeout, no retry: the Services page waits on it."
   @spec status() :: {:ok, any()} | {:error, any()}
-  def status, do: get("/status")
+  def status, do: request(:get, "/status", receive_timeout: 5_000, retry: false)
 
   @doc "Force stop any running session."
   @spec force_stop() :: {:ok, any()} | {:error, any()}
   def force_stop, do: post("/stop", %{})
 
   # --- Helpers ---
-
-  defp enabled? do
-    Config.enabled?("web_automator.enabled")
-  end
 
   defp base_url do
     Config.get("web_automator.host") || "http://web-automator:6900"
@@ -187,49 +178,47 @@ defmodule AlexClaw.Skills.WebAutomation do
     end
   end
 
-  defp get(path) do
-    url = base_url() <> path
+  defp post(path, body), do: request(:post, path, json: body, receive_timeout: 300_000)
 
-    case Req.get(url, receive_timeout: 30_000) do
-      {:ok, %{status: status, body: body}} when status in 200..299 ->
-        {:ok, body}
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("WebAutomation GET #{path} failed: #{status}",
-          skill: :web_automation
-        )
-
-        {:error, {:http, status, body}}
-
-      {:error, reason} ->
-        Logger.error("WebAutomation GET #{path} error: #{inspect(reason)}",
-          skill: :web_automation
-        )
-
-        {:error, reason}
+  # The one place a request to the sidecar is made: "disabled" means nothing is
+  # sent, and nothing is sent without the token.
+  defp request(method, path, opts) do
+    with :ok <- ensure_enabled(),
+         {:ok, token} <- fetch_token() do
+      [method: method, url: base_url() <> path, auth: {:bearer, token}]
+      |> Keyword.merge(opts)
+      |> Req.request()
+      |> handle_response(method, path)
     end
   end
 
-  defp post(path, body) do
-    url = base_url() <> path
+  defp ensure_enabled do
+    if Config.enabled?("web_automator.enabled"), do: :ok, else: {:error, :web_automator_disabled}
+  end
 
-    case Req.post(url, json: body, receive_timeout: 300_000) do
-      {:ok, %{status: status, body: resp}} when status in 200..299 ->
-        {:ok, resp}
-
-      {:ok, %{status: status, body: resp}} ->
-        Logger.warning("WebAutomation POST #{path} failed: #{status}",
-          skill: :web_automation
-        )
-
-        {:error, {:http, status, resp}}
-
-      {:error, reason} ->
-        Logger.error("WebAutomation POST #{path} error: #{inspect(reason)}",
-          skill: :web_automation
-        )
-
-        {:error, reason}
+  # From WEB_AUTOMATOR_TOKEN (config/runtime.exs), not a setting: it stays out of
+  # the database and its exports.
+  defp fetch_token do
+    case Application.get_env(:alex_claw, :web_automator_token) do
+      token when is_binary(token) and token != "" -> {:ok, token}
+      _ -> {:error, :web_automator_token_missing}
     end
+  end
+
+  defp handle_response({:ok, %{status: status, body: body}}, _method, _path)
+       when status in 200..299,
+       do: {:ok, body}
+
+  defp handle_response({:ok, %{status: status, body: body}}, method, path) do
+    Logger.warning("WebAutomation #{method} #{path} failed: #{status}", skill: :web_automation)
+    {:error, {:http, status, body}}
+  end
+
+  defp handle_response({:error, reason}, method, path) do
+    Logger.error("WebAutomation #{method} #{path} error: #{inspect(reason)}",
+      skill: :web_automation
+    )
+
+    {:error, reason}
   end
 end

@@ -2,6 +2,10 @@ import Config
 
 config :alex_claw, :skills_dir, System.get_env("SKILLS_DIR", "/app/skills")
 
+# The shared token the web-automator sidecar requires on every route but
+# /health. Unset or empty, AlexClaw sends nothing to the sidecar.
+config :alex_claw, :web_automator_token, System.get_env("WEB_AUTOMATOR_TOKEN")
+
 if config_env() == :prod do
   # The migrate service runs an eval with the database owner's credentials and,
   # by design, without SECRET_KEY_BASE: the two never share a container. An

@@ -6,15 +6,18 @@ Runs inside Docker with Xvfb + noVNC for recording sessions.
 """
 
 import asyncio
+import hmac
 import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from .browser import browser_manager
+from .egress import EgressProxy
 from .display import display_manager
 from .models import (
     HealthResponse, StatusResponse, SessionState,
@@ -55,11 +58,44 @@ async def lifespan(app: FastAPI):
     await _cleanup()
 
 
+# No interactive docs: they would describe every route to anyone who asks.
 app = FastAPI(
     title="Web Automator",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
+
+# --- Authentication ---
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    """Every route but /health needs `Authorization: Bearer <WEB_AUTOMATOR_TOKEN>`.
+
+    The token is read at request time. With none configured every protected
+    route answers 503: the sidecar never falls back to open.
+    """
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    expected = os.environ.get("WEB_AUTOMATOR_TOKEN", "")
+    if not expected:
+        return JSONResponse({"detail": "WEB_AUTOMATOR_TOKEN is not configured"}, status_code=503)
+
+    if not _bearer_matches(request.headers.get("authorization", ""), expected):
+        return JSONResponse(
+            {"detail": "Unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    return await call_next(request)
+
+
+def _bearer_matches(header: str, expected: str) -> bool:
+    scheme, _, token = header.partition(" ")
+    return scheme == "Bearer" and hmac.compare_digest(token.encode(), expected.encode())
 
 
 async def _cleanup():
@@ -158,8 +194,12 @@ async def play(req: PlayRequest):
     app_state.session_id = str(uuid.uuid4())[:8]
     app_state.started_at = datetime.now().isoformat()
 
+    # Every request the play's browser makes goes through its own egress proxy.
+    proxy = EgressProxy()
+
     try:
-        browser = await browser_manager.launch(headless=True)
+        proxy_port = await proxy.start()
+        browser = await browser_manager.launch(headless=True, proxy_port=proxy_port)
         context = await browser_manager.new_context()
         page = await context.new_page()
         page.set_default_timeout(req.config.get("page_timeout", 60) * 1000)
@@ -178,6 +218,7 @@ async def play(req: PlayRequest):
 
     finally:
         await _cleanup()
+        await proxy.stop()
 
 
 @app.post("/stop")

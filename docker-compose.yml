@@ -90,6 +90,11 @@ services:
     # Local models run on the host, outside this limit.
     mem_limit: 2g
     cpus: 2.0
+    # The database is on `default`; the web-automator only on `automation`.
+    # The app is the one service on both.
+    networks:
+      - default
+      - automation
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -139,6 +144,10 @@ services:
       # Web automator (optional)
       WEB_AUTOMATOR_ENABLED: ${WEB_AUTOMATOR_ENABLED:-false}
       WEB_AUTOMATOR_HOST: ${WEB_AUTOMATOR_HOST:-http://web-automator:6900}
+      # Shared with the sidecar, which refuses every route but /health without
+      # it. Unset, AlexClaw sends nothing to the sidecar and the sidecar
+      # refuses everything: generate one with `openssl rand -hex 32`.
+      WEB_AUTOMATOR_TOKEN: ${WEB_AUTOMATOR_TOKEN:-}
 
       # Clustering
       NODE_NAME: ${NODE_NAME:-alexclaw@node1.local}
@@ -177,13 +186,21 @@ services:
       # bound to loopback. Reach it over an SSH tunnel rather than the LAN:
       #   ssh -L 6080:127.0.0.1:6080 <host>
       - "127.0.0.1:6080:6080"
+    # Never on `default`, where the database is: the browser loads pages
+    # AlexClaw does not control.
+    networks:
+      - automation
     environment:
       DISPLAY: ":99"
+      WEB_AUTOMATOR_TOKEN: ${WEB_AUTOMATOR_TOKEN:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6900/health"]
       interval: 10s
       timeout: 5s
       retries: 3
+
+networks:
+  automation:
 
 volumes:
   pgdata:

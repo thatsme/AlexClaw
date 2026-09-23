@@ -15,6 +15,8 @@ from typing import Any, Optional
 
 from patchright.async_api import Page, BrowserContext
 
+from .egress import REFUSED_HEADER
+
 logger = logging.getLogger(__name__)
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/tmp/downloads")
@@ -108,9 +110,18 @@ class Player:
         logger.info("Login complete")
 
     async def _navigate(self, page: Page, url: str):
-        """Navigate to a URL."""
+        """Navigate to a URL. A destination the egress proxy refused fails the run."""
         logger.info("Navigating to: %s", url)
-        await page.goto(url, wait_until="domcontentloaded")
+        try:
+            response = await page.goto(url, wait_until="domcontentloaded")
+        except Exception as e:
+            # HTTPS goes through CONNECT; a refused tunnel reaches the page only as
+            # this network error. A tunnel the proxy could not open reads the same.
+            if "ERR_TUNNEL_CONNECTION_FAILED" in str(e):
+                raise RuntimeError(f"egress refused or unreachable: {url}") from e
+            raise
+        if response is not None and response.headers.get(REFUSED_HEADER) == "refused":
+            raise RuntimeError(f"egress refused: {url}")
         await self._wait_for_ready(page, 3)
 
     async def _fill(self, page: Page, selector: str, value: str, field_type: str = "text"):
@@ -118,7 +129,7 @@ class Player:
         if field_type == "date":
             value = self._format_date_value(value, selector)
 
-        logger.info("Fill %s = %s", selector, value)
+        logger.info("Fill %s", selector)
 
         try:
             el = await page.query_selector(selector)
@@ -132,7 +143,8 @@ class Player:
             else:
                 logger.warning("Selector not found: %s", selector)
         except Exception as e:
-            logger.warning("Fill failed for %s: %s", selector, e)
+            # The exception text may quote the value being typed; log its type only.
+            logger.warning("Fill failed for %s: %s", selector, type(e).__name__)
 
     async def _click(self, page: Page, selector: str, timeout: int = 30):
         """Click an element."""
@@ -156,7 +168,7 @@ class Player:
 
     async def _select(self, page: Page, selector: str, value: str):
         """Select a radio button or dropdown option."""
-        logger.info("Select %s = %s", selector, value)
+        logger.info("Select %s", selector)
         try:
             el = await page.query_selector(selector)
             if el:
@@ -170,11 +182,11 @@ class Player:
             else:
                 logger.warning("Selector not found: %s", selector)
         except Exception as e:
-            logger.warning("Select failed for %s: %s", selector, e)
+            logger.warning("Select failed for %s: %s", selector, type(e).__name__)
 
     async def _check(self, page: Page, selector: str, value: str):
         """Check or uncheck a checkbox."""
-        logger.info("Check %s = %s", selector, value)
+        logger.info("Check %s", selector)
         try:
             el = await page.query_selector(selector)
             if el:
@@ -185,7 +197,7 @@ class Player:
             else:
                 logger.warning("Selector not found: %s", selector)
         except Exception as e:
-            logger.warning("Check failed for %s: %s", selector, e)
+            logger.warning("Check failed for %s: %s", selector, type(e).__name__)
 
     async def _wait_for_download(self, page: Page, trigger_selector: str, timeout: int = 120) -> str:
         """Click a download trigger and wait for the file."""

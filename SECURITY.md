@@ -349,6 +349,23 @@ Automation recipes execute arbitrary browser actions — review recorded
 recipes before assigning them to scheduled workflows.
 The noVNC interface (port 6080) should never be exposed publicly.
 
+- **Authentication.** Every sidecar route except `/health` requires
+  `Authorization: Bearer <WEB_AUTOMATOR_TOKEN>`, compared in constant time. With
+  no token configured the sidecar refuses every protected route, and AlexClaw
+  sends it nothing. The interactive API documentation is not served.
+- **Network.** The sidecar is on its own `automation` network, shared with the
+  AlexClaw container and not with the database. Its API port (6900) is not
+  published on the host.
+- **Egress during a replay.** The replay browser reaches the network only
+  through a filtering proxy that applies the same rule as skill HTTP (below):
+  a destination that does not resolve, or resolves to any internal address, is
+  refused, and the connection goes to the address that was checked. QUIC,
+  non-proxied WebRTC UDP and service workers are disabled. A recording
+  session's browser is not filtered.
+- **Logs.** Values typed into a page are not logged by the player or the
+  recorder; selectors and action names are. A recording that fails to save is
+  reported without its steps.
+
 ---
 
 ## Database Backups
@@ -561,7 +578,11 @@ behalf — within the permissions the skill declared, which the model also wrote
 and `Logger` genuinely writes to the logs. Containment bounds *what a generated
 skill can reach*, not what it can do with what it reaches. A contained skill can
 still exfiltrate through `SkillAPI.http_get/3` if it holds `:web_read`, and can
-still write nonsense to memory if it holds `:memory_write`. Review the
+still write nonsense to memory if it holds `:memory_write`. Skill HTTP cannot
+reach internal hosts: every request, redirect hop and retry resolves the host,
+is refused if any address is loopback, private, shared (`100.64.0.0/10`),
+link-local or otherwise internal, and connects to the address it checked; the
+options that would replace the transport are refused. Review the
 permissions on generated skills, and treat the local model producing them as part
 of the trust boundary — a `/coder` goal can arrive as a gateway message.
 

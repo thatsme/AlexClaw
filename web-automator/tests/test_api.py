@@ -25,8 +25,10 @@ def reset_state():
 
 
 @pytest.fixture
-def client():
-    return TestClient(app)
+def client(monkeypatch):
+    # F2: every route but /health needs the token (test_auth.py).
+    monkeypatch.setenv("WEB_AUTOMATOR_TOKEN", "test-automator-token")
+    return TestClient(app, headers={"Authorization": "Bearer test-automator-token"})
 
 
 class TestHealth:

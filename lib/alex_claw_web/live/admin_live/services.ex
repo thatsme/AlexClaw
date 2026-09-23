@@ -10,6 +10,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   alias AlexClaw.Gateway.Telegram
   alias AlexClaw.Google.TokenManager
   alias AlexClaw.LLM.Embedding
+  alias AlexClaw.Skills.WebAutomation
   alias AlexClawWeb.Live.Elevation
   alias Ecto.Adapters.SQL
   alias Nostrum.Api.Message
@@ -462,10 +463,7 @@ defmodule AlexClawWeb.AdminLive.Services do
     end
   end
 
-  defp live_check("web_automator") do
-    host = Config.get("web_automator.host") || "http://web-automator:6900"
-    web_automator_status(Config.enabled?("web_automator.enabled"), host)
-  end
+  defp live_check("web_automator"), do: web_automator_status(WebAutomation.status())
 
   defp live_check("embeddings") do
     model = Embedding.model()
@@ -572,25 +570,20 @@ defmodule AlexClawWeb.AdminLive.Services do
     end
   end
 
-  defp web_automator_status(false, _host) do
-    %{status: :not_configured, detail: "Web Automator disabled"}
-  end
+  defp web_automator_status({:ok, _status}),
+    do: %{status: :connected, detail: "Sidecar running"}
 
-  defp web_automator_status(true, host) do
-    case Req.get("#{host}/status", receive_timeout: 5_000) do
-      {:ok, %{status: 200, body: body}} when is_map(body) ->
-        %{status: :connected, detail: "Sidecar running"}
+  defp web_automator_status({:error, :web_automator_disabled}),
+    do: %{status: :not_configured, detail: "Web Automator disabled"}
 
-      {:ok, %{status: 200}} ->
-        %{status: :connected, detail: "Sidecar running"}
+  defp web_automator_status({:error, :web_automator_token_missing}),
+    do: %{status: :error, detail: "WEB_AUTOMATOR_TOKEN is not set"}
 
-      {:ok, %{status: s}} ->
-        %{status: :error, detail: "HTTP #{s}"}
+  defp web_automator_status({:error, {:http, status, _body}}),
+    do: %{status: :error, detail: "HTTP #{status}"}
 
-      {:error, reason} ->
-        %{status: :error, detail: inspect(reason)}
-    end
-  end
+  defp web_automator_status({:error, reason}),
+    do: %{status: :error, detail: inspect(reason)}
 
   # --- View helpers ---
 

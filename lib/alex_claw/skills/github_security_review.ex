@@ -31,6 +31,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   require Logger
 
   alias AlexClaw.Config
+  alias AlexClaw.Webhooks.GitHubEvent
 
   @max_diff_bytes 24_000
   # Configurable so the diff fetch can be tested against a local server.
@@ -70,37 +71,117 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
-    config = args[:config] || %{}
-    dispatch_mode(config["repo"] || Config.get("github.default_repo", ""), config)
+    token = Config.get("github.token", "")
+    args |> review_mode() |> run_mode(args, token)
   end
 
-  defp dispatch_mode("", _config), do: {:error, :no_repo_configured}
+  # A webhook event reviews what it names; otherwise the step config's mode decides.
+  defp review_mode(args), do: mode_for(event?(args[:input]), step_config(args))
 
-  defp dispatch_mode(repo, config) do
-    run_mode(config["mode"] || "latest_pr", repo, config, Config.get("github.token", ""))
+  defp mode_for(true, _config), do: :event
+  defp mode_for(false, config), do: config["mode"] || "latest_pr"
+
+  defp run_mode(mode, args, token) when mode in [:event, "specific_pr", "specific_commit"],
+    do: args |> target() |> review(token)
+
+  defp run_mode(mode, args, token) when mode in ["latest_pr", "all_prs", "latest_push"],
+    do: args |> step_config() |> config_repo() |> latest(mode, token)
+
+  defp run_mode(mode, _args, _token), do: {:error, {:unknown_mode, mode}}
+
+  defp latest(repo, mode, token), do: repo |> valid_repo() |> latest_for(mode, token)
+
+  defp latest_for({:ok, repo}, "latest_pr", token), do: fetch_latest_pr(repo, token)
+  defp latest_for({:ok, repo}, "all_prs", token), do: fetch_all_prs(repo, token)
+  defp latest_for({:ok, repo}, "latest_push", token), do: fetch_latest_push(repo, token)
+  defp latest_for({:error, _reason} = error, _mode, _token), do: error
+
+  defp review({:ok, %{repo: repo, pr_number: number}}, token), do: fetch_pr(repo, number, token)
+  defp review({:ok, %{repo: repo, commit_sha: sha}}, token), do: fetch_commit(repo, sha, token)
+  defp review({:error, _reason} = error, _token), do: error
+
+  @doc """
+  What to review: a repository and a pull request number or commit.
+
+  From ONE source, never mixed: the run input when it is a verified webhook event
+  (`%AlexClaw.Webhooks.GitHubEvent{}` — never a map shaped like one), otherwise the
+  step config (whose repository falls back to `github.default_repo`). An event that names no
+  pull request or commit is refused rather than completed from the config. A
+  pull request number is normalised to an integer.
+  """
+  @spec target(map()) ::
+          {:ok, %{repo: String.t(), pr_number: pos_integer()}}
+          | {:ok, %{repo: String.t(), commit_sha: String.t()}}
+          | {:error, :no_repo_configured | :no_target | :invalid_target}
+  def target(args), do: target_from(args[:input], args)
+
+  # Only a %GitHubEvent{} is an event: it is recognised by its type, never by its
+  # shape, so a previous step's output shaped like one is ordinary input.
+  defp target_from(%GitHubEvent{repo: repo, pr_number: number, commit_sha: sha}, _args),
+    do: resolve(repo, number, sha)
+
+  defp target_from(_not_an_event, args) do
+    config = step_config(args)
+    resolve(config_repo(config), config["pr_number"], config["commit_sha"])
   end
 
-  defp run_mode("latest_pr", repo, _config, token), do: fetch_latest_pr(repo, token)
-  defp run_mode("all_prs", repo, _config, token), do: fetch_all_prs(repo, token)
-  defp run_mode("latest_push", repo, _config, token), do: fetch_latest_push(repo, token)
-
-  defp run_mode("specific_pr", repo, config, token) do
-    specific_pr(repo, parse_int(config["pr_number"]), token)
+  # Everything below ends up in a GitHub API path sent with the instance's
+  # token, so each part is checked before any request: a repository is exactly
+  # owner/name, a PR number a positive integer, a commit a hex SHA of 7–40.
+  defp resolve(repo, number, sha) do
+    with {:ok, repo} <- valid_repo(repo) do
+      pick(repo, number, sha)
+    end
   end
 
-  defp run_mode("specific_commit", repo, config, token) do
-    specific_commit(repo, config["commit_sha"], token)
+  @repo_pattern ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
+  @sha_pattern ~r/\A[0-9a-fA-F]{7,40}\z/
+  @digits ~r/\A[0-9]+\z/
+
+  defp valid_repo(repo) when repo in [nil, ""], do: {:error, :no_repo_configured}
+
+  defp valid_repo(repo) when is_binary(repo) do
+    with true <- Regex.match?(@repo_pattern, repo),
+         false <- Enum.any?(String.split(repo, "/"), &(&1 in [".", ".."])) do
+      {:ok, repo}
+    else
+      _ -> {:error, :invalid_target}
+    end
   end
 
-  defp run_mode(mode, _repo, _config, _token), do: {:error, {:unknown_mode, mode}}
+  defp valid_repo(_repo), do: {:error, :invalid_target}
 
-  defp specific_pr(_repo, nil, _token), do: {:error, :missing_pr_number}
-  defp specific_pr(repo, pr, token), do: fetch_pr(repo, pr, token)
+  defp pick(_repo, nil, nil), do: {:error, :no_target}
+  defp pick(repo, nil, sha), do: sha |> valid_sha() |> target_with(repo, :commit_sha)
+  defp pick(repo, number, _sha), do: number |> valid_pr_number() |> target_with(repo, :pr_number)
 
-  defp specific_commit(_repo, sha, _token) when sha in [nil, ""],
-    do: {:error, :missing_commit_sha}
+  defp target_with({:ok, value}, repo, key), do: {:ok, %{:repo => repo, key => value}}
+  defp target_with(:error, _repo, _key), do: {:error, :invalid_target}
 
-  defp specific_commit(repo, sha, token), do: fetch_commit(repo, sha, token)
+  defp valid_pr_number(n) when is_integer(n) and n > 0, do: {:ok, n}
+
+  defp valid_pr_number(n) when is_binary(n) do
+    with true <- Regex.match?(@digits, n),
+         number when number > 0 <- String.to_integer(n) do
+      {:ok, number}
+    else
+      _ -> :error
+    end
+  end
+
+  defp valid_pr_number(_n), do: :error
+
+  defp valid_sha(sha) when is_binary(sha) do
+    if Regex.match?(@sha_pattern, sha), do: {:ok, sha}, else: :error
+  end
+
+  defp valid_sha(_sha), do: :error
+
+  defp event?(%GitHubEvent{}), do: true
+  defp event?(_input), do: false
+
+  defp step_config(args), do: args[:config] || %{}
+  defp config_repo(config), do: config["repo"] || Config.get("github.default_repo", "")
 
   # --- Public API for webhook controller and Telegram commands ---
 
@@ -379,18 +460,17 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("GitHub API #{status} for #{url}: #{inspect(body)}", skill: :github)
-
-        case status do
-          404 -> {:error, :not_found}
-          401 -> {:error, :unauthorized}
-          403 -> {:error, :forbidden}
-          _ -> {:error, {:github_api, status, body}}
-        end
+        status_error(status, body)
 
       {:error, reason} ->
         {:error, {:http, reason}}
     end
   end
+
+  defp status_error(404, _body), do: {:error, :not_found}
+  defp status_error(401, _body), do: {:error, :unauthorized}
+  defp status_error(403, _body), do: {:error, :forbidden}
+  defp status_error(status, body), do: {:error, {:github_api, status, body}}
 
   # The extra headers replace the defaults of the same name: two Accept headers
   # made GitHub answer with the JSON one, and the diff never came.
@@ -428,15 +508,4 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   end
 
   defp truncate_diff(diff), do: diff
-
-  defp parse_int(v) when is_integer(v), do: v
-
-  defp parse_int(v) when is_binary(v) do
-    case Integer.parse(v) do
-      {i, _} -> i
-      :error -> nil
-    end
-  end
-
-  defp parse_int(_), do: nil
 end

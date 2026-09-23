@@ -4,7 +4,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from .recipe import Recipe
 
@@ -62,10 +64,13 @@ class RecordRequest(BaseModel):
 
 
 class PlayRequest(BaseModel):
-    """A play request: the recipe (app.recipe), and nothing else."""
+    """A play request: who asked (`play_id`, chosen by AlexClaw), how long the
+    whole run may take (`deadline_ms`), and the recipe (app.recipe)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    play_id: Annotated[StrictStr, Field(pattern=r"^[A-Za-z0-9-]{8,64}$")]
+    deadline_ms: Annotated[StrictInt, Field(ge=1_000, le=600_000)]
     config: Recipe
 
 
@@ -104,6 +109,7 @@ class PlayResponse(BaseModel):
 class StatusResponse(BaseModel):
     state: SessionState
     session_id: Optional[str] = None
+    play_id: Optional[str] = None
     started_at: Optional[str] = None
     progress: Optional[str] = None
 

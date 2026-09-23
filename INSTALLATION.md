@@ -469,22 +469,22 @@ ssh -L 6080:127.0.0.1:6080 <host>
 
 Send `/record https://httpbin.org/forms/post` to your bot. You'll get a noVNC link — open it in your browser, fill out the form, then send `/record stop <session_id>`.
 
-AlexClaw saves the captured actions as an automation resource with JSON like:
+AlexClaw saves the captured actions as an automation resource — a recipe like:
 
 ```json
 {
+  "url": "https://httpbin.org/forms/post",
   "steps": [
     {"action": "fill", "selector": "input[name=\"custname\"]", "value": "John"},
     {"action": "fill", "selector": "input[name=\"custemail\"]", "value": "john@example.com"},
     {"action": "select", "selector": "input[name=\"size\"][value=\"medium\"]", "value": "medium"},
-    {"action": "check", "selector": "input[name=\"topping\"][value=\"cheese\"]", "value": "cheese"},
-    {"action": "click", "selector": "button", "value": "Submit order"}
-  ],
-  "url": "https://httpbin.org/forms/post"
+    {"action": "check", "selector": "input[name=\"topping\"][value=\"cheese\"]", "checked": true},
+    {"action": "click", "selector": "button"}
+  ]
 }
 ```
 
-The recorder captures fills, selects (radio), checks (checkbox), and clicks with CSS selectors.
+The recorder captures fills, selects (dropdowns and radio buttons), checkboxes (with their state) and clicks, with CSS selectors. A recording is saved only if it is a valid recipe; otherwise the reply says why.
 
 **2. Replay instantly:**
 
@@ -492,38 +492,41 @@ Send `/replay <resource_id>` to replay the automation headlessly and get the res
 
 **3. Build a workflow for scheduled replay:**
 
-In Admin > Workflows, create a new workflow with two steps:
+In Admin > Workflows, create a new workflow with two steps: `web_automation` (step 1), then `telegram_notify` with `{}` (step 2). Give step 1 this config, which appends two steps after the recorded ones — wait two seconds, then scrape the result text:
 
-| Step | Skill | Config |
-|---|---|---|
-| 1. Submit Form | `web_automation` | `{"extra_steps": [{"action": "wait", "value": "2"}, {"action": "scrape_text"}]}` |
-| 2. Deliver Result | `telegram_notify` | `{}` |
+```json
+{
+  "extra_steps": [
+    {"action": "wait", "seconds": 2},
+    {"action": "scrape_text"}
+  ]
+}
+```
 
-Then assign your automation resource to the workflow under Resources. The `extra_steps` in the step config are appended after the recorded steps — in this case, waiting for the page to load and scraping the result text.
+Then assign your automation resource to the workflow under Resources, and run it with `/run <workflow_id>` or a cron schedule.
 
-Run with `/run <workflow_id>` or set a cron schedule for automated execution.
+A whole play is bounded by the step's `timeout_ms` — 120 seconds when it is not set, at most 600000 — and ends as a timeout past it. `/replay` and `/automate` use the 120-second default. One play runs at a time: a second one started meanwhile is refused as busy.
 
 ### Supported Actions
 
-The player supports these actions in automation configs:
+A recipe is `{"url": "https://…", "steps": [...]}`. Each step has an `action` and only that action's fields, plus an optional `timeout_ms` (1–120000): how long that step may wait for its element or download; any other field, an unknown action, or a URL that is not http(s) makes the whole recipe invalid, and it is refused before anything runs.
 
-| Action | Description | Fields |
+| Action | Does | Fields |
 |---|---|---|
-| `navigate` | Go to a URL | `url` |
-| `fill` | Type into a text field | `selector`, `value` |
-| `select` | Click a radio button or select dropdown option | `selector`, `value` |
-| `check` | Check a checkbox | `selector`, `value` |
+| `navigate` | Go to a URL | `url` (http or https) |
 | `click` | Click a button or link | `selector` |
-| `wait` | Wait for page to settle | `value` (seconds) |
-| `keyboard` | Press a key | `value` (e.g. `"Enter"`) |
-| `download` | Click and wait for file download | `selector` |
-| `scrape` | Extract HTML tables from the page | `selector` (default: `"table"`) |
-| `scrape_text` | Grab all visible text from the page | — |
-| `screenshot` | Take a screenshot | `value` (name) |
-| `evaluate` | Run arbitrary JavaScript | `value` (JS code) |
-| `extract_grid` | Extract data from jqxGrid widgets | `selector`, `columns` |
+| `fill` | Type into a field | `selector`, `value` (a string; may be empty), optional `input_type: "date"` |
+| `select` | Pick a dropdown option, or click a radio button | `selector`, `value` |
+| `check` | Set a checkbox or radio button to a state | `selector`, `checked` (`true` or `false`) |
+| `wait` | Pause | `seconds` (more than 0, at most 60) |
+| `keyboard` | Press a key | `key` (e.g. `"Enter"`) |
+| `download` | Click and wait for the file | `selector` |
+| `scrape` | Extract HTML tables | optional `selector` (default: every table) |
+| `scrape_text` | Grab the visible text | optional `selector` (default: the whole page) |
+| `extract_grid` | Extract a jqxGrid widget's data | `selector` |
+| `screenshot` | Take a screenshot | optional `name` (`a-z`, `0-9`, `_`, `-`; up to 40), optional `full_page` |
 
-Actions can be recorded via `/record` or written manually in the resource metadata JSON.
+A `fill`, `select`, `check` or `click` whose selector matches nothing ends the play with an error naming it. Recipes can be recorded with `/record` or written by hand in the resource's metadata.
 
 ---
 

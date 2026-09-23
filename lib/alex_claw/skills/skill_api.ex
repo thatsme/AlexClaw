@@ -195,6 +195,18 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   # --- HTTP ---
 
+  @typedoc """
+  Why a skill's HTTP request was refused or failed: no `:web_read` permission,
+  an option outside the allow-list, a host that is internal or does not resolve
+  (`AlexClaw.Net.HostGuard`), a URL that is not http(s), or Req's own error.
+  """
+  @type http_error ::
+          :permission_denied
+          | :option_not_allowed
+          | :blocked_host
+          | :invalid_url
+          | Exception.t()
+
   @default_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
   # Options that shape the request. Anything else — adapter, plug, finch,
@@ -219,17 +231,18 @@ defmodule AlexClaw.Skills.SkillAPI do
   `{:error, :option_not_allowed}`. A URL whose host is internal, or does not
   resolve, returns `{:error, :blocked_host}` — on every redirect hop too.
   """
-  @spec http_get(skill_mod(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
+  @spec http_get(skill_mod(), String.t(), keyword()) ::
+          {:ok, Req.Response.t()} | {:error, http_error()}
   def http_get(skill_module, url, opts \\ []), do: http_request(skill_module, :get, url, opts)
 
   @doc "HTTP POST. Same options and refusals as `http_get/3`."
   @spec http_post(skill_mod(), String.t(), keyword()) ::
-          {:ok, Req.Response.t()} | {:error, term()}
+          {:ok, Req.Response.t()} | {:error, http_error()}
   def http_post(skill_module, url, opts \\ []), do: http_request(skill_module, :post, url, opts)
 
   @doc "HTTP request with explicit method. Same options and refusals as `http_get/3`."
   @spec http_request(skill_mod(), atom(), String.t(), keyword()) ::
-          {:ok, Req.Response.t()} | {:error, term()}
+          {:ok, Req.Response.t()} | {:error, http_error()}
   def http_request(skill_module, method, url, opts \\ []) do
     with :ok <- check_permission(skill_module, :web_read),
          :ok <- check_http_options(opts) do

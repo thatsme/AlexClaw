@@ -28,6 +28,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
   ├── AlexClaw.Skills.ForgeGuard         # One skill generation at a time
   ├── AlexClaw.LLM.LocalLock             # One local model call at a time
+  ├── AlexClaw.WebAutomation.PlayLock    # One web-automation play at a time
   ├── AlexClaw.Reasoning.Supervisor      # DynamicSupervisor — reasoning sessions
   ├── AlexClaw.MCP.Server                # MCP server (Streamable HTTP)
   ├── AlexClaw.Cluster.Manager           # Node registration and remote triggers
@@ -59,13 +60,15 @@ skill, per circuit breaker, and per reasoning session.
 **One local model call at a time.** A local model server holds its weights in
 the host's memory, so work that drives one must not run twice at once.
 `AlexClaw.Lock` holds a single holder and releases when that process exits;
-two are started from it. `AlexClaw.LLM.LocalLock` is taken around every
+three are started from it. `AlexClaw.LLM.LocalLock` is taken around every
 completion sent to a `local`-tier provider — a second is refused with
 `{:error, :local_model_busy}`, and embeddings are not held there.
 `AlexClaw.Skills.ForgeGuard` is taken by the Forge page and the Coder skill
 around a whole generation, which is also capped at five attempts and at
-`forge.time_budget_seconds` across all of them. Neither queues: a queued run
-only brings the same load back later.
+`forge.time_budget_seconds` across all of them. `AlexClaw.WebAutomation.PlayLock`
+is taken around every web-automation play, so a second is refused with
+`{:error, :busy}` before any request reaches the sidecar. None queues: a queued
+run only brings the same load back later.
 
 **Every ETS table has a supervised owner.** `Config.Loader`, `SkillRegistry`,
 `UsageTracker`, `RateLimiter.Server`, `LogBuffer`, `ChallengeStore`,

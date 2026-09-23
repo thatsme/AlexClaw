@@ -30,6 +30,9 @@ CONTRACT_ACTIONS = json.loads((CONTRACT / "actions.json").read_text())
 
 TOKEN = "test-automator-token"
 
+# /play's request-level fields (test_lifecycle.py); the recipe is `config`.
+PLAY = {"play_id": "p-contract1", "deadline_ms": 60_000}
+
 
 def _ids(cases):
     return [case["name"] for case in cases]
@@ -66,30 +69,28 @@ def client(monkeypatch):
 class TestPlayEndpoint:
     @pytest.mark.parametrize("case", FIXTURES["invalid"], ids=_ids(FIXTURES["invalid"]))
     def test_an_invalid_recipe_is_422_and_launches_nothing(self, client, case):
-        with patch("app.main.browser_manager") as bm:
-            bm.launch = AsyncMock()
-            resp = client.post("/play", json={"config": case["recipe"]})
+        with patch("app.main.open_play_session", new=AsyncMock()) as opener:
+            resp = client.post("/play", json={**PLAY, "config": case["recipe"]})
 
         assert resp.status_code == 422, resp.text
-        bm.launch.assert_not_called()
+        opener.assert_not_called()
         assert app_state.state == SessionState.idle
 
     def test_a_request_with_extra_top_level_fields_is_422(self, client):
-        with patch("app.main.browser_manager") as bm:
-            bm.launch = AsyncMock()
+        with patch("app.main.open_play_session", new=AsyncMock()) as opener:
             resp = client.post(
                 "/play",
-                json={"config": {"url": "https://example.com", "steps": []}, "output_dir": "/etc"},
+                json={**PLAY, "config": {"url": "https://example.com", "steps": []}, "output_dir": "/etc"},
             )
 
         assert resp.status_code == 422
-        bm.launch.assert_not_called()
+        opener.assert_not_called()
 
 
 class TestBusy:
     def test_play_while_playing_is_409(self, client):
         app_state.state = SessionState.playing
-        resp = client.post("/play", json={"config": {"url": "https://example.com", "steps": []}})
+        resp = client.post("/play", json={**PLAY, "config": {"url": "https://example.com", "steps": []}})
         assert resp.status_code == 409
 
     def test_record_while_playing_is_409(self, client):
@@ -99,5 +100,5 @@ class TestBusy:
 
     def test_play_while_recording_is_409(self, client):
         app_state.state = SessionState.recording
-        resp = client.post("/play", json={"config": {"url": "https://example.com", "steps": []}})
+        resp = client.post("/play", json={**PLAY, "config": {"url": "https://example.com", "steps": []}})
         assert resp.status_code == 409

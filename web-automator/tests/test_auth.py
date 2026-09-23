@@ -24,6 +24,9 @@ PROTECTED = [
     ("POST", "/record", {"url": "https://example.com"}),
     ("POST", "/record/abc12345/stop", None),
     ("POST", "/play", {"config": {"url": "https://example.com", "steps": []}}),
+    # Added with per-play stop (test_lifecycle.py); the auth middleware was
+    # rewritten as plain ASGI in the same change, so every route is re-pinned.
+    ("POST", "/play/p-00000001/stop", None),
 ]
 
 
@@ -95,6 +98,30 @@ class TestFailClosed:
         monkeypatch.setenv("WEB_AUTOMATOR_TOKEN", "")
         resp = call(TestClient(app), method, path, body, {"Authorization": "Bearer "})
         assert resp.status_code == 503
+
+
+class TestEveryRouteIsCovered:
+    """The list above is written by hand; this one is read from the app. A
+    route added later without passing through the token check fails here,
+    whatever its name."""
+
+    def test_every_route_but_health_needs_the_token(self, client):
+        import re
+        from starlette.routing import Route
+
+        open_routes = []
+        for route in app.routes:
+            if not isinstance(route, Route) or route.path == "/health":
+                continue
+            path = re.sub(r"\{[^}]+\}", "p-00000001", route.path)
+            for method in sorted(route.methods or []):
+                if method in ("HEAD", "OPTIONS"):
+                    continue
+                resp = client.request(method, path)
+                if resp.status_code != 401:
+                    open_routes.append(f"{method} {route.path} -> {resp.status_code}")
+
+        assert open_routes == []
 
 
 class TestDocsNotServed:

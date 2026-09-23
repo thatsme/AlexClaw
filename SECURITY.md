@@ -370,9 +370,13 @@ The noVNC interface (port 6080) should never be exposed publicly.
   refused, and the connection goes to the address that was checked. QUIC,
   non-proxied WebRTC UDP and service workers are disabled. A recording
   session's browser is not filtered.
-- **Logs.** Values typed into a page are not logged by the player or the
-  recorder; selectors and action names are. A recording that fails to save is
-  reported without its steps.
+- **Logs.** The player and the recorder write selectors and action names to the
+  sidecar's log, never the values typed into a page, and a recording that fails
+  to save is reported without its steps. This is about the log only: the
+  recording itself keeps those values (next point).
+- **Recordings.** A recording stores what was typed into the page — passwords
+  included — in plain `resources.metadata` until the credential store exists, so
+  do not record logins to accounts that matter.
 
 ---
 

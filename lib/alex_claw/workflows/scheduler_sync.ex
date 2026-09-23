@@ -8,6 +8,7 @@ defmodule AlexClaw.Workflows.SchedulerSync do
   require Logger
 
   alias AlexClaw.Workflows
+  alias AlexClaw.Workflows.Workflow
   alias Crontab.CronExpression.Parser
 
   @spec start_link(any()) :: GenServer.on_start()
@@ -50,8 +51,10 @@ defmodule AlexClaw.Workflows.SchedulerSync do
       end
     end)
 
-    # Add jobs for all enabled scheduled workflows
-    workflows = Workflows.list_scheduled_workflows()
+    # Add jobs for all enabled scheduled workflows. Never one that requires 2FA:
+    # nobody is there to approve a scheduled run (the changeset refuses the
+    # combination; this covers data written before it did).
+    workflows = Enum.reject(Workflows.list_scheduled_workflows(), &Workflow.protected?/1)
 
     Enum.each(workflows, fn workflow ->
       job_name = :"wf_#{workflow.id}"

@@ -15,12 +15,16 @@ defmodule AlexClawWeb.AdminLive.SchedulerRunNowTest do
   alias AlexClaw.Auth.TOTP
   alias AlexClaw.Workflows
 
+  # Since 0.3.50 a protected workflow cannot have a schedule, so the page never
+  # lists one. The handler still takes any id it is sent, though — a crafted
+  # event reaches it with a protected workflow's id — so the door must hold for
+  # workflows the page does not show. Protected fixtures are unscheduled.
   defp workflow(requires_2fa) do
     {:ok, workflow} =
       Workflows.create_workflow(%{
         name: "sched-#{System.unique_integer([:positive])}",
         enabled: true,
-        schedule: "0 9 * * *",
+        schedule: if(requires_2fa, do: nil, else: "0 9 * * *"),
         metadata: %{"requires_2fa" => requires_2fa}
       })
 

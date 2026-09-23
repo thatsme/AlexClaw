@@ -75,6 +75,31 @@ defmodule AlexClaw.MCP.ToolSchemaTest do
       end
     end
 
+    # MCP cannot hold a person's approval, so a workflow that requires 2FA is
+    # always refused there (requires_two_factor_test.exs); listing it as a tool
+    # would offer something that can only fail.
+    test "a workflow that requires 2FA is not offered as a tool" do
+      suffix = System.unique_integer([:positive])
+
+      {:ok, _} =
+        AlexClaw.Workflows.create_workflow(%{
+          name: "open #{suffix}",
+          enabled: true
+        })
+
+      {:ok, _} =
+        AlexClaw.Workflows.create_workflow(%{
+          name: "protected #{suffix}",
+          enabled: true,
+          metadata: %{"requires_2fa" => true}
+        })
+
+      names = Enum.map(ToolSchema.workflow_tools(), & &1.name)
+
+      assert "workflow:open #{suffix}" in names
+      refute "workflow:protected #{suffix}" in names
+    end
+
     test "workflow tools have input field in schema" do
       for tool <- ToolSchema.workflow_tools() do
         assert Map.has_key?(tool.input_schema, "input"),

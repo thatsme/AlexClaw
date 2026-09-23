@@ -34,7 +34,7 @@ defmodule AlexClaw.Workflows.Launch do
   def start(%Workflow{enabled: false}), do: {:error, :workflow_disabled}
 
   def start(%Workflow{} = workflow) do
-    launch(workflow, workflow.metadata["requires_2fa"])
+    launch(workflow, Workflow.protected?(workflow))
   end
 
   @doc """
@@ -62,20 +62,18 @@ defmodule AlexClaw.Workflows.Launch do
   Whether this workflow's own flag demands a second factor before it runs.
 
   The page asks so it can offer a code field; `start/1` asks so it can raise
-  the challenge. One flag, read in one way.
+  the challenge. One flag, read in one way: `Workflow.protected?/1`.
   """
   @spec needs_code?(Workflow.t()) :: boolean()
-  def needs_code?(%Workflow{} = workflow) do
-    workflow.metadata["requires_2fa"] not in [nil, false]
-  end
+  def needs_code?(%Workflow{} = workflow), do: Workflow.protected?(workflow)
 
-  defp launch(workflow, requires_2fa) when requires_2fa in [nil, false] do
+  defp launch(workflow, false) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> Executor.run(workflow.id) end)
 
     :started
   end
 
-  defp launch(workflow, _requires_2fa) do
+  defp launch(workflow, true) do
     Gate.request(
       %{type: :run_workflow, workflow_id: workflow.id},
       "Run workflow: *#{workflow.name}*"

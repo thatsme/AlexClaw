@@ -2,7 +2,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.Auth.{Challenge, Elevation, Gate, Sessions, TOTP}
+  alias AlexClaw.Auth.{Challenge, Elevation, Gate, RunApproval, Sessions, TOTP}
   alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
@@ -185,10 +185,15 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     locked
   end
 
+  # Reached only after the code was verified (the gateway's answer_code, the
+  # web page's ActionCode), so this is where a person's approval is granted —
+  # for this workflow, this one run.
   @spec execute_2fa_action(map(), Message.t()) :: term()
   def execute_2fa_action(%{type: :run_workflow, workflow_id: id}, _msg) do
+    approval = RunApproval.grant(id)
+
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      Executor.run(id)
+      Executor.run(id, approval: approval)
     end)
   end
 

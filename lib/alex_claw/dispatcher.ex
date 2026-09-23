@@ -765,7 +765,7 @@ defmodule AlexClaw.Dispatcher do
   end
 
   defp run_workflow(workflow, _input, msg) do
-    launch_workflow(workflow, msg, workflow.metadata["requires_2fa"])
+    launch_workflow(workflow, msg, AlexClaw.Workflows.Workflow.protected?(workflow))
   end
 
   defp launch_workflow(workflow, msg, true) do

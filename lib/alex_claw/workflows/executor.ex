@@ -12,62 +12,81 @@ defmodule AlexClaw.Workflows.Executor do
   """
   require Logger
 
-  alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
+  alias AlexClaw.Auth.{CapabilityToken, RunApproval, SafeExecutor}
   alias AlexClaw.ContentSanitizer
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.{Registry, SkillRegistry}
+  alias AlexClaw.Workflows.{Registry, SkillRegistry, Workflow}
 
-  @doc "Run a workflow by ID. Creates a run record and walks the step graph."
-  @spec run(integer()) ::
+  @doc """
+  Run a workflow by ID. Creates a run record and walks the step graph.
+
+  A workflow that requires 2FA runs only with `opts[:approval]`, a live
+  `AlexClaw.Auth.RunApproval` for it, consumed here; otherwise
+  `{:error, :approval_required}` and no run is created.
+  """
+  @spec run(integer(), keyword()) ::
           {:ok, AlexClaw.Workflows.WorkflowRun.t()}
           | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
-  def run(workflow_id) do
-    workflow = Workflows.get_workflow!(workflow_id)
-
-    if workflow.enabled do
-      execute(workflow, %{})
-    else
-      {:error, :workflow_disabled}
-    end
+  def run(workflow_id, opts \\ []) do
+    workflow_id
+    |> Workflows.get_workflow!()
+    |> launch(%{}, opts)
   end
 
   @doc """
   Run a workflow started by another node's `send_to_workflow`. `remote_input`
   and `extra_config` reach only a `receive_from_workflow` step — this is the
   cluster path and nothing else. To hand input to the first step, use
-  `run_with_initial_input/2`.
+  `run_with_initial_input/3`. Approval as for `run/2`.
   """
-  @spec run_remote_trigger(integer(), any(), map()) ::
+  @spec run_remote_trigger(integer(), any(), map(), keyword()) ::
           {:ok, AlexClaw.Workflows.WorkflowRun.t()}
           | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
-  def run_remote_trigger(workflow_id, initial_input, extra_config) do
-    workflow = Workflows.get_workflow!(workflow_id)
-
-    if workflow.enabled do
-      execute(workflow, %{remote_input: initial_input, remote_extra_config: extra_config})
-    else
-      {:error, :workflow_disabled}
-    end
+  def run_remote_trigger(workflow_id, initial_input, extra_config, opts \\ []) do
+    workflow_id
+    |> Workflows.get_workflow!()
+    |> launch(%{remote_input: initial_input, remote_extra_config: extra_config}, opts)
   end
 
   @doc """
   Run a workflow whose first step takes `input` as its input (`args[:input]`) —
-  a GitHub webhook event, an MCP tool's input. Unlike `run_remote_trigger/3`,
+  a GitHub webhook event, an MCP tool's input. Unlike `run_remote_trigger/4`,
   which feeds only a `receive_from_workflow` step, the input reaches whatever the
-  first step is.
+  first step is. Approval as for `run/2`.
   """
-  @spec run_with_initial_input(integer(), term()) ::
+  @spec run_with_initial_input(integer(), term(), keyword()) ::
           {:ok, AlexClaw.Workflows.WorkflowRun.t()}
           | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
-  def run_with_initial_input(workflow_id, input) do
-    workflow = Workflows.get_workflow!(workflow_id)
+  def run_with_initial_input(workflow_id, input, opts \\ []) do
+    workflow_id
+    |> Workflows.get_workflow!()
+    |> launch(%{initial_input: input}, opts)
+  end
 
-    if workflow.enabled do
-      execute(workflow, %{initial_input: input})
-    else
-      {:error, :workflow_disabled}
-    end
+  # Every entry point comes through here: disabled first, then — for a workflow
+  # that requires 2FA — the approval, before any run row exists.
+  defp launch(%Workflow{enabled: false}, _data, _opts), do: {:error, :workflow_disabled}
+
+  defp launch(workflow, data, opts) do
+    workflow
+    |> approval(Keyword.get(opts, :approval))
+    |> approved(workflow, data)
+  end
+
+  defp approval(workflow, approval) do
+    if Workflow.protected?(workflow), do: RunApproval.consume(approval, workflow.id), else: :ok
+  end
+
+  defp approved(:ok, workflow, data), do: execute(workflow, data)
+
+  defp approved(:error, workflow, _data) do
+    Logger.warning(
+      "Workflow '#{workflow.name}' requires a person's approval for each run; refused without one",
+      workflow: workflow.name
+    )
+
+    {:error, :approval_required}
   end
 
   defp execute(workflow, remote_data) do

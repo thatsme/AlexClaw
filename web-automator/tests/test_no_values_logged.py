@@ -15,7 +15,7 @@ import json
 import logging
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.player import Player
 from app.recorder import Recorder
@@ -34,6 +34,7 @@ def mock_page():
     page = AsyncMock()
     page.keyboard = AsyncMock()
     page.frames = [page]
+    page.goto.return_value = MagicMock(headers={}, status=200)
     el = AsyncMock()
     el.is_visible.return_value = True
     el.is_checked.return_value = False

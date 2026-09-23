@@ -89,6 +89,19 @@ def test_a_navigate_step_cannot_reach_an_internal_address(client, internal_serve
     assert "egress" in result["error"].lower()
 
 
+def test_an_https_url_to_an_internal_address_fails_at_the_tunnel(client, internal_server):
+    """HTTPS goes through CONNECT; the proxy refuses the tunnel, and Chromium
+    reports it as a tunnel failure. The run still fails naming egress."""
+    url, handler = internal_server
+    https_url = url.replace("http://", "https://")
+
+    result = play(client, {"url": f"{https_url}/secret", "steps": []})
+
+    assert handler.hits == []
+    assert result["status"] == "error"
+    assert "egress" in result["error"].lower()
+
+
 def test_the_player_is_idle_again_after_a_refused_play(client, internal_server):
     url, _handler = internal_server
 

@@ -23,6 +23,9 @@ def mock_page():
     page = AsyncMock()
     page.keyboard = AsyncMock()
     page.frames = [page]  # main frame only
+    # A navigation's response is inspected synchronously (headers) for the
+    # egress refusal marker; an AsyncMock there yields un-awaited coroutines.
+    page.goto.return_value = MagicMock(headers={}, status=200)
     return page
 
 

@@ -43,6 +43,7 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 
 | Variable | Default | Description |
 |---|---|---|
+| `COMPOSE_PROFILES` | — | Docker Compose's own variable, not read by AlexClaw. `web-automation` makes `docker compose up` build and start the sidecar with the rest of the stack |
 | `WEB_AUTOMATOR_ENABLED` | `false` | *Seeded.* Lets AlexClaw call the web-automator sidecar |
 | `WEB_AUTOMATOR_HOST` | `http://web-automator:6900` | *Seeded.* The sidecar's API URL |
 | `WEB_AUTOMATOR_TOKEN` | — | Shared bearer token, read by both AlexClaw and the sidecar at start; not stored. Without it the sidecar refuses every request and AlexClaw sends none. Generate with `openssl rand -hex 32` |

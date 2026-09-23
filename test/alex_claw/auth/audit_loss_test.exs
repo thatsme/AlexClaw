@@ -6,7 +6,10 @@ defmodule AlexClaw.Auth.AuditLossTest do
 
   Throttling is tested on a private notifier with a short interval, so the
   timing is the test's and not the application's. Gateways are global, so this
-  does not run beside anything else.
+  does not run beside anything else — and a notice from another part of the
+  application can still arrive during a test (seed 217703: the config
+  loader's "read-only until 2FA" notice). So these tests count only audit
+  notices, never everything the gateway received.
   """
   use AlexClaw.DataCase, async: false
   @moduletag :integration
@@ -35,9 +38,15 @@ defmodule AlexClaw.Auth.AuditLossTest do
     end)
   end
 
+  # Only the notices this module is about; anything else the gateway carried
+  # during the test belongs to someone else.
+  defp audit_sent do
+    Enum.filter(RecordingGateway.sent(), &(&1 =~ ~r/audit rows? could not be written/))
+  end
+
   # Notices leave through a supervised task, so they arrive shortly after.
   defp notices(count, deadline \\ 1_000) do
-    case RecordingGateway.sent() do
+    case audit_sent() do
       sent when length(sent) >= count or deadline <= 0 ->
         sent
 
@@ -89,7 +98,7 @@ defmodule AlexClaw.Auth.AuditLossTest do
 
       lose(server, 3)
       Process.sleep(div(@interval, 3))
-      assert length(RecordingGateway.sent()) == 1, "a held loss was announced early"
+      assert length(audit_sent()) == 1, "a held loss was announced early"
 
       assert [_first, summary] = notices(2)
       assert summary =~ "3 more audit rows could not be written"
@@ -102,7 +111,7 @@ defmodule AlexClaw.Auth.AuditLossTest do
 
       # One interval with nothing held returns to idle.
       Process.sleep(@interval * 2)
-      assert length(RecordingGateway.sent()) == 1
+      assert length(audit_sent()) == 1
 
       lose(server)
       assert [_first, again] = notices(2, 50)
@@ -114,7 +123,7 @@ defmodule AlexClaw.Auth.AuditLossTest do
       lose(server, 200)
 
       Process.sleep(@interval + div(@interval, 2))
-      assert length(RecordingGateway.sent()) == 2
+      assert length(audit_sent()) == 2
     end
 
     test "with no notifier running, the loss is still logged and the caller unharmed" do

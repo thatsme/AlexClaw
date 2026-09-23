@@ -1,7 +1,8 @@
 # Supervision Tree
 
 AlexClaw uses a flat `one_for_one` supervision strategy. Each child is
-independent — a crash in one does not restart the others.
+independent — a crash in one does not restart the others. The chat gateways are
+the one exception to the flat shape: they sit under their own supervisor.
 
 ```
 AlexClaw.Application (one_for_one)
@@ -33,13 +34,12 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.MCP.Server                # MCP server (Streamable HTTP)
   ├── AlexClaw.Cluster.Manager           # Node registration and remote triggers
   ├── AlexClaw.Scheduler                 # Quantum cron scheduler
-  ├── AlexClaw.Gateway.Telegram          # Telegram long-polling bot
+  ├── AlexClaw.Gateway.Supervisor        # The chat gateways (see below)
   ├── AlexClawWeb.Endpoint               # Phoenix HTTP server (admin UI)
   ├── AlexClaw.UpdateChecker             # Periodic release check
   │
   └── background workers, when :start_background_workers is true:
-      ├── AlexClaw.Workflows.SchedulerSync  # Syncs DB schedules into Quantum
-      └── AlexClaw.Gateway.DiscordStarter   # Starts Nostrum if Discord is configured
+      └── AlexClaw.Workflows.SchedulerSync  # Syncs DB schedules into Quantum
 ```
 
 ## Key Design Decisions
@@ -47,6 +47,17 @@ AlexClaw.Application (one_for_one)
 **Flat hierarchy** — every child is a sibling under one supervisor. That is
 deliberate for a single-operator agent, where simplicity is worth more than a
 restart strategy nobody will reason about at 3am.
+
+**Gateways under their own supervisor** — the root supervisor uses the default
+restart intensity, three restarts in five seconds; a child that crashes faster
+than that stops the whole application. A gateway handles messages that arrive
+from outside, so it is the child most exposed to that. `AlexClaw.Gateway.Supervisor`
+(`one_for_one`) holds `AlexClaw.Gateway.Telegram` and, when
+`:start_background_workers` is true, `AlexClaw.Gateway.DiscordStarter`. A
+gateway crashing repeatedly uses up this supervisor's intensity; the root then
+restarts the gateway supervisor once, and no other child is touched. The
+Telegram gateway also handles each incoming update in isolation: an update whose
+handling fails is logged and acknowledged, never delivered again.
 
 **Task.Supervisor for async work** — workflow executions, background embeddings
 and notification sends run under `AlexClaw.TaskSupervisor`. A crash there is
@@ -110,7 +121,8 @@ pages. The process itself only sweeps expired rows, every ten minutes.
 
 Two children start only when `:start_background_workers` is true, which the test
 environment sets to false so the suite does not run cron jobs or open a Discord
-socket.
+socket: `Workflows.SchedulerSync` under the root, and `Gateway.DiscordStarter`
+under the gateway supervisor.
 
 `Gateway.DiscordStarter` is the supervised child; it is not the Discord
 connection. It reads the Discord settings from configuration, and starts Nostrum

@@ -598,47 +598,66 @@ defmodule AlexClaw.Dispatcher do
     trimmed = String.trim(text)
 
     if Regex.match?(~r/^\d{6}$/, trimmed) and Challenge.pending?(msg.chat_id) do
-      case Challenge.resolve(msg.chat_id, trimmed) do
-        {:ok, action} ->
-          Gateway.send_message("Code verified. Executing...",
-            chat_id: msg.chat_id,
-            gateway: msg.gateway
-          )
-
-          Phoenix.PubSub.broadcast(AlexClaw.PubSub, "services:totp", {:totp_verified, action})
-          AuthCommands.execute_2fa_action(action, msg)
-
-        {:error, :invalid_code} ->
-          Gateway.send_message("Invalid code. Try again (2 minutes remaining).",
-            chat_id: msg.chat_id,
-            gateway: msg.gateway
-          )
-
-        {:error, :challenge_expired} ->
-          Gateway.send_message("Challenge expired. Please trigger the action again.",
-            chat_id: msg.chat_id,
-            gateway: msg.gateway
-          )
-
-        {:error, :too_many_attempts} ->
-          Gateway.send_message(
-            "Too many invalid codes. Challenge cancelled — trigger the action again.",
-            chat_id: msg.chat_id,
-            gateway: msg.gateway
-          )
-
-        {:error, :no_challenge} ->
-          Gateway.send_message("No pending challenge. Trigger the action again.",
-            chat_id: msg.chat_id,
-            gateway: msg.gateway
-          )
-      end
+      msg.chat_id
+      |> Challenge.resolve(trimmed)
+      |> answer_code(msg)
     else
       Conversational.handle(msg)
     end
   end
 
   def dispatch(_other), do: :ignored
+
+  # Every result of Challenge.resolve/2 ends in a reply. A code that meets a
+  # lock was never checked, so the reply says the lock, not "invalid code".
+  defp answer_code({:ok, action}, msg) do
+    reply("Code verified. Executing...", msg)
+    Phoenix.PubSub.broadcast(AlexClaw.PubSub, "services:totp", {:totp_verified, action})
+    AuthCommands.execute_2fa_action(action, msg)
+  end
+
+  defp answer_code({:error, :invalid_code}, msg),
+    do: reply("Invalid code. Try again (2 minutes remaining).", msg)
+
+  defp answer_code({:error, :challenge_expired}, msg),
+    do: reply("Challenge expired. Please trigger the action again.", msg)
+
+  defp answer_code({:error, :too_many_attempts}, msg),
+    do: reply("Too many invalid codes. Challenge cancelled — trigger the action again.", msg)
+
+  defp answer_code({:error, :no_challenge}, msg),
+    do: reply("No pending challenge. Trigger the action again.", msg)
+
+  defp answer_code({:error, :locked_session}, msg) do
+    reply(
+      "Code not checked: this chat is locked after too many wrong codes. " <>
+        "Try again in #{lock_minutes(msg.chat_id)}.",
+      msg
+    )
+  end
+
+  defp answer_code({:error, :locked_instance}, msg) do
+    reply(
+      "Code not checked: code entry is locked everywhere after too many wrong codes. " <>
+        "Try again in #{lock_minutes(msg.chat_id)}.",
+      msg
+    )
+  end
+
+  defp answer_code({:error, reason}, msg) do
+    Logger.warning("2FA code not resolved: #{inspect(reason)}")
+    reply("The code could not be checked. Trigger the action again.", msg)
+  end
+
+  defp reply(text, msg),
+    do: Gateway.send_message(text, chat_id: msg.chat_id, gateway: msg.gateway)
+
+  defp lock_minutes(chat_id), do: chat_id |> Challenge.lock() |> minutes_left()
+
+  defp minutes_left({:locked, 1}), do: "1 minute"
+  defp minutes_left({:locked, minutes}), do: "#{minutes} minutes"
+  # Lifted between the refusal and this reply.
+  defp minutes_left(:ok), do: "1 minute"
 
   # --- Tier/provider commands (/research, /search) ---
   #

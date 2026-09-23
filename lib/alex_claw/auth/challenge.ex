@@ -16,7 +16,7 @@ defmodule AlexClaw.Auth.Challenge do
   the brute-force limits and the audit trail for every route.
   """
 
-  alias AlexClaw.Auth.{ChallengeStore, CodeEntry}
+  alias AlexClaw.Auth.{ChallengeStore, CodeAttempts, CodeEntry}
 
   # Long enough to fetch a phone, short enough that an approval left open on a
   # screen is not an approval someone else can finish.
@@ -48,13 +48,37 @@ defmodule AlexClaw.Auth.Challenge do
   of the three, or an attacker could destroy a pending approval from a
   distance simply by locking the instance.
   """
-  @spec resolve(String.t() | integer(), String.t()) :: {:ok, map()} | {:error, atom()}
+  @type resolve_error ::
+          :no_challenge
+          | :challenge_expired
+          | :locked_session
+          | :locked_instance
+          | :invalid_code
+          | :too_many_attempts
+
+  @spec resolve(String.t() | integer(), String.t()) :: {:ok, map()} | {:error, resolve_error()}
   def resolve(chat_id, code) do
     chat_id_str = to_string(chat_id)
 
     chat_id_str
     |> ChallengeStore.fetch()
     |> decide(chat_id_str, code)
+  end
+
+  @doc """
+  Whether a gateway's chat may send a code now, or for how many more minutes
+  it is locked (rounded up).
+
+  The lock belongs to the chat, not to a challenge: it outlives the challenge
+  that tripped it.
+  """
+  @spec lock(String.t() | integer()) :: :ok | {:locked, pos_integer()}
+  def lock(chat_id) do
+    chat_id
+    |> to_string()
+    |> session_key()
+    |> CodeAttempts.status()
+    |> minutes_left()
   end
 
   @doc "Whether a gateway has a challenge still waiting."
@@ -150,6 +174,11 @@ defmodule AlexClaw.Auth.Challenge do
   # A chat is the session on that side: three wrong codes from one chat lock
   # that chat, not every gateway at once.
   defp session_key(chat_id_str), do: "chat:" <> chat_id_str
+
+  defp minutes_left(:ok), do: :ok
+
+  defp minutes_left({:locked, _kind, until}),
+    do: {:locked, max(1, ceil((until - System.system_time(:second)) / 60))}
 
   defp alive?({:ok, challenge}), do: not past?(challenge)
   defp alive?(:error), do: false

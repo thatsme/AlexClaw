@@ -92,17 +92,21 @@ defmodule AlexClaw.DocumentationRecipesTest do
     text
     |> String.split(~r/^#+ .*Supported Actions.*$/m)
     |> Enum.drop(1)
-    |> Enum.map(fn section ->
-      section
-      |> String.split("\n")
-      |> Enum.drop_while(&(not String.starts_with?(&1, "|")))
-      |> Enum.take_while(&String.starts_with?(&1, "|"))
-      |> Enum.flat_map(fn row ->
-        case Regex.run(~r/^\|\s*`([a-z_]+)`\s*\|/, row) do
-          [_, action] -> [action]
-          nil -> []
-        end
-      end)
-    end)
+    |> Enum.map(&table_actions/1)
+  end
+
+  defp table_actions(section) do
+    section
+    |> String.split("\n")
+    |> Enum.drop_while(&(not String.starts_with?(&1, "|")))
+    |> Enum.take_while(&String.starts_with?(&1, "|"))
+    |> Enum.flat_map(&row_action/1)
+  end
+
+  defp row_action(row) do
+    case Regex.run(~r/^\|\s*`([a-z_]+)`\s*\|/, row) do
+      [_, action] -> [action]
+      nil -> []
+    end
   end
 end

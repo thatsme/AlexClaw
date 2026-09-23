@@ -45,13 +45,14 @@ docker compose up -d
 
 ## Services
 
-The `docker-compose.yml` starts two services, and a third on request:
+The `docker-compose.yml` starts the database, a one-shot `migrate` job, and the application; the web automator on request:
 
 | Service | Container Name | Description | Port |
 |---|---|---|---|
 | `alexclaw-prod` | `alexclaw-prod` | Main application (Elixir release) | 5001 |
-| `db-prod` | `alexclaw-db-prod` | PostgreSQL 17 with pgvector | 5432 |
-| `web-automator` | — | Playwright sidecar for browser automation, opt-in: `docker compose --profile web-automation up -d` | 6080 (noVNC, loopback) |
+| `db-prod` | `alexclaw-db-prod` | PostgreSQL 17 with pgvector | — (internal only) |
+| `migrate` | `alexclaw-migrate` | Applies migrations and exits | — |
+| `web-automator` | — | Playwright sidecar for browser automation, opt-in. Set `WEB_AUTOMATOR_ENABLED=true` and `WEB_AUTOMATOR_TOKEN` in `.env`, then `docker compose --profile web-automation up -d`. See [INSTALLATION.md](https://github.com/thatsme/AlexClaw/blob/main/INSTALLATION.md#web-automator-sidecar-optional) | 6080 (noVNC, loopback) |
 
 ## Building from Source
 

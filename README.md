@@ -277,6 +277,8 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/shell <command>` | Execute a whitelisted OS command (2FA-gated) |
 | `/record <url>` | Start browser recording session (web-automator) |
 | `/record stop <session_id>` | Stop a recording session |
+| `/replay <id>` | Replay a saved automation headlessly |
+| `/automate <url>` | Headless scrape or screenshot of a URL |
 | `/automations` | List automation resources |
 | `/setup 2fa` | Set up two-factor authentication |
 | `/confirm 2fa <code>` | Confirm 2FA with authenticator code |

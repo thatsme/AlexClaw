@@ -1,6 +1,6 @@
 # Environment Variables
 
-All variables are set in the `.env` file. Values are seeded to the database on first boot — after that, changes are made via the Admin UI.
+All variables are set in the `.env` file. The ones marked *Seeded* are copied into the database on first boot and are managed in **Admin > Config** afterwards; changing them in `.env` later has no effect. All others are read from the environment at every start.
 
 ## Required
 
@@ -9,19 +9,43 @@ All variables are set in the `.env` file. Values are seeded to the database on f
 | `DATABASE_PASSWORD` | PostgreSQL password |
 | `SECRET_KEY_BASE` | Phoenix session/encryption secret (min 64 bytes) |
 | `ADMIN_PASSWORD` | Web UI login password |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
+| `TELEGRAM_BOT_TOKEN` | *Seeded.* Telegram bot token from @BotFather |
+
+## Telegram
+
+| Variable | Description |
+|---|---|
+| `TELEGRAM_CHAT_ID` | *Seeded.* Optional: when empty, the chat is detected from the first message sent to the bot |
 
 ## LLM Providers (at least one)
 
 | Variable | Description |
 |---|---|
-| `GEMINI_API_KEY` | Google Gemini API key (free tier available) |
-| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
-| `OLLAMA_ENABLED` | `true` to enable Ollama |
-| `OLLAMA_HOST` | Ollama API URL (e.g., `http://host.docker.internal:11434`) |
-| `LMSTUDIO_ENABLED` | `true` to enable LM Studio |
-| `LMSTUDIO_HOST` | LM Studio API URL (e.g., `http://host.docker.internal:1234`) |
+| `GEMINI_API_KEY` | *Seeded.* Google Gemini API key (free tier available) |
+| `ANTHROPIC_API_KEY` | *Seeded.* Anthropic Claude API key |
+| `OLLAMA_ENABLED` | *Seeded.* `true` to enable Ollama |
+| `OLLAMA_HOST` | *Seeded.* Ollama API URL (e.g., `http://host.docker.internal:11434`) |
+| `OLLAMA_MODEL` | *Seeded.* Default Ollama model (default `llama3.2`) |
+| `LMSTUDIO_ENABLED` | *Seeded.* `true` to enable LM Studio |
+| `LMSTUDIO_HOST` | *Seeded.* LM Studio API URL (e.g., `http://host.docker.internal:1234`) |
+| `LMSTUDIO_MODEL` | *Seeded.* Default LM Studio model (default `qwen2.5-14b-instruct`) |
+
+## Google OAuth (optional)
+
+| Variable | Description |
+|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | *Seeded.* OAuth client ID |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | *Seeded.* OAuth client secret |
+| `GOOGLE_OAUTH_REFRESH_TOKEN` | *Seeded.* Refresh token, if one was obtained outside AlexClaw |
+| `GOOGLE_OAUTH_REDIRECT_URI` | *Seeded.* OAuth redirect URI |
+
+## Web Automator (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEB_AUTOMATOR_ENABLED` | `false` | *Seeded.* Lets AlexClaw call the web-automator sidecar |
+| `WEB_AUTOMATOR_HOST` | `http://web-automator:6900` | *Seeded.* The sidecar's API URL |
+| `WEB_AUTOMATOR_TOKEN` | — | Shared bearer token, read by both AlexClaw and the sidecar at start; not stored. Without it the sidecar refuses every request and AlexClaw sends none. Generate with `openssl rand -hex 32` |
 
 ## Discord (optional)
 
@@ -50,6 +74,10 @@ The database name is set by the compose file, not by an environment variable.
 | `ADMIN_PASSWORD` | — | Admin UI password (required) |
 | `SKILLS_DIR` | `/app/skills` | Where dynamic skill files live |
 | `ADMIN_PORT` | `5001` | Host port the admin UI is published on |
+| `ADMIN_BIND` | `127.0.0.1` | Host interface the admin UI is published on. `0.0.0.0` for every interface; see [Reverse Proxy](../deployment/reverse-proxy.md) before doing so |
+| `PHX_HOST` | — | Public host name behind a reverse proxy; adds `https://<host>` to the accepted LiveView origins |
+| `CHECK_ORIGIN` | — | Comma-separated LiveView origins; replaces the default list (both loopback spellings on `ADMIN_PORT`, plus `PHX_HOST`) |
+| `TOTP_ISSUER` | `AlexClaw` | Issuer name shown in the authenticator app |
 
 ## Clustering
 

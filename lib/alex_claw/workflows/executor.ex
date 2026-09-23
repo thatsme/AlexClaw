@@ -41,6 +41,24 @@ defmodule AlexClaw.Workflows.Executor do
     end
   end
 
+  @doc """
+  Run a workflow whose first step takes `input` as its input (`args[:input]`) —
+  a GitHub webhook event, for one. Unlike `run_with_input/3`, which feeds only a
+  `receive_from_workflow` step, the input reaches whatever the first step is.
+  """
+  @spec run_with_initial_input(integer(), term()) ::
+          {:ok, AlexClaw.Workflows.WorkflowRun.t()}
+          | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
+  def run_with_initial_input(workflow_id, input) do
+    workflow = Workflows.get_workflow!(workflow_id)
+
+    if workflow.enabled do
+      execute(workflow, %{initial_input: input})
+    else
+      {:error, :workflow_disabled}
+    end
+  end
+
   defp execute(workflow, remote_data) do
     node_name = to_string(node())
     {:ok, run} = Workflows.create_run(workflow, %{node: node_name})
@@ -73,7 +91,8 @@ defmodule AlexClaw.Workflows.Executor do
       visited: MapSet.new(),
       max_iterations: length(steps) * 2,
       remote_input: Map.get(remote_data, :remote_input),
-      remote_extra_config: Map.get(remote_data, :remote_extra_config, %{})
+      remote_extra_config: Map.get(remote_data, :remote_extra_config, %{}),
+      initial_input: Map.get(remote_data, :initial_input)
     }
 
     ctx = %{steps: steps, workflow: workflow, run: run}
@@ -181,7 +200,11 @@ defmodule AlexClaw.Workflows.Executor do
     }
 
     {input, step} =
-      inject_remote_input(step, resolve_step_input(step, ctx.steps, state.outputs), state)
+      inject_remote_input(
+        step,
+        resolve_step_input(step, ctx.steps, state.outputs, state.initial_input),
+        state
+      )
 
     announce_step(step, ctx)
 
@@ -398,7 +421,9 @@ defmodule AlexClaw.Workflows.Executor do
 
   # --- Input Resolution ---
 
-  defp resolve_step_input(step, steps, outputs) do
+  # The first step has no previous output; it takes the run's initial input,
+  # nil unless the run was started with one.
+  defp resolve_step_input(step, steps, outputs, initial_input) do
     case step.input_from do
       nil ->
         prev =
@@ -406,7 +431,7 @@ defmodule AlexClaw.Workflows.Executor do
           |> Enum.filter(&(&1.position < step.position))
           |> Enum.max_by(& &1.position, fn -> nil end)
 
-        if prev, do: Map.get(outputs, prev.position), else: nil
+        if prev, do: Map.get(outputs, prev.position), else: initial_input
 
       position ->
         Map.get(outputs, position)

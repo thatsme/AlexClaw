@@ -63,7 +63,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
     Logger.info("GitHub PR ##{pr_number} #{action} on #{repo_name}", skill: :github)
 
     review(
-      %{"mode" => "specific_pr", "repo" => repo_name, "pr_number" => pr_number},
+      %{"event" => "pull_request", "repo" => repo_name, "pr_number" => pr_number},
       "pull request ##{pr_number} on #{repo_name}",
       fn -> GitHubSecurityReview.review_pr(repo_name, pr_number) end
     )
@@ -85,7 +85,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
       )
 
       review(
-        %{"mode" => "specific_commit", "repo" => repo_name, "commit_sha" => sha},
+        %{"event" => "push", "repo" => repo_name, "commit_sha" => sha},
         "commit #{String.slice(sha, 0, 8)} on #{repo_name}",
         fn -> GitHubSecurityReview.review_commit(repo_name, sha) end
       )
@@ -95,12 +95,13 @@ defmodule AlexClawWeb.GitHubWebhookController do
   end
 
   # With github.review_workflow naming an enabled workflow, the event runs it:
-  # the workflow fetches the diff, reviews it and delivers the result. Without
-  # one, the diff itself is sent, as before — no review, just the change.
-  defp review(step_config, what, send_diff) do
+  # the workflow fetches the diff, reviews it and delivers the result. The event
+  # is the run's input, so the first step reviews what the event named. Without
+  # a workflow, the diff itself is sent, as before — no review, just the change.
+  defp review(event, what, send_diff) do
     case review_workflow() do
       nil -> send_diff.()
-      workflow -> start_workflow(workflow, step_config, what)
+      workflow -> start_workflow(workflow, event, what)
     end
   end
 
@@ -111,11 +112,11 @@ defmodule AlexClawWeb.GitHubWebhookController do
     end
   end
 
-  defp start_workflow(workflow, step_config, what) do
+  defp start_workflow(workflow, event, what) do
     Logger.info("GitHub review workflow '#{workflow.name}' for #{what}", skill: :github)
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      Executor.run_with_input(workflow.id, what, step_config)
+      Executor.run_with_initial_input(workflow.id, event)
     end)
 
     :ok

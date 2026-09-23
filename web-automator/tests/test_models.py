@@ -21,10 +21,17 @@ class TestRecordRequest:
 
 class TestPlayRequest:
     def test_config_is_a_recipe(self):
-        # config is the contract's Recipe, not a dict (test_contract.py).
-        req = PlayRequest(config={"url": "https://x.com", "steps": []})
+        # config is the contract's Recipe, not a dict (test_contract.py); play_id
+        # and deadline_ms are required request fields (test_lifecycle.py).
+        req = PlayRequest(
+            play_id="p-models01",
+            deadline_ms=60_000,
+            config={"url": "https://x.com", "steps": []},
+        )
         assert req.config.url == "https://x.com"
         assert req.config.steps == []
+        assert req.play_id == "p-models01"
+        assert req.deadline_ms == 60_000
 
 
 class TestPlayResponse:

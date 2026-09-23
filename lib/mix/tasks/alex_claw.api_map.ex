@@ -3,8 +3,8 @@ defmodule Mix.Tasks.AlexClaw.ApiMap do
 
   @moduledoc """
   Writes `local-docs/API_MAP.md`, a map of every module under `lib/`: the first
-  line of its moduledoc, its public function heads with their specs, the
-  behaviours it implements and which of their callbacks it defines, a
+  line of its moduledoc, its public types, its public function heads with their
+  specs, the behaviours it implements and which of their callbacks it defines, a
   LiveView's `handle_event` names, and an Ecto schema's fields and types. No
   function bodies.
 
@@ -99,6 +99,7 @@ defmodule Mix.Tasks.AlexClaw.ApiMap do
       behaviours(module),
       schema(module),
       events(module, source),
+      types(module),
       functions(module, entries)
     ]
   end
@@ -199,6 +200,31 @@ defmodule Mix.Tasks.AlexClaw.ApiMap do
 
   defp event_name({:handle_event, _, [name | _]}, names) when is_binary(name), do: [name | names]
   defp event_name(_head, names), do: names
+
+  # --- Public types: the ones specs name, so a spec reads on its own ---
+
+  defp types(module) do
+    case Code.Typespec.fetch_types(module) do
+      {:ok, types} ->
+        types
+        |> Enum.filter(&match?({kind, _} when kind in [:type, :opaque], &1))
+        |> Enum.map(&type_string/1)
+        |> Enum.sort()
+        |> section("Types", &"  `@#{&1}`\n")
+
+      :error ->
+        []
+    end
+  end
+
+  # An opaque type shows its head only: its definition is not part of the API.
+  defp type_string({:opaque, type}) do
+    {:"::", _, [head, _definition]} = Code.Typespec.type_to_quoted(type)
+    "opaque " <> Macro.to_string(head)
+  end
+
+  defp type_string({:type, type}),
+    do: "type " <> (type |> Code.Typespec.type_to_quoted() |> Macro.to_string())
 
   # --- Public functions: the head from the docs, the spec beneath it ---
 

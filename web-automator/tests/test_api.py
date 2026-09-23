@@ -109,5 +109,8 @@ class TestPlay:
     def test_play_rejects_when_not_idle(self, client):
         app_state.state = SessionState.recording
 
-        resp = client.post("/play", json={"config": {"url": "https://example.com", "steps": []}})
+        resp = client.post(
+            "/play",
+            json={"play_id": "p-apitest1", "deadline_ms": 60_000, "config": {"url": "https://example.com", "steps": []}},
+        )
         assert resp.status_code == 409

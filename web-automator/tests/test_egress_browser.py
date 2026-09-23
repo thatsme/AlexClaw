@@ -58,8 +58,14 @@ def client(monkeypatch):
 
 
 def play(client, config):
-    resp = client.post("/play", json={"config": config}, timeout=90)
-    assert resp.status_code in (200, 422, 500), resp.text
+    resp = client.post(
+        "/play",
+        json={"play_id": "p-egress001", "deadline_ms": 60_000, "config": config},
+        timeout=90,
+    )
+    # A refused play is a completed request with status "error": anything but
+    # 200 means the request itself was wrong, and the test would prove nothing.
+    assert resp.status_code == 200, resp.text
     return resp.json()
 
 

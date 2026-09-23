@@ -10,7 +10,28 @@ defmodule AlexClaw.Skills.WebAutomation do
   require Logger
 
   alias AlexClaw.Config
-  alias AlexClaw.WebAutomation.Recipe
+  alias AlexClaw.WebAutomation.{PlayLock, Recipe}
+
+  @default_deadline_ms 120_000
+  # How much longer than the play's own deadline AlexClaw waits for the answer.
+  @answer_margin_ms 5_000
+
+  @typedoc "Why a request to the sidecar was not made or did not succeed."
+  @type request_error ::
+          :web_automator_disabled
+          | :web_automator_token_missing
+          | :busy
+          | {:invalid_recipe, term()}
+          | {:http, pos_integer(), term()}
+          | Exception.t()
+
+  @typedoc "Why a play did not complete."
+  @type play_error ::
+          request_error()
+          | :timeout
+          | :stopped
+          | {:automation_failed, String.t() | nil, map()}
+          | {:unexpected_response, term()}
 
   @impl true
   @spec description() :: String.t()
@@ -49,19 +70,26 @@ defmodule AlexClaw.Skills.WebAutomation do
       "action: play (run automation), record (start recording), status (check sidecar). The automation config comes from the assigned Resource (type: automation)."
 
   @impl true
-  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
+  @spec run(map()) ::
+          {:ok, String.t(), :on_success} | {:error, play_error() | :no_url}
   def run(args) do
     config = args[:config] || %{}
     resources = args[:resources] || []
 
     case config["action"] do
       "record" -> record(config)
-      _ -> play(config, resources)
+      _ -> play(Map.delete(config, "timeout_ms"), resources, deadline_opts(config))
     end
   end
 
+  # A workflow step's timeout_ms is the play's deadline; it is not part of the recipe.
+  defp deadline_opts(%{"timeout_ms" => ms}) when is_integer(ms), do: [deadline_ms: ms]
+  defp deadline_opts(_config), do: []
+
   @doc "Start a recording session. Returns noVNC URL for interaction."
-  @spec record(map()) :: {:ok, String.t(), atom()} | {:error, any()}
+  @spec record(map()) ::
+          {:ok, String.t(), :on_success}
+          | {:error, request_error() | :no_url | {:unexpected_response, term()}}
   def record(config) do
     url = config["url"] || ""
 
@@ -86,7 +114,7 @@ defmodule AlexClaw.Skills.WebAutomation do
   defp recording_started({:error, reason}), do: {:error, reason}
 
   @doc "Stop an active recording session."
-  @spec stop_recording(String.t()) :: {:ok, any()} | {:error, any()}
+  @spec stop_recording(String.t()) :: {:ok, map()} | {:error, request_error()}
   def stop_recording(session_id) do
     post("/record/#{session_id}/stop", %{})
   end
@@ -100,14 +128,35 @@ defmodule AlexClaw.Skills.WebAutomation do
   `{:error, {:invalid_recipe, reasons}}`. A run that fails keeps its partial
   results: `{:error, {:automation_failed, error, partial}}`.
   """
-  @spec play(map(), list()) :: {:ok, String.t(), atom()} | {:error, any()}
-  def play(config, resources) do
+  @spec play(map(), list(), keyword()) :: {:ok, String.t(), :on_success} | {:error, play_error()}
+  def play(config, resources, opts \\ []) do
+    deadline_ms = Keyword.get(opts, :deadline_ms, @default_deadline_ms)
+
     with {:ok, recipe} <- recipe(config, resources) do
-      "/play"
-      |> post(%{config: recipe})
-      |> played_result(recipe)
+      PlayLock.run(fn -> send_play(recipe, deadline_ms) end)
     end
   end
+
+  # AlexClaw waits deadline + margin; past it, it asks the sidecar to stop the
+  # play, behind the sidecar's own deadline.
+  defp send_play(recipe, deadline_ms) do
+    play_id = new_play_id()
+    body = %{play_id: play_id, deadline_ms: deadline_ms, config: recipe}
+
+    :post
+    |> request("/play", json: body, receive_timeout: deadline_ms + @answer_margin_ms)
+    |> gave_up(play_id)
+    |> played_result(recipe)
+  end
+
+  defp new_play_id, do: "p-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+  defp gave_up({:error, %Req.TransportError{reason: :timeout}}, play_id) do
+    request(:post, "/play/#{play_id}/stop", json: %{}, receive_timeout: 5_000, retry: false)
+    {:error, :timeout}
+  end
+
+  defp gave_up(result, _play_id), do: result
 
   defp recipe(config, resources) do
     config
@@ -128,6 +177,8 @@ defmodule AlexClaw.Skills.WebAutomation do
        {:automation_failed, result["error"],
         Map.take(result, ~w(downloads screenshots scraped_data))}}
 
+  defp played_result({:ok, %{"status" => "timeout"}}, _recipe), do: {:error, :timeout}
+  defp played_result({:ok, %{"status" => "stopped"}}, _recipe), do: {:error, :stopped}
   defp played_result({:ok, other}, _recipe), do: {:error, {:unexpected_response, other}}
   defp played_result({:error, reason}, _recipe), do: {:error, reason}
 
@@ -166,11 +217,11 @@ defmodule AlexClaw.Skills.WebAutomation do
   defp preview_entry(other), do: String.slice(inspect(other), 0, 500)
 
   @doc "Get sidecar status. Short timeout, no retry: the Services page waits on it."
-  @spec status() :: {:ok, any()} | {:error, any()}
+  @spec status() :: {:ok, map()} | {:error, request_error()}
   def status, do: request(:get, "/status", receive_timeout: 5_000, retry: false)
 
   @doc "Force stop any running session."
-  @spec force_stop() :: {:ok, any()} | {:error, any()}
+  @spec force_stop() :: {:ok, map()} | {:error, request_error()}
   def force_stop, do: post("/stop", %{})
 
   # --- Helpers ---

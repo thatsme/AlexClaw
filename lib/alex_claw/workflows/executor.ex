@@ -1,9 +1,14 @@
 defmodule AlexClaw.Workflows.Executor do
   @moduledoc """
-  Executes a workflow by walking its step graph. Supports conditional branching:
-  each skill returns a branch atom, and the executor follows the matching route
-  to the next step. Steps without routes fall through to the next position
-  (backward compatible with linear workflows).
+  Executes a workflow by walking its step graph. Each skill returns a branch,
+  and the executor follows the matching route.
+
+  One rule, with or without routes. A branch with a route goes where the route
+  says: a position, or `"end"`. An unrouted branch does what its kind implies:
+  an error fails the run, `on_empty` ends it completed, anything else goes to
+  the next step. A route to a position that does not exist fails the run. A run
+  in which an error was handled by a route ends `recovered`. Every failure
+  names the step, and a step that raises fails the run like any other error.
   """
   require Logger
 
@@ -95,7 +100,7 @@ defmodule AlexClaw.Workflows.Executor do
       outputs: %{},
       step_results: %{},
       visited: MapSet.new(),
-      max_iterations: length(steps) * 2,
+      recovered: false,
       remote_input: Map.get(remote_data, :remote_input),
       remote_extra_config: Map.get(remote_data, :remote_extra_config, %{}),
       initial_input: Map.get(remote_data, :initial_input)
@@ -103,28 +108,36 @@ defmodule AlexClaw.Workflows.Executor do
 
     ctx = %{steps: steps, workflow: workflow, run: run}
 
-    first_position(steps)
-    |> walk(ctx, state)
+    steps
+    |> first_position()
+    |> start(ctx, state)
     |> finish(ctx, gateways)
   end
 
-  defp finish({:ok, final_result, step_results}, ctx, _gateways) do
+  defp start(nil, _ctx, state), do: done(state)
+  defp start(pos, ctx, state), do: walk(pos, ctx, state)
+
+  defp done(state), do: {:ok, last_output(state), state}
+
+  defp finish({:ok, final_result, state}, ctx, _gateways) do
+    status = if state.recovered, do: "recovered", else: "completed"
+
     {:ok, run} =
       Workflows.update_run(ctx.run, %{
-        status: "completed",
+        status: status,
         completed_at: DateTime.utc_now(),
         result: %{"output" => serialize_result(final_result)},
-        step_results: step_results
+        step_results: state.step_results
       })
 
     Registry.deregister(run.id)
 
     Registry.broadcast(
-      {:workflow_run_completed,
+      {finished_event(status),
        %{run_id: run.id, workflow_id: ctx.workflow.id, workflow_name: ctx.workflow.name}}
     )
 
-    Logger.info("Workflow '#{ctx.workflow.name}' completed (run #{run.id})",
+    Logger.info("Workflow '#{ctx.workflow.name}' #{status} (run #{run.id})",
       workflow: ctx.workflow.name
     )
 
@@ -132,11 +145,13 @@ defmodule AlexClaw.Workflows.Executor do
   end
 
   defp finish({:error, step_name, reason, step_results}, ctx, gateways) do
+    error = failure_text(step_name, reason)
+
     {:ok, run} =
       Workflows.update_run(ctx.run, %{
         status: "failed",
         completed_at: DateTime.utc_now(),
-        error: inspect(reason),
+        error: error,
         step_results: step_results
       })
 
@@ -148,14 +163,11 @@ defmodule AlexClaw.Workflows.Executor do
          run_id: run.id,
          workflow_id: ctx.workflow.id,
          workflow_name: ctx.workflow.name,
-         error: inspect(reason)
+         error: error
        }}
     )
 
-    Logger.error(
-      "Workflow '#{ctx.workflow.name}' failed at step '#{step_name}': #{inspect(reason)}",
-      workflow: ctx.workflow.name
-    )
+    Logger.error("Workflow '#{ctx.workflow.name}' failed: #{error}", workflow: ctx.workflow.name)
 
     notify_failure_if_any(gateways, ctx.workflow, step_name, reason)
     {:error, run}
@@ -167,43 +179,42 @@ defmodule AlexClaw.Workflows.Executor do
     notify_failure(workflow, step_name, reason, gateways)
   end
 
+  # Every failure names the step it happened at.
+  defp failure_text(step_name, reason), do: "step '#{step_name}': #{inspect(reason)}"
+
+  defp finished_event("recovered"), do: :workflow_run_recovered
+  defp finished_event("completed"), do: :workflow_run_completed
+
   # --- Graph Walker ---
-
-  defp walk(nil, _steps, _workflow, _run, state) do
-    # No more steps — workflow complete
-    last_result = last_output(state)
-    {:ok, last_result, state.step_results}
-  end
-
-  defp walk(_pos, _steps, _workflow, _run, %{max_iterations: 0} = state) do
-    {:error, "loop_protection", :loop_detected, state.step_results}
-  end
 
   # steps, workflow and run are invariant for the whole walk, so they travel as
   # one context rather than as three parameters threaded through every clause.
+  # `pos` always names an existing step: go/4 checks a route's target first.
   defp walk(pos, ctx, state) do
-    ctx.steps
-    |> find_step(pos)
-    |> visit(pos, ctx, state)
+    enter(MapSet.member?(state.visited, pos), find_step(ctx.steps, pos), pos, ctx, state)
   end
 
-  # Position resolved to nothing — the graph has run out of steps.
-  defp visit(nil, _pos, _ctx, state), do: {:ok, last_output(state), state.step_results}
+  # Where a step sends the walk next (see resolve_next/2).
+  defp go(:end, _step, _ctx, state), do: done(state)
 
-  defp visit(step, pos, ctx, state) do
-    enter(MapSet.member?(state.visited, pos), step, pos, ctx, state)
+  defp go(:next, step, ctx, state),
+    do: step.position |> next_position(ctx.steps) |> start(ctx, state)
+
+  defp go({:goto, pos}, step, ctx, state) do
+    go_to(find_step(ctx.steps, pos), pos, step, ctx, state)
   end
+
+  defp go_to(nil, pos, step, _ctx, state),
+    do: {:error, step.name, {:route_target_missing, pos}, state.step_results}
+
+  defp go_to(_target, pos, _step, ctx, state), do: walk(pos, ctx, state)
 
   defp enter(true, step, _pos, _ctx, state) do
     {:error, step.name, :loop_detected, state.step_results}
   end
 
   defp enter(false, step, pos, ctx, state) do
-    state = %{
-      state
-      | visited: MapSet.put(state.visited, pos),
-        max_iterations: state.max_iterations - 1
-    }
+    state = %{state | visited: MapSet.put(state.visited, pos)}
 
     {input, step} =
       inject_remote_input(
@@ -215,7 +226,7 @@ defmodule AlexClaw.Workflows.Executor do
     announce_step(step, ctx)
 
     started_at = System.monotonic_time(:millisecond)
-    step_result = execute_step(step, input, ctx.workflow, ctx.run)
+    step_result = contained_step(step, input, ctx.workflow, ctx.run)
 
     record_outcome(
       ctx.run.id,
@@ -272,30 +283,58 @@ defmodule AlexClaw.Workflows.Executor do
     )
 
     state = record_step_result(state, step, result, branch)
-    walk(resolve_next(step, branch, ctx.steps), ctx, state)
+    go(resolve_next(step, branch), step, ctx, state)
   end
 
   defp advance({:skipped, result}, step, ctx, state) do
     state = record_step_result(state, step, result, :skipped)
-    walk(next_position(step.position, ctx.steps), ctx, state)
+    go(:next, step, ctx, state)
   end
 
   defp advance({:error, reason}, step, ctx, state) do
     state = record_step_error(state, step, reason)
-    route_error(resolve_next(step, :on_error, ctx.steps), step, reason, ctx, state)
+    route_error(resolve_next(step, :on_error), step, reason, ctx, state)
   end
 
-  defp route_error(nil, step, reason, _ctx, state) do
+  defp route_error(:fail, step, reason, _ctx, state) do
     {:error, step.name, reason, state.step_results}
   end
 
-  # Routed to another step — the error is exposed in outputs so that step can read it.
-  defp route_error(next_pos, step, reason, ctx, state) do
-    state = %{state | outputs: Map.put(state.outputs, step.position, %{error: reason})}
-    walk(next_pos, ctx, state)
+  # Handled by a route: the run can still finish, as recovered, and the error is
+  # exposed in outputs so the step it goes to can read it.
+  defp route_error(target, step, reason, ctx, state) do
+    state = %{
+      state
+      | outputs: Map.put(state.outputs, step.position, %{error: reason}),
+        recovered: true
+    }
+
+    go(target, step, ctx, state)
   end
 
   # --- Step Execution ---
+
+  @doc """
+  The provider a step's LLM calls use: the step's own model, unless it is
+  unset or `"auto"` — the provider select's default — in which case the
+  workflow's.
+  """
+  @spec provider_for(map(), map()) :: String.t() | nil
+  def provider_for(%{llm_model: model}, workflow) when model in [nil, "", "auto"],
+    do: workflow.default_provider
+
+  def provider_for(%{llm_model: model}, _workflow), do: model
+
+  # The boundary between a skill and the run: whatever a step raises, throws or
+  # exits with fails that step, like any error, instead of escaping the executor
+  # and leaving the run recorded as running.
+  defp contained_step(step, input, workflow, run) do
+    execute_step(step, input, workflow, run)
+  rescue
+    exception -> {:error, {:raised, Exception.message(exception)}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
 
   defp execute_step(step, input, workflow, run) do
     args = %{
@@ -303,7 +342,7 @@ defmodule AlexClaw.Workflows.Executor do
       resources: workflow.resources,
       config: step.config || %{},
       workflow_run_id: run.id,
-      llm_provider: step.llm_model || workflow.default_provider,
+      llm_provider: provider_for(step, workflow),
       llm_tier: step.llm_tier,
       prompt_template: step.prompt_template
     }
@@ -395,35 +434,26 @@ defmodule AlexClaw.Workflows.Executor do
 
   # --- Route Resolution ---
 
-  defp resolve_next(step, branch, steps) do
-    route_for(step.routes, step, branch, steps)
-  end
-
-  # No routes defined — fall through to the next position on success. An error
-  # ends the run, and so does an empty result: nothing downstream has anything
-  # to work on, and a notify step would only deliver the emptiness. A workflow
-  # that wants to report "nothing found" routes on_empty explicitly.
-  defp route_for(routes, step, branch, steps) when routes == [] or is_nil(routes) do
-    if branch in [:on_error, :on_empty], do: nil, else: next_position(step.position, steps)
-  end
-
-  defp route_for(routes, _step, branch, _steps) do
+  # :end, :next, {:goto, position} — or :fail for an error nothing handles. The
+  # branch's own route first, then a "default" route, then the unrouted rule.
+  defp resolve_next(step, branch) do
+    routes = step.routes || []
     branch_str = to_string(branch)
 
-    routes
-    |> Enum.find(&(&1["branch"] == branch_str))
-    |> matched_route(routes)
+    (Enum.find(routes, &(&1["branch"] == branch_str)) ||
+       Enum.find(routes, &(&1["branch"] == "default")))
+    |> target(branch)
   end
 
-  defp matched_route(%{"goto" => pos}, _routes), do: pos
+  defp target(%{"goto" => "end"}, _branch), do: :end
+  defp target(%{"goto" => pos}, _branch), do: {:goto, pos}
 
-  # No matching route — fall back to the default branch if one is defined.
-  defp matched_route(nil, routes) do
-    case Enum.find(routes, &(&1["branch"] == "default")) do
-      %{"goto" => pos} -> pos
-      nil -> nil
-    end
-  end
+  # Unrouted: an error fails the run; an empty result ends it, since nothing
+  # downstream has anything to work on (a workflow that reports "nothing found"
+  # routes on_empty); any other branch goes to the next step.
+  defp target(nil, :on_error), do: :fail
+  defp target(nil, :on_empty), do: :end
+  defp target(nil, _branch), do: :next
 
   # --- Input Resolution ---
 

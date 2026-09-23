@@ -138,12 +138,14 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
         })
 
       {:ok, run} = Executor.run(wf.id)
-      assert run.status == "completed"
+      # An error handled by on_error ends the run recovered, not completed
+      # (executor_truth_test.exs).
+      assert run.status == "recovered"
       assert run.step_results["1"]["error"] =~ "unknown_skill"
       assert run.step_results["2"]["name"] == "Recover"
     end
 
-    test "no matching route terminates workflow" do
+    test "an unrouted success branch goes to the next step" do
       bypass = Bypass.open()
 
       Bypass.expect(bypass, fn conn ->
@@ -152,7 +154,9 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
 
       wf = create_workflow()
 
-      # Step 1 has routes but on_2xx is not listed — no match → workflow ends
+      # Step 1 has routes, but on_2xx is not listed: an unrouted non-error
+      # branch goes to the next step (executor_truth_test.exs). It used to
+      # end the run, reported as completed.
       {:ok, _} =
         Workflows.add_step(wf, %{
           name: "Terminal",
@@ -161,10 +165,9 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
           routes: [%{"branch" => "on_4xx", "goto" => 2}]
         })
 
-      # Step 2 should never be reached
       {:ok, _} =
         Workflows.add_step(wf, %{
-          name: "Unreached",
+          name: "Reached",
           skill: "api_request",
           config: %{"url" => "http://localhost:#{bypass.port}/nope"}
         })
@@ -172,7 +175,7 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       {:ok, run} = Executor.run(wf.id)
       assert run.status == "completed"
       assert Map.has_key?(run.step_results, "1")
-      refute Map.has_key?(run.step_results, "2")
+      assert Map.has_key?(run.step_results, "2")
     end
 
     test "end route target terminates workflow" do

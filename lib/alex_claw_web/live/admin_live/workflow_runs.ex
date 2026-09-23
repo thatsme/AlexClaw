@@ -78,6 +78,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
       when event in [
              :workflow_run_started,
              :workflow_run_completed,
+             :workflow_run_recovered,
              :workflow_run_failed,
              :workflow_run_cancelled
            ] and
@@ -102,6 +103,7 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   end
 
   defp status_class("completed"), do: "bg-green-900 text-green-300"
+  defp status_class("recovered"), do: "bg-amber-900 text-amber-300"
   defp status_class("running"), do: "bg-blue-900 text-blue-300"
   defp status_class("failed"), do: "bg-red-900 text-red-300"
   defp status_class("cancelled"), do: "bg-gray-800 text-gray-400"

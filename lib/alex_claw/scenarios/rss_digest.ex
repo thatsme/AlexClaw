@@ -121,7 +121,7 @@ defmodule AlexClaw.Scenarios.RssDigest do
 
   # --- Judging what the user receives ---
 
-  defp run_outcome({:ok, run}), do: {"completed", run}
+  defp run_outcome({:ok, run}), do: {run.status, run}
   defp run_outcome({:error, %{status: status} = run}), do: {status, run}
   defp run_outcome({:error, reason}), do: {"not started: #{inspect(reason)}", nil}
 

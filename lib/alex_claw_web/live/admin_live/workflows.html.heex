@@ -9,6 +9,7 @@
       <div class="flex items-center gap-3">
         <span :if={run.status == :running} class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
         <span :if={run.status == :completed} class="inline-block w-2 h-2 rounded-full bg-green-400"></span>
+        <span :if={run.status == :recovered} class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
         <span :if={run.status == :failed} class="inline-block w-2 h-2 rounded-full bg-red-400"></span>
         <span :if={run.status == :cancelled} class="inline-block w-2 h-2 rounded-full bg-gray-400"></span>
         <span class="text-sm text-white font-medium">{run.workflow_name}</span>
@@ -16,8 +17,9 @@
         <span :if={run.current_step} class={[
           "text-xs",
           if(run.status == :completed, do: "text-green-300",
+            else: if(run.status == :recovered, do: "text-amber-300",
             else: if(run.status == :failed, do: "text-red-300",
-              else: if(run.status == :cancelled, do: "text-gray-400", else: "text-blue-300")))
+              else: if(run.status == :cancelled, do: "text-gray-400", else: "text-blue-300"))))
         ]}>
           {run.current_step}
         </span>

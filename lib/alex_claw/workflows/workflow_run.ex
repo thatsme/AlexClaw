@@ -34,7 +34,8 @@ defmodule AlexClaw.Workflows.WorkflowRun do
       :node
     ])
     |> validate_required([:status, :started_at])
-    |> validate_inclusion(:status, ~w(running completed failed cancelled))
+    # recovered: completed, but an error on the way was handled by an on_error route.
+    |> validate_inclusion(:status, ~w(running completed recovered failed cancelled))
     |> foreign_key_constraint(:workflow_id)
   end
 end

@@ -536,6 +536,12 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     put_flash(socket, :error, "Workflow not found")
   end
 
+  # A disabled workflow is refused by Launch, before any code is asked for.
+  defp launched(socket, {:ok, %{enabled: false} = workflow}) do
+    {kind, message} = Launch.describe(Launch.start(workflow), workflow)
+    put_flash(socket, kind, message)
+  end
+
   defp launched(socket, {:ok, workflow}) do
     started(Launch.needs_code?(workflow), workflow, socket)
   end
@@ -691,10 +697,16 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   def handle_info({event, payload}, socket)
-      when event in [:workflow_run_completed, :workflow_run_failed, :workflow_run_cancelled] do
+      when event in [
+             :workflow_run_completed,
+             :workflow_run_recovered,
+             :workflow_run_failed,
+             :workflow_run_cancelled
+           ] do
     finished_status =
       case event do
         :workflow_run_completed -> :completed
+        :workflow_run_recovered -> :recovered
         :workflow_run_failed -> :failed
         :workflow_run_cancelled -> :cancelled
       end

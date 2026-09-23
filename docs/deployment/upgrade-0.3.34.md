@@ -92,8 +92,8 @@ docker exec alexclaw-db-prod psql -U <owner> -d alex_claw_prod -c \
 The audit log cannot be deleted from as the application:
 
 ```bash
-docker exec -e PGPASSWORD='<application password>' alexclaw-db-prod \
-  psql -h localhost -U alexclaw_app -d alex_claw_prod -c "DELETE FROM auth_audit_log WHERE false;"
+docker exec alexclaw-db-prod \
+  psql -U alexclaw_app -d alex_claw_prod -c "DELETE FROM auth_audit_log WHERE false;"
 # ERROR:  permission denied for table auth_audit_log
 ```
 

@@ -152,6 +152,12 @@ services:
       LMSTUDIO_HOST: ${LMSTUDIO_HOST:-http://host.docker.internal:1234}
       LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-}
 
+      # Google OAuth (optional) — seeded into Admin > Config on first boot
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REFRESH_TOKEN: ${GOOGLE_OAUTH_REFRESH_TOKEN:-}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
+
       # Web automator (optional)
       WEB_AUTOMATOR_ENABLED: ${WEB_AUTOMATOR_ENABLED:-false}
       WEB_AUTOMATOR_HOST: ${WEB_AUTOMATOR_HOST:-http://web-automator:6900}

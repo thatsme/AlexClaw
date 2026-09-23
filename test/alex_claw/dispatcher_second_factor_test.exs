@@ -20,8 +20,8 @@ defmodule AlexClaw.DispatcherSecondFactorTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.{Dispatcher, Message, RecordingGateway}
   alias AlexClaw.Auth.{Challenge, CodeAttempts, TOTP}
+  alias AlexClaw.{Dispatcher, Message, RecordingGateway}
 
   setup do
     CodeAttempts.reset()

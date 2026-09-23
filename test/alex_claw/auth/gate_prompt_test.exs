@@ -20,8 +20,8 @@ defmodule AlexClaw.Auth.GatePromptTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.RecordingGateway
   alias AlexClaw.Auth.{Challenge, CodeAttempts, Gate, TOTP}
+  alias AlexClaw.RecordingGateway
 
   setup do
     CodeAttempts.reset()

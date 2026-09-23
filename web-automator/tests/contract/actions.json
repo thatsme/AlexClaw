@@ -1,0 +1,14 @@
+[
+  "navigate",
+  "click",
+  "fill",
+  "select",
+  "check",
+  "wait",
+  "keyboard",
+  "download",
+  "scrape",
+  "scrape_text",
+  "extract_grid",
+  "screenshot"
+]

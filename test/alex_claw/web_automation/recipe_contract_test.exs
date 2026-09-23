@@ -1,0 +1,232 @@
+defmodule AlexClaw.WebAutomation.RecipeContractTest do
+  @moduledoc """
+  The recipe contract, AlexClaw side (reports/WEB_AUTOMATOR_TARGET.md §2).
+
+  AlexClaw.WebAutomation.Recipe.validate/1 accepts every valid fixture and
+  refuses every invalid one in web-automator/tests/contract/recipes.json — the
+  same file the sidecar's pydantic model is tested against. If the two sides
+  disagree on a recipe, the side that disagrees with the file is red.
+
+  And AlexClaw uses it: play/2 validates before sending, so an invalid recipe
+  never reaches the sidecar; the recipes AlexClaw builds itself (/automate)
+  are valid; and every answer the sidecar can give maps to a typed result
+  instead of a CaseClauseError.
+  """
+  use AlexClaw.DataCase, async: false
+  @moduletag :integration
+
+  alias AlexClaw.{Dispatcher, Message, RecordingGateway, Repo}
+  alias AlexClaw.Skills.WebAutomation
+  alias AlexClaw.WebAutomation.Recipe
+
+  import Ecto.Query
+
+  @contract "web-automator/tests/contract"
+  @external_resource Path.join(@contract, "recipes.json")
+  @external_resource Path.join(@contract, "actions.json")
+  @fixtures @contract |> Path.join("recipes.json") |> File.read!() |> Jason.decode!()
+  @actions @contract |> Path.join("actions.json") |> File.read!() |> Jason.decode!()
+
+  @valid %{"url" => "https://example.com", "steps" => []}
+
+  describe "validate/1 against the shared fixtures" do
+    for %{"name" => name, "recipe" => recipe} <- @fixtures["valid"] do
+      test "valid: #{name}" do
+        assert {:ok, _} = Recipe.validate(unquote(Macro.escape(recipe)))
+      end
+    end
+
+    for %{"name" => name, "recipe" => recipe, "reason" => reason} <- @fixtures["invalid"] do
+      test "invalid: #{name} (#{reason})" do
+        assert {:error, reasons} = Recipe.validate(unquote(Macro.escape(recipe)))
+        assert is_list(reasons) and reasons != []
+      end
+    end
+
+    test "the action set is the contract" do
+      assert Enum.sort(Recipe.actions()) == Enum.sort(@actions)
+    end
+  end
+
+  describe "AlexClaw uses the contract" do
+    setup do
+      bypass = Bypass.open()
+
+      insert_setting("web_automator.host", "http://localhost:#{bypass.port}",
+        type: "string",
+        category: "web_automator"
+      )
+
+      insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
+      Application.put_env(:alex_claw, :web_automator_token, "test-automator-token")
+      on_exit(fn -> Application.delete_env(:alex_claw, :web_automator_token) end)
+
+      %{bypass: bypass}
+    end
+
+    # Bypass has nothing stubbed: a request that reaches it fails the test.
+    test "play/2 refuses an invalid recipe before sending it" do
+      for %{"recipe" => recipe} <- @fixtures["invalid"] do
+        assert {:error, {:invalid_recipe, reasons}} = WebAutomation.play(recipe, [])
+        assert reasons != []
+      end
+    end
+
+    test "the recipe /automate builds is valid", %{bypass: bypass} do
+      test_pid = self()
+      RecordingGateway.install()
+
+      Bypass.expect_once(bypass, "POST", "/play", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:sent, Jason.decode!(body)})
+
+        json(conn, 200, %{
+          "status" => "success",
+          "downloads" => [],
+          "screenshots" => [],
+          "scraped_data" => []
+        })
+      end)
+
+      Dispatcher.dispatch(%Message{
+        text: "/automate https://example.com",
+        chat_id: "123",
+        from: "Test",
+        timestamp: DateTime.utc_now(),
+        raw: %{},
+        gateway: :test
+      })
+
+      assert_receive {:sent, %{"config" => recipe}}, 5_000
+      assert {:ok, _} = Recipe.validate(recipe)
+    end
+
+    test "busy (409) is :busy", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/play", fn conn ->
+        json(conn, 409, %{"detail" => "Cannot play: currently playing"})
+      end)
+
+      assert {:error, :busy} = WebAutomation.play(@valid, [])
+    end
+
+    test "a 422 from the sidecar is :invalid_recipe with its detail", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/play", fn conn ->
+        json(conn, 422, %{"detail" => [%{"loc" => ["body", "config", "url"], "msg" => "bad"}]})
+      end)
+
+      assert {:error, {:invalid_recipe, detail}} = WebAutomation.play(@valid, [])
+      assert detail != nil
+    end
+
+    test "a failed run keeps its partial results", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/play", fn conn ->
+        json(conn, 200, %{
+          "status" => "error",
+          "error" => "selector #password not found",
+          "downloads" => ["/tmp/downloads/a.csv"],
+          "screenshots" => [],
+          "scraped_data" => [%{"type" => "text", "text" => "partial"}]
+        })
+      end)
+
+      assert {:error, {:automation_failed, "selector #password not found", partial}} =
+               WebAutomation.play(@valid, [])
+
+      assert partial["scraped_data"] == [%{"type" => "text", "text" => "partial"}]
+    end
+
+    test "an unexpected status is an error, not a crash", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/play", fn conn ->
+        json(conn, 200, %{"status" => "half-done"})
+      end)
+
+      assert {:error, {:unexpected_response, _}} = WebAutomation.play(@valid, [])
+    end
+
+    test "a record answer without its fields is an error, not a crash", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/record", fn conn ->
+        json(conn, 200, %{"session" => "abc"})
+      end)
+
+      assert {:error, {:unexpected_response, _}} =
+               WebAutomation.record(%{"url" => "https://example.com"})
+    end
+  end
+
+  # A recording is stored as an automation resource whose metadata is the
+  # recipe (phase-2 item 3 result, §2). It was not validated when stored: a
+  # summary without base_url was saved with "url" => "unknown", which the
+  # contract refuses at play time — a recipe that can never run. Now a
+  # recording is validated before it is saved; one that is not a valid recipe
+  # is not saved, and the user is told.
+  describe "a recording is stored only as a valid recipe" do
+    setup do
+      bypass = Bypass.open()
+
+      insert_setting("web_automator.host", "http://localhost:#{bypass.port}",
+        type: "string",
+        category: "web_automator"
+      )
+
+      insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
+      Application.put_env(:alex_claw, :web_automator_token, "test-automator-token")
+      on_exit(fn -> Application.delete_env(:alex_claw, :web_automator_token) end)
+      RecordingGateway.install()
+
+      %{bypass: bypass}
+    end
+
+    test "a recording is stored as a recipe the contract accepts", %{bypass: bypass} do
+      stop_with(bypass, %{"base_url" => "https://example.com/search", "captured_actions" => 3})
+
+      assert [recipe] = stored_recipes()
+      assert {:ok, _} = Recipe.validate(recipe)
+
+      assert Enum.any?(
+               recipe["steps"],
+               &(&1 == %{"action" => "check", "selector" => "#exact", "checked" => false})
+             )
+    end
+
+    test "a recording without a start url is not stored, and the user is told", %{bypass: bypass} do
+      stop_with(bypass, %{"captured_actions" => 3})
+
+      assert stored_recipes() == []
+      sent = RecordingGateway.sent()
+      assert Enum.any?(sent, &(&1 =~ ~r/not saved|fail|could not/i)), inspect(sent)
+    end
+  end
+
+  defp stop_with(bypass, summary) do
+    Bypass.expect_once(bypass, "POST", "/record/abc12345/stop", fn conn ->
+      json(conn, 200, %{
+        "actions" => [
+          %{"action_type" => "fill", "selector" => "#q", "value" => "elixir"},
+          %{"action_type" => "check", "selector" => "#exact", "checked" => false},
+          %{"action_type" => "click", "selector" => "button"}
+        ],
+        "downloads" => [],
+        "summary" => summary
+      })
+    end)
+
+    Dispatcher.dispatch(%Message{
+      text: "/record stop abc12345",
+      chat_id: "123",
+      from: "Test",
+      timestamp: DateTime.utc_now(),
+      raw: %{},
+      gateway: :test
+    })
+  end
+
+  defp stored_recipes do
+    Repo.all(from(r in "resources", where: r.type == "automation", select: r.metadata))
+  end
+
+  defp json(conn, status, body) do
+    conn
+    |> Plug.Conn.put_resp_content_type("application/json")
+    |> Plug.Conn.resp(status, Jason.encode!(body))
+  end
+end

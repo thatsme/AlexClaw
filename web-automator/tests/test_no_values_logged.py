@@ -50,7 +50,6 @@ class TestPlayer:
         [
             {"action": "fill", "selector": "#password", "value": SECRET},
             {"action": "select", "selector": "select[name='account']", "value": SECRET},
-            {"action": "check", "selector": "input[name='agree']", "value": SECRET},
         ],
     )
     async def test_a_step_value_is_not_logged(self, all_logs, mock_page, step):

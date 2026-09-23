@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 
 from patchright.async_api import Page, Request
 
+from .recipe import ACTIONS
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +32,7 @@ class CapturedAction:
     url: Optional[str] = None
     post_data: Optional[str] = None
     headers: Optional[dict] = None
+    checked: Optional[bool] = None
 
 
 @dataclass
@@ -327,13 +330,19 @@ class Recorder:
         """Callback from browser JS — receives DOM actions directly into Python."""
         try:
             a = __import__("json").loads(action_json)
+            action_type = a.get("action_type")
+            # Only actions a recipe can replay (the contract, app.recipe).
+            if action_type not in ACTIONS:
+                logger.info("Ignored DOM action: %s", action_type)
+                return
             action = CapturedAction(
                 timestamp=a.get("timestamp", datetime.now().isoformat()),
-                action_type=a.get("action_type", "interaction"),
+                action_type=action_type,
                 description=a.get("description", ""),
                 selector=a.get("selector"),
                 value=a.get("value"),
                 url=None,
+                checked=a.get("checked") if action_type == "check" else None,
             )
             self.actions.append(action)
             # Not the description: the page builds it with the typed value.

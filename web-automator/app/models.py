@@ -4,7 +4,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from .recipe import Recipe
 
 
 # --- Enums ---
@@ -35,6 +37,7 @@ class CapturedAction(BaseModel):
     description: str
     selector: Optional[str] = None
     value: Optional[str] = None
+    checked: Optional[bool] = None
     url: Optional[str] = None
     post_data: Optional[str] = None
     headers: Optional[dict] = None
@@ -59,7 +62,11 @@ class RecordRequest(BaseModel):
 
 
 class PlayRequest(BaseModel):
-    config: dict[str, Any]
+    """A play request: the recipe (app.recipe), and nothing else."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    config: Recipe
 
 
 class InteractStep(BaseModel):

@@ -20,9 +20,11 @@ class TestRecordRequest:
 
 
 class TestPlayRequest:
-    def test_config_required(self):
+    def test_config_is_a_recipe(self):
+        # config is the contract's Recipe, not a dict (test_contract.py).
         req = PlayRequest(config={"url": "https://x.com", "steps": []})
-        assert req.config["url"] == "https://x.com"
+        assert req.config.url == "https://x.com"
+        assert req.config.steps == []
 
 
 class TestPlayResponse:

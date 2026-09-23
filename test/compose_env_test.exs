@@ -150,7 +150,9 @@ defmodule AlexClaw.ComposeEnvTest do
   test "every .env.example exception has a reason and is still used by compose" do
     for {name, reason} <- @not_in_example do
       assert String.length(reason) > 20, "#{name} has no reason"
-      assert name in compose_variables(), "#{name} is no longer in docker-compose.yml — drop its exception"
+
+      assert name in compose_variables(),
+             "#{name} is no longer in docker-compose.yml — drop its exception"
     end
   end
 

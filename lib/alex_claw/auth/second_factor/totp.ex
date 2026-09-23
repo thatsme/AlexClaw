@@ -31,6 +31,9 @@ defmodule AlexClaw.Auth.SecondFactor.Totp do
   @impl true
   def name, do: :totp
 
+  @impl true
+  def entry_name, do: TOTP.issuer()
+
   # The flag is the claim; the secret is the ability to make good on it.
   @impl true
   def misconfigured?, do: TOTP.enabled?() and TOTP.secret() == nil

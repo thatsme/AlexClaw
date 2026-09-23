@@ -24,7 +24,9 @@ defmodule AlexClaw.Auth.TOTP do
   @account "admin"
   @last_used_key "auth.totp.last_used_at"
 
-  defp issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
+  @doc "The issuer the authenticator app shows as the entry's name."
+  @spec issuer() :: String.t()
+  def issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
 
   # A challenge is a two-minute window in which any six digits can be tried.
   # The table itself is owned by AlexClaw.Auth.ChallengeStore, so a challenge

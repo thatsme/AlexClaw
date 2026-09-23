@@ -208,6 +208,17 @@ defmodule AlexClawWeb.Live.Elevation do
     {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
   end
 
+  # Every chat that could receive the prompt is locked after wrong codes; a
+  # prompt it cannot answer is not sent, and the page says why.
+  defp unlocking({:locked, minutes}, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       "Code entry on your gateway is locked after too many wrong codes — try again in #{minutes} min"
+     )}
+  end
+
   # Enabled 2FA with nowhere to send the prompt is not a second factor, and
   # pretending otherwise would lock the operator out of their own settings.
   defp unlocking(:no_2fa, socket) do

@@ -114,6 +114,14 @@ defmodule AlexClaw.Skills.Coder do
      """, :on_created}
   end
 
+  defp approval_result({:locked, minutes}, skill_name, listed) do
+    {:error,
+     {:needs_2fa,
+      "Generated skill #{skill_name} calls outside the contained set (#{listed}), " <>
+        "and code entry is locked after too many wrong codes, so no approval was requested. " <>
+        "It is staged in pending/; try again in #{minutes} min."}}
+  end
+
   defp approval_result(:no_2fa, skill_name, listed) do
     {:error,
      {:needs_2fa,

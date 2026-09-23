@@ -14,14 +14,15 @@ defmodule AlexClaw.Workflows.Launch do
   alias AlexClaw.Auth.Gate
   alias AlexClaw.Workflows.{Executor, Workflow}
 
-  @type result :: :started | :challenged | :no_2fa
+  @type result :: :started | :challenged | :no_2fa | {:locked, pos_integer()}
 
   @doc """
   Start `workflow`, or ask for a second factor first.
 
   Returns `:started` when the run was handed to the task supervisor,
-  `:challenged` when a code was requested, and `:no_2fa` when the workflow
-  demands a second factor the instance cannot ask for — a refusal.
+  `:challenged` when a code was requested, `:no_2fa` when the workflow
+  demands a second factor the instance cannot ask for, and `{:locked, minutes}`
+  when code entry is locked — both refusals.
   """
   @spec start(Workflow.t()) :: result()
   def start(%Workflow{} = workflow) do
@@ -39,6 +40,9 @@ defmodule AlexClaw.Workflows.Launch do
 
   def describe(:challenged, _workflow),
     do: {:info, "2FA code requested — check Telegram/Discord"}
+
+  def describe({:locked, minutes}, _workflow),
+    do: {:error, "Code entry is locked after too many wrong codes — try again in #{minutes} min."}
 
   def describe(:no_2fa, _workflow),
     do: {:error, "This workflow requires 2FA. Enable 2FA and configure a gateway first."}

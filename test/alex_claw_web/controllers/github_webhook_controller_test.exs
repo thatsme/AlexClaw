@@ -198,10 +198,13 @@ defmodule AlexClawWeb.GitHubWebhookControllerTest do
 
     # A push that deletes a branch has `after` all zeros and no head commit.
     # There is nothing to review; asking GitHub for commit 000… is a failed run
-    # that looks like a broken integration.
+    # that looks like a broken integration. The push is on a watched branch
+    # (main): on any other, the watched-branch filter drops it before the
+    # all-zeros guard is reached, and the test proves nothing (mutation check,
+    # 2026-09-23).
     test "a push that deletes a branch starts no review", %{conn: conn, workflow: workflow} do
       payload = %{
-        "ref" => "refs/heads/gone",
+        "ref" => "refs/heads/main",
         "after" => String.duplicate("0", 40),
         "deleted" => true,
         "head_commit" => nil,

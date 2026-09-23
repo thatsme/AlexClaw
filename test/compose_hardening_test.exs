@@ -9,13 +9,18 @@ defmodule AlexClaw.ComposeHardeningTest do
   which enforces it whatever the engine does.
 
   A subnet-wide rule is not enough: on OrbStack a connection from another
-  network reaches Postgres rewritten to the default network's **gateway**
-  address, which is inside the subnet (phase-2 result, item 1). So Postgres
-  admits only the exact addresses of the services that need it:
+  network reaches Postgres rewritten to an address **inside the default
+  subnet** — the gateway in the phase-2 dry run, `10.213.61.128` (the first
+  address of the automatic range) in the 0.3.44 deploy. Which address the
+  engine picks is its business, not ours. So Postgres admits only the exact
+  addresses of the services that need it, and those addresses are chosen
+  where no engine rewrite can land: outside the automatic `ip_range`, and not
+  the gateway.
 
   - both networks declare a fixed subnet, and the subnets do not overlap;
+  - the default network limits automatic addresses with an `ip_range`;
   - alexclaw-prod and migrate have a pinned `ipv4_address` on the default
-    network — inside its subnet, never its gateway;
+    network — inside its subnet, outside its `ip_range`, never its gateway;
   - db-prod runs with a mounted pg_hba.conf (`-c hba_file=…`);
   - every `host` line in it is one of those pinned addresses as a /32, with
     scram-sha-256 — never a subnet, `all`, `samenet`, `trust` or `md5`; and
@@ -85,6 +90,15 @@ defmodule AlexClaw.ComposeHardeningTest do
     get_in(service(doc, name), ["networks", "default", "ipv4_address"])
   end
 
+  defp ip_range(doc, network) do
+    doc
+    |> get_in(["networks", network, "ipam", "config"])
+    |> List.wrap()
+    |> Enum.find_value(& &1["ip_range"])
+  end
+
+  defp first_ip(cidr), do: cidr |> String.split("/") |> hd()
+
   # "./path:/target[:ro]" → {"./path", "/target"}
   defp mount(volume) when is_binary(volume) do
     [source, target | _] = String.split(volume, ":")
@@ -132,15 +146,25 @@ defmodule AlexClaw.ComposeHardeningTest do
       assert command =~ "hba_file=#{target}", "db-prod does not start with hba_file=#{target}"
     end
 
-    test "the database's clients have pinned addresses inside the subnet, not the gateway" do
+    test "the database's clients have pinned addresses inside the subnet, outside the automatic range, not the gateway" do
       doc = compose()
       default = subnet(doc, "default")
       gateway = gateway(doc, "default")
+      ip_range = ip_range(doc, "default")
+
+      assert is_binary(ip_range),
+             "networks.default has no ip_range: automatic addresses (and engine rewrites) may land on a pinned client"
+
+      assert inside?(first_ip(ip_range), default), "ip_range #{ip_range} is outside #{default}"
 
       for name <- @db_clients do
         address = pinned_address(doc, name)
         assert is_binary(address), "#{name} has no pinned ipv4_address on the default network"
         assert inside?(address, default), "#{name}'s #{address} is outside #{default}"
+
+        refute inside?(address, ip_range),
+               "#{name}'s #{address} is inside the automatic range #{ip_range}"
+
         refute address == gateway, "#{name} is pinned to the gateway #{gateway}"
       end
     end

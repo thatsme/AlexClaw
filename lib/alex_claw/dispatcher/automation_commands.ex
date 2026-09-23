@@ -61,6 +61,12 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
 
   # --- Recording ---
 
+  defp recording_stopped({:error, :web_automator_disabled}, _sid, msg) do
+    Gateway.send_message("Web automator is disabled. Enable in Admin > Config.",
+      gateway: msg.gateway
+    )
+  end
+
   defp recording_stopped({:error, reason}, _sid, msg) do
     Gateway.send_message("Failed to stop recording: #{inspect(reason)}", gateway: msg.gateway)
   end
@@ -73,7 +79,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
 
     %{name: "Recording #{sid}", type: "automation", url: base_url, metadata: config}
     |> AlexClaw.Resources.create_resource()
-    |> recording_saved(length(actions), config, msg)
+    |> recording_saved(length(actions), msg)
   end
 
   defp recorded_step(action) do
@@ -87,7 +93,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
     |> Map.new()
   end
 
-  defp recording_saved({:ok, resource}, count, _config, msg) do
+  defp recording_saved({:ok, resource}, count, msg) do
     Gateway.send_message(
       "Recording stopped. #{count} action(s) captured.\n" <>
         "Saved as resource *#{resource.name}* (id: #{resource.id})\n\n" <>
@@ -96,10 +102,13 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
     )
   end
 
-  defp recording_saved({:error, _changeset}, count, config, msg) do
+  # Only the fields that failed, never the recipe: a recorded value may be a
+  # password.
+  defp recording_saved({:error, changeset}, count, msg) do
+    fields = changeset.errors |> Keyword.keys() |> Enum.map_join(", ", &to_string/1)
+
     Gateway.send_message(
-      "Recording stopped. #{count} action(s) captured but failed to save as resource.\n\n" <>
-        "`#{String.slice(Jason.encode!(config, pretty: true), 0, 3000)}`",
+      "Recording stopped. #{count} action(s) captured, but saving it failed (#{fields}).",
       gateway: msg.gateway
     )
   end

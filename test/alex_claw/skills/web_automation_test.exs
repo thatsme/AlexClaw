@@ -8,6 +8,10 @@ defmodule AlexClaw.Skills.WebAutomationTest do
     bypass = Bypass.open()
     insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
 
+    # F2: every request to the sidecar carries a token (web_automation_boundary_test).
+    Application.put_env(:alex_claw, :web_automator_token, "test-automator-token")
+    on_exit(fn -> Application.delete_env(:alex_claw, :web_automator_token) end)
+
     insert_setting("web_automator.host", "http://localhost:#{bypass.port}",
       type: "string",
       category: "web_automator"

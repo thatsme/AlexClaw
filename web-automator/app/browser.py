@@ -151,6 +151,34 @@ Permissions.prototype.query = function(params) {{
 """
 
 
+_BASE_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-infobars",
+]
+
+
+def chromium_args(proxy_port: int) -> list:
+    """Launch flags that force every request through the egress proxy on
+    127.0.0.1:proxy_port (app.egress)."""
+    return _BASE_ARGS + [
+        f"--proxy-server=http://127.0.0.1:{proxy_port}",
+        # Without this, Chromium sends loopback requests directly, bypassing the proxy.
+        "--proxy-bypass-list=<-loopback>",
+        # QUIC is UDP and does not go through an HTTP proxy.
+        "--disable-quic",
+        # WebRTC can open UDP to any address, including internal ones.
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+    ]
+
+
+def context_options() -> dict:
+    """Browser-context options every context gets: a service worker can make
+    requests the page's own routing never sees."""
+    return {"service_workers": "block"}
+
+
 class BrowserManager:
     """Manages Playwright browser instances with stealth and fingerprint rotation."""
 
@@ -160,8 +188,9 @@ class BrowserManager:
         self._fingerprint: Optional[dict] = None
         self._stealth: Optional[Stealth] = None
 
-    async def launch(self, headless: bool = True) -> Browser:
-        """Launch Chromium browser with anti-detection flags."""
+    async def launch(self, headless: bool = True, proxy_port: Optional[int] = None) -> Browser:
+        """Launch Chromium with anti-detection flags; with `proxy_port`, forced
+        through the egress proxy listening there."""
         if self._browser and self._browser.is_connected():
             return self._browser
 
@@ -197,13 +226,8 @@ class BrowserManager:
         self._browser = await self._playwright.chromium.launch(
             **launch_kwargs,
             headless=headless,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                f"--window-size={fp['viewport']['width']},{fp['viewport']['height']}",
-            ],
+            args=(chromium_args(proxy_port) if proxy_port is not None else list(_BASE_ARGS))
+            + [f"--window-size={fp['viewport']['width']},{fp['viewport']['height']}"],
         )
         logger.info("Browser launched (headless=%s, stealth=on)", headless)
         return self._browser
@@ -230,6 +254,7 @@ class BrowserManager:
             timezone_id=fp["timezone_id"],
             device_scale_factor=force_scale_factor or fp["device_scale_factor"],
             accept_downloads=accept_downloads,
+            **context_options(),
         )
 
         # Apply playwright-stealth to the context (covers all pages)

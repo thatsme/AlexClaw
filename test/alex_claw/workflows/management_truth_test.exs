@@ -12,7 +12,7 @@ defmodule AlexClaw.Workflows.ManagementTruthTest do
     then overrode the workflow's default provider. `"auto"` or no model on a
     step means "use the workflow's provider".
   - "Run" on a disabled workflow said "triggered" while nothing ran:
-    `Launch.start/1` now refuses a disabled workflow with
+    `Launch.start/1` (it takes the workflow) now refuses a disabled workflow with
     `{:error, :workflow_disabled}` before starting anything.
   """
   use AlexClaw.DataCase, async: false
@@ -20,6 +20,7 @@ defmodule AlexClaw.Workflows.ManagementTruthTest do
 
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.{Executor, Launch}
+  alias Ecto.Adapters.SQL.Sandbox
 
   defp workflow(attrs \\ %{}) do
     base = %{name: "Mgmt #{System.unique_integer([:positive])}", enabled: true}
@@ -76,15 +77,15 @@ defmodule AlexClaw.Workflows.ManagementTruthTest do
     test "is refused before anything starts, and says so" do
       wf = workflow(%{enabled: false})
 
-      assert {:error, :workflow_disabled} = Launch.start(wf.id)
+      assert {:error, :workflow_disabled} = Launch.start(wf)
       assert Workflows.list_runs(wf.id) == []
     end
 
     test "an enabled workflow still starts" do
-      Ecto.Adapters.SQL.Sandbox.mode(AlexClaw.Repo, {:shared, self()})
+      Sandbox.mode(AlexClaw.Repo, {:shared, self()})
       wf = workflow()
 
-      assert :started = Launch.start(wf.id)
+      assert :started = Launch.start(wf)
 
       # Wait for the run to finish, so it does not outlive the test's sandbox.
       assert Enum.any?(1..100, fn _ ->

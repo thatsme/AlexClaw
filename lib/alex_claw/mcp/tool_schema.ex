@@ -10,7 +10,7 @@ defmodule AlexClaw.MCP.ToolSchema do
   """
 
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.SkillRegistry
+  alias AlexClaw.Workflows.{SkillRegistry, Workflow}
 
   @type tool_def :: %{
           name: String.t(),
@@ -24,11 +24,15 @@ defmodule AlexClaw.MCP.ToolSchema do
     Enum.map(SkillRegistry.list_all_with_type(), &skill_to_tool/1)
   end
 
-  @doc "Build tool definitions for all enabled workflows."
+  @doc """
+  Build tool definitions for all enabled workflows, except those that require
+  2FA: MCP cannot carry a person's approval, so such a workflow would always
+  be refused.
+  """
   @spec workflow_tools() :: [tool_def()]
   def workflow_tools do
     Workflows.list_workflows()
-    |> Enum.filter(& &1.enabled)
+    |> Enum.filter(&(&1.enabled and not Workflow.protected?(&1)))
     |> Enum.map(&workflow_to_tool/1)
   end
 

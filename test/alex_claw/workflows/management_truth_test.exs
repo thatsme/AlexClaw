@@ -41,18 +41,23 @@ defmodule AlexClaw.Workflows.ManagementTruthTest do
       assert third.name == "#{wf.name} (copy 3)"
     end
 
-    test "a clone keeps requires_2fa and node, and does not run on its own" do
-      wf =
-        workflow(%{
-          metadata: %{"requires_2fa" => true},
-          node: "alexclaw@node1.local",
-          schedule: "0 6 * * *"
-        })
+    test "a clone keeps requires_2fa and node" do
+      wf = workflow(%{metadata: %{"requires_2fa" => true}, node: "alexclaw@node1.local"})
 
       assert {:ok, copy} = Workflows.duplicate_workflow(wf)
 
       assert copy.metadata["requires_2fa"] == true
       assert copy.node == "alexclaw@node1.local"
+      assert copy.enabled == false
+    end
+
+    # A protected workflow cannot be scheduled (0.3.50), so the schedule is
+    # checked on an unprotected one.
+    test "a clone does not run on its own: no schedule, not enabled" do
+      wf = workflow(%{schedule: "0 6 * * *"})
+
+      assert {:ok, copy} = Workflows.duplicate_workflow(wf)
+
       assert copy.schedule == nil
       assert copy.enabled == false
     end

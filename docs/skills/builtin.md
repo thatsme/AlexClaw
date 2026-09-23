@@ -22,7 +22,7 @@ Skills marked **External** fetch data from outside the system. Their output is a
 | `google_tasks` | List and create Google Tasks | `on_tasks`, `on_empty`, `on_error` | Yes |
 | `db_backup` | PostgreSQL backup with gzip compression and rotation | `on_success`, `on_error` | — |
 | `shell` | Execute whitelisted OS commands (2FA-gated) | `on_success`, `on_error`, `on_timeout` | — |
-| `web_automation` | Browser automation via headless Playwright sidecar | `on_success`, `on_timeout`, `on_error` | Yes |
+| `web_automation` | Browser automation via headless Playwright sidecar | `on_success`, `on_error` | Yes |
 | `coder` | Generate dynamic skills from natural language via local LLM | `on_created`, `on_workflow_created`, `on_error` | — |
 | `send_to_workflow` | Send data to a workflow on another BEAM node | `on_sent`, `on_error` | — |
 | `receive_from_workflow` | Gate: accepts remote triggers when placed as step 1 | `on_success`, `on_error` | — |

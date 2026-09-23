@@ -39,7 +39,8 @@ defmodule AlexClaw.Skills.WebAutomation do
 
   @impl true
   @spec routes() :: [atom()]
-  def routes, do: [:on_success, :on_timeout, :on_error]
+  # A failed play, a timeout included ({:error, :timeout}), takes :on_error.
+  def routes, do: [:on_success, :on_error]
 
   @impl true
   @spec step_fields() :: [atom()]
@@ -67,7 +68,9 @@ defmodule AlexClaw.Skills.WebAutomation do
   @spec config_help() :: String.t()
   def config_help,
     do:
-      "action: play (run automation), record (start recording), status (check sidecar). The automation config comes from the assigned Resource (type: automation)."
+      "action: play (default) or record. play runs the recipe from the assigned Resource (type: automation), " <>
+        "or the config's own url and steps; extra_steps are appended to the resource's steps. " <>
+        "timeout_ms bounds the whole play (default 120000, at most 600000); one play runs at a time."
 
   @impl true
   @spec run(map()) ::
@@ -123,10 +126,14 @@ defmodule AlexClaw.Skills.WebAutomation do
   @skill_keys ~w(action resource extra_steps)
 
   @doc """
-  Play a recipe headlessly. The recipe is validated against the contract
-  (`AlexClaw.WebAutomation.Recipe`) before anything is sent; an invalid one is
-  `{:error, {:invalid_recipe, reasons}}`. A run that fails keeps its partial
-  results: `{:error, {:automation_failed, error, partial}}`.
+  Play a recipe headlessly.
+
+  The recipe is validated against the contract (`AlexClaw.WebAutomation.Recipe`)
+  before anything is sent: an invalid one is `{:error, {:invalid_recipe, reasons}}`.
+  `opts[:deadline_ms]` bounds the whole play (default 120_000); past it the result
+  is `{:error, :timeout}`. One play runs at a time: while one runs, another is
+  `{:error, :busy}` without a request. A run that fails keeps its partial
+  results: `{:error, {:automation_failed, error, partial}}`. See `play_error()`.
   """
   @spec play(map(), list(), keyword()) :: {:ok, String.t(), :on_success} | {:error, play_error()}
   def play(config, resources, opts \\ []) do

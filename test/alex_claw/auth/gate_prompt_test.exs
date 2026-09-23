@@ -98,11 +98,7 @@ defmodule AlexClaw.Auth.GatePromptTest do
 
     test "an enrolment with no recorded issuer is named AlexClaw" do
       # What an instance enrolled before this release looks like.
-      AlexClaw.Repo.delete_all(
-        from(s in AlexClaw.Config.Setting, where: s.key == "auth.totp.issuer")
-      )
-
-      AlexClaw.Config.reload()
+      AlexClaw.Config.delete("auth.totp.issuer")
       System.put_env("TOTP_ISSUER", "AlexClaw-Air")
 
       assert :challenged = Gate.request(%{type: :test}, "Unlock admin editing for 15 minutes")
@@ -116,6 +112,13 @@ defmodule AlexClaw.Auth.GatePromptTest do
   # (AuthCommands.require_2fa/3, e.g. /shell). Same rules as Gate.request/2 —
   # one prompt builder, one lock check.
   describe "commands that need a code" do
+    # /shell reaches its 2FA step only when the shell is enabled; the seeded
+    # default is off.
+    setup do
+      insert_setting("shell.enabled", "true", type: "boolean", category: "shell")
+      :ok
+    end
+
     test "prompt with the enrolled entry's name", %{chat: chat} do
       command(chat, "/shell uptime")
       assert [prompt] = prompts()

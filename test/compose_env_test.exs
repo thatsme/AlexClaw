@@ -34,6 +34,14 @@ defmodule AlexClaw.ComposeEnvTest do
       "set by the release start script (start, eval, remote); an operator never sets it"
   }
 
+  # Referenced in docker-compose.yml as ${VAR} but deliberately absent from
+  # .env.example, each with the reason.
+  @not_in_example %{
+    "OLD_SECRET_KEY_BASE" =>
+      "never kept in .env: the rotation doc reads it with read -rs and passes it with -e for one run",
+    "BUILD_NUMBER" => "a build argument set by the build, not by an operator"
+  }
+
   defp environment(service) do
     "docker-compose.yml"
     |> YamlElixir.read_from_file!()
@@ -100,6 +108,65 @@ defmodule AlexClaw.ComposeEnvTest do
     for name <- Map.keys(@migrate_only) do
       assert name in passed, "#{name} is read by the migration but not passed to migrate"
     end
+  end
+
+  # .env.example is where an operator learns what can be set. Every variable
+  # docker-compose.yml takes from the environment (${VAR}, in any service) is
+  # listed there, commented or not, or excepted above with the reason.
+  # (0.3.47: POOL_SIZE, TOTP_ISSUER, GOOGLE_OAUTH_REDIRECT_URI and three older
+  # variables were passed by compose and missing from the example.)
+  defp compose_variables do
+    ~r/\$\{([A-Z][A-Z0-9_]*)/
+    |> Regex.scan(File.read!("docker-compose.yml"), capture: :all_but_first)
+    |> List.flatten()
+    |> MapSet.new()
+  end
+
+  defp example_variables do
+    ~r/^#?\s*([A-Z][A-Z0-9_]*)=/m
+    |> Regex.scan(File.read!(".env.example"), capture: :all_but_first)
+    |> List.flatten()
+    |> MapSet.new()
+  end
+
+  test "every variable compose takes from the environment is in .env.example" do
+    assert File.exists?(".env.example"), ".env.example is not in the test image"
+
+    assert MapSet.size(compose_variables()) > 10,
+           "the ${VAR} scan of docker-compose.yml found almost nothing"
+
+    missing =
+      compose_variables()
+      |> MapSet.difference(example_variables())
+      |> MapSet.reject(&Map.has_key?(@not_in_example, &1))
+      |> Enum.sort()
+
+    assert missing == [],
+           "taken from the environment by docker-compose.yml but not in .env.example:\n  " <>
+             Enum.join(missing, "\n  ") <>
+             "\nadd each (commented, with its default), or except it in @not_in_example with the reason"
+  end
+
+  test "every .env.example exception has a reason and is still used by compose" do
+    for {name, reason} <- @not_in_example do
+      assert String.length(reason) > 20, "#{name} has no reason"
+      assert name in compose_variables(), "#{name} is no longer in docker-compose.yml — drop its exception"
+    end
+  end
+
+  # The last link: what .env.example offers is explained on the reference
+  # page, so an operator never meets a variable with no description.
+  test "every variable in .env.example is documented in docs/reference/env-vars.md" do
+    page = File.read!("docs/reference/env-vars.md")
+
+    undocumented =
+      example_variables()
+      |> Enum.reject(&(page =~ "`#{&1}`"))
+      |> Enum.sort()
+
+    assert undocumented == [],
+           "in .env.example but not documented (as `NAME`) in docs/reference/env-vars.md:\n  " <>
+             Enum.join(undocumented, "\n  ")
   end
 
   test "every exception has a reason and is still read by the code" do

@@ -27,11 +27,16 @@ defmodule AlexClaw.Workflows.Executor do
     end
   end
 
-  @doc "Run a workflow with externally-provided initial input (used by cluster remote triggers)."
-  @spec run_with_input(integer(), any(), map()) ::
+  @doc """
+  Run a workflow started by another node's `send_to_workflow`. `remote_input`
+  and `extra_config` reach only a `receive_from_workflow` step — this is the
+  cluster path and nothing else. To hand input to the first step, use
+  `run_with_initial_input/2`.
+  """
+  @spec run_remote_trigger(integer(), any(), map()) ::
           {:ok, AlexClaw.Workflows.WorkflowRun.t()}
           | {:error, atom() | AlexClaw.Workflows.WorkflowRun.t()}
-  def run_with_input(workflow_id, initial_input, extra_config \\ %{}) do
+  def run_remote_trigger(workflow_id, initial_input, extra_config) do
     workflow = Workflows.get_workflow!(workflow_id)
 
     if workflow.enabled do
@@ -43,8 +48,9 @@ defmodule AlexClaw.Workflows.Executor do
 
   @doc """
   Run a workflow whose first step takes `input` as its input (`args[:input]`) —
-  a GitHub webhook event, for one. Unlike `run_with_input/3`, which feeds only a
-  `receive_from_workflow` step, the input reaches whatever the first step is.
+  a GitHub webhook event, an MCP tool's input. Unlike `run_remote_trigger/3`,
+  which feeds only a `receive_from_workflow` step, the input reaches whatever the
+  first step is.
   """
   @spec run_with_initial_input(integer(), term()) ::
           {:ok, AlexClaw.Workflows.WorkflowRun.t()}

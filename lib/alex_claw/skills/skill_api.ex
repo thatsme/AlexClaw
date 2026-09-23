@@ -12,6 +12,7 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken, PolicyEngine}
   alias AlexClaw.Gateway.Router
+  alias AlexClaw.Net.HostGuard
   alias AlexClaw.Workflows.{Executor, SkillRegistry}
 
   # Skills that reach the host, the filesystem, the network, or the skill loader
@@ -196,42 +197,60 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   @default_user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-  @doc "HTTP GET. All Req options are passed through (headers, receive_timeout, params, etc)."
-  @spec http_get(skill_mod(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
-  def http_get(skill_module, url, opts \\ []) do
-    with :ok <- check_permission(skill_module, :web_read) do
-      Req.get(url, with_default_headers(opts))
-    end
-  end
+  # Options that shape the request. Anything else — adapter, plug, finch,
+  # connect_options, unix_socket, base_url — could replace or reconfigure the
+  # transport, and the host guard lives in the transport.
+  @http_options [
+    :headers,
+    :params,
+    :json,
+    :form,
+    :body,
+    :receive_timeout,
+    :retry,
+    :max_retries,
+    :retry_delay,
+    :redirect,
+    :max_redirects
+  ]
 
-  @doc "HTTP POST. All Req options are passed through."
+  @doc """
+  HTTP GET. Options: #{inspect(@http_options)}; any other option returns
+  `{:error, :option_not_allowed}`. A URL whose host is internal, or does not
+  resolve, returns `{:error, :blocked_host}` — on every redirect hop too.
+  """
+  @spec http_get(skill_mod(), String.t(), keyword()) :: {:ok, Req.Response.t()} | {:error, term()}
+  def http_get(skill_module, url, opts \\ []), do: http_request(skill_module, :get, url, opts)
+
+  @doc "HTTP POST. Same options and refusals as `http_get/3`."
   @spec http_post(skill_mod(), String.t(), keyword()) ::
           {:ok, Req.Response.t()} | {:error, term()}
-  def http_post(skill_module, url, opts \\ []) do
-    with :ok <- check_permission(skill_module, :web_read) do
-      Req.post(url, with_default_headers(opts))
-    end
-  end
+  def http_post(skill_module, url, opts \\ []), do: http_request(skill_module, :post, url, opts)
 
-  @doc "HTTP request with explicit method. All Req options are passed through."
+  @doc "HTTP request with explicit method. Same options and refusals as `http_get/3`."
   @spec http_request(skill_mod(), atom(), String.t(), keyword()) ::
           {:ok, Req.Response.t()} | {:error, term()}
   def http_request(skill_module, method, url, opts \\ []) do
-    with :ok <- check_permission(skill_module, :web_read) do
-      Req.request([method: method, url: url] ++ with_default_headers(opts))
+    with :ok <- check_permission(skill_module, :web_read),
+         :ok <- check_http_options(opts) do
+      [method: method, url: url]
+      |> Kernel.++(opts)
+      |> Req.new()
+      |> Req.Request.put_new_header("user-agent", @default_user_agent)
+      |> HostGuard.attach()
+      |> Req.request()
+      |> refusal_as_reason()
     end
   end
 
-  defp with_default_headers(opts) do
-    existing_headers = Keyword.get(opts, :headers, %{})
-
-    if Map.has_key?(existing_headers, "user-agent") or
-         Map.has_key?(existing_headers, "User-Agent") do
-      opts
-    else
-      Keyword.put(opts, :headers, Map.put(existing_headers, "user-agent", @default_user_agent))
-    end
+  defp check_http_options(opts) do
+    if Enum.all?(opts, &match?({name, _} when name in @http_options, &1)),
+      do: :ok,
+      else: {:error, :option_not_allowed}
   end
+
+  defp refusal_as_reason({:error, %HostGuard.BlockedError{reason: reason}}), do: {:error, reason}
+  defp refusal_as_reason(result), do: result
 
   # --- Config ---
 

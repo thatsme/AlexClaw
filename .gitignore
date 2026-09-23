@@ -33,8 +33,10 @@ alex_claw-*.tar
 
 # Local docs (specs, scripts, notes — not for GitHub)
 /local-docs/
-# Exchange folder for reports and drafts between the implementer and the architect; never tracked.
-/reports/
+# Exchange folder for reports and drafts between the implementer and the architect.
+# Its contents are never tracked; .gitkeep is, so the folder exists in every checkout.
+/reports/*
+!/reports/.gitkeep
 
 # Personal docker-compose variants (except swarm which is part of clustering)
 docker-compose_*.yml

@@ -183,7 +183,7 @@ defmodule AlexClaw.MCP.Server do
 
     result =
       if input do
-        Executor.run_with_input(workflow.id, input)
+        Executor.run_with_initial_input(workflow.id, input)
       else
         Executor.run(workflow.id)
       end

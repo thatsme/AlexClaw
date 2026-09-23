@@ -78,17 +78,18 @@ class TestForceStop:
 
 
 class TestRecord:
+    # Busy is 409 (test_contract.py).
     def test_record_rejects_when_not_idle(self, client):
         app_state.state = SessionState.recording
 
         resp = client.post("/record", json={"url": "https://example.com"})
-        assert resp.status_code == 400
+        assert resp.status_code == 409
 
     def test_record_rejects_when_playing(self, client):
         app_state.state = SessionState.playing
 
         resp = client.post("/record", json={"url": "https://example.com"})
-        assert resp.status_code == 400
+        assert resp.status_code == 409
 
 
 class TestStopRecording:
@@ -108,5 +109,5 @@ class TestPlay:
     def test_play_rejects_when_not_idle(self, client):
         app_state.state = SessionState.recording
 
-        resp = client.post("/play", json={"config": {"url": "https://example.com"}})
-        assert resp.status_code == 400
+        resp = client.post("/play", json={"config": {"url": "https://example.com", "steps": []}})
+        assert resp.status_code == 409

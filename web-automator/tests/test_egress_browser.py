@@ -74,19 +74,26 @@ def test_the_recipe_url_cannot_reach_an_internal_address(client, internal_server
 
 
 def test_a_navigate_step_cannot_reach_an_internal_address(client, internal_server):
+    """The recipe's first page must be a public http(s) page (the contract
+    refuses about:blank), so this needs the internet. Without it the first
+    navigation fails before the navigate step runs, and the test is skipped —
+    it never passes by accident."""
     url, handler = internal_server
 
     result = play(
         client,
         {
-            "url": "about:blank",
+            "url": "https://example.com/",
             "steps": [{"action": "navigate", "url": f"{url}/secret"}],
         },
     )
 
     assert handler.hits == []
     assert result["status"] == "error"
+    if "egress" not in result["error"].lower() and "example.com" in result["error"]:
+        pytest.skip(f"no internet for the first page: {result['error']}")
     assert "egress" in result["error"].lower()
+    assert f"{url}/secret" in result["error"]
 
 
 def test_an_https_url_to_an_internal_address_fails_at_the_tunnel(client, internal_server):

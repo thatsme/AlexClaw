@@ -136,7 +136,7 @@ defmodule AlexClaw.Skills.WebAutomationTest do
         WebAutomation.run(%{
           config: %{
             "extra_steps" => [
-              %{"action" => "wait", "value" => "2"},
+              %{"action" => "wait", "seconds" => 2},
               %{"action" => "scrape_text"}
             ]
           },
@@ -223,7 +223,8 @@ defmodule AlexClaw.Skills.WebAutomationTest do
           resources: []
         })
 
-      assert {:error, {:automation_failed, "Could not click: button after 30s"}} = result
+      assert {:error, {:automation_failed, "Could not click: button after 30s", _partial}} =
+               result
     end
 
     test "returns error on HTTP failure", %{bypass: bypass} do

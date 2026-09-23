@@ -3,6 +3,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
 
   alias AlexClaw.{Gateway, Message}
   alias AlexClaw.Skills.WebAutomation
+  alias AlexClaw.WebAutomation.Recipe
 
   @spec dispatch(Message.t()) :: :ok | term()
   def dispatch(%Message{text: "/record stop " <> session_id} = msg) do
@@ -51,7 +52,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
   def dispatch(%Message{text: "/automate " <> url} = msg) do
     config = %{
       "url" => String.trim(url),
-      "steps" => [%{"action" => "scrape"}, %{"action" => "screenshot", "value" => "result"}]
+      "steps" => [%{"action" => "scrape"}, %{"action" => "screenshot", "name" => "result"}]
     }
 
     config
@@ -71,27 +72,44 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
     Gateway.send_message("Failed to stop recording: #{inspect(reason)}", gateway: msg.gateway)
   end
 
+  # A recording is stored only as a recipe the contract accepts; otherwise
+  # nothing is saved and the user is told why (field names only, no values).
   defp recording_stopped({:ok, result}, sid, msg) do
     actions = result["actions"] || []
-    summary = result["summary"] || %{}
-    base_url = summary["base_url"] || "unknown"
-    config = %{"url" => base_url, "steps" => Enum.map(actions, &recorded_step/1)}
+    base_url = (result["summary"] || %{})["base_url"]
+    recipe = %{"url" => base_url, "steps" => Enum.flat_map(actions, &recorded_step/1)}
 
-    %{name: "Recording #{sid}", type: "automation", url: base_url, metadata: config}
+    recipe
+    |> Recipe.validate()
+    |> save_recording(sid, length(actions), msg)
+  end
+
+  defp save_recording({:ok, recipe}, sid, count, msg) do
+    %{name: "Recording #{sid}", type: "automation", url: recipe["url"], metadata: recipe}
     |> AlexClaw.Resources.create_resource()
-    |> recording_saved(length(actions), msg)
+    |> recording_saved(count, msg)
   end
 
-  defp recorded_step(action) do
-    %{
-      "action" => action["action_type"],
-      "selector" => action["selector"],
-      "value" => action["value"],
-      "url" => action["url"]
-    }
-    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-    |> Map.new()
+  defp save_recording({:error, reasons}, _sid, count, msg) do
+    Gateway.send_message(
+      "Recording stopped. #{count} action(s) captured, but it could not be saved: " <>
+        Enum.join(reasons, "; "),
+      gateway: msg.gateway
+    )
   end
+
+  # A captured action as a recipe step (AlexClaw.WebAutomation.Recipe): only
+  # the fields its action takes. An action a recipe cannot replay is dropped.
+  defp recorded_step(%{"action_type" => "check"} = action),
+    do: [%{"action" => "check", "selector" => action["selector"], "checked" => action["checked"]}]
+
+  defp recorded_step(%{"action_type" => "click"} = action),
+    do: [%{"action" => "click", "selector" => action["selector"]}]
+
+  defp recorded_step(%{"action_type" => type} = action) when type in ["fill", "select"],
+    do: [%{"action" => type, "selector" => action["selector"], "value" => action["value"] || ""}]
+
+  defp recorded_step(_action), do: []
 
   defp recording_saved({:ok, resource}, count, msg) do
     Gateway.send_message(
@@ -154,6 +172,10 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
   end
 
   # Only the failure wording differs from playback; the rest is shared.
+  defp replay_played({:error, {:automation_failed, error, _partial}}, msg) do
+    Gateway.send_message("Replay failed: #{error}", gateway: msg.gateway)
+  end
+
   defp replay_played({:error, reason}, msg) when reason != :web_automator_disabled do
     Gateway.send_message("Replay failed: #{inspect(reason)}", gateway: msg.gateway)
   end
@@ -170,6 +192,11 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
     Gateway.send_message("Web automator is disabled. Enable in Admin > Config.",
       gateway: msg.gateway
     )
+  end
+
+  # The error text only: the partial results may hold a page's scraped text.
+  defp automation_played({:error, {:automation_failed, error, _partial}}, msg) do
+    Gateway.send_message("Failed: #{error}", gateway: msg.gateway)
   end
 
   defp automation_played({:error, reason}, msg) do

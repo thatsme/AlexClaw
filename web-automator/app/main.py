@@ -133,7 +133,7 @@ async def status():
 @app.post("/record", response_model=RecordStartResponse)
 async def start_recording(req: RecordRequest):
     if app_state.state != SessionState.idle:
-        raise HTTPException(400, f"Cannot record: currently {app_state.state.value}")
+        raise HTTPException(409, f"Cannot record: currently {app_state.state.value}")
 
     session_id = str(uuid.uuid4())[:8]
 
@@ -188,7 +188,7 @@ async def stop_recording(session_id: str):
 @app.post("/play", response_model=PlayResponse)
 async def play(req: PlayRequest):
     if app_state.state != SessionState.idle:
-        raise HTTPException(400, f"Cannot play: currently {app_state.state.value}")
+        raise HTTPException(409, f"Cannot play: currently {app_state.state.value}")
 
     app_state.state = SessionState.playing
     app_state.session_id = str(uuid.uuid4())[:8]
@@ -202,12 +202,12 @@ async def play(req: PlayRequest):
         browser = await browser_manager.launch(headless=True, proxy_port=proxy_port)
         context = await browser_manager.new_context()
         page = await context.new_page()
-        page.set_default_timeout(req.config.get("page_timeout", 60) * 1000)
+        page.set_default_timeout(60_000)
 
         app_state.context = context
         app_state.page = page
 
-        player = Player(req.config)
+        player = Player(req.config.model_dump(exclude_none=True))
         result = await player.run(page)
 
         return PlayResponse(**result)

@@ -10,6 +10,7 @@ defmodule AlexClaw.Skills.WebAutomation do
   require Logger
 
   alias AlexClaw.Config
+  alias AlexClaw.WebAutomation.Recipe
 
   @impl true
   @spec description() :: String.t()
@@ -72,15 +73,17 @@ defmodule AlexClaw.Skills.WebAutomation do
 
       body = %{url: url, patterns: patterns, timeout: timeout}
 
-      case post("/record", body) do
-        {:ok, %{"session_id" => sid, "novnc_url" => novnc}} ->
-          {:ok, "Recording started!\nSession: `#{sid}`\nBrowser: #{novnc}", :on_success}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      "/record"
+      |> post(body)
+      |> recording_started()
     end
   end
+
+  defp recording_started({:ok, %{"session_id" => sid, "novnc_url" => novnc}}),
+    do: {:ok, "Recording started!\nSession: `#{sid}`\nBrowser: #{novnc}", :on_success}
+
+  defp recording_started({:ok, other}), do: {:error, {:unexpected_response, other}}
+  defp recording_started({:error, reason}), do: {:error, reason}
 
   @doc "Stop an active recording session."
   @spec stop_recording(String.t()) :: {:ok, any()} | {:error, any()}
@@ -88,17 +91,45 @@ defmodule AlexClaw.Skills.WebAutomation do
     post("/record/#{session_id}/stop", %{})
   end
 
-  @doc "Play an automation config headlessly."
+  # A web_automation step's own config keys; the rest of the config is the recipe.
+  @skill_keys ~w(action resource extra_steps)
+
+  @doc """
+  Play a recipe headlessly. The recipe is validated against the contract
+  (`AlexClaw.WebAutomation.Recipe`) before anything is sent; an invalid one is
+  `{:error, {:invalid_recipe, reasons}}`. A run that fails keeps its partial
+  results: `{:error, {:automation_failed, error, partial}}`.
+  """
   @spec play(map(), list()) :: {:ok, String.t(), atom()} | {:error, any()}
   def play(config, resources) do
-    automation_config = find_automation_config(config, resources)
-
-    case post("/play", %{config: automation_config}) do
-      {:ok, %{"status" => "success"} = result} -> played(result, automation_config)
-      {:ok, %{"status" => "error", "error" => error}} -> {:error, {:automation_failed, error}}
-      {:error, reason} -> {:error, reason}
+    with {:ok, recipe} <- recipe(config, resources) do
+      "/play"
+      |> post(%{config: recipe})
+      |> played_result(recipe)
     end
   end
+
+  defp recipe(config, resources) do
+    config
+    |> find_automation_config(resources)
+    |> Map.drop(@skill_keys)
+    |> Recipe.validate()
+    |> invalid_as_reason()
+  end
+
+  defp invalid_as_reason({:error, reasons}), do: {:error, {:invalid_recipe, reasons}}
+  defp invalid_as_reason(ok), do: ok
+
+  defp played_result({:ok, %{"status" => "success"} = result}, recipe), do: played(result, recipe)
+
+  defp played_result({:ok, %{"status" => "error"} = result}, _recipe),
+    do:
+      {:error,
+       {:automation_failed, result["error"],
+        Map.take(result, ~w(downloads screenshots scraped_data))}}
+
+  defp played_result({:ok, other}, _recipe), do: {:error, {:unexpected_response, other}}
+  defp played_result({:error, reason}, _recipe), do: {:error, reason}
 
   defp played(result, automation_config) do
     downloads = result["downloads"] || []
@@ -209,6 +240,11 @@ defmodule AlexClaw.Skills.WebAutomation do
        when status in 200..299,
        do: {:ok, body}
 
+  defp handle_response({:ok, %{status: 409}}, _method, _path), do: {:error, :busy}
+
+  defp handle_response({:ok, %{status: 422, body: body}}, _method, _path),
+    do: {:error, {:invalid_recipe, detail(body)}}
+
   defp handle_response({:ok, %{status: status, body: body}}, method, path) do
     Logger.warning("WebAutomation #{method} #{path} failed: #{status}", skill: :web_automation)
     {:error, {:http, status, body}}
@@ -221,4 +257,7 @@ defmodule AlexClaw.Skills.WebAutomation do
 
     {:error, reason}
   end
+
+  defp detail(%{"detail" => detail}), do: detail
+  defp detail(body), do: body
 end

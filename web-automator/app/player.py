@@ -33,7 +33,7 @@ class Player:
         self.downloads: list[str] = []
         self.screenshots: list[str] = []
         self.scraped_data: list[dict] = []
-        self.output_dir = config.get("output_dir", DOWNLOAD_DIR)
+        self.output_dir = DOWNLOAD_DIR
         os.makedirs(self.output_dir, exist_ok=True)
 
     def _resolve_date(self, value: str) -> str:
@@ -68,47 +68,6 @@ class Player:
         except Exception:
             pass
 
-    async def _login(self, page: Page):
-        """Execute login flow using config credentials."""
-        username = self.config.get("username", "")
-        password = self.config.get("password", "")
-        login_config = self.config.get("login", {})
-
-        if not username or not password:
-            logger.info("No credentials in config, skipping login")
-            return
-
-        logger.info("Logging in...")
-        timeout = self.config.get("page_timeout", 60) * 1000
-
-        # Use custom selectors or auto-detect
-        username_sel = login_config.get("username_selector", 'input[type="text"], input[type="email"]')
-        password_sel = login_config.get("password_selector", 'input[type="password"]')
-        submit_sel = login_config.get("submit_selector",
-            'button[type="submit"], button:has-text("Login"), button:has-text("Sign")')
-
-        await page.wait_for_selector("input", timeout=timeout)
-        await asyncio.sleep(1)
-
-        username_input = await page.query_selector(username_sel)
-        if username_input:
-            await username_input.fill(username)
-
-        await asyncio.sleep(0.5)
-
-        password_input = await page.query_selector(password_sel)
-        if password_input:
-            await password_input.fill(password)
-
-        await asyncio.sleep(0.5)
-
-        login_btn = await page.query_selector(submit_sel)
-        if login_btn:
-            await login_btn.click()
-
-        await self._wait_for_ready(page, 3)
-        logger.info("Login complete")
-
     async def _navigate(self, page: Page, url: str):
         """Navigate to a URL. A destination the egress proxy refused fails the run."""
         logger.info("Navigating to: %s", url)
@@ -124,32 +83,40 @@ class Player:
             raise RuntimeError(f"egress refused: {url}")
         await self._wait_for_ready(page, 3)
 
-    async def _fill(self, page: Page, selector: str, value: str, field_type: str = "text"):
-        """Fill a form field."""
-        if field_type == "date":
+    async def _element(self, page: Page, selector: str, timeout_s: float):
+        """The element `selector` matches, waiting up to `timeout_s`; a step that
+        cannot find its element fails the run."""
+        deadline = asyncio.get_running_loop().time() + timeout_s
+        while True:
+            el = await page.query_selector(selector)
+            if el:
+                return el
+            if asyncio.get_running_loop().time() >= deadline:
+                raise RuntimeError(f"selector {selector} not found")
+            await asyncio.sleep(0.25)
+
+    async def _fill(self, page: Page, selector: str, value: str, input_type: str | None, timeout_s: float):
+        """Fill a form field. Any failure fails the run; the error names the
+        selector and the exception's type, never the value."""
+        if input_type == "date":
             value = self._format_date_value(value, selector)
 
         logger.info("Fill %s", selector)
-
+        el = await self._element(page, selector, timeout_s)
         try:
-            el = await page.query_selector(selector)
-            if el:
-                await el.click()
-                await asyncio.sleep(0.3)
-                await page.keyboard.press("Control+a")
-                delay = 100 if field_type == "text" else 50
-                await page.keyboard.type(value, delay=delay)
-                await asyncio.sleep(0.5)
-            else:
-                logger.warning("Selector not found: %s", selector)
+            await el.click()
+            await asyncio.sleep(0.3)
+            await page.keyboard.press("Control+a")
+            await page.keyboard.type(value, delay=50 if input_type == "date" else 100)
+            await asyncio.sleep(0.5)
         except Exception as e:
-            # The exception text may quote the value being typed; log its type only.
-            logger.warning("Fill failed for %s: %s", selector, type(e).__name__)
+            raise RuntimeError(f"fill {selector} failed: {type(e).__name__}") from None
 
-    async def _click(self, page: Page, selector: str, timeout: int = 30):
+    async def _click(self, page: Page, selector: str, timeout: float = 30):
         """Click an element."""
         logger.info("Click: %s", selector)
-        for attempt in range(timeout):
+        attempts = max(1, int(timeout))
+        for attempt in range(attempts):
             try:
                 el = await page.query_selector(selector)
                 if el:
@@ -161,43 +128,34 @@ class Player:
             except Exception:
                 pass
             if attempt % 10 == 9:
-                logger.info("Click attempt %d/%d for %s", attempt + 1, timeout, selector)
+                logger.info("Click attempt %d/%d for %s", attempt + 1, attempts, selector)
             await asyncio.sleep(1)
 
         raise RuntimeError(f"Could not click: {selector} after {timeout}s")
 
-    async def _select(self, page: Page, selector: str, value: str):
-        """Select a radio button or dropdown option."""
+    async def _select(self, page: Page, selector: str, value: str, timeout_s: float):
+        """Select a dropdown option, or click a radio button."""
         logger.info("Select %s", selector)
+        el = await self._element(page, selector, timeout_s)
         try:
-            el = await page.query_selector(selector)
-            if el:
-                tag = await el.evaluate("el => el.tagName")
-                if tag == "SELECT":
-                    await el.select_option(value)
-                else:
-                    # Radio button — just click it
-                    await el.click()
-                await asyncio.sleep(0.3)
+            tag = await el.evaluate("el => el.tagName")
+            if tag == "SELECT":
+                await el.select_option(value)
             else:
-                logger.warning("Selector not found: %s", selector)
+                await el.click()
+            await asyncio.sleep(0.3)
         except Exception as e:
-            logger.warning("Select failed for %s: %s", selector, type(e).__name__)
+            raise RuntimeError(f"select {selector} failed: {type(e).__name__}") from None
 
-    async def _check(self, page: Page, selector: str, value: str):
-        """Check or uncheck a checkbox."""
-        logger.info("Check %s", selector)
+    async def _check(self, page: Page, selector: str, checked: bool, timeout_s: float):
+        """Set a checkbox or radio button to the state the recipe asks for."""
+        logger.info("Check %s -> %s", selector, checked)
+        el = await self._element(page, selector, timeout_s)
         try:
-            el = await page.query_selector(selector)
-            if el:
-                checked = await el.is_checked()
-                if not checked:
-                    await el.click()
-                await asyncio.sleep(0.3)
-            else:
-                logger.warning("Selector not found: %s", selector)
+            await el.set_checked(checked)
+            await asyncio.sleep(0.3)
         except Exception as e:
-            logger.warning("Check failed for %s: %s", selector, type(e).__name__)
+            raise RuntimeError(f"check {selector} failed: {type(e).__name__}") from None
 
     async def _wait_for_download(self, page: Page, trigger_selector: str, timeout: int = 120) -> str:
         """Click a download trigger and wait for the file."""
@@ -454,119 +412,72 @@ class Player:
         self.scraped_data.extend(tables)
         return tables
 
-    async def _take_screenshot(self, page: Page, name: str = "screenshot") -> str:
-        """Take a screenshot for debugging."""
+    async def _take_screenshot(self, page: Page, name: str = "screenshot", full_page: bool = False) -> str:
+        """Take a screenshot. `name` is [a-z0-9_-] (the recipe contract), so the
+        file stays in the download directory."""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = os.path.join(self.output_dir, f"{name}_{ts}.png")
-        await page.screenshot(path=path)
+        await page.screenshot(path=path, full_page=full_page)
         self.screenshots.append(path)
         return path
 
-    async def run(self, page: Page) -> dict:
-        """
-        Execute the full automation from config.
+    async def _run_step(self, page: Page, i: int, step: dict):
+        action = step.get("action", "")
+        selector = step.get("selector", "")
+        timeout_s = step.get("timeout_ms", 30_000) / 1000
 
-        Config format:
-        {
-            "url": "https://example.com",
-            "username": "user",          # optional
-            "password": "pass",          # optional
-            "login": {                   # optional custom login selectors
-                "username_selector": "...",
-                "password_selector": "...",
-                "submit_selector": "..."
-            },
-            "steps": [                   # ordered interaction steps
-                {"action": "navigate", "url": "https://..."},
-                {"action": "fill", "selector": "input#name", "value": "test"},
-                {"action": "click", "selector": "button.submit"},
-                {"action": "wait", "value": "3"},
-                {"action": "keyboard", "value": "Enter"},
-                {"action": "download", "selector": "button.export"},
-                {"action": "scrape", "selector": "table"},
-                {"action": "screenshot", "value": "after_login"}
-            ],
-            "page_timeout": 60,
-            "download_timeout": 120
-        }
-        """
+        if action == "navigate":
+            await self._navigate(page, step["url"])
+        elif action == "fill":
+            await self._fill(page, selector, step.get("value", ""), step.get("input_type"), timeout_s)
+        elif action == "select":
+            await self._select(page, selector, step.get("value", ""), timeout_s)
+        elif action == "check":
+            await self._check(page, selector, step.get("checked"), timeout_s)
+        elif action == "click":
+            await self._click(page, selector, timeout=timeout_s)
+        elif action == "download":
+            await self._wait_for_download(page, selector, timeout=step.get("timeout_ms", 120_000) / 1000)
+        elif action == "wait":
+            await asyncio.sleep(step["seconds"])
+        elif action == "keyboard":
+            await page.keyboard.press(step["key"])
+            await asyncio.sleep(0.5)
+        elif action == "scrape":
+            await self._scrape(page, selector or "table")
+        elif action == "extract_grid":
+            await self._extract_grid(page, selector)
+        elif action == "scrape_text":
+            await self._scrape_text(page, selector)
+        elif action == "screenshot":
+            await self._take_screenshot(page, step.get("name") or f"step_{i}", bool(step.get("full_page")))
+        else:
+            raise RuntimeError(f"unknown action: {action}")
+
+    async def _scrape_text(self, page: Page, selector: str):
+        """The visible text of the page, or of the element `selector` matches."""
+        if selector:
+            text = await page.inner_text(selector)
+        else:
+            text = await page.evaluate("() => document.body.innerText")
+        logger.info("Scraped text: %d chars", len(text or ""))
+        self.scraped_data.append({"type": "text", "data": text})
+
+    async def run(self, page: Page) -> dict:
+        """Execute a recipe: {"url": ..., "steps": [...]}, in the shape of the
+        contract (app.recipe). A step that cannot do its job ends the run with
+        status "error"; later steps do not run."""
         url = self.config.get("url", "")
         steps = self.config.get("steps", [])
 
         try:
-            # Navigate to starting URL
             if url:
                 await self._navigate(page, url)
 
-            # Login if credentials provided
-            if self.config.get("username") and self.config.get("password"):
-                await self._login(page)
-
-            # Execute steps
             for i, step in enumerate(steps):
                 action = step.get("action", "")
-                selector = step.get("selector", "")
-                value = step.get("value", "")
-                step_timeout = step.get("timeout", 30)
-
                 logger.info("Step %d/%d: %s", i + 1, len(steps), action)
-
-                if action == "navigate":
-                    await self._navigate(page, step.get("url", value))
-
-                elif action == "fill":
-                    field_type = step.get("type", "text")
-                    await self._fill(page, selector, value, field_type)
-
-                elif action == "select":
-                    # Radio button or select dropdown
-                    await self._select(page, selector, value)
-
-                elif action == "check":
-                    # Checkbox — ensure it matches desired state
-                    await self._check(page, selector, value)
-
-                elif action == "click":
-                    await self._click(page, selector, timeout=step_timeout)
-
-                elif action == "download":
-                    dl_timeout = step.get("timeout", self.config.get("download_timeout", 120))
-                    await self._wait_for_download(page, selector, timeout=dl_timeout)
-
-                elif action == "wait":
-                    wait_seconds = float(value) if value else 2
-                    await self._wait_for_ready(page, wait_seconds)
-
-                elif action == "keyboard":
-                    await page.keyboard.press(value)
-                    await asyncio.sleep(0.5)
-
-                elif action == "scrape":
-                    scrape_sel = selector or "table"
-                    await self._scrape(page, scrape_sel)
-
-                elif action == "extract_grid":
-                    grid_sel = selector or "#jqxGrid"
-                    columns = step.get("columns")  # optional column mapping
-                    await self._extract_grid(page, grid_sel, columns)
-
-                elif action == "scrape_text":
-                    # Grab visible page text (useful for non-table results)
-                    text = await page.evaluate("() => document.body.innerText")
-                    logger.info("Scraped text: %d chars", len(text or ""))
-                    self.scraped_data.append({"type": "text", "data": text})
-
-                elif action == "evaluate":
-                    # Run arbitrary JS and capture result
-                    eval_result = await page.evaluate(value)
-                    if eval_result is not None:
-                        self.scraped_data.append({"type": "evaluate", "data": eval_result})
-
-                elif action == "screenshot":
-                    await self._take_screenshot(page, value or f"step_{i}")
-
-                else:
-                    logger.warning("Unknown action: %s", action)
+                await self._run_step(page, i, step)
 
             # Final screenshot
             await self._take_screenshot(page, "final")

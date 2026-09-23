@@ -68,6 +68,9 @@ COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml ./
 # Read by documentation_test with the compose files: the deployment reads some
 # documented variables itself.
 COPY db-init db-init/
+# The web-automator recipe contract: the Elixir and Python suites both test
+# against these fixtures (test/alex_claw/web_automation/recipe_contract_test.exs).
+COPY web-automator/tests/contract web-automator/tests/contract/
 COPY ALEXCLAW_ARCHITECTURE.md CLA.md CODE_OF_CONDUCT.md CODING_CONVENTIONS.md ./
 COPY CONTRIBUTING.md INSTALLATION.md README.md ROADMAP.md SECURITY.md SELF_AWARENESS.md ./
 

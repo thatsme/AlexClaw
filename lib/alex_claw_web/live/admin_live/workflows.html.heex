@@ -178,7 +178,7 @@
       <div class="flex items-center gap-4">
         <label class="flex items-center gap-2 text-sm text-gray-400">
           <input type="checkbox" name="requires_2fa" value="true"
-            checked={@editing.metadata["requires_2fa"] == true}
+            checked={AlexClaw.Workflows.Workflow.protected?(@editing)}
             class="rounded bg-gray-800 border-gray-700" />
           Requires 2FA <.tip text="When enabled, running this workflow from Telegram requires a TOTP code for confirmation." />
         </label>

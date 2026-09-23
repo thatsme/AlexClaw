@@ -7,6 +7,18 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
   # --- parse_plan/1 ---
 
   describe "parse_plan/1" do
+    test "a plan without working_memory is accepted" do
+      raw = ~s({"steps": [{"step": 1, "skill": "web_search", "input_description": "x"}]})
+      assert {:ok, %{"steps" => [_]}} = PromptParser.parse_plan(raw)
+    end
+
+    test "a plan without steps is refused, naming the key" do
+      assert {:error, :parse_failed, reason} =
+               PromptParser.parse_plan(~s({"working_memory": "wm"}))
+
+      assert reason =~ "steps"
+    end
+
     test "parses clean JSON plan" do
       raw =
         ~s({"steps": [{"step": 1, "skill": "web_search", "input_description": "search for X", "reason": "need data"}], "working_memory": "understood the goal"})
@@ -101,10 +113,11 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
       assert reason =~ "input"
     end
 
-    test "returns error when working_memory key missing" do
-      raw = ~s({"input": "search term"})
-      assert {:error, :parse_failed, reason} = PromptParser.parse_execution(raw)
-      assert reason =~ "working_memory"
+    # The loop keeps its own memory when a reply leaves the key out; requiring
+    # it rejected sound replies from models that answer without thinking.
+    test "a reply without working_memory is accepted" do
+      assert {:ok, %{"input" => "search term"}} =
+               PromptParser.parse_execution(~s({"input": "search term"}))
     end
 
     test "returns error for empty string" do
@@ -153,6 +166,11 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
 
       assert {:ok, parsed} = PromptParser.parse_evaluation(raw)
       assert parsed["quality"] == "partial"
+    end
+
+    test "a reply without working_memory is accepted" do
+      assert {:ok, %{"quality" => "good"}} =
+               PromptParser.parse_evaluation(~s({"quality": "good", "summary": "s"}))
     end
 
     test "returns error when quality and working_memory missing" do
@@ -215,6 +233,15 @@ defmodule AlexClaw.Reasoning.PromptParserTest do
       raw = ~s({"action": "retry", "reason": "hmm", "working_memory": "wm"})
       assert {:ok, parsed} = PromptParser.parse_decision(raw)
       assert parsed["action"] == "continue"
+    end
+
+    # Session 18: three decisions like this one were rejected for the missing
+    # key, and the session ended as stuck with nothing wrong in what it decided.
+    test "a decision without working_memory is accepted" do
+      raw =
+        ~s({"action": "continue", "confidence": 0.8, "reason": "the search failed; retry it"})
+
+      assert {:ok, %{"action" => "continue"}} = PromptParser.parse_decision(raw)
     end
 
     test "returns error when action key missing" do

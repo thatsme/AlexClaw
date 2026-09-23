@@ -9,6 +9,13 @@ defmodule AlexClaw.Reasoning.PromptParser do
   - Return slightly malformed JSON (trailing commas, single quotes)
 
   This module extracts and validates JSON from messy LLM output.
+
+  Each phase requires only the key it cannot act without — the plan's steps,
+  the execution's input, the evaluation's quality, the decision's action.
+  `working_memory` is optional everywhere: the loop keeps the memory it has
+  when a reply leaves it out. Requiring it failed sessions whose decisions
+  were sound: qwen3.5 answering without thinking dropped the key, and three
+  good decisions in a row were rejected until the session gave up as stuck.
   """
 
   require Logger
@@ -24,21 +31,19 @@ defmodule AlexClaw.Reasoning.PromptParser do
 
   defp validate_plan(%{"error" => _} = parsed), do: {:ok, parsed}
 
-  defp validate_plan(%{"steps" => steps, "working_memory" => _} = parsed) when is_list(steps),
+  defp validate_plan(%{"steps" => steps} = parsed) when is_list(steps),
     do: {:ok, Map.put(parsed, "steps", normalize_plan_steps(steps))}
 
-  defp validate_plan(%{"steps" => _, "working_memory" => _}),
+  defp validate_plan(%{"steps" => _}),
     do: {:error, :parse_failed, "plan steps is not a list"}
 
-  defp validate_plan(parsed) do
-    missing = Enum.reject(["steps", "working_memory"], &Map.has_key?(parsed, &1))
-    {:error, :parse_failed, "plan response missing keys: #{Enum.join(missing, ", ")}"}
-  end
+  defp validate_plan(_parsed),
+    do: {:error, :parse_failed, "plan response missing keys: steps"}
 
   @spec parse_execution(String.t()) :: {:ok, map()} | {:error, :parse_failed, String.t()}
   def parse_execution(raw) do
     with {:ok, parsed} <- extract_json(raw, :object),
-         :ok <- validate_keys(parsed, ["input", "working_memory"], "execution") do
+         :ok <- validate_keys(parsed, ["input"], "execution") do
       {:ok, parsed}
     end
   end
@@ -46,7 +51,7 @@ defmodule AlexClaw.Reasoning.PromptParser do
   @spec parse_evaluation(String.t()) :: {:ok, map()} | {:error, :parse_failed, String.t()}
   def parse_evaluation(raw) do
     with {:ok, parsed} <- extract_json(raw, :object),
-         :ok <- validate_keys(parsed, ["quality", "working_memory"], "evaluation") do
+         :ok <- validate_keys(parsed, ["quality"], "evaluation") do
       quality = Map.get(parsed, "quality", "failed")
 
       if quality in ["good", "partial", "failed"] do
@@ -60,7 +65,7 @@ defmodule AlexClaw.Reasoning.PromptParser do
   @spec parse_decision(String.t()) :: {:ok, map()} | {:error, :parse_failed, String.t()}
   def parse_decision(raw) do
     with {:ok, parsed} <- extract_json(raw, :object),
-         :ok <- validate_keys(parsed, ["action", "working_memory"], "decision") do
+         :ok <- validate_keys(parsed, ["action"], "decision") do
       action = Map.get(parsed, "action", "")
 
       if action in ["continue", "adjust", "ask_user", "done", "stuck"] do

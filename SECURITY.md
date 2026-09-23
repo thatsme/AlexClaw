@@ -355,7 +355,9 @@ The noVNC interface (port 6080) should never be exposed publicly.
   sends it nothing. The interactive API documentation is not served.
 - **Network.** The sidecar is on its own `automation` network, shared with the
   AlexClaw container and not with the database. Its API port (6900) is not
-  published on the host.
+  published on the host. On some Docker engines traffic by IP address still
+  passes between networks, so the database relies on its own authentication;
+  the sidecar holds no database credentials.
 - **Egress during a replay.** The replay browser reaches the network only
   through a filtering proxy that applies the same rule as skill HTTP (below):
   a destination that does not resolve, or resolves to any internal address, is

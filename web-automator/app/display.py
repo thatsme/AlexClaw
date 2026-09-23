@@ -25,8 +25,8 @@ class DisplayManager:
 
     @property
     def novnc_url(self) -> str:
-        host = os.environ.get("NOVNC_HOST", "localhost")
-        return f"http://{host}:{NOVNC_PORT}/vnc.html?autoconnect=true"
+        # Reached through an SSH tunnel to the host's loopback-bound port.
+        return f"http://localhost:{NOVNC_PORT}/vnc.html?autoconnect=true"
 
     def is_display_available(self) -> bool:
         """Check if Xvfb display is already running (managed by supervisord)."""

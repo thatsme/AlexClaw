@@ -2,21 +2,28 @@ defmodule AlexClaw.Skills.GitHubSecurityReviewTargetTest do
   use ExUnit.Case, async: true
 
   alias AlexClaw.Skills.GitHubSecurityReview
+  alias AlexClaw.Webhooks.GitHubEvent
 
   # F7: what to review is resolved from ONE source — the run input when it is a
-  # webhook event naming a repository, otherwise the step config. Never a repo
-  # from one and a PR number from the other.
+  # verified webhook event, otherwise the step config. Never a repo from one and
+  # a PR number from the other.
+  #
+  # A verified event is a %GitHubEvent{}, built only by the webhook controller
+  # after the HMAC check. It is recognised by its type, never by its shape: JSON
+  # decoding cannot produce a struct, so a previous step's output — an API
+  # response, a scraped page, a model's reply — cannot pose as an event and
+  # redirect the instance's token to another repository.
   #
   # Whatever the source, the target is interpolated into a GitHub API path and
   # sent with the instance's token. It is validated before any request: a
   # repository is exactly `owner/name`, a PR number a positive integer, a commit
   # a hex SHA of 7–40 characters.
 
-  describe "from the run input (a webhook event)" do
+  describe "from the run input (a verified webhook event)" do
     test "a pull request event gives its repository and number" do
       args = %{
         config: %{},
-        input: %{"event" => "pull_request", "repo" => "owner/repo", "pr_number" => 7}
+        input: %GitHubEvent{event: :pull_request, repo: "owner/repo", pr_number: 7}
       }
 
       assert {:ok, %{repo: "owner/repo", pr_number: 7}} = GitHubSecurityReview.target(args)
@@ -25,7 +32,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReviewTargetTest do
     test "a push event gives its repository and commit" do
       args = %{
         config: %{},
-        input: %{"event" => "push", "repo" => "owner/repo", "commit_sha" => "096ee22"}
+        input: %GitHubEvent{event: :push, repo: "owner/repo", commit_sha: "096ee22"}
       }
 
       assert {:ok, %{repo: "owner/repo", commit_sha: "096ee22"}} =
@@ -35,7 +42,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReviewTargetTest do
     test "the event wins over a repository pinned in the step config" do
       args = %{
         config: %{"repo" => "pinned/other", "pr_number" => 99},
-        input: %{"event" => "pull_request", "repo" => "owner/repo", "pr_number" => 7}
+        input: %GitHubEvent{event: :pull_request, repo: "owner/repo", pr_number: 7}
       }
 
       assert {:ok, target} = GitHubSecurityReview.target(args)
@@ -45,28 +52,49 @@ defmodule AlexClaw.Skills.GitHubSecurityReviewTargetTest do
     test "an event without a PR number or commit is refused, not completed from config" do
       args = %{
         config: %{"pr_number" => 99, "commit_sha" => "deadbeef"},
-        input: %{"event" => "pull_request", "repo" => "owner/repo"}
+        input: %GitHubEvent{event: :pull_request, repo: "owner/repo"}
       }
 
       assert {:error, :no_target} = GitHubSecurityReview.target(args)
     end
 
-    test "a PR number given as a string of digits is normalised" do
-      args = %{
-        config: %{},
-        input: %{"event" => "pull_request", "repo" => "owner/repo", "pr_number" => "7"}
-      }
-
-      assert {:ok, %{pr_number: 7}} = GitHubSecurityReview.target(args)
-    end
-
     test "an event's repository is validated like any other" do
       args = %{
         config: %{"repo" => "owner/repo", "pr_number" => 3},
-        input: %{"event" => "pull_request", "repo" => "../user", "pr_number" => 7}
+        input: %GitHubEvent{event: :pull_request, repo: "../user", pr_number: 7}
       }
 
       assert {:error, :invalid_target} = GitHubSecurityReview.target(args)
+    end
+  end
+
+  # The attack the struct exists for: step N reviews a pinned repository, and
+  # step N-1's output is shaped like an event naming another one.
+  describe "a map shaped like an event is not an event" do
+    for forged <- [
+          %{"event" => "pull_request", "repo" => "attacker/x", "pr_number" => 1},
+          %{event: :pull_request, repo: "attacker/x", pr_number: 1},
+          %{"event" => "push", "repo" => "attacker/x", "commit_sha" => "abcdef1"},
+          %{
+            "__struct__" => "Elixir.AlexClaw.Webhooks.GitHubEvent",
+            "repo" => "attacker/x",
+            "event" => "pull_request",
+            "pr_number" => 1
+          }
+        ] do
+      test "#{inspect(forged)} does not override the pinned repository" do
+        args = %{
+          config: %{"repo" => "owner/repo", "pr_number" => 3},
+          input: unquote(Macro.escape(forged))
+        }
+
+        assert {:ok, %{repo: "owner/repo", pr_number: 3}} = GitHubSecurityReview.target(args)
+      end
+
+      test "#{inspect(forged)} does not supply a repository when none is pinned" do
+        args = %{config: %{}, input: unquote(Macro.escape(forged))}
+        assert {:error, :no_repo_configured} = GitHubSecurityReview.target(args)
+      end
     end
   end
 
@@ -77,7 +105,12 @@ defmodule AlexClaw.Skills.GitHubSecurityReviewTargetTest do
       assert {:ok, %{repo: "owner/repo", pr_number: 3}} = GitHubSecurityReview.target(args)
     end
 
-    test "input that is not an event map is ignored" do
+    test "a PR number given as a string of digits is normalised" do
+      args = %{config: %{"repo" => "owner/repo", "pr_number" => "7"}, input: nil}
+      assert {:ok, %{pr_number: 7}} = GitHubSecurityReview.target(args)
+    end
+
+    test "input that is not an event is ignored" do
       args = %{
         config: %{"repo" => "owner/repo", "commit_sha" => "abc1234"},
         input: "text produced by a previous step"

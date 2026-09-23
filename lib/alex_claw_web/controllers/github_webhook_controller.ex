@@ -7,6 +7,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
 
   alias AlexClaw.Config
   alias AlexClaw.Skills.GitHubSecurityReview
+  alias AlexClaw.Webhooks.GitHubEvent
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.Executor
 
@@ -63,7 +64,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
     Logger.info("GitHub PR ##{pr_number} #{action} on #{repo_name}", skill: :github)
 
     review(
-      %{"event" => "pull_request", "repo" => repo_name, "pr_number" => pr_number},
+      %GitHubEvent{event: :pull_request, repo: repo_name, pr_number: pr_number},
       "pull request ##{pr_number} on #{repo_name}",
       fn -> GitHubSecurityReview.review_pr(repo_name, pr_number) end
     )
@@ -85,7 +86,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
       )
 
       review(
-        %{"event" => "push", "repo" => repo_name, "commit_sha" => sha},
+        %GitHubEvent{event: :push, repo: repo_name, commit_sha: sha},
         "commit #{String.slice(sha, 0, 8)} on #{repo_name}",
         fn -> GitHubSecurityReview.review_commit(repo_name, sha) end
       )
@@ -98,6 +99,8 @@ defmodule AlexClawWeb.GitHubWebhookController do
   # the workflow fetches the diff, reviews it and delivers the result. The event
   # is the run's input, so the first step reviews what the event named. Without
   # a workflow, the diff itself is sent, as before — no review, just the change.
+  # The event is built here and only here, after the signature check: it is the
+  # one place a %GitHubEvent{} comes from.
   defp review(event, what, send_diff) do
     case review_workflow() do
       nil -> send_diff.()

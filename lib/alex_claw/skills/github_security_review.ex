@@ -31,6 +31,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   require Logger
 
   alias AlexClaw.Config
+  alias AlexClaw.Webhooks.GitHubEvent
 
   @max_diff_bytes 24_000
   # Configurable so the diff fetch can be tested against a local server.
@@ -102,31 +103,34 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   @doc """
   What to review: a repository and a pull request number or commit.
 
-  From ONE source, never mixed: the run input when it is a webhook event naming a
-  repository (`%{"event" => _, "repo" => _, ...}`), otherwise the step config
-  (whose repository falls back to `github.default_repo`). An event that names no
+  From ONE source, never mixed: the run input when it is a verified webhook event
+  (`%AlexClaw.Webhooks.GitHubEvent{}` — never a map shaped like one), otherwise the
+  step config (whose repository falls back to `github.default_repo`). An event that names no
   pull request or commit is refused rather than completed from the config. A
   pull request number is normalised to an integer.
   """
   @spec target(map()) ::
           {:ok, %{repo: String.t(), pr_number: pos_integer()}}
           | {:ok, %{repo: String.t(), commit_sha: String.t()}}
-          | {:error, :no_repo_configured | :no_target}
-  def target(args), do: target_from(event?(args[:input]), args)
+          | {:error, :no_repo_configured | :no_target | :invalid_target}
+  def target(args), do: target_from(args[:input], args)
 
-  defp target_from(true, args), do: resolve(args[:input]["repo"], args[:input])
+  # Only a %GitHubEvent{} is an event: it is recognised by its type, never by its
+  # shape, so a previous step's output shaped like one is ordinary input.
+  defp target_from(%GitHubEvent{repo: repo, pr_number: number, commit_sha: sha}, _args),
+    do: resolve(repo, number, sha)
 
-  defp target_from(false, args) do
+  defp target_from(_not_an_event, args) do
     config = step_config(args)
-    resolve(config_repo(config), config)
+    resolve(config_repo(config), config["pr_number"], config["commit_sha"])
   end
 
   # Everything below ends up in a GitHub API path sent with the instance's
   # token, so each part is checked before any request: a repository is exactly
   # owner/name, a PR number a positive integer, a commit a hex SHA of 7–40.
-  defp resolve(repo, source) do
+  defp resolve(repo, number, sha) do
     with {:ok, repo} <- valid_repo(repo) do
-      pick(repo, source["pr_number"], source["commit_sha"])
+      pick(repo, number, sha)
     end
   end
 
@@ -173,7 +177,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   defp valid_sha(_sha), do: :error
 
-  defp event?(%{"event" => _, "repo" => repo}) when is_binary(repo) and repo != "", do: true
+  defp event?(%GitHubEvent{}), do: true
   defp event?(_input), do: false
 
   defp step_config(args), do: args[:config] || %{}

@@ -21,6 +21,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.RateLimiter.Server        # Login rate limiting (ETS + periodic purge)
   ├── AlexClaw.Auth.SkillRateLimiter     # Per-skill call rate limiting
   ├── AlexClaw.Auth.ChallengeStore       # Owns the pending-2FA table
+  ├── AlexClaw.Auth.RunApproval          # Single-use approvals of runs that require 2FA
   ├── AlexClaw.Auth.Elevation            # Owns the admin elevation table
   ├── AlexClaw.Auth.CodeAttempts         # Owns the 2FA code attempt counters
   ├── AlexClaw.Auth.Sessions             # Sweeps expired admin logins

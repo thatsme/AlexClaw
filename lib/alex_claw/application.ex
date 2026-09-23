@@ -37,6 +37,9 @@ defmodule AlexClaw.Application do
       # gateway process that raised it. Must start before anything that can
       # raise one: the endpoint and the gateways.
       AlexClaw.Auth.ChallengeStore,
+      # Holds a person's approvals of single runs of workflows that require 2FA.
+      # Before the endpoint and the gateways, which grant them.
+      AlexClaw.Auth.RunApproval,
       # Owns the admin elevation table. Before the endpoint for the same reason
       # as ChallengeStore: a page must never be served that cannot ask it.
       AlexClaw.Auth.Elevation,

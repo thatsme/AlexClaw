@@ -62,33 +62,23 @@ defmodule AlexClaw.Workflows do
     workflow = Repo.preload(workflow, [:steps, :workflow_resources])
 
     Repo.transaction(fn ->
-      {:ok, new_wf} =
+      # A copy is a copy, protection and node included; it does not start
+      # running on its own, so no schedule and disabled.
+      new_wf =
         %Workflow{}
         |> Workflow.changeset(%{
-          name: workflow.name <> " (copy)",
+          name: copy_name(workflow.name),
           description: workflow.description,
           schedule: nil,
           enabled: false,
-          default_provider: workflow.default_provider
+          default_provider: workflow.default_provider,
+          node: workflow.node,
+          metadata: workflow.metadata
         })
         |> Repo.insert()
+        |> inserted_or_rollback()
 
-      Enum.each(workflow.steps, fn step ->
-        %WorkflowStep{}
-        |> WorkflowStep.changeset(%{
-          workflow_id: new_wf.id,
-          name: step.name,
-          skill: step.skill,
-          position: step.position,
-          config: step.config,
-          llm_tier: step.llm_tier,
-          llm_model: step.llm_model,
-          prompt_template: step.prompt_template,
-          input_from: step.input_from,
-          routes: step.routes
-        })
-        |> Repo.insert!()
-      end)
+      new_ids = Map.new(workflow.steps, &{&1.id, copy_step(&1, new_wf.id).id})
 
       Enum.each(workflow.workflow_resources, fn wr ->
         %WorkflowResource{}
@@ -100,8 +90,58 @@ defmodule AlexClaw.Workflows do
         |> Repo.insert!()
       end)
 
-      new_wf
+      remap_secret_marks(new_wf, new_ids)
     end)
+  end
+
+  defp inserted_or_rollback({:ok, record}), do: record
+  defp inserted_or_rollback({:error, changeset}), do: Repo.rollback(changeset)
+
+  defp copy_step(step, workflow_id) do
+    %WorkflowStep{}
+    |> WorkflowStep.changeset(%{
+      workflow_id: workflow_id,
+      name: step.name,
+      skill: step.skill,
+      position: step.position,
+      config: step.config,
+      llm_tier: step.llm_tier,
+      llm_model: step.llm_model,
+      prompt_template: step.prompt_template,
+      input_from: step.input_from,
+      routes: step.routes
+    })
+    |> Repo.insert!()
+  end
+
+  # "<name> (copy)", then "(copy 2)", "(copy 3)"…: the first that is free.
+  defp copy_name(name), do: free_copy_name(name, 1)
+
+  defp free_copy_name(name, n) do
+    candidate = if n == 1, do: "#{name} (copy)", else: "#{name} (copy #{n})"
+
+    if Repo.exists?(from(w in Workflow, where: w.name == ^candidate)),
+      do: free_copy_name(name, n + 1),
+      else: candidate
+  end
+
+  # The "needs secrets" marks are keyed by step id; the copy's steps have new ids.
+  defp remap_secret_marks(%Workflow{metadata: %{"steps_needing_secrets" => marks}} = wf, new_ids)
+       when is_map(marks) and map_size(marks) > 0 do
+    remapped = Map.new(marks, fn {id, keys} -> {new_step_id(id, new_ids), keys} end)
+
+    wf
+    |> Workflow.changeset(%{metadata: Map.put(wf.metadata, "steps_needing_secrets", remapped)})
+    |> Repo.update!()
+  end
+
+  defp remap_secret_marks(wf, _new_ids), do: wf
+
+  defp new_step_id(id, new_ids) do
+    case Integer.parse(to_string(id)) do
+      {old, ""} -> to_string(Map.get(new_ids, old, old))
+      _ -> id
+    end
   end
 
   # --- Export / Import ---
@@ -569,6 +609,7 @@ defmodule AlexClaw.Workflows do
   @spec run_stats_today() :: %{
           total: non_neg_integer(),
           completed: non_neg_integer(),
+          recovered: non_neg_integer(),
           failed: non_neg_integer(),
           running: non_neg_integer()
         }
@@ -586,6 +627,7 @@ defmodule AlexClaw.Workflows do
     %{
       total: Enum.sum(Map.values(results)),
       completed: Map.get(results, "completed", 0),
+      recovered: Map.get(results, "recovered", 0),
       failed: Map.get(results, "failed", 0),
       running: Map.get(results, "running", 0)
     }

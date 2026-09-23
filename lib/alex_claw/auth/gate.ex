@@ -74,11 +74,25 @@ defmodule AlexClaw.Auth.Gate do
   defp prompt({open, _locked}, action, description) do
     for {id, :ok} <- open, do: Challenge.create(id, with_principal(action))
 
-    Router.broadcast(
-      "This action requires 2FA verification.\n#{description}\n\n" <>
-        "Enter the 6-digit code from your authenticator entry \"#{SecondFactor.impl().entry_name()}\":"
-    )
-
+    Router.broadcast(prompt(description))
     :challenged
+  end
+
+  @doc """
+  The prompt a gateway chat receives for `description`, naming the
+  authenticator entry to read the code from. Every 2FA prompt sent to a
+  gateway is built here.
+  """
+  @spec prompt(String.t()) :: String.t()
+  def prompt(description) do
+    "This action requires 2FA verification.\n#{description}\n\n" <>
+      "Enter the 6-digit code from your authenticator entry \"#{SecondFactor.impl().entry_name()}\":"
+  end
+
+  @doc "What a chat locked for `minutes` more is told instead of a prompt."
+  @spec lock_notice(pos_integer()) :: String.t()
+  def lock_notice(minutes) do
+    "Code entry is locked after too many wrong codes — no code was requested. " <>
+      "Try again in #{minutes} min."
   end
 end

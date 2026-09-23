@@ -534,6 +534,8 @@ defmodule AlexClaw.Dispatcher do
   end
 
   defp shell_after_2fa(:challenged, _command, _msg), do: :ok
+  # The chat was told it is locked.
+  defp shell_after_2fa({:locked, _minutes}, _command, _msg), do: :ok
 
   defp shell_after_2fa(:no_2fa, _command, msg) do
     Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
@@ -778,6 +780,8 @@ defmodule AlexClaw.Dispatcher do
   defp launch_workflow(workflow, msg, _requires_2fa), do: start_workflow(workflow, msg)
 
   defp resume_after_2fa(:challenged, _workflow, _msg), do: :ok
+  # The chat was told it is locked.
+  defp resume_after_2fa({:locked, _minutes}, _workflow, _msg), do: :ok
 
   defp resume_after_2fa(:no_2fa, _workflow, msg) do
     Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)

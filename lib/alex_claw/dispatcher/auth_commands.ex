@@ -2,7 +2,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.Auth.{Challenge, Elevation, Sessions, TOTP}
+  alias AlexClaw.Auth.{Challenge, Elevation, Gate, Sessions, TOTP}
   alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
@@ -151,11 +151,13 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @doc """
   Wraps a sensitive action with a 2FA challenge.
 
-  Returns `:challenged` once the code has been requested, or `:no_2fa` when TOTP
-  is not configured. Callers must treat `:no_2fa` as a refusal — the action is
-  not performed.
+  Returns `:challenged` once the code has been requested, `:no_2fa` when TOTP
+  is not configured, and `{:locked, minutes}` when the chat is locked after too
+  many wrong codes — it is told so instead of being prompted. Callers must treat
+  both as a refusal: the action is not performed.
   """
-  @spec require_2fa(Message.t(), map(), String.t()) :: :challenged | :no_2fa
+  @spec require_2fa(Message.t(), map(), String.t()) ::
+          :challenged | :no_2fa | {:locked, pos_integer()}
   def require_2fa(msg, action, description) do
     challenge_2fa(msg, action, description, TOTP.enabled?())
   end
@@ -164,16 +166,23 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   # no second factor to ask for, rather than running unprotected.
   defp challenge_2fa(_msg, _action, _description, false), do: :no_2fa
 
+  # The same lock check and prompt as Gate.request/2: a chat that cannot answer
+  # is not asked.
   defp challenge_2fa(msg, action, description, true) do
+    msg.chat_id
+    |> Challenge.lock()
+    |> ask(msg, action, description)
+  end
+
+  defp ask(:ok, msg, action, description) do
     Challenge.create(msg.chat_id, action)
-
-    Gateway.send_message(
-      "This action requires 2FA verification.\n#{description}\n\nEnter your 6-digit authenticator code:",
-      chat_id: msg.chat_id,
-      gateway: msg.gateway
-    )
-
+    Gateway.send_message(Gate.prompt(description), chat_id: msg.chat_id, gateway: msg.gateway)
     :challenged
+  end
+
+  defp ask({:locked, minutes} = locked, msg, _action, _description) do
+    Gateway.send_message(Gate.lock_notice(minutes), chat_id: msg.chat_id, gateway: msg.gateway)
+    locked
   end
 
   @spec execute_2fa_action(map(), Message.t()) :: term()

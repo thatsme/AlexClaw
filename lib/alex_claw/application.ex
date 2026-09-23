@@ -54,7 +54,8 @@ defmodule AlexClaw.Application do
       {AlexClaw.MCP.Server, transport: {:streamable_http, start: true}},
       AlexClaw.Cluster.Manager,
       AlexClaw.Scheduler,
-      AlexClaw.Gateway.Telegram,
+      # The gateways restart under their own supervisor, never against the root.
+      AlexClaw.Gateway.Supervisor,
       AlexClawWeb.Endpoint,
       AlexClaw.UpdateChecker
     ]
@@ -74,7 +75,7 @@ defmodule AlexClaw.Application do
   end
 
   defp background_children(true) do
-    [AlexClaw.Workflows.SchedulerSync, AlexClaw.Gateway.DiscordStarter]
+    [AlexClaw.Workflows.SchedulerSync]
   end
 
   defp background_children(false), do: []

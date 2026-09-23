@@ -173,8 +173,7 @@ defmodule AlexClaw.Gateway.Telegram do
 
     case Req.get(url, params: [offset: state.offset, timeout: 30], receive_timeout: 60_000) do
       {:ok, %{status: 200, body: %{"ok" => true, "result" => updates}}} ->
-        Enum.each(updates, &handle_update/1)
-        %{state | offset: next_offset(List.last(updates), state.offset)}
+        %{state | offset: process_updates(updates, state.offset, &AlexClaw.Dispatcher.dispatch/1)}
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Telegram API error: #{status} - #{inspect(body)}")
@@ -186,24 +185,46 @@ defmodule AlexClaw.Gateway.Telegram do
     end
   end
 
+  @doc """
+  Handle one `getUpdates` batch and return the offset past it.
+
+  Each update is handled on its own, with `dispatch`. An exception, exit or
+  throw while handling one is logged and the batch goes on: the offset always
+  moves past every update, so a message that crashes its handler is
+  acknowledged rather than delivered again. Delivery is at most once.
+  """
+  @spec process_updates([map()], non_neg_integer(), (Message.t() -> term())) :: non_neg_integer()
+  def process_updates(updates, offset, dispatch) do
+    Enum.each(updates, &handle_update(&1, dispatch))
+    next_offset(List.last(updates), offset)
+  end
+
   defp next_offset(nil, offset), do: offset
   defp next_offset(last, _offset), do: last["update_id"] + 1
 
-  defp handle_update(update) do
+  # The boundary between Telegram and everything a message can reach: whatever
+  # one update does, the next is still handled and the offset still moves.
+  defp handle_update(update, dispatch) do
     message = normalize(update)
-    dispatch_message(message, message.text && authorized_chat?(message.chat_id))
+    dispatch_message(message, message.text && authorized_chat?(message.chat_id), dispatch)
+  catch
+    kind, reason ->
+      Logger.error(
+        "Telegram update #{update["update_id"]} failed and was dropped: " <>
+          Exception.format(kind, reason, __STACKTRACE__)
+      )
   end
 
-  defp dispatch_message(_message, nil), do: :ok
+  defp dispatch_message(_message, nil, _dispatch), do: :ok
 
-  defp dispatch_message(message, false) do
+  defp dispatch_message(message, false, _dispatch) do
     Logger.warning("Ignored message from unauthorized chat_id: #{message.chat_id}")
   end
 
-  defp dispatch_message(message, true) do
+  defp dispatch_message(message, true, dispatch) do
     Logger.info("Received: #{message.text}", [])
     maybe_save_chat_id(message.chat_id)
-    AlexClaw.Dispatcher.dispatch(message)
+    dispatch.(message)
   end
 
   defp normalize(update) do

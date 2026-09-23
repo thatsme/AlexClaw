@@ -45,6 +45,16 @@ defmodule AlexClaw.Auth.SecondFactor do
   @callback name() :: atom()
 
   @doc """
+  Where the operator reads the code from, as they will see it there: for an
+  authenticator app, the name of the entry.
+
+  A prompt that names it cannot be answered from the wrong entry by a phone
+  holding two similar ones — on 2026-09-23 three codes from the wrong entry
+  locked the chat.
+  """
+  @callback entry_name() :: String.t()
+
+  @doc """
   Whether this instance claims the factor while unable to supply it.
 
   `configured?/0` answering true on an instance that can verify nothing is the

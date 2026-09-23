@@ -24,7 +24,25 @@ defmodule AlexClaw.Auth.TOTP do
   @account "admin"
   @last_used_key "auth.totp.last_used_at"
 
-  defp issuer, do: System.get_env("TOTP_ISSUER", "AlexClaw")
+  @issuer_key "auth.totp.issuer"
+  # TOTP_ISSUER did not reach the app before 0.3.47, so an enrolment made then
+  # carries this name whatever the variable says.
+  @default_issuer "AlexClaw"
+
+  defp issuer, do: System.get_env("TOTP_ISSUER", @default_issuer)
+
+  @doc """
+  The name of the authenticator entry, as it was enrolled.
+
+  Recorded when 2FA is confirmed: the entry on the phone keeps the issuer it
+  was enrolled with, so changing `TOTP_ISSUER` later does not rename it. An
+  enrolment with no record predates the record and is named "AlexClaw".
+  """
+  @spec enrolled_issuer() :: String.t()
+  def enrolled_issuer, do: enrolled_or_default(Config.get(@issuer_key))
+
+  defp enrolled_or_default(issuer) when is_binary(issuer) and issuer != "", do: issuer
+  defp enrolled_or_default(_none), do: @default_issuer
 
   # A challenge is a two-minute window in which any six digits can be tried.
   # The table itself is owned by AlexClaw.Auth.ChallengeStore, so a challenge
@@ -78,6 +96,12 @@ defmodule AlexClaw.Auth.TOTP do
           type: "boolean",
           category: "auth",
           description: "2FA enabled"
+        )
+
+        Config.set(@issuer_key, issuer(),
+          type: "string",
+          category: "auth",
+          description: "Authenticator entry name, as enrolled"
         )
 
         Config.delete("auth.totp.pending_secret")

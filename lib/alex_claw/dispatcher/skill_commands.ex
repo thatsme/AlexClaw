@@ -23,6 +23,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
            "Load skill: `#{String.trim(file_path)}`"
          ) do
       :challenged -> :ok
+      {:locked, _minutes} -> :ok
       :no_2fa -> require_2fa_message(msg)
     end
   end
@@ -34,6 +35,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
            "Unload skill: *#{String.trim(name)}*"
          ) do
       :challenged -> :ok
+      {:locked, _minutes} -> :ok
       :no_2fa -> require_2fa_message(msg)
     end
   end
@@ -45,6 +47,7 @@ defmodule AlexClaw.Dispatcher.SkillCommands do
            "Reload skill: *#{String.trim(name)}*"
          ) do
       :challenged -> :ok
+      {:locked, _minutes} -> :ok
       :no_2fa -> require_2fa_message(msg)
     end
   end

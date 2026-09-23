@@ -78,4 +78,5 @@ PHX_HOST=alexclaw.example.com
 | 5001 | No (proxy only) | Application port |
 | 5432 | No | PostgreSQL |
 | 4369 | No | EPMD (clustering only) |
-| 8000 | No | Web automator sidecar |
+| 6900 | No (never published) | Web automator API, reached only from the app container |
+| 6080 | No (loopback only; SSH tunnel) | noVNC for recording sessions — unauthenticated |

@@ -72,6 +72,22 @@ noVNC in its own container, enabled with `web_automator.enabled`.
 - **Record** — opens a browser session and captures actions as reproducible steps
 - **Replay** — runs recorded steps headlessly, scraping, screenshotting, downloading
 - **Storage** — a recording becomes a resource of type `automation`, steps in JSONB
+- **Contract** — a recipe is a URL and a list of steps from a closed set of
+  actions, each with only its own fields. The sidecar validates the whole recipe
+  before anything runs and refuses an invalid one; a recording is saved only if
+  it is a valid recipe.
+- **Lifecycle** — every play has an id and a deadline (the workflow step's
+  `timeout_ms`, 120 s by default, at most 600 s) and its own browser. One play
+  runs at a time (`AlexClaw.WebAutomation.PlayLock`); a second is refused as
+  busy. A play past its deadline ends as `{:error, :timeout}`. A play whose
+  caller disconnects is cancelled; one whose caller gives up waiting is stopped
+  by its id.
+- **Boundary** — every route but `/health` needs a shared bearer token. The
+  sidecar sits on its own `automation` network with the app, not the database,
+  runs unprivileged on a read-only root, and the replay browser reaches the
+  network only through an egress filter that refuses internal destinations.
+  [Security](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md#web-automator-sidecar)
+  has the detail.
 
 Commands: `/record`, `/record stop`, `/replay`, `/automate`.
 

@@ -344,10 +344,10 @@ configured chat can approve a shell command.
 
 ## Web Automator Sidecar
 
-The web-automator sidecar runs a real browser with network access.
-Automation recipes execute arbitrary browser actions — review recorded
-recipes before assigning them to scheduled workflows.
-The noVNC interface (port 6080) should never be exposed publicly.
+The web-automator sidecar runs a real browser with network access. A recipe
+is limited to a fixed set of browser actions — no script evaluation — but it
+still acts on live pages with whatever the page allows, so recorded recipes are
+reviewed before they are assigned to scheduled workflows.
 
 - **Authentication.** Every sidecar route except `/health` requires
   `Authorization: Bearer <WEB_AUTOMATOR_TOKEN>`, compared in constant time. With
@@ -368,8 +368,20 @@ The noVNC interface (port 6080) should never be exposed publicly.
   through a filtering proxy that applies the same rule as skill HTTP (below):
   a destination that does not resolve, or resolves to any internal address, is
   refused, and the connection goes to the address that was checked. QUIC,
-  non-proxied WebRTC UDP and service workers are disabled. A recording
-  session's browser is not filtered.
+  non-proxied WebRTC UDP and service workers are disabled.
+- **Recording sessions.** A recording session's browser is not
+  egress-filtered: it is driven by hand, through noVNC.
+- **noVNC.** The recording display (port 6080) has no password: anyone who
+  reaches it controls the recording browser. It is published on `127.0.0.1`
+  only and is meant to be reached through an SSH tunnel.
+- **Recipe contract.** The sidecar validates a whole recipe before running any
+  step: a known action, only that action's fields, http(s) URLs, and bounded
+  waits and timeouts. Anything else refuses the recipe. There is no action
+  that runs JavaScript and no caller-chosen output path.
+- **Bounded plays.** Every play has a deadline (at most ten minutes) and its
+  own browser, closed when it ends. One play runs at a time. A play whose
+  caller disconnects is cancelled; one whose caller gives up waiting is
+  stopped by its id, so a stop cannot end a different play.
 - **Logs.** The player and the recorder write selectors and action names to the
   sidecar's log, never the values typed into a page, and a recording that fails
   to save is reported without its steps. This is about the log only: the

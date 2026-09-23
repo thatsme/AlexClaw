@@ -857,9 +857,9 @@ Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes every enc
 
 If it was changed without a rotation, the application does not start: the log says `These stored values do not decrypt under this SECRET_KEY_BASE` and names each one, never its value. Put the old value back and restart. If the old value is lost for good, those values cannot be recovered. Follow [Lost key](docs/deployment/rotate-secret-key-base.md#lost-key) to discard exactly them, then enter them again. If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
 
-### Web automator noVNC behind HTTPS
+### Web automator noVNC behind a proxy
 
-If you run AlexClaw behind an HTTPS reverse proxy, the noVNC recording link defaults to `http://`. Set `NOVNC_SCHEME=https` in your web-automator environment (and ensure your reverse proxy also terminates TLS for the noVNC port) to avoid mixed-content browser warnings.
+noVNC is reached through an SSH tunnel and is not meant to sit behind a public proxy.
 
 ### Rebuilding from scratch
 

@@ -53,8 +53,8 @@ defmodule AlexClaw.Release do
   """
   @spec rekey() :: :ok
   def rekey do
+    old = old_secret_key_base!()
     load_app()
-    old = System.fetch_env!("OLD_SECRET_KEY_BASE")
     new = System.fetch_env!("SECRET_KEY_BASE")
 
     for repo <- repos() do
@@ -65,6 +65,20 @@ defmodule AlexClaw.Release do
     end
 
     :ok
+  end
+
+  @missing_old_key "OLD_SECRET_KEY_BASE is not set: a rotation needs the current key there " <>
+                     "and the new one in SECRET_KEY_BASE"
+
+  @doc """
+  The current key for a rotation, from OLD_SECRET_KEY_BASE — the one place it
+  is read. Compose passes the variable as an empty string outside a rotation,
+  so unset, empty and whitespace-only all raise, naming the variable.
+  """
+  @spec old_secret_key_base!() :: String.t()
+  def old_secret_key_base! do
+    value = System.get_env("OLD_SECRET_KEY_BASE", "")
+    if String.trim(value) == "", do: raise(@missing_old_key), else: value
   end
 
   defp report_rekey({:ok, count}),

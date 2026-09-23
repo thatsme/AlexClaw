@@ -30,7 +30,8 @@ There is no search or page-fetch helper. Skills make HTTP requests directly and
 parse what comes back.
 
 ```elixir
-# All Req options pass through: headers, params, receive_timeout, ...
+# Options: headers, params, json, form, body, receive_timeout, retry,
+# max_retries, retry_delay, redirect, max_redirects
 {:ok, %Req.Response{body: body}} = SkillAPI.http_get(MySkill, "https://example.com")
 
 {:ok, response} = SkillAPI.http_post(MySkill, url, json: %{q: "search term"})
@@ -40,6 +41,12 @@ parse what comes back.
 
 All three require `:web_read`, and a skill using any of them must declare
 `def external, do: true` — see the warning at the end of this page.
+
+Any other option returns `{:error, :option_not_allowed}`: options such as
+`adapter`, `plug` or `connect_options` could replace the transport, and the
+host check lives in the transport. A URL whose host is internal (loopback,
+private, link-local, CGNAT) or does not resolve returns
+`{:error, :blocked_host}`, and the check is repeated on every redirect hop.
 
 ## Memory Operations
 

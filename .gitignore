@@ -33,6 +33,8 @@ alex_claw-*.tar
 
 # Local docs (specs, scripts, notes — not for GitHub)
 /local-docs/
+# Exchange folder for reports and drafts between the implementer and the architect; never tracked.
+/reports/
 
 # Personal docker-compose variants (except swarm which is part of clustering)
 docker-compose_*.yml

@@ -653,6 +653,14 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp step_not_saved(socket, :invalid_id), do: socket
   defp step_not_saved(socket, :step_not_found), do: put_flash(socket, :error, "Step not found")
 
+  defp step_not_saved(socket, {:referenced_by, names}),
+    do:
+      put_flash(
+        socket,
+        :error,
+        "Step not removed: #{Enum.join(names, ", ")} still route to it or take its input"
+      )
+
   defp step_not_saved(socket, %Ecto.Changeset{} = changeset),
     do: put_flash(socket, :error, "Step error: #{inspect(changeset.errors)}")
 

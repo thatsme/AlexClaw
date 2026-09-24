@@ -403,8 +403,11 @@ defmodule AlexClaw.Database.RestoreTest do
       unchanged!(original)
     end
 
-    test "one made on another schema version", %{original: original} do
-      assert {:error, message} = Restore.load(%{original | "schema" => 1})
+    # A file from a NEWER schema cannot be restored: this database does not
+    # have what that release added. (An older one can, when the database only
+    # added nullable columns since — "an export from an older schema".)
+    test "one made on a newer schema version", %{original: original} do
+      assert {:error, message} = Restore.load(%{original | "schema" => 99_991_231_235_959})
       assert message =~ "schema"
       unchanged!(original)
     end
@@ -437,6 +440,67 @@ defmodule AlexClaw.Database.RestoreTest do
 
       assert {:error, message} = Restore.load(bad)
       assert message =~ "workflows holds a value this database refuses"
+      unchanged!(original)
+    end
+  end
+
+  # No release may write an export the next cannot restore. Most migrations
+  # only ADD: a new nullable column (0.3.55: workflow_runs.definition). A file
+  # from before such a migration restores, the added columns as null. A file
+  # that lacks a column the database requires, or has one it no longer has,
+  # is refused naming it — a migration that is not additive decides then.
+  describe "an export from an older schema" do
+    setup do
+      workflow = fixtures()
+      {:ok, _run} = Workflows.create_run(workflow)
+      {:ok, original: export()}
+    end
+
+    defp drop_column(export, table, column) do
+      update_in(export, ["tables", table], fn %{"columns" => names, "rows" => rows} = entry ->
+        index = Enum.find_index(names, &(&1 == column))
+
+        %{
+          entry
+          | "columns" => List.delete_at(names, index),
+            "rows" => Enum.map(rows, &List.delete_at(&1, index))
+        }
+      end)
+    end
+
+    defp older(export), do: %{export | "schema" => 20_260_921_090_000}
+
+    test "restores when the database only added nullable columns", %{original: original} do
+      file = original |> drop_column("workflow_runs", "definition") |> older()
+
+      assert {:ok, _} = Restore.load(file)
+      assert [run] = Repo.all(AlexClaw.Workflows.WorkflowRun)
+      assert run.definition == nil
+    end
+
+    test "is refused when a column it lacks is required, naming it", %{original: original} do
+      file = original |> drop_column("workflows", "name") |> older()
+
+      assert {:error, message} = Restore.load(file)
+      assert message =~ "workflows"
+      assert message =~ "name"
+      unchanged!(original)
+    end
+
+    test "is refused when it has a column the database no longer has", %{original: original} do
+      file =
+        original
+        |> update_in(["tables", "workflows"], fn %{"columns" => names, "rows" => rows} = e ->
+          %{
+            e
+            | "columns" => names ++ ["retired_column"],
+              "rows" => Enum.map(rows, &(&1 ++ ["x"]))
+          }
+        end)
+        |> older()
+
+      assert {:error, message} = Restore.load(file)
+      assert message =~ "retired_column"
       unchanged!(original)
     end
   end

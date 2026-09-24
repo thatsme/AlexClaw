@@ -44,6 +44,25 @@ defmodule AlexClaw.Database.DataSet do
     Enum.map(rows, fn [name, type] -> {name, type} end)
   end
 
+  @doc "The columns of `table` that may hold null."
+  @spec nullable_columns(String.t()) :: [String.t()]
+  def nullable_columns(table) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT a.attname
+        FROM pg_attribute a
+        JOIN pg_class c ON a.attrelid = c.oid
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = 'public' AND c.relname = $1 AND a.attnum > 0
+          AND NOT a.attisdropped AND NOT a.attnotnull
+        """,
+        [table]
+      )
+
+    List.flatten(rows)
+  end
+
   @doc "The primary key columns of `table`."
   @spec primary_key(String.t()) :: [String.t()]
   def primary_key(table) do

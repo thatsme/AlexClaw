@@ -171,13 +171,13 @@ defmodule AlexClaw.Database.Restore do
     end
   end
 
+  defp table_plan(table, _entry, _age), do: {:error, "#{table} is not a table entry"}
+
   defp rows_fit(table, rows, width) do
     if Enum.all?(rows, &row?(&1, width)),
       do: :ok,
       else: {:error, "#{table} holds a row that is not a list of #{width} text values"}
   end
-
-  defp table_plan(table, _entry, _age), do: {:error, "#{table} is not a table entry"}
 
   # The columns the database has that the file does not. From the same schema
   # there are none. From an older one they are the columns added since, and a

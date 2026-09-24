@@ -4,7 +4,10 @@ defmodule AlexClaw.Skills.TelegramNotify do
   Configurable via step config:
   - "chat_id" — override target chat (default: main configured chat)
   - "bot_token" — override bot token (default: main configured token)
-  - "parse_mode" — "Markdown" (default) or "HTML"
+  - "link_preview" — `false` turns off the preview card Telegram adds for a link
+
+  The message is sent as HTML, converted from the Markdown the previous step
+  produced (`to_html/1`).
   """
   @behaviour AlexClaw.Skill
   @impl true
@@ -26,16 +29,17 @@ defmodule AlexClaw.Skills.TelegramNotify do
   @impl true
   @spec config_hint() :: String.t()
   def config_hint,
-    do: ~s|{"chat_id": "optional", "bot_token": "optional", "parse_mode": "Markdown"}|
+    do: ~s|{"chat_id": "optional", "bot_token": "optional", "link_preview": false}|
 
   @impl true
   @spec config_scaffold() :: map()
-  def config_scaffold, do: %{"chat_id" => "", "bot_token" => "", "parse_mode" => "Markdown"}
+  def config_scaffold, do: %{"chat_id" => "", "bot_token" => ""}
 
   @impl true
   @spec config_help() :: String.t()
   def config_help,
-    do: "Optional overrides. Leave empty to use default bot/chat. parse_mode: Markdown or HTML."
+    do:
+      "Optional overrides. Leave empty to use default bot/chat. link_preview: false turns off the link preview card."
 
   require Logger
 
@@ -60,32 +64,36 @@ defmodule AlexClaw.Skills.TelegramNotify do
     bot_token = blank_to_nil(config["bot_token"])
     chat_id = blank_to_nil(config["chat_id"])
 
-    html_message = format_for_telegram(message)
+    html_message = to_html(message)
+    options = send_options(config)
 
     if bot_token && bot_token != "" do
-      send_direct(bot_token, chat_id, html_message, "HTML", input)
+      send_direct(bot_token, chat_id, html_message, options, input)
     else
-      send_default(chat_id || AlexClaw.Config.get("telegram.chat_id"), html_message, input)
+      chat_id = chat_id || AlexClaw.Config.get("telegram.chat_id")
+      send_default(chat_id, html_message, options, input)
     end
   end
 
   # Nowhere to send is not a delivery.
-  defp send_default(chat_id, _text, _input) when chat_id in [nil, ""], do: {:error, :no_chat_id}
+  defp send_default(chat_id, _text, _options, _input) when chat_id in [nil, ""],
+    do: {:error, :no_chat_id}
 
-  defp send_default(chat_id, text, input) do
-    AlexClaw.Gateway.send_html(text, chat_id: chat_id)
+  defp send_default(chat_id, text, options, input) do
+    AlexClaw.Gateway.send_html(text, chat_id: chat_id, send_options: options)
     # Pass through original input so downstream steps still have the data
     {:ok, input, :on_delivered}
   end
 
-  defp send_direct(_token, chat_id, _text, _parse_mode, _input) when chat_id in [nil, ""] do
+  defp send_direct(_token, chat_id, _text, _options, _input) when chat_id in [nil, ""] do
     {:error, :no_chat_id}
   end
 
-  defp send_direct(token, chat_id, text, parse_mode, input) do
+  defp send_direct(token, chat_id, text, options, input) do
     url = "#{@telegram_api}#{token}/sendMessage"
+    request = Map.merge(%{chat_id: chat_id, text: text, parse_mode: "HTML"}, options)
 
-    case Req.post(url, json: %{chat_id: chat_id, text: text, parse_mode: parse_mode}) do
+    case Req.post(url, json: request) do
       {:ok, %{status: 200}} ->
         Logger.info("TelegramNotify sent to chat #{chat_id} via custom bot",
           skill: :telegram_notify
@@ -98,16 +106,7 @@ defmodule AlexClaw.Skills.TelegramNotify do
           skill: :telegram_notify
         )
 
-        case Req.post(url, json: %{chat_id: chat_id, text: text}) do
-          {:ok, %{status: 200}} ->
-            {:ok, input, :on_delivered}
-
-          {:ok, %{status: s, body: b}} ->
-            {:error, {:telegram, s, b}}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        send_plain(url, Map.delete(request, :parse_mode), input)
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("TelegramNotify failed: #{status}", skill: :telegram_notify)
@@ -118,21 +117,43 @@ defmodule AlexClaw.Skills.TelegramNotify do
     end
   end
 
+  defp send_plain(url, request, input) do
+    case Req.post(url, json: request) do
+      {:ok, %{status: 200}} -> {:ok, input, :on_delivered}
+      {:ok, %{status: s, body: b}} -> {:error, {:telegram, s, b}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp format_input(nil), do: "Workflow completed (no output)"
   defp format_input(text) when is_binary(text), do: text
   defp format_input(%{"output" => text}) when is_binary(text), do: text
   defp format_input(other), do: inspect(other)
 
-  @doc """
-  Converts LLM markdown output to Telegram-compatible HTML.
-  Handles headers, bold, italic, code blocks, and bullet lists.
-  """
+  @doc "Same as `to_html/1`."
   @spec format_for_telegram(String.t()) :: String.t()
-  def format_for_telegram(text) do
+  def format_for_telegram(text), do: to_html(text)
+
+  @doc """
+  Converts LLM markdown output to Telegram-compatible HTML: headers, bold,
+  italic, inline code, bullet lists, and `[text](url)` links. Everything else
+  is escaped. Only http and https URLs become links; the link text is escaped
+  and the URL is escaped for the attribute, so neither can add markup.
+  """
+  @spec to_html(String.t()) :: String.t()
+  def to_html(text) do
     text
     |> String.split("\n")
     |> Enum.map_join("\n", &convert_line/1)
   end
+
+  @doc """
+  Extra sendMessage fields from the step config: `"link_preview": false`
+  turns the link preview card off.
+  """
+  @spec send_options(map()) :: map()
+  def send_options(%{"link_preview" => false}), do: %{link_preview_options: %{is_disabled: true}}
+  def send_options(_config), do: %{}
 
   defp convert_line("#### " <> rest), do: "<b>#{escape_html(rest)}</b>"
   defp convert_line("### " <> rest), do: "<b>#{escape_html(rest)}</b>"
@@ -142,13 +163,32 @@ defmodule AlexClaw.Skills.TelegramNotify do
   defp convert_line("* " <> rest), do: "• #{convert_inline(rest)}"
   defp convert_line(line), do: convert_inline(line)
 
+  # Links are split out first, so the text around them is escaped and
+  # formatted as before and the link itself is built from escaped parts.
   defp convert_inline(text) do
-    text
+    ~r/\[[^\]]+\]\(https?:\/\/[^)\s]+\)/i
+    |> Regex.split(text, include_captures: true)
+    |> Enum.map_join(&convert_part/1)
+  end
+
+  defp convert_part(part) do
+    ~r/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/i
+    |> Regex.run(part, capture: :all_but_first)
+    |> link_or_text(part)
+  end
+
+  defp link_or_text([text, url], _part),
+    do: ~s(<a href="#{escape_attribute(url)}">#{escape_html(text)}</a>)
+
+  defp link_or_text(nil, part) do
+    part
     |> escape_html()
     |> convert_bold()
     |> convert_italic()
     |> convert_inline_code()
   end
+
+  defp escape_attribute(url), do: url |> escape_html() |> String.replace("\"", "&quot;")
 
   defp escape_html(text) do
     text

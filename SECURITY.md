@@ -708,6 +708,10 @@ receives it.
   directive text (e.g., "Experts recommend..." is preserved, but edge cases exist)
 - Encoding-based attacks (Base64, ROT13) bypass pattern matching — the encoded
   payload reaches the LLM, though most models don't decode and follow them
+- Links in an `llm_transform` summary of feed items come from the items, never
+  from the model: URLs with a scheme or `www.` are removed from the model's
+  reply, but a bare domain quoted from feed text (`example.com`) can remain, and
+  Telegram may render it as a link
 - Future: embedded tiny classifier model (Qwen2.5-0.5B / SmolLM2-360M) for
   binary injection classification as a second pass on ambiguous sentences
 

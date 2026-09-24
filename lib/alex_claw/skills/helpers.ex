@@ -61,6 +61,22 @@ defmodule AlexClaw.Skills.Helpers do
     |> Floki.filter_out("svg")
   end
 
+  @doc "The text of an HTML fragment, with runs of whitespace collapsed to one space."
+  @spec plain_text(String.t()) :: String.t()
+  def plain_text(html) do
+    html
+    |> fragment_text()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
+  defp fragment_text(html) do
+    case Floki.parse_fragment(html) do
+      {:ok, tree} -> Floki.text(tree, sep: " ")
+      {:error, _reason} -> Regex.replace(~r/<[^>]*>/, html, " ")
+    end
+  end
+
   @doc """
   Build the LLM option list a skill passes to `AlexClaw.LLM`, from the provider and
   tier a workflow step supplies. `default_tier` applies when the step names none;

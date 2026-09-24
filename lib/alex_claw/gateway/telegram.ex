@@ -123,7 +123,7 @@ defmodule AlexClaw.Gateway.Telegram do
     chat_id = Keyword.get(opts, :chat_id) || get_chat_id()
 
     if token && token != "" && chat_id && chat_id != "" do
-      do_send_html(token, chat_id, text)
+      do_send_html(token, chat_id, text, Keyword.get(opts, :send_options, %{}))
     else
       preview = String.slice(to_string(text), 0, 80)
       Logger.warning("Cannot send: Telegram token or chat_id not configured — \"#{preview}\"")
@@ -273,38 +273,28 @@ defmodule AlexClaw.Gateway.Telegram do
       else: String.slice(text, 0, @max_message - String.length(@cut_note)) <> @cut_note
   end
 
-  defp do_send_html(token, chat_id, text) do
-    do_send(token, chat_id, text, "HTML")
+  # `send_options` are extra sendMessage fields, e.g. link_preview_options.
+  defp do_send_html(token, chat_id, text, send_options) do
+    do_send(token, chat_id, text, "HTML", send_options)
   end
 
   defp do_send_message(token, chat_id, text) do
-    do_send(token, chat_id, text, "Markdown")
+    do_send(token, chat_id, text, "Markdown", %{})
   end
 
-  defp do_send(token, chat_id, text, parse_mode) do
+  defp do_send(token, chat_id, text, parse_mode, send_options) do
     url = "#{@telegram_api}#{token}/sendMessage"
     text = fit(text)
+    request = Map.merge(%{chat_id: chat_id, text: text, parse_mode: parse_mode}, send_options)
 
-    case Req.post(url, json: %{chat_id: chat_id, text: text, parse_mode: parse_mode}) do
+    case Req.post(url, json: request) do
       {:ok, %{status: 200}} ->
         :ok
 
       {:ok, %{status: 400, body: body}} ->
         Logger.warning("#{parse_mode} parse failed, retrying as plain text: #{inspect(body)}")
         plain_text = if parse_mode == "HTML", do: strip_tags(text), else: text
-
-        case Req.post(url, json: %{chat_id: chat_id, text: plain_text}) do
-          {:ok, %{status: 200}} ->
-            :ok
-
-          {:ok, %{status: s, body: b}} ->
-            Logger.warning("Plain text send also failed: #{s} - #{inspect(b)}")
-            {:error, b}
-
-          {:error, reason} ->
-            Logger.warning("Plain text send error: #{inspect(reason)}")
-            {:error, reason}
-        end
+        send_plain(url, Map.merge(%{chat_id: chat_id, text: plain_text}, send_options))
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Send failed: #{status} - #{inspect(body)}")
@@ -312,6 +302,21 @@ defmodule AlexClaw.Gateway.Telegram do
 
       {:error, reason} ->
         Logger.warning("Send error: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp send_plain(url, request) do
+    case Req.post(url, json: request) do
+      {:ok, %{status: 200}} ->
+        :ok
+
+      {:ok, %{status: s, body: b}} ->
+        Logger.warning("Plain text send also failed: #{s} - #{inspect(b)}")
+        {:error, b}
+
+      {:error, reason} ->
+        Logger.warning("Plain text send error: #{inspect(reason)}")
         {:error, reason}
     end
   end

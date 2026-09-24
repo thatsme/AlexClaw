@@ -38,6 +38,15 @@ defmodule AlexClaw.Skills.WebBrowse do
   def config_scaffold, do: %{"url" => "", "question" => ""}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "url" => %{type: :string, required: false},
+      "question" => %{type: :string, required: false}
+    }
+  end
+
+  @impl true
   @spec config_help() :: String.t()
   def config_help,
     do: "url: page to fetch. question: optional question to answer about the page content."

@@ -17,7 +17,7 @@ defmodule AlexClaw.Workflows.Executor do
   alias AlexClaw.Skill
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.{Registry, SkillRegistry, Workflow}
+  alias AlexClaw.Workflows.{Registry, SkillRegistry, StepConfig, Workflow}
 
   @doc """
   Run a workflow by ID. Creates a run record and walks the step graph.
@@ -407,7 +407,18 @@ defmodule AlexClaw.Workflows.Executor do
     handle_missing_skill(step, args)
   end
 
+  # A step saved before the config contract is held to it here: one that breaks
+  # it fails at this step, naming the field, instead of running on what it has.
   defp run_resolved_skill({:ok, module}, step, args) do
+    module
+    |> StepConfig.validate(args.config, runtime: true)
+    |> run_checked(module, step, args)
+  end
+
+  defp run_checked({:error, reasons}, _module, _step, _args),
+    do: {:error, {:invalid_config, reasons}}
+
+  defp run_checked(:ok, module, step, args) do
     skill_type = SkillRegistry.get_type(module) || :dynamic
     token = mint_step_token(module, skill_type)
     if token, do: Process.put(:auth_token, token)

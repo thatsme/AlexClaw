@@ -47,6 +47,28 @@ defmodule AlexClaw.Skills.ApiRequest do
   def config_scaffold, do: %{"method" => "GET", "url" => "", "headers" => %{}, "body" => ""}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "url" => %{type: :string, required: false},
+      "method" => %{type: :string, required: false},
+      "headers" => %{type: :map, required: false},
+      "body" => %{type: :string, required: false},
+      "path" => %{type: :string, required: false}
+    }
+  end
+
+  # A request needs somewhere to go: a url, or a path joined to an assigned
+  # api resource's base url when it runs.
+  @impl true
+  @spec validate_config(map()) :: :ok | {:error, [String.t()]}
+  def validate_config(%{"url" => url}) when is_binary(url) and url != "", do: :ok
+  def validate_config(%{"path" => path}) when is_binary(path) and path != "", do: :ok
+
+  def validate_config(_config),
+    do: {:error, ["url: required (or a path, with an assigned api resource)"]}
+
+  @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{

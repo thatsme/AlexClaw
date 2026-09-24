@@ -12,6 +12,13 @@ defmodule AlexClaw.EncryptedTest do
   alias AlexClaw.LLM.Provider
   alias AlexClaw.Workflows.WorkflowStep
 
+  setup do
+    # 0.3.54: a telegram_notify step is saved only when Telegram is configured.
+    insert_setting("telegram.enabled", "true", type: "boolean", category: "telegram")
+    insert_setting("telegram.bot_token", "test-token", type: "string", category: "telegram")
+    :ok
+  end
+
   defp provider(attrs) do
     base = %{
       name: "enc-#{System.unique_integer([:positive])}",

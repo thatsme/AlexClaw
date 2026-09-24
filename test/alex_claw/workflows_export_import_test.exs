@@ -152,7 +152,12 @@ defmodule AlexClaw.WorkflowsExportImportTest do
         "version" => 1,
         "workflow" => %{"name" => "Position Test"},
         "steps" => [
-          %{"position" => 5, "name" => "Step A", "skill" => "api_request"},
+          %{
+            "position" => 5,
+            "name" => "Step A",
+            "skill" => "api_request",
+            "config" => %{"url" => "https://example.com"}
+          },
           %{"position" => 10, "name" => "Step B", "skill" => "llm_transform"}
         ],
         "resources" => []

@@ -30,6 +30,9 @@ defmodule AlexClaw.Skills.CoderTruthTest do
     Sandbox.mode(AlexClaw.Repo, {:shared, self()})
     LLMMock.use_mock(ctx)
     LLMMock.no_knowledge()
+    # 0.3.54: the workflow coder creates ends with a telegram_notify step,
+    # saved only when Telegram is configured.
+    AlexClawTest.TelegramStub.accept_all()
 
     skills_dir = Application.get_env(:alex_claw, :skills_dir)
     File.mkdir_p!(skills_dir)

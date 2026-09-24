@@ -89,6 +89,16 @@ defmodule AlexClaw.Skills.Shell do
   def config_scaffold, do: %{"command" => "df -h"}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "command" => %{type: :string, required: false},
+      "timeout_seconds" => %{type: :integer, required: false},
+      "max_output_chars" => %{type: :integer, required: false}
+    }
+  end
+
+  @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{

@@ -199,7 +199,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
         page: "/workflows",
         event: "add_step",
         prepare: [{"edit", %{"id" => to_string(wf.id)}}],
-        params: %{"step_name" => "probe", "step_skill" => "echo", "step_config" => "{}"},
+        params: %{"step_name" => "probe", "step_skill" => "llm_transform", "step_config" => "{}"},
         check: fn -> length(Workflows.get_workflow!(wf.id).steps) end
       },
       %{

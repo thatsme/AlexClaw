@@ -5,6 +5,10 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
 
   alias AlexClaw.{Resources, Workflows}
 
+  # A step config the contract accepts (0.3.54); these tests are about
+  # ordering and cascades, not about the step's own config.
+  @api %{"url" => "https://example.com"}
+
   defp create_workflow(attrs \\ %{}) do
     default = %{name: "WF #{System.unique_integer([:positive])}", enabled: true}
     {:ok, wf} = Workflows.create_workflow(Map.merge(default, attrs))
@@ -24,7 +28,9 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
       wf = create_workflow()
 
       for i <- 1..20 do
-        {:ok, step} = Workflows.add_step(wf, %{name: "Step #{i}", skill: "api_request"})
+        {:ok, step} =
+          Workflows.add_step(wf, %{name: "Step #{i}", skill: "api_request", config: @api})
+
         assert step.position == i
       end
 
@@ -36,7 +42,7 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
 
     test "reorder_steps with duplicate IDs" do
       wf = create_workflow()
-      {:ok, s1} = Workflows.add_step(wf, %{name: "A", skill: "api_request"})
+      {:ok, s1} = Workflows.add_step(wf, %{name: "A", skill: "api_request", config: @api})
 
       result = Workflows.reorder_steps(wf, [s1.id, s1.id])
       assert match?({:ok, _}, result) or match?({:error, _}, result)
@@ -44,7 +50,7 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
 
     test "reorder_steps with nonexistent step ID" do
       wf = create_workflow()
-      {:ok, s1} = Workflows.add_step(wf, %{name: "A", skill: "api_request"})
+      {:ok, s1} = Workflows.add_step(wf, %{name: "A", skill: "api_request", config: @api})
 
       result = Workflows.reorder_steps(wf, [s1.id, 999_999])
       assert match?({:ok, _}, result) or match?({:error, _}, result)
@@ -52,9 +58,9 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
 
     test "remove_step then reorder remaining" do
       wf = create_workflow()
-      {:ok, s1} = Workflows.add_step(wf, %{name: "A", skill: "api_request"})
-      {:ok, s2} = Workflows.add_step(wf, %{name: "B", skill: "api_request"})
-      {:ok, s3} = Workflows.add_step(wf, %{name: "C", skill: "api_request"})
+      {:ok, s1} = Workflows.add_step(wf, %{name: "A", skill: "api_request", config: @api})
+      {:ok, s2} = Workflows.add_step(wf, %{name: "B", skill: "api_request", config: @api})
+      {:ok, s3} = Workflows.add_step(wf, %{name: "C", skill: "api_request", config: @api})
 
       {:ok, _} = Workflows.remove_step(s2)
       {:ok, _} = Workflows.reorder_steps(wf, [s3.id, s1.id])
@@ -112,7 +118,7 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
 
     test "delete workflow cascades — removes steps and run history" do
       wf = create_workflow()
-      {:ok, _} = Workflows.add_step(wf, %{name: "Step", skill: "api_request"})
+      {:ok, _} = Workflows.add_step(wf, %{name: "Step", skill: "api_request", config: @api})
       {:ok, _} = Workflows.create_run(wf)
 
       {:ok, _} = Workflows.delete_workflow(wf)
@@ -149,9 +155,17 @@ defmodule AlexClaw.WorkflowsAdversarialTest do
   end
 
   describe "schedule edge cases" do
-    test "workflow with invalid cron still saves (validation is at runtime)" do
-      wf = create_workflow(%{schedule: "not a cron"})
-      assert wf.schedule == "not a cron"
+    # It used to save and fail only when the scheduler tried it; since 0.3.54
+    # a schedule that is not a cron expression is refused at save
+    # (step_config_contract_test.exs).
+    test "workflow with invalid cron is refused" do
+      assert {:error, cs} =
+               Workflows.create_workflow(%{
+                 name: "WF #{System.unique_integer([:positive])}",
+                 schedule: "not a cron"
+               })
+
+      assert %{schedule: _} = errors_on(cs)
     end
 
     test "list_scheduled_workflows excludes nil schedule" do

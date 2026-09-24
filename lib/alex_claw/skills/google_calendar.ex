@@ -15,6 +15,8 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   - "max_results" — max events to return (default: 20)
   """
   @behaviour AlexClaw.Skill
+
+  alias AlexClaw.Google.TokenManager
   @impl true
   @spec external() :: boolean()
   def external, do: true
@@ -40,6 +42,21 @@ defmodule AlexClaw.Skills.GoogleCalendar do
     do: %{"action" => "list", "calendar_id" => "primary", "days" => 1, "max_results" => 20}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "action" => %{type: :string, required: false},
+      "calendar_id" => %{type: :string, required: false},
+      "days" => %{type: :integer, required: false},
+      "max_results" => %{type: :integer, required: false}
+    }
+  end
+
+  @impl true
+  @spec available?() :: boolean()
+  def available?, do: TokenManager.configured?()
+
+  @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
@@ -60,7 +77,6 @@ defmodule AlexClaw.Skills.GoogleCalendar do
 
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
-  alias AlexClaw.Google.TokenManager
 
   @calendar_api "https://www.googleapis.com/calendar/v3"
 

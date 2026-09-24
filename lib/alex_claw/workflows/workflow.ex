@@ -4,6 +4,8 @@ defmodule AlexClaw.Workflows.Workflow do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Crontab.CronExpression.Parser
+
   @type t :: %__MODULE__{}
 
   schema "workflows" do
@@ -29,6 +31,7 @@ defmodule AlexClaw.Workflows.Workflow do
     |> cast(attrs, [:name, :description, :enabled, :schedule, :metadata, :default_provider, :node])
     |> normalize_requires_2fa()
     |> validate_required([:name])
+    |> validate_cron()
     |> validate_unscheduled_when_protected()
     |> unique_constraint(:name)
   end
@@ -52,6 +55,24 @@ defmodule AlexClaw.Workflows.Workflow do
     do: put_change(changeset, :metadata, %{metadata | "requires_2fa" => ticked?(value)})
 
   defp put_normalized(changeset, _metadata), do: changeset
+
+  # A schedule the scheduler cannot parse would never run: refused when saved.
+  defp validate_cron(changeset), do: check_cron(get_change(changeset, :schedule), changeset)
+
+  defp check_cron(schedule, changeset) when schedule in [nil, ""], do: changeset
+
+  defp check_cron(schedule, changeset) do
+    case parse_cron(schedule, length(String.split(schedule))) do
+      {:ok, _expression} -> changeset
+      {:error, reason} -> add_error(changeset, :schedule, "is not a cron expression: #{reason}")
+    end
+  end
+
+  # Five fields, or an @-shortcut (@daily). The parser alone would read "* * *"
+  # as "* * * * *" — every minute.
+  defp parse_cron("@" <> _ = schedule, _fields), do: Parser.parse(schedule)
+  defp parse_cron(schedule, 5), do: Parser.parse(schedule)
+  defp parse_cron(_schedule, fields), do: {:error, "#{fields} fields, expected 5"}
 
   # A schedule runs with nobody there to approve it, so a protected workflow
   # cannot have one — refused whichever of the two is set second.

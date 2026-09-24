@@ -39,6 +39,18 @@ defmodule AlexClaw.Skills.RssFetch do
   def config_scaffold, do: %{"max_items" => 20, "recent_hours" => 48}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "max_items" => %{type: :integer, required: false},
+      "recent_hours" => %{type: :integer, required: false},
+      "fetch_timeout" => %{type: :integer, required: false},
+      "force" => %{type: :boolean, required: false},
+      "all_feeds" => %{type: :boolean, required: false}
+    }
+  end
+
+  @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{

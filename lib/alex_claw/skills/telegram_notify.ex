@@ -10,6 +10,8 @@ defmodule AlexClaw.Skills.TelegramNotify do
   produced (`to_html/1`).
   """
   @behaviour AlexClaw.Skill
+
+  alias AlexClaw.Gateway.Telegram
   @impl true
   @spec description() :: String.t()
   def description, do: "Sends workflow output to Telegram chat"
@@ -36,12 +38,30 @@ defmodule AlexClaw.Skills.TelegramNotify do
   def config_scaffold, do: %{"chat_id" => "", "bot_token" => ""}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "chat_id" => %{type: :string, required: false},
+      "bot_token" => %{type: :string, required: false},
+      "link_preview" => %{type: :boolean, required: false}
+    }
+  end
+
+  # Usable when the main Telegram bot is configured, or when the step brings
+  # its own bot token and chat id.
+  @impl true
+  @spec available?(map()) :: boolean()
+  def available?(%{"bot_token" => token, "chat_id" => chat})
+      when is_binary(token) and token != "" and is_binary(chat) and chat != "",
+      do: true
+
+  def available?(_config), do: Telegram.configured?()
+
+  @impl true
   @spec config_help() :: String.t()
   def config_help,
     do:
       "Optional overrides. Leave empty to use default bot/chat. link_preview: false turns off the link preview card."
-
-  alias AlexClaw.Gateway.Telegram
 
   @impl true
   @spec run(map()) :: {:ok, map()} | {:error, any()}

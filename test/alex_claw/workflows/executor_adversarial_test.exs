@@ -32,13 +32,16 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
   end
 
   describe "step failure propagation" do
+    # A real failure: a refused connection (port 9, discard). Since 0.3.54 a
+    # step for a skill that does not exist cannot be saved.
     test "first step failure stops entire chain" do
       wf = create_workflow()
 
       {:ok, _} =
         Workflows.add_step(wf, %{
           name: "Bad Step",
-          skill: "nonexistent_skill"
+          skill: "api_request",
+          config: %{"url" => "http://127.0.0.1:9/"}
         })
 
       {:ok, _} =
@@ -72,14 +75,16 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
       {:ok, _} =
         Workflows.add_step(wf, %{
           name: "Fails",
-          skill: "nonexistent_skill"
+          skill: "api_request",
+          config: %{"url" => "http://127.0.0.1:9/"}
         })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
       assert run.step_results["1"]["name"] == "Succeeds"
       assert run.step_results["1"]["output"] != nil
-      assert run.step_results["2"]["error"] =~ "unknown_skill"
+      assert run.step_results["2"]["name"] == "Fails"
+      assert run.error =~ "Fails"
     end
   end
 
@@ -104,31 +109,42 @@ defmodule AlexClaw.Workflows.ExecutorAdversarialTest do
       assert run.status == "completed"
     end
 
-    test "step with nil config defaults to empty map" do
+    # A step row with a nil config (written before 0.3.54, past the
+    # changeset) is checked at run time like any other: it fails naming the
+    # missing field, without crashing.
+    test "step with nil config fails naming what is missing, without a crash" do
       wf = create_workflow()
 
-      {:ok, _} =
-        Workflows.add_step(wf, %{
-          name: "No Config",
-          skill: "nonexistent_skill"
-        })
+      AlexClaw.Repo.insert!(%AlexClaw.Workflows.WorkflowStep{
+        workflow_id: wf.id,
+        name: "No Config",
+        skill: "api_request",
+        position: 1,
+        config: nil
+      })
 
       {:error, run} = Executor.run(wf.id)
-      assert run.error =~ "unknown_skill"
+      assert run.status == "failed"
+      assert run.error =~ "No Config"
+      assert run.error =~ "url"
     end
 
     test "step with empty prompt_template is treated as empty string — uses skill dispatch" do
+      bypass = Bypass.open()
+      Bypass.expect(bypass, "GET", "/dispatch", &Plug.Conn.resp(&1, 200, "dispatched"))
       wf = create_workflow()
 
       {:ok, _} =
         Workflows.add_step(wf, %{
           name: "Empty Template",
-          skill: "nonexistent_skill",
+          skill: "api_request",
+          config: %{"url" => "http://localhost:#{bypass.port}/dispatch"},
           prompt_template: ""
         })
 
-      {:error, run} = Executor.run(wf.id)
-      assert run.error =~ "unknown_skill"
+      # The skill ran (the request reached Bypass), not the LLM path.
+      {:ok, run} = Executor.run(wf.id)
+      assert run.status == "completed"
     end
   end
 

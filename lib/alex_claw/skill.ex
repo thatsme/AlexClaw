@@ -43,6 +43,20 @@ defmodule AlexClaw.Skill do
   @doc "Branches that mean there was nothing to do. Default: `[:on_empty]`."
   @callback empty_routes() :: [atom()]
 
+  @typedoc "A config field's type: what a step's value for it must be."
+  @type field_type :: :string | :integer | :number | :boolean | :map | :list
+  @typedoc "The config fields a skill accepts, each with its type and whether it is required."
+  @type config_schema :: %{String.t() => %{type: field_type(), required: boolean()}}
+
+  @doc "The config fields a step for this skill may set. Any other key is refused."
+  @callback config_schema() :: config_schema()
+  @doc "Whether the skill can run on this instance (false: not configured)."
+  @callback available?() :: boolean()
+  @doc "Whether a step with this config can run on this instance; used instead of `available?/0` when declared."
+  @callback available?(config :: map()) :: boolean()
+  @doc "Rules across config fields, after each field passed `config_schema/0`."
+  @callback validate_config(config :: map()) :: :ok | {:error, [String.t()]}
+
   @optional_callbacks description: 0,
                       permissions: 0,
                       version: 0,
@@ -57,7 +71,11 @@ defmodule AlexClaw.Skill do
                       secret_config_keys: 0,
                       prompt_help: 0,
                       error_routes: 0,
-                      empty_routes: 0
+                      empty_routes: 0,
+                      config_schema: 0,
+                      available?: 0,
+                      available?: 1,
+                      validate_config: 1
 
   @doc "`skill`'s error routes, or `[:on_error]` when it declares none."
   @spec error_routes(module()) :: [atom()]

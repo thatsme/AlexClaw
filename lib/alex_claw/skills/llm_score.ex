@@ -36,6 +36,16 @@ defmodule AlexClaw.Skills.LlmScore do
   def config_scaffold, do: %{"interests" => "", "threshold" => 0.3, "max_items" => 10}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "interests" => %{type: :string, required: false},
+      "threshold" => %{type: :number, required: false},
+      "max_items" => %{type: :integer, required: false}
+    }
+  end
+
+  @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{

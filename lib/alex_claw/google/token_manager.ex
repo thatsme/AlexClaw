@@ -247,7 +247,9 @@ defmodule AlexClaw.Google.TokenManager do
     end
   end
 
-  defp configured? do
+  @doc "Whether Google OAuth is set up: client id, client secret and a refresh token."
+  @spec configured?() :: boolean()
+  def configured? do
     not blank?(Config.get("google.oauth.client_id")) and
       not blank?(Config.get("google.oauth.client_secret")) and
       not blank?(Config.get("google.oauth.refresh_token"))

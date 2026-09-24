@@ -120,12 +120,13 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
 
       wf = create_workflow()
 
-      # Step 1: unknown skill → errors out
+      # Step 1: a refused connection (port 9, discard) → errors out
       # Route on_error → step 2 (recovery)
       {:ok, _} =
         Workflows.add_step(wf, %{
           name: "Will Fail",
-          skill: "nonexistent_skill",
+          skill: "api_request",
+          config: %{"url" => "http://127.0.0.1:9/"},
           routes: [%{"branch" => "on_error", "goto" => 2}]
         })
 
@@ -141,7 +142,7 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
       # An error handled by on_error ends the run recovered, not completed
       # (executor_truth_test.exs).
       assert run.status == "recovered"
-      assert run.step_results["1"]["error"] =~ "unknown_skill"
+      assert run.step_results["1"]["name"] == "Will Fail"
       assert run.step_results["2"]["name"] == "Recover"
     end
 
@@ -325,15 +326,18 @@ defmodule AlexClaw.Workflows.ExecutorBranchingTest do
 
       wf = create_workflow()
 
-      # Step 1: missing skill with on_missing_skill: skip
-      # Has routes that would send to step 3, but skip should go to step 2
-      {:ok, _} =
-        Workflows.add_step(wf, %{
-          name: "Missing",
-          skill: "gone_skill",
-          config: %{"on_missing_skill" => "skip"},
-          routes: [%{"branch" => "on_success", "goto" => 3}]
-        })
+      # Step 1: a skill that has gone since the step was saved, with
+      # on_missing_skill: skip. Saving a step for a missing skill is refused
+      # since 0.3.54, so it is written the way an older row looks: past the
+      # changeset. Its routes would send to step 3; skip goes to step 2.
+      AlexClaw.Repo.insert!(%AlexClaw.Workflows.WorkflowStep{
+        workflow_id: wf.id,
+        name: "Missing",
+        skill: "gone_skill",
+        position: 1,
+        config: %{"on_missing_skill" => "skip"},
+        routes: [%{"branch" => "on_success", "goto" => 3}]
+      })
 
       # Step 2: should be reached (skip falls through to next position)
       {:ok, _} =

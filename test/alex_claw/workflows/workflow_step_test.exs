@@ -10,7 +10,8 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
         WorkflowStep.changeset(%WorkflowStep{}, %{
           position: 1,
           name: "Fetch Data",
-          skill: "api_request"
+          skill: "api_request",
+          config: %{"url" => "https://example.com"}
         })
 
       assert cs.valid?
@@ -25,7 +26,7 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
           llm_tier: "medium",
           llm_model: "gpt-4",
           prompt_template: "Summarize: {input}",
-          config: %{"max_tokens" => 500}
+          config: %{"timeout_ms" => 30_000}
         })
 
       assert cs.valid?
@@ -55,7 +56,7 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
           WorkflowStep.changeset(%WorkflowStep{}, %{
             position: 1,
             name: "S",
-            skill: "s",
+            skill: "llm_transform",
             llm_tier: tier
           })
 
@@ -93,7 +94,7 @@ defmodule AlexClaw.Workflows.WorkflowStepTest do
         WorkflowStep.changeset(%WorkflowStep{}, %{
           position: 1,
           name: "S",
-          skill: "s",
+          skill: "llm_transform",
           routes: routes
         })
 

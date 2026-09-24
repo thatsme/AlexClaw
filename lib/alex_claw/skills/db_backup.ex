@@ -28,6 +28,10 @@ defmodule AlexClaw.Skills.DbBackup do
   def routes, do: [:on_success, :on_error]
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema, do: %{}
+
+  @impl true
   @spec step_fields() :: [atom()]
   def step_fields, do: []
 

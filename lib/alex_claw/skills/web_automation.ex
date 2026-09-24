@@ -53,7 +53,25 @@ defmodule AlexClaw.Skills.WebAutomation do
 
   @impl true
   @spec config_scaffold() :: map()
-  def config_scaffold, do: %{"action" => "play", "resource" => "automation resource name"}
+  def config_scaffold, do: %{"action" => "play"}
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "action" => %{type: :string, required: false},
+      "url" => %{type: :string, required: false},
+      "steps" => %{type: :list, required: false},
+      "extra_steps" => %{type: :list, required: false},
+      "timeout_ms" => %{type: :integer, required: false},
+      "patterns" => %{type: :list, required: false},
+      "timeout" => %{type: :integer, required: false}
+    }
+  end
+
+  @impl true
+  @spec available?() :: boolean()
+  def available?, do: Config.enabled?("web_automator.enabled")
 
   @impl true
   @spec config_presets() :: %{String.t() => map()}

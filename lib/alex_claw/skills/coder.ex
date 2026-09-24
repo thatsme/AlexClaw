@@ -43,6 +43,16 @@ defmodule AlexClaw.Skills.Coder do
   def config_scaffold, do: %{"goal" => "", "create_workflow" => false, "max_retries" => 3}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "goal" => %{type: :string, required: false},
+      "create_workflow" => %{type: :boolean, required: false},
+      "max_retries" => %{type: :integer, required: false}
+    }
+  end
+
+  @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{

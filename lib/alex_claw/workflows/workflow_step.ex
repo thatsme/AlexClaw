@@ -4,6 +4,8 @@ defmodule AlexClaw.Workflows.WorkflowStep do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias AlexClaw.Workflows.{SkillRegistry, StepConfig}
+
   @allowed_tiers ~w(light medium heavy local)
 
   schema "workflow_steps" do
@@ -39,8 +41,35 @@ defmodule AlexClaw.Workflows.WorkflowStep do
     ])
     |> validate_required([:position, :name, :skill])
     |> validate_tier()
+    |> validate_skill_config()
     |> foreign_key_constraint(:workflow_id)
   end
+
+  # A step is saved only if it can run: its skill exists, is available on this
+  # instance, and its config passes the skill's contract (StepConfig).
+  defp validate_skill_config(%{valid?: false} = changeset), do: changeset
+
+  defp validate_skill_config(changeset) do
+    skill = get_field(changeset, :skill)
+
+    skill
+    |> SkillRegistry.resolve()
+    |> check_skill(skill, get_field(changeset, :config), changeset)
+  end
+
+  defp check_skill({:error, :unknown_skill}, skill, _config, changeset),
+    do: add_error(changeset, :skill, "#{skill} does not exist")
+
+  defp check_skill({:ok, module}, skill, config, changeset) do
+    if StepConfig.available?(module, config),
+      do: check_config(StepConfig.validate(module, config), changeset),
+      else: add_error(changeset, :skill, "#{skill} is not configured on this instance")
+  end
+
+  defp check_config(:ok, changeset), do: changeset
+
+  defp check_config({:error, reasons}, changeset),
+    do: Enum.reduce(reasons, changeset, &add_error(&2, :config, &1))
 
   defp validate_tier(changeset) do
     case get_change(changeset, :llm_tier) do

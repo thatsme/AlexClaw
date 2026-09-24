@@ -41,9 +41,7 @@ defmodule AlexClaw.Skills.TelegramNotify do
     do:
       "Optional overrides. Leave empty to use default bot/chat. link_preview: false turns off the link preview card."
 
-  require Logger
-
-  @telegram_api "https://api.telegram.org/bot"
+  alias AlexClaw.Gateway.Telegram
 
   @impl true
   @spec run(map()) :: {:ok, map()} | {:error, any()}
@@ -62,68 +60,30 @@ defmodule AlexClaw.Skills.TelegramNotify do
       end
 
     bot_token = blank_to_nil(config["bot_token"])
-    chat_id = blank_to_nil(config["chat_id"])
+    chat_id = blank_to_nil(config["chat_id"]) || default_chat(bot_token)
 
-    html_message = to_html(message)
-    options = send_options(config)
-
-    if bot_token && bot_token != "" do
-      send_direct(bot_token, chat_id, html_message, options, input)
-    else
-      chat_id = chat_id || AlexClaw.Config.get("telegram.chat_id")
-      send_default(chat_id, html_message, options, input)
-    end
+    chat_id
+    |> send_to(to_html(message), deliver_opts(bot_token, config))
+    |> delivered(input)
   end
 
-  # Nowhere to send is not a delivery.
-  defp send_default(chat_id, _text, _options, _input) when chat_id in [nil, ""],
-    do: {:error, :no_chat_id}
+  # A custom bot has no default chat; the configured bot sends to the configured one.
+  defp default_chat(nil), do: AlexClaw.Config.get("telegram.chat_id")
+  defp default_chat(_bot_token), do: nil
 
-  defp send_default(chat_id, text, options, input) do
-    AlexClaw.Gateway.send_html(text, chat_id: chat_id, send_options: options)
-    # Pass through original input so downstream steps still have the data
-    {:ok, input, :on_delivered}
-  end
+  defp deliver_opts(nil, config), do: [send_options: send_options(config)]
 
-  defp send_direct(_token, chat_id, _text, _options, _input) when chat_id in [nil, ""] do
-    {:error, :no_chat_id}
-  end
+  defp deliver_opts(bot_token, config),
+    do: [send_options: send_options(config), bot_token: bot_token]
 
-  defp send_direct(token, chat_id, text, options, input) do
-    url = "#{@telegram_api}#{token}/sendMessage"
-    request = Map.merge(%{chat_id: chat_id, text: text, parse_mode: "HTML"}, options)
+  # Always Telegram, never the router's default gateway, and only what Telegram
+  # accepted is delivered. Nowhere to send is not a delivery either.
+  defp send_to(chat_id, _text, _opts) when chat_id in [nil, ""], do: {:error, :no_chat_id}
+  defp send_to(chat_id, text, opts), do: Telegram.deliver(chat_id, text, opts)
 
-    case Req.post(url, json: request) do
-      {:ok, %{status: 200}} ->
-        Logger.info("TelegramNotify sent to chat #{chat_id} via custom bot",
-          skill: :telegram_notify
-        )
-
-        {:ok, input, :on_delivered}
-
-      {:ok, %{status: 400, body: body}} ->
-        Logger.warning("TelegramNotify markdown failed, retrying plain: #{inspect(body)}",
-          skill: :telegram_notify
-        )
-
-        send_plain(url, Map.delete(request, :parse_mode), input)
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("TelegramNotify failed: #{status}", skill: :telegram_notify)
-        {:error, {:telegram, status, body}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp send_plain(url, request, input) do
-    case Req.post(url, json: request) do
-      {:ok, %{status: 200}} -> {:ok, input, :on_delivered}
-      {:ok, %{status: s, body: b}} -> {:error, {:telegram, s, b}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  # Pass through original input so downstream steps still have the data
+  defp delivered(:ok, input), do: {:ok, input, :on_delivered}
+  defp delivered({:error, reason}, _input), do: {:error, reason}
 
   defp format_input(nil), do: "Workflow completed (no output)"
   defp format_input(text) when is_binary(text), do: text

@@ -107,8 +107,13 @@ defmodule AlexClaw.MCP.ToolSchema do
 
   defp skill_config_schema("rss_collector") do
     %{
-      "max_items" => {:integer, description: "Maximum RSS items to collect"}
+      "max_items" => {:integer, description: "Maximum RSS items to collect"},
+      "all_feeds" => {:boolean, description: all_feeds_description()}
     }
+  end
+
+  defp skill_config_schema("rss_fetch") do
+    %{"all_feeds" => {:boolean, description: all_feeds_description()}}
   end
 
   defp skill_config_schema("research") do
@@ -161,6 +166,9 @@ defmodule AlexClaw.MCP.ToolSchema do
   end
 
   defp skill_config_schema(_name), do: %{}
+
+  defp all_feeds_description,
+    do: "true reads every enabled RSS feed on the instance; without it, none are read over MCP"
 
   # --- Workflow conversion ---
 

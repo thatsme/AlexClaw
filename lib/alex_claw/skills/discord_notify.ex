@@ -56,15 +56,24 @@ defmodule AlexClaw.Skills.DiscordNotify do
   defp send_to(true, channel_id, _message, _input) when channel_id in [nil, ""],
     do: {:error, :no_channel_id}
 
+  # Delivered only when Discord accepted every chunk; the first refusal stops
+  # the rest and is the step's error.
   defp send_to(true, channel_id, message, input) do
     # Discord limit is 2000 chars — split into multiple messages if needed
     message
     |> chunk_message(1900)
-    |> Enum.each(&Discord.send_message(&1, chat_id: channel_id, gateway: :discord))
-
-    # Pass through the original input so downstream steps still have the data
-    {:ok, input, :on_delivered}
+    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+      chunk_sent(Discord.send_message(chunk, chat_id: channel_id, gateway: :discord))
+    end)
+    |> delivered(input)
   end
+
+  defp chunk_sent(:ok), do: {:cont, :ok}
+  defp chunk_sent(error), do: {:halt, error}
+
+  # Pass through the original input so downstream steps still have the data
+  defp delivered(:ok, input), do: {:ok, input, :on_delivered}
+  defp delivered({:error, reason}, _input), do: {:error, reason}
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value

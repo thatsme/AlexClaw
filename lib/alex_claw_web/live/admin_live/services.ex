@@ -15,8 +15,6 @@ defmodule AlexClawWeb.AdminLive.Services do
   alias Ecto.Adapters.SQL
   alias Nostrum.Api.Message
 
-  @telegram_api "https://api.telegram.org/bot"
-
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, session, socket) do
@@ -499,7 +497,8 @@ defmodule AlexClawWeb.AdminLive.Services do
     do: %{status: :not_configured, detail: "Chat ID not set"}
 
   defp telegram_check(true, token, chat_id) do
-    "#{@telegram_api}#{token}/sendMessage"
+    token
+    |> AlexClaw.Gateway.Telegram.api_url("sendMessage")
     |> Req.post(json: %{chat_id: chat_id, text: "🦇 AlexClaw connectivity check"})
     |> telegram_result()
   end

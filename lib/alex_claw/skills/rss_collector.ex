@@ -48,7 +48,7 @@ defmodule AlexClaw.Skills.RSSCollector do
   @spec config_help() :: String.t()
   def config_help,
     do:
-      "force: re-fetch even if cached. max_items: limit results. fetch_timeout: seconds per feed (default 15). For scoring, use rss_fetch → llm_score instead."
+      "force: re-fetch even if cached. max_items: limit results. fetch_timeout: seconds per feed (default 15). all_feeds: true reads every enabled feed when the step is given none. For scoring, use rss_fetch → llm_score instead."
 
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, term()}
@@ -189,18 +189,18 @@ defmodule AlexClaw.Skills.RSSCollector do
   defp some_feeds([]), do: {:error, :no_feeds}
   defp some_feeds(feeds), do: {:ok, feeds}
 
-  defp feed_list(args) do
-    # When called from a workflow, use resources passed in args
-    case args[:resources] do
-      resources when is_list(resources) and resources != [] ->
-        resources
-        |> Enum.filter(fn r -> r.type == "rss_feed" and r.enabled end)
-        |> Enum.map(fn r -> {r.name, r.url} end)
-
-      _ ->
-        get_feeds_from_resources()
-    end
+  # When called from a workflow, use resources passed in args. Every enabled
+  # feed on the instance only when the config asks for it with "all_feeds".
+  defp feed_list(%{resources: [_ | _] = resources}) do
+    resources
+    |> Enum.filter(fn r -> r.type == "rss_feed" and r.enabled end)
+    |> Enum.map(fn r -> {r.name, r.url} end)
   end
+
+  defp feed_list(args), do: instance_feeds(args[:config] || %{})
+
+  defp instance_feeds(%{"all_feeds" => true}), do: get_feeds_from_resources()
+  defp instance_feeds(_config), do: []
 
   defp get_feeds_from_resources do
     Enum.map(Resources.list_resources(%{type: "rss_feed", enabled: true}), fn r ->

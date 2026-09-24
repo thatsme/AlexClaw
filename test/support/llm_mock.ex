@@ -45,4 +45,14 @@ defmodule AlexClawTest.LLMMock do
 
   @doc "Every completion answers `text`."
   def answer(text), do: fail_with({:ok, text})
+
+  @doc """
+  An empty knowledge base: embeddings succeed (zero vectors), so a search
+  finds nothing. For skills that search before they generate (coder).
+  """
+  def no_knowledge(dimensions \\ 768) do
+    Mox.stub(AlexClaw.LLM.Mock, :embed, fn _text, _opts ->
+      {:ok, List.duplicate(0.0, dimensions)}
+    end)
+  end
 end

@@ -7,10 +7,10 @@ defmodule AlexClaw.Gateway do
   """
 
   @doc "Send a plain-text message via the resolved gateway."
-  @spec send_message(String.t(), keyword()) :: :ok
+  @spec send_message(String.t(), keyword()) :: :ok | {:error, term()}
   defdelegate send_message(text, opts \\ []), to: AlexClaw.Gateway.Router
 
   @doc "Send an HTML-formatted message via the resolved gateway."
-  @spec send_html(String.t(), keyword()) :: :ok
+  @spec send_html(String.t(), keyword()) :: :ok | {:error, term()}
   defdelegate send_html(text, opts \\ []), to: AlexClaw.Gateway.Router
 end

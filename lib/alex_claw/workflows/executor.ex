@@ -14,6 +14,7 @@ defmodule AlexClaw.Workflows.Executor do
 
   alias AlexClaw.Auth.{CapabilityToken, RunApproval, SafeExecutor}
   alias AlexClaw.ContentSanitizer
+  alias AlexClaw.Skill
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.{Registry, SkillRegistry, Workflow}
@@ -302,7 +303,8 @@ defmodule AlexClaw.Workflows.Executor do
     )
 
     state = record_step_result(state, step, result, branch)
-    go(resolve_next(step, branch), step, ctx, state)
+    kind = branch_kind(step, branch)
+    follow(kind, resolve_next(step, branch, kind), step, branch, ctx, state)
   end
 
   defp advance({:skipped, result}, step, ctx, state) do
@@ -312,8 +314,39 @@ defmodule AlexClaw.Workflows.Executor do
 
   defp advance({:error, reason}, step, ctx, state) do
     state = record_step_error(state, step, reason)
-    route_error(resolve_next(step, :on_error), step, reason, ctx, state)
+    route_error(resolve_next(step, :on_error, :error), step, reason, ctx, state)
   end
+
+  # A branch the skill declares an error route is a failure the skill chose to
+  # make routable: unrouted, the run fails, naming the step and the branch;
+  # routed, the run goes on and ends recovered, the step's output (a 5xx body,
+  # say) passed on as usual.
+  defp follow(:error, :fail, step, branch, _ctx, state),
+    do: {:error, step.name, {:error_branch, branch}, state.step_results}
+
+  defp follow(:error, target, step, _branch, ctx, state),
+    do: go(target, step, ctx, %{state | recovered: true})
+
+  defp follow(_kind, target, step, _branch, ctx, state), do: go(target, step, ctx, state)
+
+  # :error, :empty or :other, by the skill's declarations (AlexClaw.Skill).
+  defp branch_kind(step, branch) do
+    step.skill
+    |> SkillRegistry.resolve()
+    |> declared_routes()
+    |> kind_of(branch)
+  end
+
+  defp declared_routes({:ok, module}),
+    do: {Skill.error_routes(module), Skill.empty_routes(module)}
+
+  defp declared_routes(_unknown), do: {[:on_error], [:on_empty]}
+
+  defp kind_of({errors, empties}, branch), do: kind(branch in errors, branch in empties)
+
+  defp kind(true, _empty?), do: :error
+  defp kind(false, true), do: :empty
+  defp kind(false, false), do: :other
 
   defp route_error(:fail, step, reason, _ctx, state) do
     {:error, step.name, reason, state.step_results}
@@ -454,25 +487,26 @@ defmodule AlexClaw.Workflows.Executor do
   # --- Route Resolution ---
 
   # :end, :next, {:goto, position} — or :fail for an error nothing handles. The
-  # branch's own route first, then a "default" route, then the unrouted rule.
-  defp resolve_next(step, branch) do
+  # branch's own route first, then a "default" route, then the unrouted rule
+  # for the branch's kind.
+  defp resolve_next(step, branch, kind) do
     routes = step.routes || []
     branch_str = to_string(branch)
 
     (Enum.find(routes, &(&1["branch"] == branch_str)) ||
        Enum.find(routes, &(&1["branch"] == "default")))
-    |> target(branch)
+    |> target(kind)
   end
 
-  defp target(%{"goto" => "end"}, _branch), do: :end
-  defp target(%{"goto" => pos}, _branch), do: {:goto, pos}
+  defp target(%{"goto" => "end"}, _kind), do: :end
+  defp target(%{"goto" => pos}, _kind), do: {:goto, pos}
 
-  # Unrouted: an error fails the run; an empty result ends it, since nothing
-  # downstream has anything to work on (a workflow that reports "nothing found"
-  # routes on_empty); any other branch goes to the next step.
-  defp target(nil, :on_error), do: :fail
-  defp target(nil, :on_empty), do: :end
-  defp target(nil, _branch), do: :next
+  # Unrouted: an error route fails the run; an empty route ends it, since
+  # nothing downstream has anything to work on (a workflow that reports
+  # "nothing found" routes it); any other branch goes to the next step.
+  defp target(nil, :error), do: :fail
+  defp target(nil, :empty), do: :end
+  defp target(nil, :other), do: :next
 
   # --- Input Resolution ---
 

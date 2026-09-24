@@ -1,194 +1,126 @@
 defmodule AlexClaw.Skills.RSSCollectorAdversarialTest do
+  @moduledoc """
+  rss_collector against broken feeds and bad config: it never crashes, and it
+  never reports a failure as "nothing found" (failure_contract_test.exs).
+
+  Rewritten for 0.3.51. The old version asserted that a 404, a non-XML body
+  and "no usable feeds" all returned "No relevant news items found." — the
+  swallowing the contract forbids — and held an empty test tagged :skip for
+  the connection timeout. The timeout is covered for the scoring call in the
+  failure contract; a feed that never answers is covered by "every feed
+  fails" there as a refused connection.
+  """
   use AlexClaw.DataCase, async: false
   @moduletag :integration
   @moduletag :adversarial
 
   alias AlexClaw.Skills.RSSCollector
+  alias AlexClawTest.LLMMock
   alias Ecto.Adapters.SQL.Sandbox
 
-  setup do
+  setup ctx do
     Sandbox.mode(AlexClaw.Repo, {:shared, self()})
-    :ok
+    LLMMock.use_mock(ctx)
   end
 
-  describe "malformed RSS feeds" do
-    test "handles non-XML response gracefully" do
-      bypass = Bypass.open()
+  defp failure?(result) do
+    case result do
+      {:error, _} -> true
+      {:ok, _, branch} -> branch in AlexClaw.Skill.error_routes(RSSCollector)
+      _ -> false
+    end
+  end
 
-      Bypass.expect(bypass, "GET", "/feed.xml", fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("text/plain")
-        |> Plug.Conn.resp(200, "This is not XML at all")
-      end)
+  defp serving(status, content_type, body) do
+    bypass = Bypass.open()
 
-      resource = %{
-        name: "Bad Feed",
-        type: "rss_feed",
-        url: "http://localhost:#{bypass.port}/feed.xml",
-        enabled: true
-      }
+    Bypass.stub(bypass, "GET", "/feed.xml", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type(content_type)
+      |> Plug.Conn.resp(status, body)
+    end)
 
-      result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _, _}, result)
+    %{
+      name: "Feed",
+      type: "rss_feed",
+      url: "http://localhost:#{bypass.port}/feed.xml",
+      enabled: true
+    }
+  end
+
+  defp run(resources, config \\ %{"threshold" => 0.0}),
+    do: RSSCollector.run(%{resources: resources, config: config})
+
+  describe "a feed that cannot be read is a failure, not an empty result" do
+    test "a body that is not XML" do
+      assert failure?(run([serving(200, "text/plain", "This is not XML at all")]))
     end
 
-    test "handles empty XML response gracefully" do
-      bypass = Bypass.open()
-
-      Bypass.expect(bypass, "GET", "/feed.xml", fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/xml")
-        |> Plug.Conn.resp(200, "")
-      end)
-
-      resource = %{
-        name: "Empty Feed",
-        type: "rss_feed",
-        url: "http://localhost:#{bypass.port}/feed.xml",
-        enabled: true
-      }
-
-      result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _, _}, result)
+    test "an empty body" do
+      assert failure?(run([serving(200, "application/xml", "")]))
     end
 
-    test "handles XML with missing item fields" do
-      bypass = Bypass.open()
+    test "a 404" do
+      assert failure?(run([serving(404, "text/plain", "Not Found")]))
+    end
+  end
 
+  describe "a feed that parses is not a failure" do
+    test "items with missing fields are skipped, and nothing breaks" do
       xml = """
       <?xml version="1.0"?>
-      <rss version="2.0">
-        <channel>
-          <item>
-            <title>No Link Article</title>
-          </item>
-          <item>
-            <link>https://example.com/no-title</link>
-          </item>
-          <item></item>
-        </channel>
-      </rss>
+      <rss version="2.0"><channel>
+        <item><title>No Link Article</title></item>
+        <item><link>https://example.com/no-title</link></item>
+        <item></item>
+      </channel></rss>
       """
 
-      Bypass.expect(bypass, "GET", "/feed.xml", fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/xml")
-        |> Plug.Conn.resp(200, xml)
-      end)
-
-      resource = %{
-        name: "Partial Feed",
-        type: "rss_feed",
-        url: "http://localhost:#{bypass.port}/feed.xml",
-        enabled: true
-      }
-
-      result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _, _}, result)
+      result = run([serving(200, "application/xml", xml)])
+      assert match?({:ok, _, _}, result), inspect(result)
     end
 
-    test "handles XML with HTML entities in title" do
-      bypass = Bypass.open()
-
+    test "HTML entities in a title do not break parsing" do
       xml = """
       <?xml version="1.0"?>
-      <rss version="2.0">
-        <channel>
-          <item>
-            <title>&lt;script&gt;alert('xss')&lt;/script&gt; &amp; more</title>
-            <link>https://example.com/xss-#{System.unique_integer([:positive])}</link>
-            <description>Test &amp; description</description>
-            <pubDate>Thu, 13 Mar 2026 07:00:00 +0000</pubDate>
-          </item>
-        </channel>
-      </rss>
+      <rss version="2.0"><channel><item>
+        <title>&lt;script&gt;alert('xss')&lt;/script&gt; &amp; more</title>
+        <link>https://example.com/xss-#{System.unique_integer([:positive])}</link>
+        <description>Test &amp; description</description>
+        <pubDate>Thu, 13 Mar 2026 07:00:00 +0000</pubDate>
+      </item></channel></rss>
       """
 
-      Bypass.expect(bypass, "GET", "/feed.xml", fn conn ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/xml")
-        |> Plug.Conn.resp(200, xml)
-      end)
-
-      resource = %{
-        name: "XSS Feed",
-        type: "rss_feed",
-        url: "http://localhost:#{bypass.port}/feed.xml",
-        enabled: true
-      }
-
-      result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert match?({:ok, _, _}, result)
-    end
-
-    test "handles feed HTTP error (404)" do
-      bypass = Bypass.open()
-
-      Bypass.expect(bypass, "GET", "/feed.xml", fn conn ->
-        Plug.Conn.resp(conn, 404, "Not Found")
-      end)
-
-      resource = %{
-        name: "Missing Feed",
-        type: "rss_feed",
-        url: "http://localhost:#{bypass.port}/feed.xml",
-        enabled: true
-      }
-
-      result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert {:ok, "No relevant news items found.", _branch} = result
-    end
-
-    @tag :skip
-    test "handles feed connection timeout" do
+      result = run([serving(200, "application/xml", xml)])
+      assert match?({:ok, _, _}, result), inspect(result)
     end
   end
 
-  describe "resource filtering" do
-    test "skips disabled resources" do
-      resource = %{
-        name: "Disabled",
-        type: "rss_feed",
-        url: "http://localhost/disabled",
-        enabled: false
-      }
-
-      result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert {:ok, "No relevant news items found.", _branch} = result
+  describe "no usable feed is a failure" do
+    test "only disabled resources" do
+      disabled = %{name: "Off", type: "rss_feed", url: "http://localhost/off", enabled: false}
+      assert failure?(run([disabled]))
     end
 
-    test "skips non-rss_feed resources" do
-      resource = %{
-        name: "API Resource",
-        type: "api",
-        url: "http://localhost/api",
-        enabled: true
-      }
-
-      result = RSSCollector.run(%{resources: [resource], config: %{"threshold" => 0.0}})
-      assert {:ok, "No relevant news items found.", _branch} = result
+    test "only resources that are not feeds" do
+      api = %{name: "API", type: "api", url: "http://localhost/api", enabled: true}
+      assert failure?(run([api]))
     end
   end
 
+  # Bad config must not crash the skill. With no feeds the result is the
+  # "no feeds" failure; the point is that it is a result, not an exception.
   describe "config parsing" do
-    test "threshold as string" do
-      result = RSSCollector.run(%{resources: [], config: %{"threshold" => "0.5"}})
-      assert {:ok, _, _branch} = result
-    end
-
-    test "threshold as invalid string" do
-      result = RSSCollector.run(%{resources: [], config: %{"threshold" => "not_a_number"}})
-      assert {:ok, _, _branch} = result
-    end
-
-    test "force as boolean" do
-      result = RSSCollector.run(%{resources: [], config: %{"force" => true}})
-      assert {:ok, _, _branch} = result
-    end
-
-    test "completely nil config" do
-      result = RSSCollector.run(%{resources: []})
-      assert {:ok, _, _branch} = result
+    test "threshold as a string, an invalid string, force as a boolean, nil config" do
+      for config <- [
+            %{"threshold" => "0.5"},
+            %{"threshold" => "not_a_number"},
+            %{"force" => true},
+            nil
+          ] do
+        result = RSSCollector.run(%{resources: [], config: config})
+        assert failure?(result), "config #{inspect(config)} gave #{inspect(result)}"
+      end
     end
   end
 end

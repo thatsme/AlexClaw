@@ -32,9 +32,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint,
-    do:
-      ~s|{"action": "list", "days": 1} or {"action": "create", "title": "Meeting", "date": "2026-03-20", "time": "14:00"}|
+  def config_hint, do: ~s|{"action": "list", "days": 1}|
 
   @impl true
   @spec config_scaffold() :: map()
@@ -50,13 +48,6 @@ defmodule AlexClaw.Skills.GoogleCalendar do
         "calendar_id" => "primary",
         "days" => 1,
         "max_results" => 20
-      },
-      "Create event" => %{
-        "action" => "create",
-        "title" => "Meeting",
-        "date" => "2026-03-20",
-        "time" => "14:00",
-        "duration" => 60
       }
     }
   end
@@ -65,7 +56,7 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   @spec config_help() :: String.t()
   def config_help,
     do:
-      "action: list (fetch events) or create (new event with title, date, time). calendar_id: which calendar (default: primary). days: how many days ahead. max_results: event limit."
+      "action: list (fetch upcoming events; the only action). calendar_id: which calendar (default: primary). days: how many days ahead. max_results: event limit."
 
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
@@ -74,9 +65,15 @@ defmodule AlexClaw.Skills.GoogleCalendar do
   @calendar_api "https://www.googleapis.com/calendar/v3"
 
   @impl true
-  @spec run(map()) :: {:ok, String.t()} | {:error, any()}
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
+    list_events(config["action"] || "list", config)
+  end
+
+  # Listing is the one action. Any other is refused rather than ignored: a
+  # "create" step used to list events and report success.
+  defp list_events("list", config) do
     calendar_id = config["calendar_id"] || "primary"
     days = parse_int(config["days"], 1)
     max_results = parse_int(config["max_results"], 20)
@@ -89,6 +86,8 @@ defmodule AlexClaw.Skills.GoogleCalendar do
         {:error, reason}
     end
   end
+
+  defp list_events(action, _config), do: {:error, {:unsupported_action, action}}
 
   defp fetch_events(token, calendar_id, days, max_results) do
     now = DateTime.utc_now()

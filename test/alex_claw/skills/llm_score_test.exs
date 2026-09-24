@@ -60,8 +60,17 @@ defmodule AlexClaw.Skills.LlmScoreTest do
       assert scores("8\n3", 2) == [0.8, 0.3]
     end
 
-    test "a line with no number, or a missing line, scores 0" do
-      assert scores("n/a", 2) == [0.0, 0.0]
+    test "a line with no number, or a missing line, scores 0 when others are readable" do
+      assert scores("0.9\nn/a", 3) == [0.9, 0.0, 0.0]
+    end
+
+    # A reply with no readable score at all is not "nothing relevant": it is
+    # a reply the skill could not read (failure_contract_test.exs).
+    test "a reply with no readable score at all is an error" do
+      reply("I cannot help with that.")
+
+      assert {:error, {:unreadable_scores, _}} =
+               LlmScore.run(%{input: Jason.encode!(items(2)), config: %{}})
     end
   end
 
@@ -92,9 +101,17 @@ defmodule AlexClaw.Skills.LlmScoreTest do
       assert text =~ "No items passed"
     end
 
-    test "no items, nil input, or input that is not a list is empty without calling the model" do
-      for input <- [Jason.encode!([]), nil, "not json", Jason.encode!(%{"a" => 1})] do
+    test "no items or nil input is empty without calling the model" do
+      for input <- [Jason.encode!([]), nil] do
         assert {:ok, _, :on_empty} = LlmScore.run(%{input: input, config: %{}})
+      end
+    end
+
+    # Input that is not a list of items is usually a previous step's error
+    # text; reporting it as "no items" hid the earlier failure.
+    test "input that is not a list of items is an error, without calling the model" do
+      for input <- ["not json", Jason.encode!(%{"a" => 1})] do
+        assert {:error, {:invalid_input, _}} = LlmScore.run(%{input: input, config: %{}})
       end
     end
 

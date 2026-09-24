@@ -82,6 +82,9 @@ defmodule AlexClaw.Workflows.SkillRegistryAstGateTest do
 
       # The genuine engine is still resident: the decoy defined only evaluate/2,
       # so an unrelated export proves the real module was never replaced.
+      # function_exported?/3 is false for a module not yet loaded, so load it
+      # first — otherwise the answer depends on what ran before this test.
+      assert {:module, _} = Code.ensure_loaded(AlexClaw.Auth.PolicyEngine)
       assert function_exported?(AlexClaw.Auth.PolicyEngine, :reload_policies, 0)
     end
 

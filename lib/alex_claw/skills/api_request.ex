@@ -23,6 +23,11 @@ defmodule AlexClaw.Skills.ApiRequest do
   @spec routes() :: [atom()]
   def routes, do: [:on_2xx, :on_4xx, :on_5xx, :on_timeout, :on_error]
 
+  # A 4xx, a 5xx or a timeout is a failed request: routable, but a run that
+  # does not route it fails rather than handing the error body on.
+  @impl true
+  def error_routes, do: [:on_4xx, :on_5xx, :on_timeout, :on_error]
+
   @impl true
   @spec step_fields() :: [atom()]
   def step_fields, do: [:config]

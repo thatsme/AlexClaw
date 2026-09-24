@@ -73,6 +73,40 @@ defmodule AlexClaw.Skills.Helpers do
     |> tier_opts(args[:llm_tier] || default_tier)
   end
 
+  @doc """
+  Read a model's scoring reply: one score per line (or comma-separated), in
+  item order. Each is a float in 0.0–1.0, or `nil` for a line with no number.
+
+  "0.8", "1. 0.8", "2) 0.8" and "0.8 — relevant" all read 0.8. A list number
+  is stripped only when whitespace follows it: stripping "0." from "0.1" read
+  it as 1.0. A score on a 0–10 scale is rescaled.
+  """
+  @spec parse_scores(String.t()) :: [float() | nil]
+  def parse_scores(text) do
+    text
+    |> String.split(~r/[\n,]+/, trim: true)
+    |> Enum.map(&parse_score_line/1)
+  end
+
+  defp parse_score_line(line) do
+    line
+    |> String.trim()
+    |> String.replace(~r/^\d+[\.\):]\s+/, "")
+    |> first_number()
+    |> normalize_score()
+  end
+
+  defp first_number(text) do
+    case Regex.run(~r/\d+(?:\.\d+)?/, text) do
+      [number] -> Float.parse(number)
+      nil -> :error
+    end
+  end
+
+  defp normalize_score({f, _rest}) when f >= 0.0 and f <= 1.0, do: f
+  defp normalize_score({f, _rest}) when f > 1.0, do: f / 10.0
+  defp normalize_score(_), do: nil
+
   defp provider_opts(provider) when provider in [nil, "", "auto"], do: []
   defp provider_opts(provider), do: [provider: provider]
 

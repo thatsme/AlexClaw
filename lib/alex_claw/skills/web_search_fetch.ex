@@ -19,6 +19,12 @@ defmodule AlexClaw.Skills.WebSearchFetch do
   @spec routes() :: [atom()]
   def routes, do: [:on_results, :on_no_results, :on_timeout, :on_error]
 
+  @impl true
+  def error_routes, do: [:on_timeout, :on_error]
+
+  @impl true
+  def empty_routes, do: [:on_no_results]
+
   require Logger
   import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1, parse_int: 2]
 
@@ -134,7 +140,8 @@ defmodule AlexClaw.Skills.WebSearchFetch do
         end
       end,
       max_concurrency: 3,
-      timeout: 15_000
+      timeout: 15_000,
+      on_timeout: :kill_task
     )
     |> Enum.flat_map(fn
       {:ok, page} -> [page]

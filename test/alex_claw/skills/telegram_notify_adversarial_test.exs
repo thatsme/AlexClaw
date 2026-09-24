@@ -5,6 +5,14 @@ defmodule AlexClaw.Skills.TelegramNotifyAdversarialTest do
 
   alias AlexClaw.Skills.TelegramNotify
 
+  # These tests throw odd input and config at the skill; the instance has a
+  # chat to send to, so what they measure is the input handling. Sending with
+  # nowhere to send is refused since 0.3.51 (failure_contract_test.exs).
+  setup do
+    insert_setting("telegram.chat_id", "12345", type: "string", category: "telegram")
+    :ok
+  end
+
   describe "input formatting" do
     test "handles list input" do
       result = TelegramNotify.run(%{input: [1, 2, 3], config: %{}})

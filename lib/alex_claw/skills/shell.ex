@@ -74,6 +74,9 @@ defmodule AlexClaw.Skills.Shell do
   def routes, do: [:on_success, :on_error, :on_timeout]
 
   @impl true
+  def error_routes, do: [:on_error, :on_timeout]
+
+  @impl true
   @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
 

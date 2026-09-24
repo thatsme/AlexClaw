@@ -124,4 +124,40 @@ defmodule AlexClaw.Workflows.StepReferencesTest do
       refute step_named(wf, "B")
     end
   end
+
+  # References are keyed by position, so two steps may never share one: a
+  # rewrite keyed by the old position would move both.
+  describe "positions are unique within a workflow" do
+    test "adding a step at a position already taken is refused" do
+      {wf, [_a]} = workflow_with(~w(A))
+
+      assert {:error, changeset} =
+               Workflows.add_step(wf, %{
+                 name: "Dup",
+                 skill: "api_request",
+                 config: @api,
+                 position: 1
+               })
+
+      assert inspect(changeset.errors) =~ "position"
+    end
+
+    test "an import with two steps at one position is refused, and creates nothing" do
+      name = "Dup Import #{System.unique_integer([:positive])}"
+
+      data = %{
+        "version" => 1,
+        "workflow" => %{"name" => name},
+        "steps" => [
+          %{"position" => 1, "name" => "A", "skill" => "api_request", "config" => @api},
+          %{"position" => 1, "name" => "B", "skill" => "api_request", "config" => @api}
+        ],
+        "resources" => []
+      }
+
+      assert {:error, message} = Workflows.import_workflow(data)
+      assert message =~ "position"
+      refute Enum.any?(Workflows.list_workflows(), &String.starts_with?(&1.name, name))
+    end
+  end
 end

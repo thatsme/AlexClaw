@@ -551,7 +551,7 @@ defmodule AlexClaw.Workflows do
       |> Enum.with_index(1)
       |> Map.new(fn {other, position} -> {other.position, position} end)
 
-    Enum.each(others, &rewrite_step(&1, moved[&1.position], moved))
+    renumber(others, moved)
     deleted
   end
 
@@ -563,6 +563,20 @@ defmodule AlexClaw.Workflows do
 
   defp steps_of(workflow_id),
     do: WorkflowStep |> where([s], s.workflow_id == ^workflow_id) |> Repo.all()
+
+  # Positions are unique per workflow and checked on every statement, so the
+  # steps are first parked at negative positions (their ids, negated), then
+  # given their new ones: no update meets a position another step still holds.
+  defp renumber(steps, moved) do
+    Enum.each(steps, &park/1)
+    Enum.each(steps, &rewrite_step(&1, moved[&1.position], moved))
+  end
+
+  defp park(step) do
+    WorkflowStep
+    |> where([s], s.id == ^step.id)
+    |> Repo.update_all(set: [position: -step.id])
+  end
 
   # The step at `position`, its routes and input_from rewritten through `moved`
   # (old position => new position). "end", "default" and anything that is not
@@ -600,7 +614,7 @@ defmodule AlexClaw.Workflows do
       steps = steps_of(workflow.id)
       new_positions = step_ids |> Enum.with_index(1) |> Map.new()
       moved = Map.new(steps, &{&1.position, Map.get(new_positions, &1.id, &1.position)})
-      Enum.each(steps, &rewrite_step(&1, moved[&1.position], moved))
+      renumber(steps, moved)
     end)
   end
 

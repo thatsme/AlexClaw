@@ -20,7 +20,7 @@ defmodule AlexClaw.Skills.RSSCollector do
   require Logger
 
   import SweetXml
-  import AlexClaw.Skills.Helpers, only: [parse_int: 2, parse_float: 2]
+  import AlexClaw.Skills.Helpers, only: [parse_int: 2, parse_float: 2, parse_scores: 1]
 
   alias AlexClaw.Config
   alias AlexClaw.Resources
@@ -49,7 +49,7 @@ defmodule AlexClaw.Skills.RSSCollector do
       "force: re-fetch even if cached. max_items: limit results. fetch_timeout: seconds per feed (default 15). For scoring, use rss_fetch → llm_score instead."
 
   @impl true
-  @spec run(map()) :: {:ok, map()} | {:error, term()}
+  @spec run(map()) :: {:ok, String.t(), atom()} | {:error, term()}
   def run(args) do
     force = Map.get(args, :force, false)
     Logger.info("RSS Collector starting#{if force, do: " (force)", else: ""}", skill: :rss)
@@ -65,11 +65,11 @@ defmodule AlexClaw.Skills.RSSCollector do
       config: config
     }
 
-    args
-    |> get_feeds()
-    |> fetch_all(fetch_timeout * 1_000)
-    |> select_items(force || config["force"] == true, opts)
-    |> deliver()
+    with {:ok, feeds} <- get_feeds(args),
+         {:ok, fetched, dead} <- fetch_all(feeds, fetch_timeout * 1_000),
+         {:ok, selected} <- select_items(fetched, force || config["force"] == true, opts) do
+      deliver(selected, dead)
+    end
   end
 
   defp provider_opts(provider) when provider in [nil, "", "auto"], do: []
@@ -80,6 +80,8 @@ defmodule AlexClaw.Skills.RSSCollector do
 
   defp tier_opts(_tier), do: []
 
+  # A feed that cannot be fetched or read is skipped, and named in the output;
+  # when every feed fails, the step fails. Results come back in feed order.
   defp fetch_all(feeds, recv_timeout) do
     feeds
     |> Task.async_stream(&fetch_feed(&1, recv_timeout),
@@ -87,19 +89,37 @@ defmodule AlexClaw.Skills.RSSCollector do
       timeout: recv_timeout + 5_000,
       on_timeout: :kill_task
     )
-    |> Enum.flat_map(&feed_result/1)
+    |> Enum.zip(feeds)
+    |> Enum.map(&feed_result/1)
+    |> Enum.split_with(&match?({:ok, _items}, &1))
+    |> fetched()
   end
 
-  defp feed_result({:ok, {:ok, items}}), do: items
+  defp fetched({[], dead}), do: {:error, {:all_feeds_failed, Enum.map(dead, &elem(&1, 1))}}
 
-  defp feed_result({:ok, {:error, reason}}) do
-    Logger.warning("Feed fetch failed: #{inspect(reason)}", skill: :rss)
-    []
+  defp fetched({live, dead}) do
+    items =
+      live
+      |> Enum.flat_map(&elem(&1, 1))
+      |> Enum.filter(&complete?/1)
+
+    {:ok, items, Enum.map(dead, &elem(&1, 1))}
   end
 
-  defp feed_result({:exit, reason}) do
-    Logger.warning("Feed fetch crashed: #{inspect(reason)}", skill: :rss)
-    []
+  # An item without a title has nothing to score; one without a link cannot
+  # be deduplicated or opened.
+  defp complete?(%{title: title, link: link}), do: title != "" and link != ""
+
+  defp feed_result({{:ok, {:ok, items}}, _feed}), do: {:ok, items}
+
+  defp feed_result({{:ok, {:error, reason}}, {_name, url}}) do
+    Logger.warning("Feed #{url} failed: #{inspect(reason)}", skill: :rss)
+    {:error, url}
+  end
+
+  defp feed_result({{:exit, reason}, {_name, url}}) do
+    Logger.warning("Feed #{url} crashed: #{inspect(reason)}", skill: :rss)
+    {:error, url}
   end
 
   # force bypasses the seen-item filter and rescores everything fetched.
@@ -113,30 +133,43 @@ defmodule AlexClaw.Skills.RSSCollector do
     |> score_and_filter(opts.threshold, opts.max_items, opts.llm_opts, opts.config)
   end
 
-  defp deliver(results) do
+  defp deliver(results, dead) do
     Enum.each(results, fn item ->
       store_and_notify(item)
       Process.sleep(2_000)
     end)
 
     Logger.info("RSS Collector done: #{length(results)} items", skill: :rss)
-    summarize(results)
+    summarize(results, dead)
   end
 
-  defp summarize([]), do: {:ok, "No relevant news items found.", :on_empty}
+  defp summarize([], dead),
+    do: {:ok, "No relevant news items found." <> skipped(dead), :on_empty}
 
-  defp summarize(results) do
+  defp summarize(results, dead) do
     summary =
       Enum.map_join(results, "\n\n", fn item ->
         "**#{item.feed}**: #{item.title}\n#{String.slice(item.description || "", 0, 300)}\n#{item.link}"
       end)
 
-    {:ok, summary, :on_items}
+    {:ok, summary <> skipped(dead), :on_items}
   end
+
+  defp skipped([]), do: ""
+  defp skipped(urls), do: "\n\nSkipped (could not be read): " <> Enum.join(urls, ", ")
 
   # --- Feed Fetching ---
 
   defp get_feeds(args) do
+    args
+    |> feed_list()
+    |> some_feeds()
+  end
+
+  defp some_feeds([]), do: {:error, :no_feeds}
+  defp some_feeds(feeds), do: {:ok, feeds}
+
+  defp feed_list(args) do
     # When called from a workflow, use resources passed in args
     case args[:resources] do
       resources when is_list(resources) and resources != [] ->
@@ -157,18 +190,21 @@ defmodule AlexClaw.Skills.RSSCollector do
 
   defp fetch_feed({name, url}, recv_timeout) do
     case Req.get(url, receive_timeout: recv_timeout, retry: false) do
-      {:ok, %{status: 200, body: body}} ->
-        items = parse_rss(name, body)
-        {:ok, items}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http, status, url}}
-
-      {:error, reason} ->
-        {:error, {name, reason}}
+      {:ok, %{status: 200, body: body}} -> read_feed(name, body)
+      {:ok, %{status: status}} -> {:error, {:http, status}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
+  @doc false
+  @spec parse_rss(String.t(), binary()) :: [map()]
+  def parse_rss(feed_name, xml) when is_binary(xml), do: items_or_none(read_feed(feed_name, xml))
+
+  defp items_or_none({:ok, items}), do: items
+  defp items_or_none({:error, _reason}), do: []
+
+  # A body that does not parse is a feed that failed, not a feed with no items.
+  #
   # Feed bodies are untrusted, so entity expansion matters here. The xmerl in the
   # OTP this ships with refuses entity declarations outright — measured, not
   # assumed: a DOCTYPE with an internal or external entity exits with
@@ -176,29 +212,30 @@ defmodule AlexClaw.Skills.RSSCollector do
   # passed anyway so the behaviour is stated rather than inherited, and the tests
   # pin it so a future OTP or sweet_xml that relaxes the default is caught here
   # rather than in production.
-  @doc false
-  @spec parse_rss(String.t(), binary()) :: [map()]
-  def parse_rss(feed_name, xml) when is_binary(xml) do
-    xml
-    |> parse(dtd: :none)
-    |> xpath(~x"//item"l,
-      title: ~x"./title/text()"s,
-      link: ~x"./link/text()"s,
-      description: ~x"./description/text()"s,
-      pub_date: ~x"./pubDate/text()"s
-    )
-    |> Enum.map(fn item ->
-      Map.put(item, :feed, feed_name)
-    end)
+  defp read_feed(feed_name, xml) when is_binary(xml) do
+    items =
+      xml
+      |> parse(dtd: :none)
+      |> xpath(~x"//item"l,
+        title: ~x"./title/text()"s,
+        link: ~x"./link/text()"s,
+        description: ~x"./description/text()"s,
+        pub_date: ~x"./pubDate/text()"s
+      )
+      |> Enum.map(&Map.put(&1, :feed, feed_name))
+
+    {:ok, items}
   rescue
     e ->
       Logger.warning("RSS parse failed for #{feed_name}: #{Exception.message(e)}", skill: :rss)
-      []
+      {:error, {:unreadable, Exception.message(e)}}
   catch
     :exit, reason ->
       Logger.warning("RSS XML parse exit for #{feed_name}: #{inspect(reason)}", skill: :rss)
-      []
+      {:error, {:unreadable, reason}}
   end
+
+  defp read_feed(_feed_name, _body), do: {:error, {:unreadable, :not_xml}}
 
   # --- Dedup ---
 
@@ -210,7 +247,7 @@ defmodule AlexClaw.Skills.RSSCollector do
 
   @max_items_to_score 20
 
-  defp score_and_filter([], _threshold, _max_items, _llm_opts, _config), do: []
+  defp score_and_filter([], _threshold, _max_items, _llm_opts, _config), do: {:ok, []}
 
   defp score_and_filter(items, threshold, max_items, llm_opts, config) do
     interests =
@@ -224,7 +261,7 @@ defmodule AlexClaw.Skills.RSSCollector do
       |> Enum.take(@max_items_to_score)
 
     if items == [] do
-      []
+      {:ok, []}
     else
       score_single_call(items, interests, threshold, max_items, llm_opts)
     end
@@ -298,9 +335,16 @@ defmodule AlexClaw.Skills.RSSCollector do
       skill: :rss
     )
 
+    # A list of numbers needs no reasoning; a thinking model spent the whole
+    # local timeout on it (run 20, 2026-09-23).
+    opts =
+      llm_opts
+      |> Keyword.put_new(:tier, :light)
+      |> Keyword.put(:thinking, false)
+
     interests
     |> scoring_prompt(items, count)
-    |> AlexClaw.LLM.complete(Keyword.put_new(llm_opts, :tier, :light))
+    |> AlexClaw.LLM.complete(opts)
     |> select_scored(items, threshold, max_items)
   end
 
@@ -327,18 +371,25 @@ defmodule AlexClaw.Skills.RSSCollector do
 
   defp select_scored({:error, reason}, _items, _threshold, _max_items) do
     Logger.warning("Scoring failed: #{inspect(reason)}", skill: :rss)
-    []
+    {:error, {:scoring_failed, reason}}
   end
 
   defp select_scored({:ok, text}, items, threshold, max_items) do
     Logger.info("Scoring response (first 500 chars): #{String.slice(text, 0, 500)}", skill: :rss)
 
     scores = parse_scores(text)
+    keep_scored(Enum.any?(scores, &is_float/1), scores, text, items, {threshold, max_items})
+  end
 
+  # A reply with no score in it is not "nothing relevant".
+  defp keep_scored(false, _scores, text, _items, _limits),
+    do: {:error, {:unreadable_scores, String.slice(text, 0, 200)}}
+
+  defp keep_scored(true, scores, _text, items, {threshold, max_items}) do
     scored =
       items
       |> Enum.with_index()
-      |> Enum.map(fn {item, i} -> Map.put(item, :score, Enum.at(scores, i, 0.0)) end)
+      |> Enum.map(fn {item, i} -> Map.put(item, :score, Enum.at(scores, i) || 0.0) end)
       |> Enum.sort_by(& &1.score, :desc)
 
     # Relative selection: take the top N, with the threshold as a floor.
@@ -352,28 +403,8 @@ defmodule AlexClaw.Skills.RSSCollector do
       skill: :rss
     )
 
-    passed
+    {:ok, passed}
   end
-
-  defp parse_scores(text) do
-    text
-    |> String.split(~r/[\n,]+/, trim: true)
-    |> Enum.map(&parse_score_line/1)
-  end
-
-  defp parse_score_line(line) do
-    line
-    |> String.trim()
-    |> String.replace(~r/^[\d]+[\.\):\-\s]+/, "")
-    |> String.replace(~r/[^\d\.]/, "")
-    |> Float.parse()
-    |> normalize_score()
-  end
-
-  # A model answering on a 0-10 scale despite the instruction is rescaled.
-  defp normalize_score({f, _rest}) when f >= 0.0 and f <= 1.0, do: f
-  defp normalize_score({f, _rest}) when f > 1.0, do: f / 10.0
-  defp normalize_score(_), do: 0.0
 
   # --- Store & Notify ---
 

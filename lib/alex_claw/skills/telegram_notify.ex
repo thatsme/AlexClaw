@@ -65,11 +65,17 @@ defmodule AlexClaw.Skills.TelegramNotify do
     if bot_token && bot_token != "" do
       send_direct(bot_token, chat_id, html_message, "HTML", input)
     else
-      opts = if chat_id, do: [chat_id: chat_id], else: []
-      AlexClaw.Gateway.send_html(html_message, opts)
-      # Pass through original input so downstream steps still have the data
-      {:ok, input, :on_delivered}
+      send_default(chat_id || AlexClaw.Config.get("telegram.chat_id"), html_message, input)
     end
+  end
+
+  # Nowhere to send is not a delivery.
+  defp send_default(chat_id, _text, _input) when chat_id in [nil, ""], do: {:error, :no_chat_id}
+
+  defp send_default(chat_id, text, input) do
+    AlexClaw.Gateway.send_html(text, chat_id: chat_id)
+    # Pass through original input so downstream steps still have the data
+    {:ok, input, :on_delivered}
   end
 
   defp send_direct(_token, chat_id, _text, _parse_mode, _input) when chat_id in [nil, ""] do

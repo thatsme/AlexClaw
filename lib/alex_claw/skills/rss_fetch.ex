@@ -58,58 +58,59 @@ defmodule AlexClaw.Skills.RssFetch do
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
     config = args[:config] || %{}
-    feeds = get_feeds(args)
     max_items = parse_int(config["max_items"], @default_max_items)
     recent_hours = parse_int(config["recent_hours"], @default_recent_hours)
     fetch_timeout = parse_int(config["fetch_timeout"], 15)
     force = config["force"] == true
 
-    if feeds == [] do
-      {:error, :no_feeds}
-    else
-      recv_timeout = fetch_timeout * 1_000
-      task_timeout = recv_timeout + 5_000
-
-      items =
-        feeds
-        |> Task.async_stream(&fetch_feed(&1, recv_timeout),
-          max_concurrency: 5,
-          timeout: task_timeout,
-          on_timeout: :kill_task
-        )
-        |> Enum.flat_map(fn
-          {:ok, {:ok, items}} ->
-            items
-
-          {:ok, {:error, reason}} ->
-            Logger.warning("Feed fetch failed: #{inspect(reason)}", skill: :rss_fetch)
-            []
-
-          {:exit, reason} ->
-            Logger.warning("Feed fetch crashed: #{inspect(reason)}", skill: :rss_fetch)
-            []
-        end)
-
-      items =
-        if force do
-          items
-        else
-          Enum.reject(items, &already_seen?/1)
-        end
-
-      items =
-        items
-        |> filter_recent(recent_hours)
-        |> Enum.take(max_items)
-
-      if items == [] do
-        {:ok, "No new RSS items found.", :on_empty}
-      else
-        output = Jason.encode!(items)
-        {:ok, output, :on_items}
-      end
+    with {:ok, feeds} <- some_feeds(get_feeds(args)),
+         {:ok, items} <- fetch_all(feeds, fetch_timeout * 1_000) do
+      items
+      |> reject_seen(force)
+      |> filter_recent(recent_hours)
+      |> Enum.take(max_items)
+      |> result()
     end
   end
+
+  defp some_feeds([]), do: {:error, :no_feeds}
+  defp some_feeds(feeds), do: {:ok, feeds}
+
+  # A feed that cannot be fetched or read is skipped; when every feed fails,
+  # the step fails rather than reporting nothing new.
+  defp fetch_all(feeds, recv_timeout) do
+    feeds
+    |> Task.async_stream(&fetch_feed(&1, recv_timeout),
+      max_concurrency: 5,
+      timeout: recv_timeout + 5_000,
+      on_timeout: :kill_task
+    )
+    |> Enum.zip(feeds)
+    |> Enum.map(&feed_result/1)
+    |> Enum.split_with(&match?({:ok, _items}, &1))
+    |> fetched()
+  end
+
+  defp feed_result({{:ok, {:ok, items}}, _feed}), do: {:ok, items}
+
+  defp feed_result({{:ok, {:error, reason}}, {_name, url}}) do
+    Logger.warning("Feed #{url} failed: #{inspect(reason)}", skill: :rss_fetch)
+    {:error, url}
+  end
+
+  defp feed_result({{:exit, reason}, {_name, url}}) do
+    Logger.warning("Feed #{url} crashed: #{inspect(reason)}", skill: :rss_fetch)
+    {:error, url}
+  end
+
+  defp fetched({[], dead}), do: {:error, {:all_feeds_failed, Enum.map(dead, &elem(&1, 1))}}
+  defp fetched({live, _dead}), do: {:ok, Enum.flat_map(live, &elem(&1, 1))}
+
+  defp reject_seen(items, true), do: items
+  defp reject_seen(items, false), do: Enum.reject(items, &already_seen?/1)
+
+  defp result([]), do: {:ok, "No new RSS items found.", :on_empty}
+  defp result(items), do: {:ok, Jason.encode!(items), :on_items}
 
   defp get_feeds(args) do
     case args[:resources] do
@@ -127,41 +128,39 @@ defmodule AlexClaw.Skills.RssFetch do
 
   defp fetch_feed({name, url}, recv_timeout) do
     case Req.get(url, receive_timeout: recv_timeout, retry: false) do
-      {:ok, %{status: 200, body: body}} ->
-        items = parse_rss(name, body)
-        {:ok, items}
-
-      {:ok, %{status: status}} ->
-        {:error, {:http, status, url}}
-
-      {:error, reason} ->
-        {:error, {name, reason}}
+      {:ok, %{status: 200, body: body}} -> parse_rss(name, body)
+      {:ok, %{status: status}} -> {:error, {:http, status}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
+  # A body that does not parse is a feed that failed, not a feed with no items.
   defp parse_rss(feed_name, xml) when is_binary(xml) do
-    xml
-    |> xpath(~x"//item"l,
-      title: ~x"./title/text()"s,
-      link: ~x"./link/text()"s,
-      description: ~x"./description/text()"s,
-      pub_date: ~x"./pubDate/text()"s
-    )
-    |> Enum.map(fn item ->
-      Map.put(item, :feed, feed_name)
-    end)
+    items =
+      xml
+      |> xpath(~x"//item"l,
+        title: ~x"./title/text()"s,
+        link: ~x"./link/text()"s,
+        description: ~x"./description/text()"s,
+        pub_date: ~x"./pubDate/text()"s
+      )
+      |> Enum.map(&Map.put(&1, :feed, feed_name))
+
+    {:ok, items}
   rescue
     e ->
       Logger.warning("RSS parse failed for #{feed_name}: #{Exception.message(e)}",
         skill: :rss_fetch
       )
 
-      []
+      {:error, {:unreadable, Exception.message(e)}}
   catch
     :exit, reason ->
       Logger.warning("RSS XML parse exit for #{feed_name}: #{inspect(reason)}", skill: :rss_fetch)
-      []
+      {:error, {:unreadable, reason}}
   end
+
+  defp parse_rss(_feed_name, _body), do: {:error, {:unreadable, :not_xml}}
 
   defp already_seen?(item) do
     AlexClaw.Memory.exists?(item.link)

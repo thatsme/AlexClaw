@@ -33,6 +33,11 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
     llm = Bypass.open()
     RecordingGateway.install()
 
+    # The digest goes to the configured chat. Since 0.3.51 telegram_notify
+    # refuses to report a send with nowhere to send it, so the scenario names
+    # one, as a real installation does.
+    insert_setting("telegram.chat_id", "scenario-chat", type: "string", category: "telegram")
+
     {:ok, _} =
       LLM.create_provider(%{
         name: "scenario-mock-llm",

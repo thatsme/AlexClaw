@@ -4,6 +4,15 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
 
   alias AlexClaw.Skills.TelegramNotify
 
+  # These tests are about what telegram_notify passes through and how it
+  # reads its config, so the instance has a chat to send to. Sending with
+  # nowhere to send is refused since 0.3.51 (failure_contract_test.exs, and
+  # the last test here).
+  setup do
+    insert_setting("telegram.chat_id", "12345", type: "string", category: "telegram")
+    :ok
+  end
+
   describe "run/1" do
     test "sends via custom bot when bot_token is provided" do
       result =
@@ -74,6 +83,11 @@ defmodule AlexClaw.Skills.TelegramNotifyTest do
         })
 
       assert {:ok, "test", :on_delivered} = result
+    end
+
+    test "with no chat configured anywhere, it is an error, not delivered" do
+      insert_setting("telegram.chat_id", "", type: "string", category: "telegram")
+      assert {:error, :no_chat_id} = TelegramNotify.run(%{input: "test", config: %{}})
     end
   end
 end

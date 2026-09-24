@@ -15,6 +15,9 @@ defmodule AlexClaw.Skills.WebBrowse do
   @impl true
   @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_not_found, :on_timeout, :on_error]
+
+  @impl true
+  def error_routes, do: [:on_not_found, :on_timeout, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [llm_opts: 1, sanitize_utf8: 1, strip_noise: 1]
 

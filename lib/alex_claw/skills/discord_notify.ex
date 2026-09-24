@@ -42,28 +42,32 @@ defmodule AlexClaw.Skills.DiscordNotify do
 
     message = format_input(input)
 
-    channel_id = config["channel_id"]
+    channel_id = blank_to_nil(config["channel_id"]) || AlexClaw.Config.get("discord.channel_id")
 
-    opts =
-      if channel_id && channel_id != "" do
-        [chat_id: channel_id, gateway: :discord]
-      else
-        [gateway: :discord]
-      end
-
-    if Discord.configured?() do
-      # Discord limit is 2000 chars — split into multiple messages if needed
-      message
-      |> chunk_message(1900)
-      |> Enum.each(fn chunk -> Discord.send_message(chunk, opts) end)
-
-      # Pass through the original input so downstream steps still have the data
-      {:ok, input, :on_delivered}
-    else
-      Logger.warning("DiscordNotify: Discord gateway not configured", skill: :discord_notify)
-      {:error, :discord_not_configured}
-    end
+    send_to(Discord.configured?(), channel_id, message, input)
   end
+
+  defp send_to(false, _channel_id, _message, _input) do
+    Logger.warning("DiscordNotify: Discord gateway not configured", skill: :discord_notify)
+    {:error, :discord_not_configured}
+  end
+
+  # Nowhere to send is not a delivery.
+  defp send_to(true, channel_id, _message, _input) when channel_id in [nil, ""],
+    do: {:error, :no_channel_id}
+
+  defp send_to(true, channel_id, message, input) do
+    # Discord limit is 2000 chars — split into multiple messages if needed
+    message
+    |> chunk_message(1900)
+    |> Enum.each(&Discord.send_message(&1, chat_id: channel_id, gateway: :discord))
+
+    # Pass through the original input so downstream steps still have the data
+    {:ok, input, :on_delivered}
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   defp chunk_message(text, max) do
     if String.length(text) <= max do

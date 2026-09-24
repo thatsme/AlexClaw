@@ -16,7 +16,9 @@ defmodule AlexClaw.Skills.LlmScore do
   def routes, do: [:on_items, :on_empty, :on_error]
 
   require Logger
-  import AlexClaw.Skills.Helpers, only: [llm_opts: 2, parse_float: 2, parse_int: 2]
+
+  import AlexClaw.Skills.Helpers,
+    only: [llm_opts: 2, parse_float: 2, parse_int: 2, parse_scores: 1]
 
   @default_threshold 0.3
   @default_max_items 10
@@ -62,15 +64,17 @@ defmodule AlexClaw.Skills.LlmScore do
     config = args[:config] || %{}
     threshold = parse_float(config["threshold"], @default_threshold)
 
-    score_items(
-      parse_items(args[:input]),
-      config["interests"] || "general news, technology, finance, world events",
-      threshold,
-      parse_int(config["max_items"], @default_max_items),
-      # Scoring defaults to the :light tier unless the step names one.
-      # A thinking model reasons in prose first; scores come one number per line.
-      Keyword.put(llm_opts(args, :light), :thinking, false)
-    )
+    with {:ok, items} <- parse_items(args[:input]) do
+      score_items(
+        items,
+        config["interests"] || "general news, technology, finance, world events",
+        threshold,
+        parse_int(config["max_items"], @default_max_items),
+        # Scoring defaults to the :light tier unless the step names one.
+        # A thinking model reasons in prose first; scores come one number per line.
+        Keyword.put(llm_opts(args, :light), :thinking, false)
+      )
+    end
   end
 
   defp score_items([], _interests, _threshold, _max_items, _llm_opts) do
@@ -90,15 +94,19 @@ defmodule AlexClaw.Skills.LlmScore do
   defp scored_result({:ok, passed}, _threshold), do: {:ok, Jason.encode!(passed), :on_items}
   defp scored_result({:error, reason}, _threshold), do: {:error, reason}
 
+  # Input that is not a list of items is usually a previous step's error text:
+  # an error, so the earlier failure is not reported as "no items".
+  defp parse_items(nil), do: {:ok, []}
+  defp parse_items(input) when is_list(input), do: {:ok, input}
+
   defp parse_items(input) when is_binary(input) do
     case Jason.decode(input) do
-      {:ok, list} when is_list(list) -> list
-      _ -> []
+      {:ok, list} when is_list(list) -> {:ok, list}
+      _ -> {:error, {:invalid_input, String.slice(input, 0, 200)}}
     end
   end
 
-  defp parse_items(input) when is_list(input), do: input
-  defp parse_items(_), do: []
+  defp parse_items(input), do: {:error, {:invalid_input, inspect(input, limit: 5)}}
 
   defp score_batch(items, interests, threshold, max_items, llm_opts) do
     count = length(items)
@@ -144,11 +152,18 @@ defmodule AlexClaw.Skills.LlmScore do
 
   defp apply_scores({:ok, text}, items, threshold, max_items, count) do
     scores = parse_scores(text)
+    passing(Enum.any?(scores, &is_float/1), scores, text, items, {threshold, max_items, count})
+  end
 
+  # A reply with no score in it is not "nothing relevant".
+  defp passing(false, _scores, text, _items, _limits),
+    do: {:error, {:unreadable_scores, String.slice(text, 0, 200)}}
+
+  defp passing(true, scores, _text, items, {threshold, max_items, count}) do
     passed =
       items
       |> Enum.with_index()
-      |> Enum.map(fn {item, i} -> with_score(item, Enum.at(scores, i, 0.0)) end)
+      |> Enum.map(fn {item, i} -> with_score(item, Enum.at(scores, i) || 0.0) end)
       |> Enum.sort_by(&(&1["score"] || 0.0), :desc)
       |> Enum.filter(&((&1["score"] || 0.0) >= threshold))
       |> Enum.take(max_items)
@@ -160,36 +175,6 @@ defmodule AlexClaw.Skills.LlmScore do
 
     {:ok, passed}
   end
-
-  defp parse_scores(text) do
-    text
-    |> String.split(~r/[\n,]+/, trim: true)
-    |> Enum.map(&parse_score_line/1)
-  end
-
-  # "0.8", "1. 0.8", "2) 0.8" and "0.8 — relevant" all read 0.8. A list number
-  # is only stripped when whitespace follows it: stripping "0." from "0.1" read
-  # it as 1.0, and "1.0" as 0.
-  defp parse_score_line(line) do
-    line
-    |> String.trim()
-    |> String.replace(~r/^\d+[\.\):]\s+/, "")
-    |> first_number()
-    |> normalize_score()
-  end
-
-  defp first_number(text) do
-    case Regex.run(~r/\d+(?:\.\d+)?/, text) do
-      [number] -> Float.parse(number)
-      nil -> :error
-    end
-  end
-
-  # A model that answers on a 0-10 scale despite the instruction is rescaled
-  # rather than discarded.
-  defp normalize_score({f, _rest}) when f >= 0.0 and f <= 1.0, do: f
-  defp normalize_score({f, _rest}) when f > 1.0, do: f / 10.0
-  defp normalize_score(_), do: 0.0
 
   defp with_score(item, score) when is_map(item), do: Map.put(item, "score", score)
   defp with_score(item, score), do: %{"item" => item, "score" => score}

@@ -31,12 +31,15 @@ defmodule AlexClaw.WorkflowsExportImportTest do
         default_provider: "groq"
       })
 
+    # A config the contract accepts (0.3.54): timeout_ms is one of the
+    # executor's own step options, valid for every skill. The test is about
+    # the config surviving export and import, not about which key it holds.
     {:ok, _s1} =
       Workflows.add_step(wf, %{
         name: "Fetch",
         skill: "rss_collector",
         llm_tier: "light",
-        config: %{"timeout" => 30},
+        config: %{"timeout_ms" => 30_000},
         routes: [%{"branch" => "on_items", "goto" => 2}]
       })
 
@@ -80,7 +83,7 @@ defmodule AlexClaw.WorkflowsExportImportTest do
       [s1, s2] = Enum.sort_by(steps, & &1["position"])
       assert s1["name"] == "Fetch"
       assert s1["skill"] == "rss_collector"
-      assert s1["config"] == %{"timeout" => 30}
+      assert s1["config"] == %{"timeout_ms" => 30_000}
       assert s1["routes"] == [%{"branch" => "on_items", "goto" => 2}]
       assert s1["input_from"] == nil
 
@@ -317,6 +320,31 @@ defmodule AlexClaw.WorkflowsExportImportTest do
 
       assert {:error, msg} = Workflows.import_workflow(data)
       assert msg =~ "name" or msg =~ "skill"
+    end
+
+    # Since 0.3.54 an import is held to the step config contract, like a save:
+    # a file whose step would fail at run time is refused, naming the step's
+    # problem, and nothing is created.
+    test "refuses a step config that breaks its skill's contract" do
+      name = "Contract Import #{System.unique_integer([:positive])}"
+
+      data = %{
+        "version" => 1,
+        "workflow" => %{"name" => name},
+        "steps" => [
+          %{
+            "position" => 1,
+            "name" => "Fetch",
+            "skill" => "api_request",
+            "config" => %{"url" => "https://example.com", "urll" => "typo"}
+          }
+        ],
+        "resources" => []
+      }
+
+      assert {:error, msg} = Workflows.import_workflow(data)
+      assert msg =~ "urll"
+      refute Enum.any?(Workflows.list_workflows(), &String.starts_with?(&1.name, name))
     end
 
     # --- Adversarial: empty collections ---

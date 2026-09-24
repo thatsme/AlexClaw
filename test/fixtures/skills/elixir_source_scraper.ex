@@ -41,7 +41,7 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
   )
 
   @impl true
-  def version, do: "2.0.0"
+  def version, do: "2.1.0"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]
@@ -65,6 +65,18 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
   @spec config_scaffold() :: map()
   def config_scaffold,
     do: %{"timeout_ms" => 300_000, "delay_between_files_ms" => 1000, "max_lines_per_file" => 2000}
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "timeout_ms" => %{type: :integer, required: false},
+      "delay_between_files_ms" => %{type: :integer, required: false},
+      "max_lines_per_file" => %{type: :integer, required: false},
+      "modules" => %{type: :list, required: false},
+      "branch" => %{type: :string, required: false}
+    }
+  end
 
   @impl true
   @spec config_help() :: String.t()
@@ -115,8 +127,21 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
     ]
 
     text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &file_line/1)
-    {:ok, text, stored_branch(total_stored)}
+    outcome(fetched(results), text, total_stored)
   end
+
+  # Every file it tried to fetch failing is a failure, not "nothing new"; some
+  # failing are named in the text.
+  defp fetched(results),
+    do: for({_, r} <- results, match?({:stored, _}, r) or match?({:failed, _}, r), do: r)
+
+  defp outcome([_ | _] = fetched, text, total_stored) do
+    if Enum.all?(fetched, &match?({:failed, _}, &1)),
+      do: {:error, "Every Elixir source file failed.\n\n" <> text},
+      else: {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp outcome([], text, total_stored), do: {:ok, text, stored_branch(total_stored)}
 
   defp stored_branch(0), do: :on_empty
   defp stored_branch(_total_stored), do: :on_success
@@ -132,22 +157,29 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
     source_key = "elixir_src:#{file_path}"
 
     case already_stored?(source_key) do
-      true ->
+      {:ok, true} ->
         :skipped
 
-      false ->
+      {:ok, false} ->
         case fetch_source(file_path, branch) do
           {:ok, content} ->
             content = truncate_lines(content, max_lines)
             module_name = extract_module_name(content) || Path.basename(file_path, ".ex")
             chunks = chunk_source(module_name, content)
-            {:stored, store_chunks(file_path, module_name, chunks, source_key)}
+            stored(store_chunks(file_path, module_name, chunks, source_key), chunks)
 
           {:error, reason} ->
             {:failed, inspect(reason)}
         end
+
+      {:error, reason} ->
+        {:failed, "cannot check the knowledge base: #{inspect(reason)}"}
     end
   end
+
+  # Chunks the knowledge base refused are not "stored".
+  defp stored(0, [_ | _]), do: {:failed, "the knowledge base stored none of its chunks"}
+  defp stored(n, _chunks), do: {:stored, n}
 
   defp fetch_source(file_path, branch) do
     url = "#{@github_raw}/#{branch}/#{file_path}"
@@ -164,12 +196,7 @@ defmodule AlexClaw.Skills.Dynamic.ElixirSourceScraper do
     end
   end
 
-  defp already_stored?(source_key) do
-    case SkillAPI.knowledge_exists?(__MODULE__, source_key) do
-      {:ok, true} -> true
-      _ -> false
-    end
-  end
+  defp already_stored?(source_key), do: SkillAPI.knowledge_exists?(__MODULE__, source_key)
 
   # --- Content processing ---
 

@@ -31,7 +31,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   )
 
   @impl true
-  def version, do: "3.0.1"
+  def version, do: "3.1.0"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]
@@ -58,6 +58,18 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
       "max_modules_per_package" => 50,
       "delay_between_packages_ms" => 2000,
       "timeout_ms" => 300_000
+    }
+  end
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "packages" => %{type: :list, required: false},
+      "force" => %{type: :boolean, required: false},
+      "max_modules_per_package" => %{type: :integer, required: false},
+      "delay_between_packages_ms" => %{type: :integer, required: false},
+      "timeout_ms" => %{type: :integer, required: false}
     }
   end
 
@@ -110,7 +122,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
   end
 
   defp report(results) do
-    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+    total_stored = Enum.sum(for {_, {:stored, n, _failed}} <- results, do: n)
 
     counts = [
       "Packages: #{length(results)}",
@@ -121,14 +133,33 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
     ]
 
     text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &package_line/1)
-    {:ok, text, stored_branch(total_stored)}
+    outcome(fetched(results), text, total_stored)
   end
+
+  # Every package it tried failing is a failure, not "nothing new"; some failing
+  # are named in the text.
+  defp fetched(results),
+    do: for({_, r} <- results, match?({:stored, _, _}, r) or match?({:failed, _}, r), do: r)
+
+  defp outcome([_ | _] = fetched, text, total_stored) do
+    if Enum.all?(fetched, &match?({:failed, _}, &1)),
+      do: {:error, "Every package failed.\n\n" <> text},
+      else: {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp outcome([], text, total_stored), do: {:ok, text, stored_branch(total_stored)}
 
   defp stored_branch(0), do: :on_empty
   defp stored_branch(_total_stored), do: :on_success
 
-  defp package_line({pkg, {:stored, n}}), do: "#{pkg}: #{n} new chunks"
-  defp package_line({pkg, :skipped}), do: "#{pkg}: skipped (all modules already indexed)"
+  defp package_line({pkg, {:stored, n, []}}), do: "#{pkg}: #{n} new chunks"
+
+  defp package_line({pkg, {:stored, n, failed}}),
+    do: "#{pkg}: #{n} new chunks; failed: #{Enum.join(failed, ", ")}"
+
+  defp package_line({pkg, :skipped}),
+    do: "#{pkg}: skipped (nothing new: modules already indexed or without docs)"
+
   defp package_line({pkg, {:failed, reason}}), do: "#{pkg}: failed (#{reason})"
   defp package_line({pkg, :timeout}), do: "#{pkg}: skipped (deadline reached)"
 
@@ -139,21 +170,16 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
       {:ok, modules} ->
         modules = Enum.take(modules, max_modules)
 
-        stored =
-          modules
-          |> Task.async_stream(
-            fn mod -> scrape_module(package, mod) end,
-            max_concurrency: @max_concurrency,
-            timeout: @recv_timeout + 5_000,
-            on_timeout: :kill_task
-          )
-          |> Enum.flat_map(fn
-            {:ok, {:ok, chunks}} -> chunks
-            _ -> []
-          end)
-          |> length()
-
-        if stored > 0, do: {:stored, stored}, else: :skipped
+        modules
+        |> Task.async_stream(
+          fn mod -> scrape_module(package, mod) end,
+          max_concurrency: @max_concurrency,
+          timeout: @recv_timeout + 5_000,
+          on_timeout: :kill_task
+        )
+        |> Enum.zip(modules)
+        |> Enum.map(fn {result, mod} -> {mod, module_result(result)} end)
+        |> package_result()
 
       {:error, reason} ->
         {:failed, inspect(reason)}
@@ -239,32 +265,52 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
 
   # --- Module scraping ---
 
+  defp module_result({:ok, result}), do: result
+  defp module_result({:exit, reason}), do: {:failed, "stopped: #{inspect(reason)}"}
+
+  # A package whose modules all failed is a failure, not "already indexed";
+  # modules that failed next to stored ones are named.
+  defp package_result(modules) do
+    stored = Enum.sum(for {_, {:stored, n}} <- modules, do: n)
+    failed = for {mod, {:failed, why}} <- modules, do: "#{mod} (#{why})"
+    package_outcome(stored, failed)
+  end
+
+  defp package_outcome(0, []), do: :skipped
+
+  defp package_outcome(0, failed),
+    do: {:failed, "every module failed: " <> Enum.join(failed, ", ")}
+
+  defp package_outcome(stored, failed), do: {:stored, stored, failed}
+
+  # {:stored, n}, :indexed (already in the knowledge base), :no_content, or
+  # {:failed, reason}.
   defp scrape_module(package, module_id) do
     url = "https://hexdocs.pm/#{package}/#{module_id}.html"
-    source_url = url
+    fetch_module(SkillAPI.knowledge_exists?(__MODULE__, url), package, module_id, url)
+  end
 
-    case already_stored?(source_url) do
-      true ->
-        {:ok, []}
+  defp fetch_module({:ok, true}, _package, _module_id, _url), do: :indexed
 
-      false ->
-        case SkillAPI.http_get(__MODULE__, url, receive_timeout: @recv_timeout, retry: false) do
-          {:ok, %{status: 200, body: html}} when is_binary(html) ->
-            chunks = extract_and_store_chunks(package, module_id, html, source_url)
-            {:ok, chunks}
+  defp fetch_module({:error, reason}, _package, _module_id, _url),
+    do: {:failed, "cannot check the knowledge base: #{inspect(reason)}"}
 
-          _ ->
-            {:ok, []}
-        end
+  defp fetch_module({:ok, false}, package, module_id, url) do
+    case SkillAPI.http_get(__MODULE__, url, receive_timeout: @recv_timeout, retry: false) do
+      {:ok, %{status: 200, body: html}} when is_binary(html) ->
+        module_stored(extract_and_store_chunks(package, module_id, html, url))
+
+      {:ok, %{status: status}} ->
+        {:failed, "http #{status}"}
+
+      {:error, reason} ->
+        {:failed, inspect(reason)}
     end
   end
 
-  defp already_stored?(source_url) do
-    case SkillAPI.knowledge_exists?(__MODULE__, source_url) do
-      {:ok, true} -> true
-      _ -> false
-    end
-  end
+  defp module_stored({:error, :html_parse_failed}), do: {:failed, "the page could not be parsed"}
+  defp module_stored([]), do: :no_content
+  defp module_stored(chunks), do: {:stored, length(chunks)}
 
   defp extract_and_store_chunks(package, module_id, html, source_url) do
     doc = Floki.parse_document!(html)
@@ -277,7 +323,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
 
     moduledoc_chunks ++ function_chunks
   rescue
-    _ -> []
+    _ -> {:error, :html_parse_failed}
   end
 
   defp extract_moduledoc(doc, package, module_id, source_url) do

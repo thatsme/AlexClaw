@@ -45,7 +45,7 @@ When 2FA is enabled, these operations require TOTP verification:
 
 | Operation | Where |
 |---|---|
-| Skill load/unload/reload | Admin UI **and** `/skill load\|unload\|reload` from Telegram/Discord |
+| Skill load/unload/reload | Admin UI only (the code can be answered from Telegram/Discord) |
 | Shell command execution | `/shell` from Telegram/Discord |
 | Workflows marked "Requires 2FA" | Telegram/Discord **and** the Run button in the Admin UI |
 | Disabling 2FA | `/disable 2fa <code>` |

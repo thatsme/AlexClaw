@@ -22,7 +22,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
 
   @impl true
   @spec version() :: String.t()
-  def version, do: "1.0.0"
+  def version, do: "1.1.0"
 
   @impl true
   @spec permissions() :: [atom()]
@@ -58,6 +58,16 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
       "timeout_ms" => 300_000,
       "delay_between_packages_ms" => 2000
     }
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "packages" => %{type: :list, required: false},
+      "timeout_ms" => %{type: :integer, required: false},
+      "delay_between_packages_ms" => %{type: :integer, required: false}
+    }
+  end
 
   @impl true
   @spec config_help() :: String.t()
@@ -98,7 +108,7 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
   end
 
   defp report(results) do
-    total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
+    total_stored = Enum.sum(for {_, {:stored, n, _failed}} <- results, do: n)
 
     counts = [
       "Packages: #{length(results)}",
@@ -109,24 +119,42 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
     ]
 
     text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &package_line/1)
-    {:ok, text, stored_branch(total_stored)}
+    outcome(fetched(results), text, total_stored)
   end
+
+  # Every package it tried failing is a failure, not "nothing new"; some failing
+  # are named in the text.
+  defp fetched(results),
+    do: for({_, r} <- results, match?({:stored, _, _}, r) or match?({:failed, _}, r), do: r)
+
+  defp outcome([_ | _] = fetched, text, total_stored) do
+    if Enum.all?(fetched, &match?({:failed, _}, &1)),
+      do: {:error, "Every package's guides failed.\n\n" <> text},
+      else: {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp outcome([], text, total_stored), do: {:ok, text, stored_branch(total_stored)}
 
   defp stored_branch(0), do: :on_empty
   defp stored_branch(_total_stored), do: :on_success
 
-  defp package_line({pkg, {:stored, n}}), do: "#{pkg}: #{n} new guide chunks"
-  defp package_line({pkg, :skipped}), do: "#{pkg}: skipped (all guides already indexed)"
+  defp package_line({pkg, {:stored, n, []}}), do: "#{pkg}: #{n} new guide chunks"
+
+  defp package_line({pkg, {:stored, n, failed}}),
+    do: "#{pkg}: #{n} new guide chunks; failed: #{Enum.join(failed, ", ")}"
+
+  defp package_line({pkg, :skipped}),
+    do: "#{pkg}: skipped (nothing new: guides already indexed or without content)"
+
   defp package_line({pkg, {:failed, reason}}), do: "#{pkg}: failed (#{reason})"
   defp package_line({pkg, :timeout}), do: "#{pkg}: skipped (deadline reached)"
 
   defp scrape_package_guides(package) do
     case fetch_guide_ids(package) do
       {:ok, guide_ids} when guide_ids != [] ->
-        stored =
-          Enum.sum(Enum.map(guide_ids, fn guide_id -> scrape_guide(package, guide_id) end))
-
-        if stored > 0, do: {:stored, stored}, else: :skipped
+        guide_ids
+        |> Enum.map(&{&1, scrape_guide(package, &1)})
+        |> package_result()
 
       {:ok, []} ->
         :skipped
@@ -135,6 +163,21 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
         {:failed, inspect(reason)}
     end
   end
+
+  # A package whose guides all failed is a failure, not "already indexed";
+  # guides that failed next to stored ones are named.
+  defp package_result(guides) do
+    stored = Enum.sum(for {_, {:stored, n}} <- guides, do: n)
+    failed = for {id, {:failed, why}} <- guides, do: "#{id} (#{why})"
+    package_outcome(stored, failed)
+  end
+
+  defp package_outcome(0, []), do: :skipped
+
+  defp package_outcome(0, failed),
+    do: {:failed, "every guide failed: " <> Enum.join(failed, ", ")}
+
+  defp package_outcome(stored, failed), do: {:stored, stored, failed}
 
   defp fetch_guide_ids(package) do
     base_url = "https://hexdocs.pm/#{package}/"
@@ -187,41 +230,45 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsGuidesScraper do
 
   defp decode_guides(_decoded), do: {:error, :json_parse_failed}
 
+  # {:stored, n}, :indexed (already in the knowledge base), :no_content, or
+  # {:failed, reason}.
   defp scrape_guide(package, guide_id) do
     source_url = "hexdocs_guide:#{package}/#{guide_id}"
-    fetch_guide(already_stored?(source_url), package, guide_id, source_url)
+    fetch_guide(SkillAPI.knowledge_exists?(__MODULE__, source_url), package, guide_id, source_url)
   end
 
-  defp fetch_guide(true, _package, _guide_id, _source_url), do: 0
+  defp fetch_guide({:ok, true}, _package, _guide_id, _source_url), do: :indexed
 
-  defp fetch_guide(false, package, guide_id, source_url) do
+  defp fetch_guide({:error, reason}, _package, _guide_id, _source_url),
+    do: {:failed, "cannot check the knowledge base: #{inspect(reason)}"}
+
+  defp fetch_guide({:ok, false}, package, guide_id, source_url) do
     url = "https://hexdocs.pm/#{package}/#{guide_id}.html"
 
     case SkillAPI.http_get(__MODULE__, url, receive_timeout: @recv_timeout, retry: false) do
       {:ok, %{status: 200, body: html}} when is_binary(html) ->
         store_guide(extract_text(html), package, guide_id, source_url)
 
-      _ ->
-        0
+      {:ok, %{status: status}} ->
+        {:failed, "http #{status}"}
+
+      {:error, reason} ->
+        {:failed, inspect(reason)}
     end
   end
 
   defp store_guide(text, package, guide_id, source_url) do
     if String.length(text) > 100 do
-      "HexDocs Guide — #{package}/#{guide_id}\n\n#{text}"
-      |> chunk_text(@max_chunk_chars)
-      |> then(&store_chunks(package, guide_id, &1, source_url))
+      chunks = chunk_text("HexDocs Guide — #{package}/#{guide_id}\n\n#{text}", @max_chunk_chars)
+      stored(store_chunks(package, guide_id, chunks, source_url), chunks)
     else
-      0
+      :no_content
     end
   end
 
-  defp already_stored?(source_url) do
-    case SkillAPI.knowledge_exists?(__MODULE__, source_url) do
-      {:ok, true} -> true
-      _ -> false
-    end
-  end
+  # Chunks the knowledge base refused are not "stored".
+  defp stored(0, [_ | _]), do: {:failed, "the knowledge base stored none of its chunks"}
+  defp stored(n, _chunks), do: {:stored, n}
 
   defp extract_text(html) do
     doc = Floki.parse_document!(html)

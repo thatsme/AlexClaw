@@ -35,7 +35,7 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
   )
 
   @impl true
-  def version, do: "2.0.0"
+  def version, do: "2.1.0"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]
@@ -57,6 +57,17 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
   @impl true
   @spec config_scaffold() :: map()
   def config_scaffold, do: %{"timeout_ms" => 300_000, "delay_between_chapters_ms" => 2000}
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "timeout_ms" => %{type: :integer, required: false},
+      "delay_between_chapters_ms" => %{type: :integer, required: false},
+      "chapters" => %{type: :list, required: false},
+      "discover_chapters" => %{type: :boolean, required: false}
+    }
+  end
 
   @impl true
   @spec config_help() :: String.t()
@@ -115,8 +126,21 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
     ]
 
     text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &chapter_line/1)
-    {:ok, text, stored_branch(total_stored)}
+    outcome(fetched(results), text, total_stored)
   end
+
+  # Every chapter it tried to fetch failing is a failure, not "nothing new";
+  # some failing are named in the text.
+  defp fetched(results),
+    do: for({_, r} <- results, match?({:stored, _}, r) or match?({:failed, _}, r), do: r)
+
+  defp outcome([_ | _] = fetched, text, total_stored) do
+    if Enum.all?(fetched, &match?({:failed, _}, &1)),
+      do: {:error, "Every LYSE chapter failed.\n\n" <> text},
+      else: {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp outcome([], text, total_stored), do: {:ok, text, stored_branch(total_stored)}
 
   defp stored_branch(0), do: :on_empty
   defp stored_branch(_total_stored), do: :on_success
@@ -152,20 +176,27 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
     source_key = "lyse:#{chapter_slug}"
 
     case already_stored?(source_key) do
-      true ->
+      {:ok, true} ->
         :skipped
 
-      false ->
+      {:ok, false} ->
         case fetch_chapter(chapter_slug) do
           {:ok, text} ->
             chunks = chunk_text("LYSE — #{chapter_slug}\n\n#{text}", @max_chunk_chars)
-            {:stored, store_chunks(chapter_slug, chunks, source_key)}
+            stored(store_chunks(chapter_slug, chunks, source_key), chunks)
 
           {:error, reason} ->
             {:failed, inspect(reason)}
         end
+
+      {:error, reason} ->
+        {:failed, "cannot check the knowledge base: #{inspect(reason)}"}
     end
   end
+
+  # Chunks the knowledge base refused are not "stored".
+  defp stored(0, [_ | _]), do: {:failed, "the knowledge base stored none of its chunks"}
+  defp stored(n, _chunks), do: {:stored, n}
 
   defp fetch_chapter(chapter_slug) do
     url = "#{@base_url}/#{chapter_slug}"
@@ -188,12 +219,7 @@ defmodule AlexClaw.Skills.Dynamic.LyseScraper do
     end
   end
 
-  defp already_stored?(source_key) do
-    case SkillAPI.knowledge_exists?(__MODULE__, source_key) do
-      {:ok, true} -> true
-      _ -> false
-    end
-  end
+  defp already_stored?(source_key), do: SkillAPI.knowledge_exists?(__MODULE__, source_key)
 
   # --- Content extraction ---
 

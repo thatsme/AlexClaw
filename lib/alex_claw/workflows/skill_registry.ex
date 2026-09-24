@@ -593,7 +593,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp compare_versions(same, same) do
     {:error,
-     {:same_version, same, "Bump the version before reloading. Use /skill reload to force."}}
+     {:same_version, same,
+      "Bump the version before loading, or reload it from the Admin UI to force."}}
   end
 
   defp compare_versions(_old_version, _new_version), do: :ok
@@ -794,7 +795,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   Move a staged upload into the live skills directory.
 
   Returns `:no_pending` when nothing is staged under that name, which is the
-  normal case for `/skill load <path>` on a file that is already in place.
+  normal case for loading a file that is already in place.
   """
   @spec promote_pending(String.t()) :: :ok | :no_pending | {:error, term()}
   def promote_pending(file_name) do
@@ -1353,11 +1354,12 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     Phoenix.PubSub.broadcast(AlexClaw.PubSub, @pubsub_topic, message)
   end
 
+  # Skills are managed from the Admin UI only; the chat has no skill commands.
   defp notify_checksum_mismatch(skill_name) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       Router.broadcast(
-        "Warning: Dynamic skill '#{skill_name}' file changed since last load. " <>
-          "Use /skill reload #{skill_name} to update, or /skill unload #{skill_name} to remove."
+        "Warning: dynamic skill '#{skill_name}' was not loaded: its file changed since it was approved. " <>
+          "Reload it (with a code) or unload it from the Skills page of the Admin UI."
       )
     end)
   end
@@ -1368,8 +1370,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       Router.broadcast(
         "Warning: Dynamic skill '#{skill_name}' did not load: #{inspect(reason)}. " <>
-          "It is registered but inactive. Fix the file and /skill reload #{skill_name}, " <>
-          "or /skill unload #{skill_name} to remove it."
+          "It is registered but inactive. Fix the file and reload it, or unload it, " <>
+          "from the Skills page of the Admin UI."
       )
     end)
   end

@@ -85,7 +85,7 @@ Load custom skills at runtime — no code changes, no Docker rebuild, no restart
 - **Integrity verification** — SHA256 checksum stored on load, verified on boot. Tampered files are skipped with a Telegram alert.
 - **Persistence** — Dynamic skills survive container restarts (DB + Docker volume)
 - **Admin UI** — Upload, reload, and unload skills from the Skills page. Core and dynamic skills are shown separately. All operations require 2FA verification via Telegram/Discord.
-- **2FA enforced** — Every skill load, unload, and reload requires TOTP verification sent to Telegram/Discord, from the Admin UI and from `/skill load|unload|reload` alike, and is refused outright when 2FA is not configured.
+- **2FA enforced** — Every skill load, unload, and reload is started from the Admin UI, requires a TOTP code (typed on the page or answered on Telegram/Discord), and is refused outright when 2FA is not configured. The `/skill` chat commands only point to the Admin UI.
 - **Version bump enforcement** — Loading a skill that's already loaded with the same version is rejected. Bump `version/0` or use reload to force.
 - **Cross-skill invocation** — Dynamic skills can call other skills through `SkillAPI.run_skill/3`, except the four privileged ones (`shell`, `coder`, `db_backup`, `web_automation`)
 - **Conditional branching** — Dynamic skills can declare `routes/0` (e.g. `[:on_results, :on_empty, :on_error]`) and return triple tuples `{:ok, result, :branch_name}` for workflow routing. Routes are persisted in the database on load and cleaned up on unload — same behavior as core skills.

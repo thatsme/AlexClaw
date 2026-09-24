@@ -14,6 +14,8 @@ defmodule AlexClaw.Workflows.PositionRepair do
   to be disabled: a step that shared a position never ran, and would run now.
   """
 
+  alias AlexClaw.Workflows.StepReferences
+
   @type step :: %{
           id: integer(),
           workflow_id: integer(),
@@ -63,18 +65,8 @@ defmodule AlexClaw.Workflows.PositionRepair do
     %{
       id: step.id,
       position: new,
-      routes: Enum.map(step.routes || [], &moved_route(&1, moved)),
-      input_from: moved_position(step.input_from, moved)
+      routes: Enum.map(step.routes || [], &StepReferences.moved_route(&1, moved)),
+      input_from: StepReferences.moved_position(step.input_from, moved)
     }
   end
-
-  defp moved_route(%{"goto" => goto} = route, moved) when is_integer(goto),
-    do: %{route | "goto" => moved_position(goto, moved)}
-
-  defp moved_route(route, _moved), do: route
-
-  defp moved_position(position, moved) when is_integer(position),
-    do: Map.get(moved, position, position)
-
-  defp moved_position(other, _moved), do: other
 end

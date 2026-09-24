@@ -8,6 +8,7 @@ defmodule AlexClaw.Workflows do
   alias AlexClaw.Workflows.{
     SkillOutcome,
     SkillRegistry,
+    StepReferences,
     Workflow,
     WorkflowResource,
     WorkflowRun,
@@ -587,21 +588,11 @@ defmodule AlexClaw.Workflows do
     |> Repo.update_all(
       set: [
         position: position,
-        routes: Enum.map(step.routes || [], &moved_route(&1, moved)),
-        input_from: moved_position(step.input_from, moved)
+        routes: Enum.map(step.routes || [], &StepReferences.moved_route(&1, moved)),
+        input_from: StepReferences.moved_position(step.input_from, moved)
       ]
     )
   end
-
-  defp moved_route(%{"goto" => goto} = route, moved) when is_integer(goto),
-    do: %{route | "goto" => moved_position(goto, moved)}
-
-  defp moved_route(route, _moved), do: route
-
-  defp moved_position(position, moved) when is_integer(position),
-    do: Map.get(moved, position, position)
-
-  defp moved_position(other, _moved), do: other
 
   @doc """
   Put the steps of `workflow` in the order of `step_ids`. Every route (`goto`)

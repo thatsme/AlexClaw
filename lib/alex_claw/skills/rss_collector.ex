@@ -20,7 +20,9 @@ defmodule AlexClaw.Skills.RSSCollector do
   require Logger
 
   import SweetXml
-  import AlexClaw.Skills.Helpers, only: [parse_int: 2, parse_float: 2, parse_scores: 1]
+
+  import AlexClaw.Skills.Helpers,
+    only: [parse_int: 2, parse_float: 2, parse_scores: 1, plain_text: 1]
 
   alias AlexClaw.Config
   alias AlexClaw.Resources
@@ -95,7 +97,8 @@ defmodule AlexClaw.Skills.RSSCollector do
     |> fetched()
   end
 
-  defp fetched({[], dead}), do: {:error, {:all_feeds_failed, Enum.map(dead, &elem(&1, 1))}}
+  defp fetched({[], dead}),
+    do: {:error, {:all_feeds_failed, Enum.map(dead, fn {:error, {_name, url}} -> url end)}}
 
   defp fetched({live, dead}) do
     items =
@@ -112,14 +115,14 @@ defmodule AlexClaw.Skills.RSSCollector do
 
   defp feed_result({{:ok, {:ok, items}}, _feed}), do: {:ok, items}
 
-  defp feed_result({{:ok, {:error, reason}}, {_name, url}}) do
+  defp feed_result({{:ok, {:error, reason}}, {name, url}}) do
     Logger.warning("Feed #{url} failed: #{inspect(reason)}", skill: :rss)
-    {:error, url}
+    {:error, {name, url}}
   end
 
-  defp feed_result({{:exit, reason}, {_name, url}}) do
+  defp feed_result({{:exit, reason}, {name, url}}) do
     Logger.warning("Feed #{url} crashed: #{inspect(reason)}", skill: :rss)
-    {:error, url}
+    {:error, {name, url}}
   end
 
   # force bypasses the seen-item filter and rescores everything fetched.
@@ -143,20 +146,37 @@ defmodule AlexClaw.Skills.RSSCollector do
     summarize(results, dead)
   end
 
-  defp summarize([], dead),
-    do: {:ok, "No relevant news items found." <> skipped(dead), :on_empty}
-
+  # JSON, like rss_fetch's output, so the executor's sanitizer treats each field
+  # on its own: a text block with raw description HTML was read as one HTML
+  # document, which flattened the items and let a description cut inside a tag
+  # swallow the next item.
   defp summarize(results, dead) do
-    summary =
-      Enum.map_join(results, "\n\n", fn item ->
-        "**#{item.feed}**: #{item.title}\n#{String.slice(item.description || "", 0, 300)}\n#{item.link}"
-      end)
+    output = %{
+      "items" => Enum.map(results, &item_json/1),
+      "skipped" => Enum.map(dead, fn {name, url} -> %{"feed" => name, "url" => url} end)
+    }
 
-    {:ok, summary <> skipped(dead), :on_items}
+    {:ok, Jason.encode!(output), branch(results)}
   end
 
-  defp skipped([]), do: ""
-  defp skipped(urls), do: "\n\nSkipped (could not be read): " <> Enum.join(urls, ", ")
+  defp branch([]), do: :on_empty
+  defp branch(_results), do: :on_items
+
+  defp item_json(item) do
+    %{
+      "feed" => item.feed,
+      "title" => item.title,
+      "summary" => summary(item.description),
+      "link" => item.link
+    }
+  end
+
+  # The HTML is removed before the text is shortened, so no cut lands in a tag.
+  defp summary(description) do
+    description
+    |> plain_text()
+    |> String.slice(0, 300)
+  end
 
   # --- Feed Fetching ---
 

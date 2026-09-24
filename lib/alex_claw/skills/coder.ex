@@ -17,7 +17,12 @@ defmodule AlexClaw.Skills.Coder do
 
   @impl true
   @spec routes() :: [atom()]
-  def routes, do: [:on_created, :on_workflow_created, :on_error]
+  def routes, do: [:on_created, :on_workflow_created, :on_partial, :on_error]
+
+  # :on_partial — the skill loaded but the workflow asked for was not created.
+  @impl true
+  @spec error_routes() :: [atom()]
+  def error_routes, do: [:on_partial, :on_error]
 
   @impl true
   @spec permissions() :: :all
@@ -135,8 +140,15 @@ defmodule AlexClaw.Skills.Coder do
 
   defp generated(result, skill_name, _create_workflow) do
     case create_skill_workflow(skill_name) do
-      {:ok, workflow_info} -> {:ok, format_result(result, workflow_info), :on_workflow_created}
-      {:error, _reason} -> {:ok, format_result(result, nil), :on_created}
+      {:ok, workflow_info} ->
+        {:ok, format_result(result, workflow_info), :on_workflow_created}
+
+      {:error, reason} ->
+        Logger.warning("Coder: workflow for #{skill_name} not created: #{inspect(reason)}",
+          skill: :coder
+        )
+
+        {:ok, partial_result(result, skill_name, reason), :on_partial}
     end
   end
 
@@ -212,4 +224,18 @@ defmodule AlexClaw.Skills.Coder do
     Enable it in Admin > Workflows or run with `/run #{workflow_info.workflow_id}`
     """
   end
+
+  # The skill loaded; the workflow asked for was not created, and the message says why.
+  defp partial_result(result, skill_name, reason) do
+    format_result(result, nil) <>
+      "\nWorkflow *Auto: #{skill_name}* was not created: #{why(reason)}\n"
+  end
+
+  defp why(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {message, _opts} -> message end)
+    |> Enum.map_join("; ", fn {field, messages} -> "#{field} #{Enum.join(messages, ", ")}" end)
+  end
+
+  defp why(reason), do: inspect(reason)
 end

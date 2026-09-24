@@ -34,18 +34,37 @@ defmodule AlexClaw.Gateway.DiscordTest do
   end
 
   describe "send_message/2 without channel" do
-    test "logs warning and returns :ok when no channel configured" do
+    # It used to log a warning and return :ok — a send to nowhere reported as
+    # a success. Since 0.3.53 it is an error (discord_delivery_test.exs).
+    test "returns {:error, :no_channel_id} when no channel is configured" do
       AlexClaw.Config.set("discord.channel_id", "", type: "string", category: "discord")
-      assert :ok = Discord.send_message("test message")
+      assert {:error, :no_channel_id} = Discord.send_message("test message")
     end
   end
 
   describe "send_html/2" do
-    test "strips HTML tags" do
-      # send_html converts HTML to plain text before sending
-      # Without a valid channel this just logs a warning and returns :ok
-      AlexClaw.Config.set("discord.channel_id", "", type: "string", category: "discord")
-      assert :ok = Discord.send_html("<b>bold</b> <i>italic</i>")
+    # What this test is about is the HTML stripping: the text Discord receives
+    # has no tags. Observed on the API behaviour, with a channel configured.
+    test "strips HTML tags before sending" do
+      Application.put_env(:alex_claw, :discord_api, AlexClaw.Gateway.Discord.APIMock)
+      on_exit(fn -> Application.delete_env(:alex_claw, :discord_api) end)
+      Mox.set_mox_global()
+
+      AlexClaw.Config.set("discord.channel_id", "123456789", type: "string", category: "discord")
+      test_pid = self()
+
+      Mox.stub(AlexClaw.Gateway.Discord.APIMock, :create_message, fn _channel, content ->
+        send(test_pid, {:content, content})
+        {:ok, %{id: 1}}
+      end)
+
+      Discord.send_html("<b>bold</b> <i>italic</i>")
+
+      assert_receive {:content, content}, 2_000
+      assert content =~ "bold"
+      assert content =~ "italic"
+      refute content =~ "<b>"
+      refute content =~ "<i>"
     end
   end
 end

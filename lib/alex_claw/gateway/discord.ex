@@ -27,7 +27,7 @@ defmodule AlexClaw.Gateway.Discord do
   end
 
   @impl AlexClaw.Gateway.Behaviour
-  @spec send_message(String.t(), keyword()) :: :ok
+  @spec send_message(String.t(), keyword()) :: :ok | {:error, term()}
   @discord_max_length 2000
 
   def send_message(text, opts \\ []) do
@@ -36,30 +36,37 @@ defmodule AlexClaw.Gateway.Discord do
 
   defp send_to_channel(channel_id, _text) when channel_id in [nil, ""] do
     Logger.warning("Cannot send to Discord: channel_id not configured")
-    :ok
+    {:error, :no_channel_id}
   end
 
+  # The message arrived only if every chunk was accepted; the first refusal
+  # stops the rest.
   defp send_to_channel(channel_id, text) do
     id = to_integer(channel_id)
 
     text
     |> chunk_message(@discord_max_length)
-    |> Enum.each(&send_chunk(id, &1))
+    |> Enum.reduce_while(:ok, fn chunk, :ok -> chunk_sent(send_chunk(id, chunk)) end)
   end
 
+  defp chunk_sent(:ok), do: {:cont, :ok}
+  defp chunk_sent(error), do: {:halt, error}
+
   defp send_chunk(channel_id, chunk) do
-    case Nostrum.Api.Message.create(channel_id, content: chunk) do
+    case api().create_message(channel_id, chunk) do
       {:ok, _msg} ->
         :ok
 
       {:error, reason} ->
         Logger.warning("Discord send failed: #{inspect(reason)}")
-        :ok
+        {:error, reason}
     end
   end
 
+  defp api, do: Application.get_env(:alex_claw, :discord_api, AlexClaw.Gateway.Discord.NostrumAPI)
+
   @impl AlexClaw.Gateway.Behaviour
-  @spec send_html(String.t(), keyword()) :: :ok
+  @spec send_html(String.t(), keyword()) :: :ok | {:error, term()}
   def send_html(text, opts \\ []) do
     # Discord uses Markdown, not HTML — strip tags and send as plain text
     plain = Regex.replace(~r/<[^>]+>/, text, "")

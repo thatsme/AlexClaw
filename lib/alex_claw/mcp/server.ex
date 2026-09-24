@@ -140,7 +140,7 @@ defmodule AlexClaw.MCP.Server do
   defp build_skill_args(arguments) do
     %{
       input: arguments["input"],
-      config: arguments["config"] || %{},
+      config: skill_config(arguments),
       resources: [],
       workflow_run_id: nil,
       llm_provider: nil,
@@ -148,6 +148,13 @@ defmodule AlexClaw.MCP.Server do
       prompt_template: nil
     }
   end
+
+  # MCP passes no resources. A feed skill reads every enabled feed only when
+  # the caller says so with "all_feeds"; it is forwarded, never added here.
+  defp skill_config(%{"all_feeds" => all_feeds} = arguments),
+    do: Map.put(arguments["config"] || %{}, "all_feeds", all_feeds)
+
+  defp skill_config(arguments), do: arguments["config"] || %{}
 
   defp execute_skill(module, _skill_name, args) do
     type = SkillRegistry.get_type(module)

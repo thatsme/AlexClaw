@@ -4,13 +4,14 @@ defmodule AlexClaw.Skills.TelegramNotifyAdversarialTest do
   @moduletag :adversarial
 
   alias AlexClaw.Skills.TelegramNotify
+  alias AlexClawTest.TelegramStub
 
   # These tests throw odd input and config at the skill; the instance has a
-  # chat to send to, so what they measure is the input handling. Sending with
-  # nowhere to send is refused since 0.3.51 (failure_contract_test.exs).
+  # Telegram that answers, so what they measure is the input handling
+  # (0.3.53: delivered means Telegram said ok). Sending with nowhere to send
+  # is refused (failure_contract_test.exs).
   setup do
-    insert_setting("telegram.chat_id", "12345", type: "string", category: "telegram")
-    :ok
+    TelegramStub.accept_all("12345")
   end
 
   describe "input formatting" do

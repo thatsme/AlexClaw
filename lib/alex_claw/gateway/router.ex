@@ -11,12 +11,12 @@ defmodule AlexClaw.Gateway.Router do
   # and checking it needs something holding the wire.
   defp gateways, do: Application.get_env(:alex_claw, :gateways, @gateways)
 
-  @spec send_message(String.t(), keyword()) :: :ok
+  @spec send_message(String.t(), keyword()) :: :ok | {:error, term()}
   def send_message(text, opts \\ []) do
     resolve_gateway(opts).send_message(text, opts)
   end
 
-  @spec send_html(String.t(), keyword()) :: :ok
+  @spec send_html(String.t(), keyword()) :: :ok | {:error, term()}
   def send_html(text, opts \\ []) do
     resolve_gateway(opts).send_html(text, opts)
   end

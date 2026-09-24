@@ -10,8 +10,6 @@ defmodule AlexClaw.Gateway.Telegram do
 
   alias AlexClaw.{Config, Message}
 
-  @telegram_api "https://api.telegram.org/bot"
-
   # --- Behaviour callbacks ---
 
   @impl AlexClaw.Gateway.Behaviour
@@ -47,6 +45,36 @@ defmodule AlexClaw.Gateway.Telegram do
     GenServer.cast(__MODULE__, {:send_html, text, opts})
   end
 
+  @doc """
+  Send `text` (HTML) to `chat_id` in the calling process and return Telegram's
+  answer: `:ok`, or `{:error, reason}`. When Telegram refuses the HTML, the
+  text is sent again as plain text. Options: `:send_options`, a map of extra
+  sendMessage fields; `:bot_token`, a bot other than the configured one.
+  `send_html/2` stays a cast, for notices that do not need the answer.
+  """
+  @spec deliver(String.t() | integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  def deliver(chat_id, text, opts \\ []) do
+    opts
+    |> Keyword.get_lazy(:bot_token, &get_token/0)
+    |> deliver_with(chat_id, text, Keyword.get(opts, :send_options, %{}))
+  end
+
+  defp deliver_with(token, _chat_id, _text, _send_options) when token in [nil, ""],
+    do: {:error, :telegram_not_configured}
+
+  defp deliver_with(token, chat_id, text, send_options),
+    do: do_send(token, chat_id, text, "HTML", send_options)
+
+  @doc """
+  The URL of a Bot API `method` for `token`. The base is the
+  `:telegram_api_base` setting (default `https://api.telegram.org`).
+  """
+  @spec api_url(String.t(), String.t()) :: String.t()
+  def api_url(token, method) do
+    base = Application.get_env(:alex_claw, :telegram_api_base, "https://api.telegram.org")
+    "#{base}/bot#{token}/#{method}"
+  end
+
   @doc "Send a photo to a specific chat."
   @impl AlexClaw.Gateway.Behaviour
   @spec send_photo(term(), binary(), String.t()) :: :ok | {:error, term()}
@@ -54,7 +82,7 @@ defmodule AlexClaw.Gateway.Telegram do
     token = get_token()
 
     if token && token != "" do
-      url = "#{@telegram_api}#{token}/sendPhoto"
+      url = api_url(token, "sendPhoto")
 
       case Req.post(url,
              form_multipart: [
@@ -169,7 +197,7 @@ defmodule AlexClaw.Gateway.Telegram do
   defp schedule_poll(_), do: :ok
 
   defp poll_updates(state, token) do
-    url = "#{@telegram_api}#{token}/getUpdates"
+    url = api_url(token, "getUpdates")
 
     case Req.get(url, params: [offset: state.offset, timeout: 30], receive_timeout: 60_000) do
       {:ok, %{status: 200, body: %{"ok" => true, "result" => updates}}} ->
@@ -283,7 +311,7 @@ defmodule AlexClaw.Gateway.Telegram do
   end
 
   defp do_send(token, chat_id, text, parse_mode, send_options) do
-    url = "#{@telegram_api}#{token}/sendMessage"
+    url = api_url(token, "sendMessage")
     text = fit(text)
     request = Map.merge(%{chat_id: chat_id, text: text, parse_mode: parse_mode}, send_options)
 
@@ -298,7 +326,7 @@ defmodule AlexClaw.Gateway.Telegram do
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Send failed: #{status} - #{inspect(body)}")
-        {:error, body}
+        {:error, {:telegram, status, body}}
 
       {:error, reason} ->
         Logger.warning("Send error: #{inspect(reason)}")
@@ -313,7 +341,7 @@ defmodule AlexClaw.Gateway.Telegram do
 
       {:ok, %{status: s, body: b}} ->
         Logger.warning("Plain text send also failed: #{s} - #{inspect(b)}")
-        {:error, b}
+        {:error, {:telegram, s, b}}
 
       {:error, reason} ->
         Logger.warning("Plain text send error: #{inspect(reason)}")

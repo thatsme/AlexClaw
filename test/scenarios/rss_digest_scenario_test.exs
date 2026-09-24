@@ -11,9 +11,10 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.{LLM, RecordingGateway}
+  alias AlexClaw.LLM
   alias AlexClaw.Scenarios.RssDigest
   alias AlexClaw.Skills.CircuitBreaker
+  alias AlexClawTest.TelegramStub
 
   @titles [
     "Elixir 1.19 released with faster compilation",
@@ -31,12 +32,11 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
 
     feed = Bypass.open()
     llm = Bypass.open()
-    RecordingGateway.install()
 
-    # The digest goes to the configured chat. Since 0.3.51 telegram_notify
-    # refuses to report a send with nowhere to send it, so the scenario names
-    # one, as a real installation does.
-    insert_setting("telegram.chat_id", "scenario-chat", type: "string", category: "telegram")
+    # The digest is delivered through Telegram's real send path (0.3.53:
+    # telegram_notify sends through Gateway.Telegram.deliver/3, not the
+    # router), so the scenario watches what Telegram receives.
+    TelegramStub.accept_all("scenario-chat")
 
     {:ok, _} =
       LLM.create_provider(%{
@@ -107,6 +107,17 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
   defp run(feed_url, opts),
     do: RssDigest.run([feeds: [{"Mock feed", feed_url}], interests: "programming"] ++ opts)
 
+  # The digests Telegram received: messages that name a feed title. Telegram
+  # also receives the executor's own run notices ("⚙️ … started"), sent
+  # asynchronously, so counting every message would race them. The digest
+  # is delivered synchronously (deliver/3), so it is recorded by the time
+  # the scenario returns.
+  defp digests do
+    Enum.filter(TelegramStub.sent(), fn message ->
+      Enum.any?(@titles, &String.contains?(message, &1))
+    end)
+  end
+
   test "items that pass reach the user: the digest names them", %{feed_url: url, llm: llm} do
     answer_llm(llm, ["0.9", "0.2", "0.1"])
 
@@ -115,7 +126,7 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
     assert report.verdict == :pass, AlexClaw.Scenarios.format(report)
     assert report.details.fetched == 3
     assert report.details.passed == ["Elixir 1.19 released with faster compilation"]
-    assert [message] = RecordingGateway.sent()
+    assert [message] = digests()
     assert message =~ "Elixir 1.19 released with faster compilation"
     refute message =~ "bakery"
   end
@@ -127,7 +138,7 @@ defmodule AlexClaw.Scenarios.RssDigestScenarioTest do
 
     assert report.verdict == :pass, AlexClaw.Scenarios.format(report)
     assert report.details.path == ["fetch:on_items", "score:on_empty"]
-    assert RecordingGateway.sent() == []
+    assert digests() == []
   end
 
   # The harness itself: an empty digest is not a success.

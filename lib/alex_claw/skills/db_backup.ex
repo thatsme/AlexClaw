@@ -40,8 +40,8 @@ defmodule AlexClaw.Skills.DbBackup do
       with :ok <- verify_mount(@backup_dir),
            :ok <- ensure_dir(@backup_dir),
            {:ok, filename} <- dump(@backup_dir),
-           rotated <- rotate(@backup_dir, max_files) do
-        summary = "Backup saved: #{filename} (rotated #{rotated} old backups)"
+           {:ok, rotation} <- rotate(@backup_dir, max_files) do
+        summary = summary(filename, rotation)
         Logger.info(summary, skill: :db_backup)
         {:ok, summary, :on_success}
       else
@@ -52,6 +52,19 @@ defmodule AlexClaw.Skills.DbBackup do
     else
       {:error, :backup_disabled}
     end
+  end
+
+  # What was deleted is counted; what could not be deleted is named.
+  defp summary(filename, %{deleted: deleted, failed: []}),
+    do: "Backup saved: #{filename} (rotated #{length(deleted)} old backups)"
+
+  defp summary(filename, %{deleted: deleted, failed: failed}) do
+    names =
+      Enum.map_join(failed, ", ", fn {path, reason} ->
+        "#{Path.basename(path)} (#{inspect(reason)})"
+      end)
+
+    "Backup saved: #{filename} (rotated #{length(deleted)} old backups; could not delete #{names})"
   end
 
   defp verify_mount(dir) do
@@ -165,26 +178,46 @@ defmodule AlexClaw.Skills.DbBackup do
   defp write_dump({output, code}, _filepath, _filename),
     do: {:error, {:pg_dump_exit, code, String.slice(output, 0, 500)}}
 
-  defp rotate(backup_dir, max_files) do
-    case File.ls(backup_dir) do
-      {:ok, files} ->
-        backups =
-          files
-          |> Enum.filter(&String.starts_with?(&1, "alexclaw_backup_"))
-          |> Enum.sort(:desc)
+  @doc """
+  Delete all but the `keep` newest backups in `dir` and say what happened:
+  the paths deleted and the paths that could not be, with the reason. Only
+  names of the form `alexclaw_backup_YYYYMMDD_HHMMSS.sql.gz` are considered.
+  """
+  @spec rotate(String.t(), non_neg_integer()) ::
+          {:ok, %{deleted: [String.t()], failed: [{String.t(), term()}]}}
+          | {:error, {:list_failed, term()}}
+  def rotate(dir, keep) do
+    case File.ls(dir) do
+      {:ok, files} -> {:ok, delete_old(dir, files, keep)}
+      {:error, reason} -> {:error, {:list_failed, reason}}
+    end
+  end
 
-        to_delete = Enum.drop(backups, max_files)
+  defp delete_old(dir, files, keep) do
+    files
+    |> Enum.filter(&Regex.match?(~r/^alexclaw_backup_\d{8}_\d{6}\.sql\.gz$/, &1))
+    |> Enum.sort(:desc)
+    |> Enum.drop(keep)
+    |> Enum.map(&Path.join(dir, &1))
+    |> Enum.reduce(%{deleted: [], failed: []}, &delete_backup/2)
+    |> in_order()
+  end
 
-        Enum.each(to_delete, fn file ->
-          path = Path.join(backup_dir, file)
-          File.rm(path)
-          Logger.info("Rotated old backup: #{file}", skill: :db_backup)
-        end)
+  defp in_order(%{deleted: deleted, failed: failed}),
+    do: %{deleted: Enum.reverse(deleted), failed: Enum.reverse(failed)}
 
-        length(to_delete)
+  defp delete_backup(path, acc) do
+    case File.rm(path) do
+      :ok ->
+        Logger.info("Rotated old backup: #{Path.basename(path)}", skill: :db_backup)
+        %{acc | deleted: [path | acc.deleted]}
 
-      {:error, _} ->
-        0
+      {:error, reason} ->
+        Logger.warning("Could not delete old backup #{path}: #{inspect(reason)}",
+          skill: :db_backup
+        )
+
+        %{acc | failed: [{path, reason} | acc.failed]}
     end
   end
 

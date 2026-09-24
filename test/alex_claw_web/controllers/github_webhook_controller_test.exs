@@ -122,6 +122,8 @@ defmodule AlexClawWeb.GitHubWebhookControllerTest do
   describe "the review workflow" do
     setup do
       Config.set("github.webhook_secret", @secret, type: "string", category: "github")
+      # 0.3.54: the review step is saved only when GitHub is configured.
+      Config.set("github.token", "test-token", type: "string", category: "github")
       :ok
     end
 

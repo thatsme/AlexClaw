@@ -44,6 +44,15 @@ defmodule AlexClaw.Skills.WebSearchFetch do
   def config_scaffold, do: %{"query" => "", "max_results" => 3}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "query" => %{type: :string, required: false},
+      "max_results" => %{type: :integer, required: false}
+    }
+  end
+
+  @impl true
   @spec config_help() :: String.t()
   def config_help,
     do:

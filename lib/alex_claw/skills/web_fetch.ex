@@ -39,6 +39,10 @@ defmodule AlexClaw.Skills.WebFetch do
   def config_scaffold, do: %{"url" => ""}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema, do: %{"url" => %{type: :string, required: false}}
+
+  @impl true
   @spec config_help() :: String.t()
   def config_help,
     do:

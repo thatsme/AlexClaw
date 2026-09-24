@@ -32,6 +32,12 @@ defmodule AlexClaw.Skills.ReceiveFromWorkflow do
   @spec config_scaffold() :: map()
   def config_scaffold, do: %{"allowed_nodes" => []}
 
+  # _source_node is set by the executor for a run a remote node started; keys
+  # starting with _ are the runtime's, not a step's.
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema, do: %{"allowed_nodes" => %{type: :list, required: false}}
+
   @impl true
   @spec config_help() :: String.t()
   def config_help,

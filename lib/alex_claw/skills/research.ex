@@ -32,6 +32,10 @@ defmodule AlexClaw.Skills.Research do
   def config_scaffold, do: %{"query" => ""}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema, do: %{"query" => %{type: :string, required: false}}
+
+  @impl true
   @spec config_help() :: String.t()
   def config_help,
     do: "query: the research topic. Leave empty to use {input} from the previous step."

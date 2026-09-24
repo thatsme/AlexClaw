@@ -54,7 +54,14 @@ defmodule AlexClaw.WorkflowsTest do
   describe "steps" do
     test "add_step assigns auto-incrementing position" do
       wf = create_workflow()
-      {:ok, s1} = Workflows.add_step(wf, %{name: "Step 1", skill: "api_request"})
+
+      {:ok, s1} =
+        Workflows.add_step(wf, %{
+          name: "Step 1",
+          skill: "api_request",
+          config: %{"url" => "https://example.com"}
+        })
+
       {:ok, s2} = Workflows.add_step(wf, %{name: "Step 2", skill: "llm_transform"})
 
       assert s1.position == 1
@@ -63,14 +70,28 @@ defmodule AlexClaw.WorkflowsTest do
 
     test "update_step changes attributes" do
       wf = create_workflow()
-      {:ok, step} = Workflows.add_step(wf, %{name: "Original", skill: "api_request"})
+
+      {:ok, step} =
+        Workflows.add_step(wf, %{
+          name: "Original",
+          skill: "api_request",
+          config: %{"url" => "https://example.com"}
+        })
+
       {:ok, updated} = Workflows.update_step(step, %{name: "Renamed"})
       assert updated.name == "Renamed"
     end
 
     test "remove_step deletes step" do
       wf = create_workflow()
-      {:ok, step} = Workflows.add_step(wf, %{name: "Temp", skill: "api_request"})
+
+      {:ok, step} =
+        Workflows.add_step(wf, %{
+          name: "Temp",
+          skill: "api_request",
+          config: %{"url" => "https://example.com"}
+        })
+
       {:ok, _} = Workflows.remove_step(step)
 
       loaded = Workflows.get_workflow!(wf.id)
@@ -79,7 +100,14 @@ defmodule AlexClaw.WorkflowsTest do
 
     test "reorder_steps updates positions" do
       wf = create_workflow()
-      {:ok, s1} = Workflows.add_step(wf, %{name: "A", skill: "api_request"})
+
+      {:ok, s1} =
+        Workflows.add_step(wf, %{
+          name: "A",
+          skill: "api_request",
+          config: %{"url" => "https://example.com"}
+        })
+
       {:ok, s2} = Workflows.add_step(wf, %{name: "B", skill: "llm_transform"})
 
       {:ok, _} = Workflows.reorder_steps(wf, [s2.id, s1.id])

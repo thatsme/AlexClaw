@@ -4,7 +4,6 @@ defmodule AlexClaw.Dispatcher do
   Pattern matches on message content — no LLM for routing.
 
   Command groups are delegated to focused modules:
-  - `SkillCommands` — /skill load|unload|reload|create|list
   - `AutomationCommands` — /record, /replay, /automate
   - `AuthCommands` — 2FA setup/confirm/disable, OAuth connect/disconnect
   """

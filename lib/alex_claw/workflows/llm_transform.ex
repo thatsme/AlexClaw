@@ -15,6 +15,11 @@ defmodule AlexClaw.Workflows.LLMTransform do
   @spec routes() :: [atom()]
   def routes, do: [:on_success, :on_error]
 
+  # The template is the step's prompt_template, not a config key.
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema, do: %{}
+
   require Logger
 
   alias AlexClaw.LLM.Window

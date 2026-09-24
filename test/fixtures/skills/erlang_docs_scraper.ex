@@ -67,7 +67,7 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
   ]
 
   @impl true
-  def version, do: "3.0.0"
+  def version, do: "3.1.0"
 
   @impl true
   def permissions, do: [:web_read, :knowledge_read, :knowledge_write]
@@ -89,6 +89,16 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
   @impl true
   @spec config_scaffold() :: map()
   def config_scaffold, do: %{"timeout_ms" => 300_000, "delay_between_modules_ms" => 1000}
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "timeout_ms" => %{type: :integer, required: false},
+      "delay_between_modules_ms" => %{type: :integer, required: false},
+      "modules" => %{type: :list, required: false}
+    }
+  end
 
   @impl true
   @spec config_help() :: String.t()
@@ -139,8 +149,21 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     ]
 
     text = Enum.join(counts, " | ") <> "\n\n" <> Enum.map_join(results, "\n", &module_line/1)
-    {:ok, text, stored_branch(total_stored)}
+    outcome(fetched(results), text, total_stored)
   end
+
+  # Every module it tried to fetch failing is a failure, not "nothing new";
+  # some failing are named in the text.
+  defp fetched(results),
+    do: for({_, r} <- results, match?({:stored, _}, r) or match?({:failed, _}, r), do: r)
+
+  defp outcome([_ | _] = fetched, text, total_stored) do
+    if Enum.all?(fetched, &match?({:failed, _}, &1)),
+      do: {:error, "Every Erlang module failed.\n\n" <> text},
+      else: {:ok, text, stored_branch(total_stored)}
+  end
+
+  defp outcome([], text, total_stored), do: {:ok, text, stored_branch(total_stored)}
 
   defp stored_branch(0), do: :on_empty
   defp stored_branch(_total_stored), do: :on_success
@@ -178,20 +201,21 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     source_key = "erlang_docs:#{mod_name}"
 
     case already_stored?(source_key) do
-      true -> :skipped
-      false -> do_scrape(mod_name, app, source_key)
+      {:ok, true} -> :skipped
+      {:ok, false} -> do_scrape(mod_name, app, source_key)
+      {:error, reason} -> {:failed, "cannot check the knowledge base: #{inspect(reason)}"}
     end
   end
 
   defp do_scrape(mod_name, app, source_key) do
     case try_eep48(mod_name) do
       {:ok, chunks} when chunks != [] ->
-        {:stored, store_chunks(mod_name, chunks, source_key)}
+        stored(store_chunks(mod_name, chunks, source_key), chunks)
 
       _ ->
         case fetch_from_github(mod_name, app) do
           {:ok, chunks} ->
-            {:stored, store_chunks(mod_name, chunks, source_key)}
+            stored(store_chunks(mod_name, chunks, source_key), chunks)
 
           {:error, reason} ->
             Logger.warning("erlang_docs: #{mod_name} failed: #{inspect(reason)}")
@@ -200,27 +224,36 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     end
   end
 
-  defp already_stored?(source_key) do
-    case SkillAPI.knowledge_exists?(__MODULE__, source_key) do
-      {:ok, true} -> true
-      _ -> false
-    end
-  end
+  # Chunks the knowledge base refused are not "stored".
+  defp stored(0, [_ | _]), do: {:failed, "the knowledge base stored none of its chunks"}
+  defp stored(n, _chunks), do: {:stored, n}
+
+  defp already_stored?(source_key), do: SkillAPI.knowledge_exists?(__MODULE__, source_key)
 
   # --- EEP-48 extraction ---
 
   defp try_eep48(mod_name) do
-    case :code.get_doc(String.to_atom(mod_name)) do
-      {:docs_v1, _anno, _lang, format, moduledoc, _meta, func_docs} ->
-        mod_text = extract_doc_text(moduledoc, format)
-        funcs = documented_functions(func_docs, mod_name, format)
-
-        {:ok, build_chunks(mod_name, mod_text, funcs)}
-
-      _ ->
-        :unavailable
+    with {:ok, module} <- existing_module(mod_name) do
+      eep48(:code.get_doc(module), mod_name)
     end
   end
+
+  # The module name comes from config: only an atom that already exists is
+  # used (atoms are never collected). An unknown one falls back to GitHub.
+  defp existing_module(mod_name) do
+    {:ok, String.to_existing_atom(mod_name)}
+  rescue
+    ArgumentError -> {:error, :unknown_module}
+  end
+
+  defp eep48({:docs_v1, _anno, _lang, format, moduledoc, _meta, func_docs}, mod_name) do
+    mod_text = extract_doc_text(moduledoc, format)
+    funcs = documented_functions(func_docs, mod_name, format)
+
+    {:ok, build_chunks(mod_name, mod_text, funcs)}
+  end
+
+  defp eep48(_no_docs, _mod_name), do: :unavailable
 
   defp documented_functions(func_docs, mod_name, format) do
     func_docs
@@ -255,7 +288,7 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     # A few have standalone .md docs in doc/src/
     # For erts, source is in erts/emulator/beam/ or erts/preloaded/src/
     urls = source_urls(mod_name, app)
-    fetch_first_success(urls, mod_name)
+    fetch_first_success(urls, mod_name, [])
   end
 
   defp source_urls(mod_name, "erts") do
@@ -272,9 +305,11 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
     ]
   end
 
-  defp fetch_first_success([], _mod_name), do: {:error, :not_found}
+  # Each URL that did not give docs is kept with why, so the failure says what
+  # GitHub answered rather than only :not_found.
+  defp fetch_first_success([], _mod_name, tried), do: {:error, {:not_found, Enum.reverse(tried)}}
 
-  defp fetch_first_success([url | rest], mod_name) do
+  defp fetch_first_success([url | rest], mod_name, tried) do
     case SkillAPI.http_get(__MODULE__, url, receive_timeout: @recv_timeout) do
       {:ok, %{status: 200, body: body}} when is_binary(body) and byte_size(body) > 200 ->
         text = if String.ends_with?(url, ".erl"), do: extract_erl_docs(body), else: body
@@ -283,11 +318,14 @@ defmodule AlexClaw.Skills.Dynamic.ErlangDocsScraper do
         if chunks != [] do
           {:ok, chunks}
         else
-          fetch_first_success(rest, mod_name)
+          fetch_first_success(rest, mod_name, [{url, :no_docs} | tried])
         end
 
-      _ ->
-        fetch_first_success(rest, mod_name)
+      {:ok, %{status: status}} ->
+        fetch_first_success(rest, mod_name, [{url, {:http, status}} | tried])
+
+      {:error, reason} ->
+        fetch_first_success(rest, mod_name, [{url, reason} | tried])
     end
   end
 

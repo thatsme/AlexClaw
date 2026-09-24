@@ -6,6 +6,8 @@ defmodule AlexClaw.Skills.DiscordNotify do
   """
   @behaviour AlexClaw.Skill
 
+  alias AlexClaw.Gateway.Discord
+
   @impl true
   @spec description() :: String.t()
   def description, do: "Sends workflow output to a Discord channel"
@@ -27,12 +29,19 @@ defmodule AlexClaw.Skills.DiscordNotify do
   def config_scaffold, do: %{"channel_id" => ""}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema, do: %{"channel_id" => %{type: :string, required: false}}
+
+  @impl true
+  @spec available?() :: boolean()
+  def available?, do: Discord.configured?()
+
+  @impl true
   @spec config_help() :: String.t()
   def config_help,
     do: "channel_id: target Discord channel. Leave empty to send to the default channel."
 
   require Logger
-  alias AlexClaw.Gateway.Discord
 
   @impl true
   @spec run(map()) :: {:ok, map(), atom()} | {:error, any()}

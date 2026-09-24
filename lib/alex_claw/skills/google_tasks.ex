@@ -19,6 +19,8 @@ defmodule AlexClaw.Skills.GoogleTasks do
   - Returns all task lists with their IDs (use these IDs in "task_list")
   """
   @behaviour AlexClaw.Skill
+
+  alias AlexClaw.Google.TokenManager
   @impl true
   @spec external() :: boolean()
   def external, do: true
@@ -31,7 +33,6 @@ defmodule AlexClaw.Skills.GoogleTasks do
   def routes, do: [:on_tasks, :on_empty, :on_error]
   require Logger
   import AlexClaw.Skills.Helpers, only: [parse_int: 2]
-  alias AlexClaw.Google.TokenManager
 
   @tasks_api "https://tasks.googleapis.com/tasks/v1"
 
@@ -46,6 +47,24 @@ defmodule AlexClaw.Skills.GoogleTasks do
   @impl true
   @spec config_scaffold() :: map()
   def config_scaffold, do: %{"action" => "list", "task_list" => "@default"}
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "action" => %{type: :string, required: false},
+      "task_list" => %{type: :string, required: false},
+      "max_results" => %{type: :integer, required: false},
+      "show_completed" => %{type: :boolean, required: false},
+      "title" => %{type: :string, required: false},
+      "notes" => %{type: :string, required: false},
+      "due" => %{type: :string, required: false}
+    }
+  end
+
+  @impl true
+  @spec available?() :: boolean()
+  def available?, do: TokenManager.configured?()
 
   @impl true
   @spec config_presets() :: %{String.t() => map()}

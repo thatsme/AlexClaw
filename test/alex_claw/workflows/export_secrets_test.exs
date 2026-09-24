@@ -10,6 +10,13 @@ defmodule AlexClaw.Workflows.ExportSecretsTest do
 
   alias AlexClaw.Workflows
 
+  setup do
+    # 0.3.54: a telegram_notify step is saved only when Telegram is configured.
+    insert_setting("telegram.enabled", "true", type: "boolean", category: "telegram")
+    insert_setting("telegram.bot_token", "test-token", type: "string", category: "telegram")
+    :ok
+  end
+
   @placeholder "<secret not exported>"
 
   defp workflow_with_secrets do

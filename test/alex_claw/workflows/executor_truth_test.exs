@@ -64,13 +64,16 @@ defmodule AlexClaw.Workflows.ExecutorTruthTest do
   end
 
   describe "an unrouted branch" do
+    # A real failure: a refused connection (port 9, discard). Since 0.3.54 a
+    # step for a skill that does not exist cannot be saved.
     test "an error with no on_error route fails the run, naming the step" do
       wf = workflow()
 
       step(wf, %{
         name: "Broken",
-        skill: "nonexistent_skill",
-        routes: [%{"branch" => "on_success", "goto" => "end"}]
+        skill: "api_request",
+        config: %{"url" => "http://127.0.0.1:9/"},
+        routes: [%{"branch" => "on_2xx", "goto" => "end"}]
       })
 
       assert {:error, run} = Executor.run(wf.id)
@@ -103,7 +106,8 @@ defmodule AlexClaw.Workflows.ExecutorTruthTest do
 
       step(wf, %{
         name: "Will Fail",
-        skill: "nonexistent_skill",
+        skill: "api_request",
+        config: %{"url" => "http://127.0.0.1:9/"},
         routes: [%{"branch" => "on_error", "goto" => 2}]
       })
 
@@ -111,7 +115,7 @@ defmodule AlexClaw.Workflows.ExecutorTruthTest do
 
       assert {:ok, run} = Executor.run(wf.id)
       assert run.status == "recovered"
-      assert run.step_results["1"]["error"] =~ "unknown_skill"
+      assert run.step_results["1"]["name"] == "Will Fail"
       assert run.step_results["2"]["name"] == "Recover"
     end
   end

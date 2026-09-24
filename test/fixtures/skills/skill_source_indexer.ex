@@ -11,7 +11,7 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
   @max_chunk_chars 3000
 
   @impl true
-  def version, do: "2.0.0"
+  def version, do: "2.1.0"
 
   @impl true
   def permissions, do: [:knowledge_read, :knowledge_write]
@@ -33,6 +33,10 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
   @impl true
   @spec config_scaffold() :: map()
   def config_scaffold, do: %{"exclude" => []}
+
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema, do: %{"exclude" => %{type: :list, required: false}}
 
   @impl true
   @spec config_help() :: String.t()
@@ -58,7 +62,7 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
 
         total_stored = Enum.sum(for {_, {:stored, n}} <- results, do: n)
         total_skipped = Enum.count(results, fn {_, r} -> r == :fresh end)
-        total_updated = Enum.count(results, fn {_, r} -> r == :updated end)
+        total_updated = Enum.sum(for {_, {:updated, n}} <- results, do: n)
         total_failed = Enum.count(results, fn {_, r} -> match?({:failed, _}, r) end)
 
         summary =
@@ -72,11 +76,7 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
         report =
           "Files: #{length(skill_files)} | New: #{total_stored} | Updated: #{total_updated} | Unchanged: #{total_skipped} | Failed: #{total_failed}\n\n#{summary}"
 
-        if total_stored > 0 or total_updated > 0 do
-          {:ok, report, :on_success}
-        else
-          {:ok, report, :on_empty}
-        end
+        result(total_failed, length(skill_files), total_stored + total_updated, report)
 
       {:error, reason} ->
         {:error, "Cannot read skills directory #{skills_dir}: #{inspect(reason)}"}
@@ -85,12 +85,23 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
     e -> {:error, "Skill source indexer failed: #{Exception.message(e)}"}
   end
 
+  # Every file failing is a failure, not "nothing new"; some failing are named in
+  # the report.
+  defp result(failed, files, _indexed, report) when files > 0 and failed == files,
+    do: {:error, "Every skill file failed to index.\n\n" <> report}
+
+  defp result(_failed, _files, indexed, report) when indexed > 0, do: {:ok, report, :on_success}
+  defp result(_failed, _files, _indexed, report), do: {:ok, report, :on_empty}
+
   # --- File indexing ---
 
   defp index_skill_file(skills_dir, file_name) do
     source_key = "skill_source:#{file_name}"
     indexed(already_stored?(source_key), skills_dir, file_name, source_key)
   end
+
+  defp indexed({:error, reason}, _skills_dir, _file_name, _source_key),
+    do: {:failed, "cannot check the knowledge base: #{inspect(reason)}"}
 
   defp indexed(false, skills_dir, file_name, source_key) do
     tagged(reindex_file(skills_dir, file_name, source_key), :stored, "index returned 0")
@@ -108,6 +119,7 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
   end
 
   defp tagged(n, tag, _message) when is_integer(n) and n > 0, do: {tag, n}
+  defp tagged({:failed, reason}, _tag, _message), do: {:failed, reason}
   defp tagged(_result, _tag, message), do: {:failed, message}
 
   defp reindex_file(skills_dir, file_name, source_key) do
@@ -125,10 +137,11 @@ defmodule AlexClaw.Skills.Dynamic.SkillSourceIndexer do
     end
   end
 
+  # A failed check is reported as that file failing, not read as "not stored".
   defp already_stored?(source_key) do
     case SkillAPI.knowledge_exists?(__MODULE__, source_key) do
-      {:ok, true} -> true
-      _ -> false
+      {:ok, stored?} -> stored?
+      {:error, reason} -> {:error, reason}
     end
   end
 

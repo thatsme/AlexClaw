@@ -45,6 +45,19 @@ defmodule AlexClaw.Skills.RSSCollector do
   def config_scaffold, do: %{"force" => false, "max_items" => 5, "fetch_timeout" => 15}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "force" => %{type: :boolean, required: false},
+      "max_items" => %{type: :integer, required: false},
+      "fetch_timeout" => %{type: :integer, required: false},
+      "threshold" => %{type: :number, required: false},
+      "interests" => %{type: :string, required: false},
+      "all_feeds" => %{type: :boolean, required: false}
+    }
+  end
+
+  @impl true
   @spec config_help() :: String.t()
   def config_help,
     do:

@@ -89,31 +89,40 @@ defmodule AlexClaw.Workflows.ExecutorTest do
       assert run.step_results["2"]["name"] == "Step 2"
     end
 
-    test "fails on unknown skill" do
+    # A skill that existed when the step was saved can be gone at run time (a
+    # dynamic skill unloaded later). Saving such a step is refused since
+    # 0.3.54, so the step is written the way an older row looks: past the
+    # changeset.
+    test "fails on a skill that no longer exists at run time" do
       wf = create_workflow()
 
-      {:ok, _step} =
-        Workflows.add_step(wf, %{
-          name: "Bad Step",
-          skill: "nonexistent_skill"
-        })
+      AlexClaw.Repo.insert!(%AlexClaw.Workflows.WorkflowStep{
+        workflow_id: wf.id,
+        name: "Bad Step",
+        skill: "nonexistent_skill",
+        position: 1,
+        config: %{}
+      })
 
       {:error, run} = Executor.run(wf.id)
       assert run.status == "failed"
       assert run.error =~ "unknown_skill"
     end
 
+    # A step that fails for real: a refused connection (port 9, discard).
     test "records step results on failure" do
       wf = create_workflow()
 
       {:ok, _step} =
         Workflows.add_step(wf, %{
           name: "Will Fail",
-          skill: "nonexistent_skill"
+          skill: "api_request",
+          config: %{"url" => "http://127.0.0.1:9/"}
         })
 
       {:error, run} = Executor.run(wf.id)
-      assert run.step_results["1"]["error"] =~ "unknown_skill"
+      assert run.step_results["1"]["name"] == "Will Fail"
+      assert run.step_results["1"]["error"]
     end
 
     test "prompt_template step fails gracefully without LLM" do

@@ -38,6 +38,17 @@ defmodule AlexClaw.Skills.SendToWorkflow do
   @spec config_scaffold() :: map()
   def config_scaffold, do: %{"target_node" => "", "target_workflow" => "", "timeout" => 5000}
 
+  # Without a target node and workflow the step cannot run at all.
+  @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "target_node" => %{type: :string, required: true},
+      "target_workflow" => %{type: :string, required: true},
+      "timeout" => %{type: :integer, required: false}
+    }
+  end
+
   @impl true
   @spec config_help() :: String.t()
   def config_help,

@@ -33,7 +33,11 @@ defmodule AlexClaw.Database.RestoreTest do
     {:ok, workflow} = Workflows.create_workflow(%{name: "restore-probe"})
 
     {:ok, _step} =
-      Workflows.add_step(workflow, %{name: "s1", skill: "rss_collector", config: %{"k" => [1, 2]}})
+      Workflows.add_step(workflow, %{
+        name: "s1",
+        skill: "receive_from_workflow",
+        config: %{"allowed_nodes" => ["n1@host", "n2@host"]}
+      })
 
     {:ok, _} = AlexClaw.Config.set("restore.probe", "original")
 
@@ -203,6 +207,10 @@ defmodule AlexClaw.Database.RestoreTest do
       # Ecto casts "" to nil, so the empty string is written directly.
       empty = provider(%{api_key: nil})
       Repo.query!("UPDATE llm_providers SET api_key = '' WHERE id = $1", [empty.id])
+      # 0.3.54: a telegram_notify step without its own token is saved only when
+      # Telegram is configured.
+      insert_setting("telegram.enabled", "true", type: "boolean", category: "telegram")
+      insert_setting("telegram.bot_token", "test-token", type: "string", category: "telegram")
       step = telegram_step(%{"bot_token" => "", "chat_id" => "1"})
       original = export()
 

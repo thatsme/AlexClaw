@@ -50,13 +50,28 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   def config_scaffold, do: %{"mode" => "latest_pr", "repo" => ""}
 
   @impl true
+  @spec config_schema() :: AlexClaw.Skill.config_schema()
+  def config_schema do
+    %{
+      "mode" => %{type: :string, required: false},
+      "repo" => %{type: :string, required: false},
+      "pr_number" => %{type: :integer, required: false},
+      "commit_sha" => %{type: :string, required: false}
+    }
+  end
+
+  @impl true
+  @spec available?() :: boolean()
+  def available?, do: Config.get("github.token", "") not in [nil, ""]
+
+  @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
     %{
       "Latest PR" => %{"mode" => "latest_pr", "repo" => ""},
       "All open PRs" => %{"mode" => "all_prs", "repo" => ""},
       "Latest push" => %{"mode" => "latest_push", "repo" => ""},
-      "Specific PR" => %{"mode" => "specific_pr", "repo" => "", "pr_number" => ""},
+      "Specific PR" => %{"mode" => "specific_pr", "repo" => ""},
       "Specific commit" => %{"mode" => "specific_commit", "repo" => "", "commit_sha" => ""}
     }
   end

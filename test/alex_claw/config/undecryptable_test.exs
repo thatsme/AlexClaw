@@ -35,6 +35,9 @@ defmodule AlexClaw.Config.UndecryptableTest do
   # One of each: a lost setting beside a readable one, a provider whose key is
   # lost and one of whose two headers is, and a step whose bot token is lost.
   setup do
+    # 0.3.54: a telegram_notify step is saved only when Telegram is configured.
+    insert_setting("telegram.enabled", "true", type: "boolean", category: "telegram")
+    insert_setting("telegram.bot_token", "test-token", type: "string", category: "telegram")
     setting("lost.token", foreign("lost-1"))
     {:ok, _} = AlexClaw.Config.set("kept.token", "still-readable", sensitive: true)
 

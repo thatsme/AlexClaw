@@ -447,10 +447,58 @@ database owner.
 
 ---
 
+## Secrets in OpenBao
+
+Credentials are kept in OpenBao, not in the database. A record that needs one
+holds a reference to it, and every use is resolved for a destination and
+audited.
+
+**Secret settings:** `telegram.bot_token`, `github.token`,
+`github.webhook_secret`, `llm.gemini_api_key`, `llm.anthropic_api_key`,
+`google.oauth.client_secret`, `google.oauth.refresh_token` and
+`discord.bot_token`.
+- Each is bound to the hosts it is sent to, derived from the configuration
+  every time it is resolved.
+- `Config.get/2` refuses them; `Config.secret/2` resolves one for a bound
+  destination only.
+- The Config page shows when each was set, never the value.
+
+The MCP key is not stored at all: see
+[MCP Server Authentication](#mcp-server-authentication).
+
+**Credentials in steps and resources:** a Telegram Notify step's own
+`bot_token`; an API Request step's credential headers; a resource's
+`metadata["auth"]["value"]`.
+- The credential headers are Authorization, Proxy-Authorization, Cookie and
+  X-API-Key, and any header whose name contains `token`, `key`, `secret` or
+  `auth`. Other headers stay as they are.
+- Each is a secret the step or resource owns, and its row keeps a reference.
+- It is bound to the host it is sent to **when it is entered**: the step's URL,
+  the Telegram API, or the resource's API base (else its URL).
+- Moving a step or resource to another host while keeping the credential is
+  refused. The credential has to be entered again for the new host.
+- The executor resolves it for that host when the step runs, and hands the
+  skill the value. Run records, exports and MCP show a placeholder.
+- Deleting a step, workflow or resource deletes its secrets. Duplicating a
+  workflow copies them.
+
+**A URL carrying `user:password`** is refused, on a resource and on an API
+Request step's `url`. Such a URL would be stored, shown and logged with the
+password in it.
+
+**Upgrading from 0.3.x** carries every existing credential over unchanged, at
+the first start, before the gateways:
+- each value is stored in OpenBao, read back and compared, and only then
+  removed from its row;
+- a value that cannot be moved stays where it was and is tried again at the
+  next start.
+
 ## Encryption at Rest
 
-Sensitive settings (API keys, tokens, OAuth secrets held in the configuration)
-are encrypted at the application level using **AES-256-GCM** before being stored in PostgreSQL.
+Sensitive settings that are not secret settings (see
+[Secrets in OpenBao](#secrets-in-openbao)), and values written by 0.3.x that
+the upgrade has not moved yet, are encrypted at the application level using
+**AES-256-GCM** before being stored in PostgreSQL.
 
 - Encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256
 - Each value gets a unique 12-byte random IV — identical plaintext produces different ciphertext
@@ -459,11 +507,6 @@ are encrypted at the application level using **AES-256-GCM** before being stored
 - The admin UI displays masked values — never raw ciphertext or full plaintext
 - The TOTP secret is excluded from the cache: `auth.totp.secret` is read from the row and decrypted per verification, so `Config.get/2` never serves it and its plaintext exists only for the length of a check
 - Every cached row carries its `sensitive` flag alongside its value, and `SkillAPI.config_get/3` refuses any key marked sensitive rather than returning the plaintext. A key the cache does not know is treated as sensitive
-
-**Sensitive keys** (automatically marked and encrypted):
-`telegram.bot_token`, `llm.gemini_api_key`, `llm.anthropic_api_key`,
-`github.token`, `github.webhook_secret`, `google.oauth.client_secret`,
-`google.oauth.refresh_token`
 
 **Changing `SECRET_KEY_BASE` needs a rotation, not an edit.** Changed alone,
 it leaves every encrypted value unreadable, the TOTP secret included, and the
@@ -475,11 +518,12 @@ decrypted with the old key: see
 lost for good has its own audited procedure there, which discards only the
 values that no longer decrypt.
 
-**Credentials outside the settings** are encrypted the same way: an LLM
-provider's API key and header values (`llm_providers.api_key`,
-`llm_providers.headers`), and the step configuration keys a skill declares
-secret — a Telegram Notify step's `bot_token`, an API Request step's
-`headers`. A skill whose configuration has a key with a name
+**Credentials outside the settings** are encrypted the same way:
+- an LLM provider's API key and header values (`llm_providers.api_key`,
+  `llm_providers.headers`);
+- a step credential written by 0.3.x, until the upgrade moves it to OpenBao.
+
+A skill whose configuration has a key with a name
 one of whose underscore-separated parts is `token`, `key`, `apikey`,
 `password`, `secret`, `credential`, `auth`, `authorization` or `headers` must declare it with
 `secret_config_keys/0`: a core skill that does not fails the build, and a

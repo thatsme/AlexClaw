@@ -4,11 +4,13 @@ defmodule AlexClaw.Workflows do
   """
   import Ecto.Query
   alias AlexClaw.Repo
+  alias AlexClaw.Secrets.Owned
 
   alias AlexClaw.Workflows.{
     SkillOutcome,
     SkillRegistry,
     StepReferences,
+    StepSecrets,
     Workflow,
     WorkflowResource,
     WorkflowRun,
@@ -55,7 +57,12 @@ defmodule AlexClaw.Workflows do
 
   @spec delete_workflow(Workflow.t()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
   def delete_workflow(%Workflow{} = workflow) do
-    Repo.delete(workflow)
+    steps = Repo.preload(workflow, :steps).steps
+
+    with {:ok, deleted} <- Repo.delete(workflow) do
+      Enum.each(steps, &StepSecrets.delete/1)
+      {:ok, deleted}
+    end
   end
 
   @spec duplicate_workflow(Workflow.t()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
@@ -98,14 +105,22 @@ defmodule AlexClaw.Workflows do
   defp inserted_or_rollback({:ok, record}), do: record
   defp inserted_or_rollback({:error, changeset}), do: Repo.rollback(changeset)
 
+  # The copy owns copies of the step's secrets: deleting one step never takes
+  # the other's credentials with it.
   defp copy_step(step, workflow_id) do
+    config =
+      case StepSecrets.copied(step.skill, step.config, workflow_id) do
+        {:ok, config} -> config
+        {:error, reason} -> Repo.rollback({:secret_not_copied, step.name, reason})
+      end
+
     %WorkflowStep{}
     |> WorkflowStep.changeset(%{
       workflow_id: workflow_id,
       name: step.name,
       skill: step.skill,
       position: step.position,
-      config: step.config,
+      config: config,
       llm_tier: step.llm_tier,
       llm_model: step.llm_model,
       prompt_template: step.prompt_template,
@@ -305,7 +320,7 @@ defmodule AlexClaw.Workflows do
              input_from: step["input_from"],
              routes: step["routes"] || []
            })
-           |> Repo.insert() do
+           |> save_step(nil, %{}, &Repo.insert/1) do
         {:ok, inserted} -> {inserted.id, missing}
         {:error, changeset} -> Repo.rollback(changeset_to_message(changeset))
       end
@@ -351,6 +366,10 @@ defmodule AlexClaw.Workflows do
   defp redact_if(true, value, placeholder), do: redact(value, placeholder)
 
   defp redact(value, _placeholder) when value in [nil, ""], do: value
+
+  # A reference to a secret is shown as the placeholder too: its name says
+  # nothing a reader needs, and an import never takes it as a value.
+  defp redact(%{"secret" => name}, placeholder) when is_binary(name), do: placeholder
 
   defp redact(value, placeholder) when is_map(value),
     do: Map.new(value, fn {k, v} -> {k, redact(v, placeholder)} end)
@@ -499,16 +518,27 @@ defmodule AlexClaw.Workflows do
 
     %WorkflowStep{}
     |> WorkflowStep.changeset(attrs)
-    |> Repo.insert()
+    |> save_step(nil, %{}, &Repo.insert/1)
   end
 
   @spec update_step(WorkflowStep.t(), map()) ::
           {:ok, WorkflowStep.t()} | {:error, Ecto.Changeset.t()}
   def update_step(%WorkflowStep{} = step, attrs) do
-    with {:ok, updated} <- step |> WorkflowStep.changeset(attrs) |> Repo.update() do
+    with {:ok, updated} <-
+           step
+           |> WorkflowStep.changeset(attrs)
+           |> save_step(step.skill, step.config, &Repo.update/1) do
       clear_secret_mark(updated)
       {:ok, updated}
     end
+  end
+
+  # A step is saved with its credentials (StepSecrets): the row holds
+  # references, the values go to OpenBao in the same transaction, and the
+  # secrets it no longer references are deleted once it has committed.
+  defp save_step(changeset, old_skill, old_config, persist) do
+    with {:ok, changeset, secrets} <- StepSecrets.plan(changeset, old_skill, old_config),
+         do: Owned.saved(changeset, secrets, &StepSecrets.kind/1, persist)
   end
 
   # A step imported without its secrets stops being marked once every key it
@@ -548,7 +578,15 @@ defmodule AlexClaw.Workflows do
       others = Enum.reject(steps_of(step.workflow_id), &(&1.id == step.id))
       removed(Enum.filter(others, &points_to?(&1, step.position)), step, others)
     end)
+    |> secrets_deleted()
   end
+
+  defp secrets_deleted({:ok, removed} = result) do
+    StepSecrets.delete(removed)
+    result
+  end
+
+  defp secrets_deleted(error), do: error
 
   # The remaining steps are numbered 1..n in their order, which also closes
   # gaps an earlier removal left; references follow.

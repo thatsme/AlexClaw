@@ -346,7 +346,7 @@ priv/repo/
 
 - **Semantic search requires an embedding provider.** Vector search works when at least one embedding-capable provider is configured (Gemini, Ollama, or OpenAI-compatible). Without one, memory falls back to keyword search. Configure via `embedding.provider` and `embedding.model` in the admin UI.
 - **Single-user only.** There is no multi-user access control. The authentication model assumes one trusted operator.
-- **Credentials encrypted at rest.** API keys and tokens, in the settings, on LLM providers and in workflow steps, are AES-256-GCM encrypted in PostgreSQL using `SECRET_KEY_BASE` as key material. Changing `SECRET_KEY_BASE` takes a rotation that re-encrypts them: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md) and [SECURITY.md](SECURITY.md#encryption-at-rest).
+- **Credentials in OpenBao.** API keys and tokens in the settings, in workflow steps and in resources are kept in OpenBao, bound to the host each is sent to; the database holds references ([SECURITY.md](SECURITY.md#secrets-in-openbao)). LLM provider keys are AES-256-GCM encrypted in PostgreSQL using `SECRET_KEY_BASE` as key material. Changing `SECRET_KEY_BASE` takes a rotation that re-encrypts them: see [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md) and [SECURITY.md](SECURITY.md#encryption-at-rest).
 - **Web Automator is experimental.** The browser automation sidecar (`web_automation` skill) is under heavy development. APIs, config format, and recording workflow may change without notice.
 - **Forge is pre-alpha.** See below.
 

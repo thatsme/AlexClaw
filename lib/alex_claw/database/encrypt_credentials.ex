@@ -5,10 +5,12 @@ defmodule AlexClaw.Database.EncryptCredentials do
   `SECRET_KEY_BASE`, and encrypts the credentials stored outside the settings
   that are still in plain text.
 
-  Covered: `llm_providers.api_key`, `llm_providers.headers`, and the keys of
-  a step's `config` that skills declare secret (`AlexClaw.Encrypted`). Rows
-  written before encryption at rest existed are in plain text until this runs
-  once; after that it only checks.
+  Covered: `llm_providers.api_key`, `llm_providers.headers`, and the
+  credential fields of a step's `config` (`AlexClaw.Workflows.StepSecrets`)
+  still holding a value in plain text. Rows written before encryption at rest
+  existed are in plain text until this runs once; after that it only checks.
+  Since 0.4.0 a step keeps references to OpenBao secrets instead, and
+  `AlexClaw.Config.SecretUpgrade` moves what this sealed.
 
   It also drops the copies of setting keys that providers were seeded with:
   a provider whose key equals its setting (`llm.gemini_api_key`,
@@ -29,7 +31,8 @@ defmodule AlexClaw.Database.EncryptCredentials do
   alias AlexClaw.Encrypted
   alias AlexClaw.LLM.Client
   alias AlexClaw.Repo
-  alias AlexClaw.Workflows.SkillRegistry
+  alias AlexClaw.Secrets.Owned
+  alias AlexClaw.Workflows.StepSecrets
 
   @doc false
   @spec child_spec(term()) :: Supervisor.child_spec()
@@ -59,7 +62,7 @@ defmodule AlexClaw.Database.EncryptCredentials do
       providers =
         Enum.map(rows("SELECT id, type, api_key, headers FROM llm_providers"), &provider/1)
 
-      steps = Enum.map(rows("SELECT id, config FROM workflow_steps"), &step(&1, secret_keys()))
+      steps = Enum.map(rows("SELECT id, skill, config FROM workflow_steps"), &step/1)
 
       %{
         encrypted: Enum.count(providers ++ steps, &(&1 == :encrypted)),
@@ -72,8 +75,6 @@ defmodule AlexClaw.Database.EncryptCredentials do
     %{rows: rows} = Repo.query!(select <> " ORDER BY id FOR UPDATE")
     rows
   end
-
-  defp secret_keys, do: SkillRegistry.secret_config_keys()
 
   # --- llm_providers ---
 
@@ -106,15 +107,21 @@ defmodule AlexClaw.Database.EncryptCredentials do
 
   # --- workflow_steps ---
 
-  defp step([_id, nil], _keys), do: :unchanged
+  # A credential still in plain text in a step's config (a row older than
+  # encryption at rest) is sealed until SecretUpgrade moves it to OpenBao.
+  # References, and headers that carry no credential, are not credentials.
+  defp step([_id, _skill, nil]), do: :unchanged
 
-  defp step([id, config], keys) do
-    secrets = Map.take(config, keys)
+  defp step([id, skill, config]) do
+    plain =
+      for {path, value} <- StepSecrets.fields(skill, config),
+          not Owned.reference?(value) and Encrypted.plaintext?(value),
+          do: path
 
     changed(
-      Encrypted.plaintext?(secrets),
+      plain != [],
       "UPDATE workflow_steps SET config = $2 WHERE id = $1",
-      [id, Map.merge(config, Encrypted.seal_plaintext(secrets))]
+      [id, Enum.reduce(plain, config, &update_in(&2, &1, fn value -> Encrypted.seal(value) end))]
     )
   end
 

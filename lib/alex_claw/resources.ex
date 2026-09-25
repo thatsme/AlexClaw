@@ -4,8 +4,8 @@ defmodule AlexClaw.Resources do
   """
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Resources.ApiDiscovery
-  alias AlexClaw.Resources.Resource
+  alias AlexClaw.Resources.{ApiDiscovery, Resource, ResourceSecrets}
+  alias AlexClaw.Secrets.Owned
 
   @spec list_resources(map()) :: [Resource.t()]
   def list_resources(filters \\ %{}) do
@@ -38,7 +38,7 @@ defmodule AlexClaw.Resources do
     result =
       %Resource{}
       |> Resource.changeset(attrs)
-      |> Repo.insert()
+      |> saved(%{}, &Repo.insert/1)
 
     unless opts[:skip_discovery] do
       with {:ok, resource} <- result, do: discover(resource)
@@ -53,7 +53,7 @@ defmodule AlexClaw.Resources do
     result =
       resource
       |> Resource.changeset(attrs)
-      |> Repo.update()
+      |> saved(resource.metadata, &Repo.update/1)
 
     unless opts[:skip_discovery] do
       with {:ok, updated} <- result, do: discover(updated)
@@ -78,7 +78,17 @@ defmodule AlexClaw.Resources do
 
   @spec delete_resource(Resource.t()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
   def delete_resource(%Resource{} = resource) do
-    Repo.delete(resource)
+    with {:ok, deleted} <- Repo.delete(resource) do
+      ResourceSecrets.delete(deleted)
+      {:ok, deleted}
+    end
+  end
+
+  # A resource is saved with its credential (ResourceSecrets): the row holds a
+  # reference, the value goes to OpenBao in the same transaction.
+  defp saved(changeset, old_metadata, persist) do
+    with {:ok, changeset, secrets} <- ResourceSecrets.plan(changeset, old_metadata),
+         do: Owned.saved(changeset, secrets, &ResourceSecrets.kind/1, persist)
   end
 
   @spec list_by_tags([String.t()]) :: [Resource.t()]

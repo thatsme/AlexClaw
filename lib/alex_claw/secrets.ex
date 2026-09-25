@@ -40,6 +40,21 @@ defmodule AlexClaw.Secrets do
     |> Repo.insert()
   end
 
+  @doc """
+  Bind the secret `name` to `binding` instead of what it was bound to: a
+  credential re-entered for a new destination. The value is not touched.
+  """
+  @spec rebind(String.t(), [String.t()]) :: :ok | {:error, Ecto.Changeset.t() | :unknown_secret}
+  def rebind(name, binding) do
+    case get(name) do
+      nil -> {:error, :unknown_secret}
+      secret -> secret |> Secret.changeset(%{binding: binding}) |> Repo.update() |> rebound()
+    end
+  end
+
+  defp rebound({:ok, _secret}), do: :ok
+  defp rebound({:error, _changeset} = error), do: error
+
   @doc "The catalogue entry named `name`, or nil."
   @spec get(String.t()) :: Secret.t() | nil
   def get(name) when is_binary(name), do: Repo.get_by(Secret, name: name)

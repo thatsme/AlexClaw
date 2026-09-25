@@ -1,10 +1,14 @@
 defmodule AlexClaw.Encrypted.StepConfig do
   @moduledoc """
-  A workflow step's `config`, with the keys any skill declares secret
-  (`c:AlexClaw.Skill.secret_config_keys/0`) stored encrypted. The type does not
-  know which skill a step runs, so a declared key is encrypted, and decrypted,
-  in every step's config; other keys are left as they are. See
-  `AlexClaw.Encrypted`.
+  A workflow step's `config`.
+
+  Since 0.4.0 a step's credentials are not in its config at all: it holds
+  references to secrets in OpenBao (`AlexClaw.Workflows.StepSecrets`), so
+  nothing is encrypted on the way in. A config written by 0.3.x still holds
+  its declared secret keys (`c:AlexClaw.Skill.secret_config_keys/0`)
+  encrypted, until `AlexClaw.Config.SecretUpgrade` moves them; those are
+  decrypted on the way out. The type does not know which skill a step runs, so
+  a declared key is decrypted in every step's config. See `AlexClaw.Encrypted`.
   """
 
   use Ecto.Type
@@ -22,7 +26,7 @@ defmodule AlexClaw.Encrypted.StepConfig do
   @impl true
   def dump(nil), do: {:ok, nil}
 
-  def dump(value) when is_map(value), do: {:ok, map_secrets(value, &Encrypted.seal/1)}
+  def dump(value) when is_map(value), do: {:ok, value}
 
   def dump(_value), do: :error
 

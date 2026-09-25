@@ -62,11 +62,20 @@ defmodule AlexClaw.Skills.ApiRequest do
   # api resource's base url when it runs.
   @impl true
   @spec validate_config(map()) :: :ok | {:error, [String.t()]}
-  def validate_config(%{"url" => url}) when is_binary(url) and url != "", do: :ok
+  def validate_config(%{"url" => url}) when is_binary(url) and url != "",
+    do: url |> URI.parse() |> without_userinfo()
+
   def validate_config(%{"path" => path}) when is_binary(path) and path != "", do: :ok
 
   def validate_config(_config),
     do: {:error, ["url: required (or a path, with an assigned api resource)"]}
+
+  # A password in a URL is stored, shown and logged with it: a credential goes
+  # in a header, where it is kept as a secret.
+  defp without_userinfo(%URI{userinfo: nil}), do: :ok
+
+  defp without_userinfo(_uri),
+    do: {:error, ["url: must not carry a user name or password (put the credential in a header)"]}
 
   @impl true
   @spec config_presets() :: %{String.t() => map()}

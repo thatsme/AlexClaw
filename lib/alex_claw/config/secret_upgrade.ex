@@ -29,12 +29,14 @@ defmodule AlexClaw.Config.SecretUpgrade do
 
   alias AlexClaw.Config
   alias AlexClaw.Config.{Crypto, SecretSettings, Setting}
+  alias AlexClaw.Config.SecretUpgrade.Records
   alias AlexClaw.MCP.Key
   alias AlexClaw.{Repo, Secrets, Vault}
 
   @type result :: %{
           moved: [String.t()],
           fingerprinted: [String.t()],
+          records_moved: [String.t()],
           failed: [{String.t(), term()}]
         }
 
@@ -52,21 +54,22 @@ defmodule AlexClaw.Config.SecretUpgrade do
   end
 
   @doc """
-  Move every declared-secret setting that still holds a value. Returns what
-  moved to OpenBao, which keys became a fingerprint (the MCP key), and what
-  did not move, with why.
+  Move every declared-secret setting, and every step and resource credential
+  (`AlexClaw.Config.SecretUpgrade.Records`), that still holds a value.
+  Returns the settings moved to OpenBao, the keys that became a fingerprint
+  (the MCP key), the records moved (`"step 12"`, `"resource 3"`), and what did
+  not move, with why.
 
   Options: `vault:` — the `AlexClaw.Vault` server to use.
   """
   @spec run(keyword()) :: {:ok, result()}
   def run(opts \\ []) do
-    result =
+    settings =
       SecretSettings.keys()
       |> Enum.map(&{&1, pending(Repo.get_by(Setting, key: &1))})
       |> Enum.reject(fn {_key, pending} -> pending == :nothing end)
-      |> moved_all(Keyword.get(opts, :vault, Vault))
 
-    {:ok, result}
+    {:ok, moved_all(settings, Records.pending(), Keyword.get(opts, :vault, Vault))}
   end
 
   defp pending(nil), do: :nothing
@@ -81,10 +84,25 @@ defmodule AlexClaw.Config.SecretUpgrade do
 
   # Nothing to move: OpenBao is not even asked, so an instance without it boots
   # as before once everything has moved.
-  defp moved_all([], _vault), do: %{moved: [], fingerprinted: [], failed: []}
+  defp moved_all([], [], _vault),
+    do: %{moved: [], fingerprinted: [], records_moved: [], failed: []}
 
-  defp moved_all(pending, vault),
-    do: pending |> by_status(Vault.status(server: vault), vault) |> tally()
+  defp moved_all(settings, records, vault) do
+    status = Vault.status(server: vault)
+    settings_result = settings |> by_status(status, vault) |> tally()
+    records_result = records_by_status(records, status, vault)
+
+    %{
+      settings_result
+      | failed: settings_result.failed ++ records_result.failed
+    }
+    |> Map.put(:records_moved, records_result.moved)
+  end
+
+  defp records_by_status(records, :ok, vault), do: Records.move_all(records, vault: vault)
+
+  defp records_by_status(records, {:error, reason}, _vault),
+    do: %{moved: [], failed: Enum.map(records, &{Records.label(&1), {:vault, reason}})}
 
   defp by_status(pending, :ok, vault),
     do: Enum.map(pending, fn {key, {:move, s}} -> {key, move(s, vault)} end)
@@ -140,9 +158,20 @@ defmodule AlexClaw.Config.SecretUpgrade do
     }
   end
 
-  defp report(%{moved: [], fingerprinted: [], failed: []}), do: :ok
+  defp report(%{moved: [], fingerprinted: [], records_moved: [], failed: []}), do: :ok
 
-  defp report(%{moved: moved, fingerprinted: fingerprinted, failed: failed}) do
+  defp report(%{
+         moved: moved,
+         fingerprinted: fingerprinted,
+         records_moved: records,
+         failed: failed
+       }) do
+    if records != [],
+      do:
+        Logger.info(
+          "Credentials moved to OpenBao: #{Enum.join(records, ", ")} (the rows keep references)"
+        )
+
     if moved != [],
       do:
         Logger.info(

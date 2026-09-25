@@ -1,6 +1,6 @@
 # Rotating SECRET_KEY_BASE
 
-`SECRET_KEY_BASE` is more than a cookie-signing key in AlexClaw. Sensitive settings and stored credentials (LLM provider keys and headers, step secrets) are encrypted with a key derived from it, the TOTP secret included. **Changing it without re-encrypting them makes them unreadable.** Two-factor authentication stops working, and so does every stored credential.
+`SECRET_KEY_BASE` is more than a cookie-signing key in AlexClaw. Sensitive settings and stored credentials (LLM provider keys and headers, and step secrets written by 0.3.x that the 0.4.0 upgrade has not moved to OpenBao yet) are encrypted with a key derived from it, the TOTP secret included. **Changing it without re-encrypting them makes them unreadable.** Two-factor authentication stops working, and so does every stored credential.
 
 The rotation re-encrypts every encrypted value from the old key to the new one, in a single database transaction:
 

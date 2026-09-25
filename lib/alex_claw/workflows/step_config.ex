@@ -88,6 +88,9 @@ defmodule AlexClaw.Workflows.StepConfig do
     if of_type?(value, type), do: [], else: ["#{key}: must be #{article(type)} #{type}"]
   end
 
+  # A credential field holds a reference to its secret once saved
+  # (AlexClaw.Workflows.StepSecrets); the executor hands the skill the value.
+  defp of_type?(%{"secret" => name}, :string), do: is_binary(name)
   defp of_type?(value, :string), do: is_binary(value)
   defp of_type?(value, :integer), do: is_integer(value)
   defp of_type?(value, :number), do: is_number(value)

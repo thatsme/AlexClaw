@@ -1,0 +1,220 @@
+defmodule AlexClaw.Secrets.Owned do
+  @moduledoc """
+  Secrets that belong to a record, such as a workflow step's credential fields
+  or a resource's auth value. They are kept in OpenBao; the record holds only a
+  reference, `%{"secret" => name}`.
+
+  Unlike a secret setting, an owned secret is bound to one destination, fixed
+  when its value is entered. Saving a record plans each of its credential
+  fields against the references it held before:
+
+    * a reference the record already held is kept, as long as the destination
+      has not moved; a different destination with the old credential is
+      refused: moving a credential is always a deliberate re-entry;
+    * a new value is stored under the field's existing name (bound, or bound
+      again, to the destination) or under a new one;
+    * an empty value clears the field;
+    * a reference the record did not hold is refused: a record cannot borrow
+      another one's secret.
+
+  The secrets a save no longer references are deleted once it has committed.
+  """
+  alias AlexClaw.{Repo, Secrets}
+
+  @type path :: [String.t()]
+  @type action :: {:keep, String.t()} | {:store, String.t(), String.t()}
+  @type plan :: %{path() => action()}
+  @type namer :: (path() -> String.t())
+  @typedoc "A planned save: the plan, the destination, the names no longer referenced."
+  @type secrets :: {plan(), String.t() | nil, [String.t()]}
+
+  @doc "A reference to the secret `name`, as a record stores it."
+  @spec reference(String.t()) :: map()
+  def reference(name), do: %{"secret" => name}
+
+  @doc "Whether `value` is a reference to a secret."
+  @spec reference?(term()) :: boolean()
+  def reference?(%{"secret" => name}) when is_binary(name), do: true
+  def reference?(_value), do: false
+
+  @doc "The references among `fields` (path => value), as path => secret name."
+  @spec references(%{path() => term()}) :: %{path() => String.t()}
+  def references(fields),
+    do:
+      for(
+        {path, %{"secret" => name} = value} <- fields,
+        reference?(value),
+        into: %{},
+        do: {path, name}
+      )
+
+  @doc """
+  Plan the save of the credential `fields` (path => value in the record being
+  saved) against `old` (path => the secret it referenced), for `destination`.
+  `new_name` names the secret of a field that had none. Returns the plan and
+  the names no longer referenced, or a reason to refuse the save.
+  """
+  @spec plan(%{path() => term()}, %{path() => String.t()}, String.t() | nil, namer()) ::
+          {:ok, plan(), [String.t()]} | {:error, String.t()}
+  def plan(fields, old, destination, new_name) do
+    fields
+    |> Enum.reduce_while({:ok, %{}}, fn {path, value}, {:ok, plan} ->
+      path
+      |> action(value, Map.get(old, path), destination, new_name)
+      |> planned(path, plan)
+    end)
+    |> with_dropped(old)
+  end
+
+  defp planned({:ok, nil}, _path, plan), do: {:cont, {:ok, plan}}
+  defp planned({:ok, action}, path, plan), do: {:cont, {:ok, Map.put(plan, path, action)}}
+  defp planned({:error, _reason} = error, _path, _plan), do: {:halt, error}
+
+  defp with_dropped({:ok, plan}, old) do
+    kept = for {_path, action} <- plan, do: elem(action, 1)
+    {:ok, plan, Map.values(old) -- kept}
+  end
+
+  defp with_dropped(error, _old), do: error
+
+  defp action(_path, value, _old, _destination, _new_name) when value in [nil, ""], do: {:ok, nil}
+
+  defp action(_path, %{"secret" => name}, name, destination, _new_name),
+    do: kept(Secrets.get(name), name, destination)
+
+  defp action(_path, %{"secret" => _other}, _old, _destination, _new_name),
+    do: {:error, "a credential reference cannot be set here; enter the credential itself"}
+
+  defp action(_path, value, _old, nil, _new_name) when is_binary(value),
+    do: {:error, "a credential needs a destination host to be bound to: give a full URL"}
+
+  defp action(path, value, old, _destination, new_name) when is_binary(value),
+    do: {:ok, {:store, old || new_name.(path), value}}
+
+  defp action(_path, _value, _old, _destination, _new_name),
+    do: {:error, "a credential must be text"}
+
+  defp kept(nil, _name, _destination),
+    do: {:error, "the stored credential is missing; enter it again"}
+
+  defp kept(%{binding: [destination]}, name, destination), do: {:ok, {:keep, name}}
+
+  defp kept(_secret, _name, _destination),
+    do: {:error, "the credential must be re-entered for the new host"}
+
+  @doc "`record` (a map) with each planned field replaced by its reference."
+  @spec referenced(map(), plan()) :: map()
+  def referenced(record, plan),
+    do:
+      Enum.reduce(plan, record, fn {path, action}, acc ->
+        put_in(acc, path, reference(elem(action, 1)))
+      end)
+
+  @doc """
+  Store the plan's new values in OpenBao, each bound to `destination`: a
+  secret is catalogued on first use, and bound again when it was bound
+  elsewhere. `kind` gives each path's kind of secret.
+  """
+  @spec store_all(plan(), String.t() | nil, namer()) :: :ok | {:error, term()}
+  def store_all(plan, destination, kind) do
+    Enum.reduce_while(plan, :ok, fn
+      {path, {:store, name, value}}, :ok -> {:cont, stored(name, value, destination, kind.(path))}
+      {_path, {:keep, _name}}, :ok -> {:cont, :ok}
+    end)
+    |> halted()
+  end
+
+  defp halted(:ok), do: :ok
+  defp halted(error), do: error
+
+  defp stored(name, value, destination, kind) do
+    with :ok <- bound(Secrets.get(name), name, destination, kind),
+         do: Secrets.put_value(name, value)
+  end
+
+  defp bound(nil, name, destination, kind) do
+    case Secrets.define(%{name: name, kind: kind, binding: [destination]}) do
+      {:ok, _secret} -> :ok
+      error -> error
+    end
+  end
+
+  defp bound(%{binding: [destination]}, _name, destination, _kind), do: :ok
+  defp bound(_secret, name, destination, _kind), do: Secrets.rebind(name, [destination])
+
+  @doc """
+  Persist a record's `changeset` (with its references in place) and store the
+  planned values in OpenBao, in one transaction: a value OpenBao refuses
+  undoes the row. The secrets the record no longer references are deleted
+  once it has committed. `kind` gives each path's kind of secret; `persist`
+  is `Repo.insert/1` or `Repo.update/1`.
+  """
+  @spec saved(Ecto.Changeset.t(), secrets(), namer(), (Ecto.Changeset.t() ->
+                                                         {:ok, struct()} | {:error, term()})) ::
+          {:ok, struct()} | {:error, term()}
+  def saved(changeset, {plan, destination, dropped}, kind, persist) do
+    Repo.transaction(fn ->
+      with {:ok, record} <- persist.(changeset),
+           :ok <- values_stored(store_all(plan, destination, kind), changeset) do
+        record
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> dropped_after(dropped)
+  end
+
+  defp values_stored(:ok, _changeset), do: :ok
+
+  defp values_stored({:error, reason}, changeset),
+    do:
+      {:error,
+       Ecto.Changeset.add_error(changeset, :base, "credential not stored: #{describe(reason)}")}
+
+  defp describe(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp describe(_reason), do: "refused"
+
+  defp dropped_after({:ok, _record} = result, dropped) do
+    delete(dropped)
+    result
+  end
+
+  defp dropped_after(error, _dropped), do: error
+
+  @doc "The binding for a destination URL: `host:<host>` of an http(s) URL, or nil."
+  @spec url_binding(term()) :: String.t() | nil
+  def url_binding(url) when is_binary(url), do: host_binding(URI.parse(url))
+  def url_binding(_url), do: nil
+
+  defp host_binding(%URI{scheme: scheme, host: host})
+       when scheme in ["http", "https"] and is_binary(host) and host != "",
+       do: "host:" <> host
+
+  defp host_binding(_uri), do: nil
+
+  @doc "Copy the secret `name` into a new secret `new`, same binding and kind."
+  @spec copy(String.t(), String.t()) :: :ok | {:error, term()}
+  def copy(name, new) do
+    with %{binding: [destination] = binding, kind: kind} <- Secrets.get(name),
+         {:ok, value} <- Secrets.resolve(name, for: destination),
+         {:ok, _secret} <- Secrets.define(%{name: new, kind: kind, binding: binding}) do
+      Secrets.put_value(new, value)
+    else
+      nil -> {:error, :unknown_secret}
+      %AlexClaw.Secrets.Secret{} -> {:error, :not_owned}
+      error -> error
+    end
+  end
+
+  @doc "Delete the secrets `names`, each with every version. One already gone is no error."
+  @spec delete([String.t()]) :: :ok
+  def delete(names), do: Enum.each(names, &Secrets.delete/1)
+
+  @doc "A secret name for a record's field: `<prefix>_<random>_<field>`, at most 64 characters."
+  @spec name(String.t(), path()) :: String.t()
+  def name(prefix, path) do
+    field = path |> Enum.join("_") |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
+    random = 4 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
+    String.slice("#{prefix}_#{random}_#{field}", 0, 64)
+  end
+end

@@ -14,10 +14,11 @@ defmodule AlexClaw.Workflows.Executor do
 
   alias AlexClaw.Auth.{CapabilityToken, RunApproval, SafeExecutor}
   alias AlexClaw.ContentSanitizer
+  alias AlexClaw.Resources.ResourceSecrets
   alias AlexClaw.Skill
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.{Registry, SkillRegistry, StepConfig, Workflow}
+  alias AlexClaw.Workflows.{Registry, SkillRegistry, StepConfig, StepSecrets, Workflow}
 
   @doc """
   Run a workflow by ID. Creates a run record and walks the step graph.
@@ -418,13 +419,25 @@ defmodule AlexClaw.Workflows.Executor do
   defp run_resolved_skill({:ok, module}, step, args) do
     module
     |> StepConfig.validate(args.config, runtime: true)
-    |> run_checked(module, step, args)
+    |> with_secrets(step, args)
+    |> run_checked(module, step)
   end
 
-  defp run_checked({:error, reasons}, _module, _step, _args),
-    do: {:error, {:invalid_config, reasons}}
+  # The step's secret references, and its resources', resolved for the hosts
+  # they are bound to: the skill gets the values; the run's recorded
+  # definition, its results and the logs only ever held the references.
+  defp with_secrets(:ok, step, args) do
+    with {:ok, config} <- StepSecrets.resolved(step.skill, args.config),
+         {:ok, resources} <- ResourceSecrets.resolved_all(args.resources) do
+      {:ok, %{args | config: config, resources: resources}}
+    end
+  end
 
-  defp run_checked(:ok, module, step, args) do
+  defp with_secrets({:error, reasons}, _step, _args), do: {:error, {:invalid_config, reasons}}
+
+  defp run_checked({:error, reason}, _module, _step), do: {:error, reason}
+
+  defp run_checked({:ok, args}, module, step) do
     skill_type = SkillRegistry.get_type(module) || :dynamic
     token = mint_step_token(module, skill_type)
     if token, do: Process.put(:auth_token, token)

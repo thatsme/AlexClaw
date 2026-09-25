@@ -52,7 +52,7 @@ The same encryption covers credentials stored elsewhere:
 |---|---|
 | `llm_providers.api_key` | an LLM provider's API key |
 | `llm_providers.headers` | every header value (the header names stay readable) |
-| a workflow step's `config` | the keys its skill declares with `secret_config_keys/0`: `bot_token` (Telegram Notify), `headers` (API Request) |
+| a workflow step's `config` | only values written by 0.3.x that the upgrade has not moved yet; since 0.4.0 a step's credentials are in OpenBao and its config holds references (see SECURITY.md, "Secrets in OpenBao") |
 
 A skill whose configuration has a key with a name one of whose underscore-separated parts is `token`, `key`, `apikey`, `password`, `secret`, `credential`, `auth`, `authorization` or `headers` (so `api_key` and `auth_header` count, `keyword_count` does not) must declare it. A core skill that does not fails the build, and a dynamic skill that does not is refused at load.
 

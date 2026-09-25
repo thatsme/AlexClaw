@@ -510,8 +510,14 @@ defmodule AlexClaw.Workflows.Executor do
     {:error, {:fallback_not_found, fallback_name}}
   end
 
-  defp run_fallback({:ok, mod}, _fallback_name, args) do
-    normalize_result(mod.run(args))
+  # The fallback runs as any skill does: through SafeExecutor, with its own
+  # token, and refused if it is not available.
+  defp run_fallback({:ok, fallback}, _fallback_name, args) do
+    skill_type = SkillRegistry.get_type(fallback) || :dynamic
+
+    fallback
+    |> SafeExecutor.run(args, skill_type, mint_step_token(fallback, skill_type), [])
+    |> normalize_result()
   end
 
   defp handle_missing_skill(step, args) do

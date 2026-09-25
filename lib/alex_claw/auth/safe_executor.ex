@@ -5,10 +5,18 @@ defmodule AlexClaw.Auth.SafeExecutor do
   isolating it from the caller's auth state.
 
   Core skills run in-process (no overhead, trusted code).
+
+  It is the one place skill code runs — a workflow step, the circuit-breaker
+  fallback, a skill running another, the reasoning loop, the generator's
+  trial run, a chat command — and it checks first that the skill is
+  available (`AlexClaw.Workflows.StepConfig.available?/2`): an unavailable
+  skill is refused with its reason, and none of its code runs.
   """
   require Logger
 
   alias AlexClaw.Auth.CapabilityToken
+  alias AlexClaw.Skill
+  alias AlexClaw.Workflows.StepConfig
 
   @default_timeout 30_000
 
@@ -22,11 +30,18 @@ defmodule AlexClaw.Auth.SafeExecutor do
   """
   @spec run(module(), map(), :core | :dynamic, CapabilityToken.t() | nil, keyword()) ::
           {:ok, any(), atom()} | {:ok, any()} | {:error, any()}
-  def run(module, args, :core, _token, _opts) do
-    module.run(args)
+  def run(module, args, type, token, opts) do
+    module
+    |> StepConfig.available?(Map.get(args, :config))
+    |> execute(module, args, type, token, opts)
   end
 
-  def run(module, args, :dynamic, token, opts) do
+  defp execute(false, module, _args, _type, _token, _opts),
+    do: {:error, {:unavailable, Skill.unavailable_reason(module, skill_name(module))}}
+
+  defp execute(true, module, args, :core, _token, _opts), do: module.run(args)
+
+  defp execute(true, module, args, :dynamic, token, opts) do
     timeout = opts[:timeout] || @default_timeout
     workflow_run_id = Process.get(:auth_workflow_run_id)
     chain_depth = Process.get(:auth_chain_depth, 0)
@@ -50,4 +65,6 @@ defmodule AlexClaw.Auth.SafeExecutor do
         {:error, :skill_timeout}
     end
   end
+
+  defp skill_name(module), do: module |> Module.split() |> List.last() |> Macro.underscore()
 end

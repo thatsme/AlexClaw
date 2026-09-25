@@ -17,18 +17,9 @@ defmodule AlexClaw.Dispatcher do
   alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Dispatcher.{AuthCommands, CommandParser}
   alias AlexClaw.Gateway
-  alias AlexClaw.Message
+  alias AlexClaw.{Memory, Message}
   alias AlexClaw.Repo
   alias AlexClaw.SkillSupervisor
-
-  alias AlexClaw.Skills.{
-    Conversational,
-    GitHubSecurityReview,
-    GoogleTasks,
-    Research,
-    WebBrowse,
-    WebSearch
-  }
 
   alias AlexClaw.Workflows
   alias Workflows.{SkillRegistry, Workflow}
@@ -83,38 +74,21 @@ defmodule AlexClaw.Dispatcher do
   end
 
   defp route(%Message{text: "/task add " <> title} = msg) do
-    case GoogleTasks.run(%{
-           config: %{"action" => "add"},
-           input: String.trim(title)
-         }) do
-      {:ok, result, _branch} ->
-        Gateway.send_message(result, gateway: msg.gateway)
-
-      {:error, reason} ->
-        Gateway.send_message("Failed to add task: #{inspect(reason)}", gateway: msg.gateway)
-    end
+    "google_tasks"
+    |> run_skill(%{config: %{"action" => "add"}, input: String.trim(title)}, msg)
+    |> answer(msg, "", "Failed to add task")
   end
 
   defp route(%Message{text: "/tasklists" <> _} = msg) do
-    case GoogleTasks.run(%{config: %{"action" => "lists"}}) do
-      {:ok, result, _branch} ->
-        Gateway.send_message("*Your Task Lists*\n\n#{result}", gateway: msg.gateway)
-
-      {:error, reason} ->
-        Gateway.send_message("Failed to fetch task lists: #{inspect(reason)}",
-          gateway: msg.gateway
-        )
-    end
+    "google_tasks"
+    |> run_skill(%{config: %{"action" => "lists"}}, msg)
+    |> answer(msg, "*Your Task Lists*\n\n", "Failed to fetch task lists")
   end
 
   defp route(%Message{text: "/tasks" <> _} = msg) do
-    case GoogleTasks.run(%{config: %{"action" => "list"}}) do
-      {:ok, result, _branch} ->
-        Gateway.send_message("*Your Tasks*\n\n#{result}", gateway: msg.gateway)
-
-      {:error, reason} ->
-        Gateway.send_message("Failed to fetch tasks: #{inspect(reason)}", gateway: msg.gateway)
-    end
+    "google_tasks"
+    |> run_skill(%{config: %{"action" => "list"}}, msg)
+    |> answer(msg, "*Your Tasks*\n\n", "Failed to fetch tasks")
   end
 
   defp route(%Message{text: "/research " <> raw} = msg) do
@@ -124,7 +98,7 @@ defmodule AlexClaw.Dispatcher do
       prefix: "skill.research",
       default_tier: "medium",
       usage: "Usage: /research [--tier light|medium|heavy|local] [--provider name] <query>",
-      handler: &Research.handle/2
+      skill: "research"
     })
   end
 
@@ -135,7 +109,7 @@ defmodule AlexClaw.Dispatcher do
       prefix: "skill.web_search",
       default_tier: "medium",
       usage: "Usage: /search [--tier light|medium|heavy|local] [--provider name] <query>",
-      handler: &WebSearch.handle/2
+      skill: "web_search"
     })
   end
 
@@ -148,29 +122,18 @@ defmodule AlexClaw.Dispatcher do
       tier = CommandParser.resolve_tier(flags, "skill.web_browse.tier", "light")
       provider = CommandParser.resolve_provider(flags, "skill.web_browse.provider")
 
-      case String.split(rest, " ", parts: 2) do
-        [url, question] ->
-          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})",
-            gateway: msg.gateway
-          )
+      Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
 
-          WebBrowse.handle(url, question,
-            tier: tier,
-            provider: provider,
-            gateway: msg.gateway
-          )
-
-        [url] ->
-          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})",
-            gateway: msg.gateway
-          )
-
-          WebBrowse.handle(url, nil,
-            tier: tier,
-            provider: provider,
-            gateway: msg.gateway
-          )
-      end
+      "web_browse"
+      |> run_skill(
+        %{
+          config: browse_config(String.split(rest, " ", parts: 2)),
+          llm_tier: to_string(tier),
+          llm_provider: provider
+        },
+        msg
+      )
+      |> answer(msg, "", "Failed")
     end
   end
 
@@ -473,7 +436,7 @@ defmodule AlexClaw.Dispatcher do
       [repo, pr] ->
         case Integer.parse(pr) do
           {pr_number, ""} ->
-            GitHubSecurityReview.review_pr(repo, pr_number, gateway: msg.gateway)
+            review(%{"mode" => "specific_pr", "repo" => repo, "pr_number" => pr_number}, msg)
 
             Gateway.send_message(
               "GitHub security review started for PR ##{pr_number} on #{repo}.",
@@ -488,7 +451,7 @@ defmodule AlexClaw.Dispatcher do
         end
 
       [repo] ->
-        GitHubSecurityReview.review_pr(repo, nil, gateway: msg.gateway)
+        review(%{"mode" => "latest_pr", "repo" => repo}, msg)
 
         Gateway.send_message("GitHub security review started for latest PR on #{repo}.",
           gateway: msg.gateway
@@ -499,7 +462,7 @@ defmodule AlexClaw.Dispatcher do
   defp route(%Message{text: "/github commit " <> rest} = msg) do
     case String.split(String.trim(rest), " ", parts: 2) do
       [repo, sha] ->
-        GitHubSecurityReview.review_commit(repo, sha, gateway: msg.gateway)
+        review(%{"mode" => "specific_commit", "repo" => repo, "commit_sha" => sha}, msg)
 
         Gateway.send_message(
           "GitHub security review started for commit #{String.slice(sha, 0, 8)} on #{repo}.",
@@ -574,11 +537,24 @@ defmodule AlexClaw.Dispatcher do
       |> Challenge.pending_action()
       |> approve(msg)
     else
-      Conversational.handle(msg)
+      "conversational"
+      |> run_skill(%{input: msg.text}, msg)
+      |> conversed(msg)
     end
   end
 
   defp route(_other), do: :ignored
+
+  # The exchange is remembered, as a conversation always was.
+  defp conversed({:ok, response, _branch}, msg) when is_binary(response) do
+    source = to_string(msg.gateway || "chat")
+    Memory.store(:conversation, "User: #{msg.text}", source: source)
+    Memory.store(:conversation, "AlexClaw: #{response}", source: source)
+    Gateway.send_message(response, gateway: msg.gateway)
+  end
+
+  defp conversed(_failed, msg),
+    do: Gateway.send_message("Something went wrong. Try again.", gateway: msg.gateway)
 
   # The code approves the action the chat's challenge is waiting for — a
   # protected run, nothing else — and is checked when it is performed.
@@ -673,7 +649,52 @@ defmodule AlexClaw.Dispatcher do
       gateway: msg.gateway
     )
 
-    spec.handler.(query, tier: tier, provider: provider, gateway: msg.gateway)
+    spec.skill
+    |> run_skill(%{input: query, llm_tier: to_string(tier), llm_provider: provider}, msg)
+    |> answer(msg, "", "#{spec.label} failed")
+  end
+
+  defp browse_config([url, question]), do: %{"url" => url, "question" => question}
+  defp browse_config([url]), do: %{"url" => url}
+
+  # A review takes minutes, so it runs beside the chat; its report, or why it
+  # failed, is the reply.
+  defp review(config, msg) do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      "github_security_review"
+      |> run_skill(%{config: config}, msg)
+      |> answer(msg, "", "⚠️ GitHub security review failed")
+    end)
+  end
+
+  # A chat command runs its skill as every skill runs: through the control
+  # plane (:run_skill from the gateway, audited) and SafeExecutor, which
+  # refuses a skill that is not available. The chat's own wording — a heading,
+  # "… failed:" — is added here, never inside the skill.
+  defp run_skill(skill, args, msg) do
+    ControlPlane.perform(
+      :run_skill,
+      %{caller: __MODULE__, skill: skill, args: args},
+      Context.gateway(msg.chat_id)
+    )
+  end
+
+  defp answer({:ok, text, _branch}, msg, heading, _failed) when is_binary(text),
+    do: Gateway.send_message(heading <> text, gateway: msg.gateway)
+
+  defp answer({:ok, text}, msg, heading, _failed) when is_binary(text),
+    do: Gateway.send_message(heading <> text, gateway: msg.gateway)
+
+  defp answer({:ok, _nothing, branch}, msg, _heading, _failed),
+    do: Gateway.send_message("Nothing to report (#{branch}).", gateway: msg.gateway)
+
+  defp answer({:error, {:unavailable, reason}}, msg, _heading, _failed),
+    do: Gateway.send_message(reason, gateway: msg.gateway)
+
+  defp answer({:error, reason}, msg, _heading, failed) do
+    Gateway.send_message("#{failed}: #{AlexClaw.FailureText.describe(reason)}",
+      gateway: msg.gateway
+    )
   end
 
   # A chat operates AlexClaw; it never authors it: a command's default tier

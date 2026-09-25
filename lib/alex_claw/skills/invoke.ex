@@ -6,11 +6,12 @@ defmodule AlexClaw.Skills.Invoke do
   A privileged skill — one that reaches the host, the filesystem, the network
   or the skill loader, and does not check a second factor inside `run/1` — is
   refused here and audited; it runs only as `:run_privileged_skill`, from the
-  admin UI. The target runs with the caller's capability token narrowed to
-  the target's own permissions.
+  admin UI. The target runs through `AlexClaw.Auth.SafeExecutor` (which
+  refuses it if it is not available), with the caller's capability token
+  narrowed to the target's own permissions.
   """
 
-  alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken}
+  alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken, SafeExecutor}
   alias AlexClaw.Workflows.SkillRegistry
 
   @privileged_skills ~w(shell coder db_backup web_automation)
@@ -54,7 +55,13 @@ defmodule AlexClaw.Skills.Invoke do
     if attenuated, do: Process.put(:auth_token, attenuated)
 
     try do
-      target_module.run(args)
+      SafeExecutor.run(
+        target_module,
+        args,
+        SkillRegistry.get_type(target_module) || :dynamic,
+        Process.get(:auth_token),
+        []
+      )
     after
       Process.put(:auth_chain_depth, depth)
       if current_token, do: Process.put(:auth_token, current_token)

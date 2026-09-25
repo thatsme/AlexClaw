@@ -1,4 +1,4 @@
-.PHONY: build up down logs seed seed-financial restart test test-elixir test-python test-unit test-integration test-adversarial test-stress
+.PHONY: build up down logs seed seed-financial restart api-map test test-elixir test-python test-unit test-integration test-adversarial test-stress
 
 build:
 	docker compose build --build-arg BUILD_NUMBER=$$(git rev-list --count HEAD 2>/dev/null || echo 0)
@@ -22,6 +22,10 @@ seed:
 seed-financial:
 	docker compose exec alexclaw-prod bin/alex_claw rpc \
 		'Path.wildcard("lib/alex_claw-*/priv/repo/seeds/financial_workflows.exs") |> hd() |> Code.eval_file()'
+
+# Regenerates local-docs/API_MAP.md (local, not in the repository) from lib/.
+api-map:
+	docker compose -f docker-compose.test.yml run --rm --no-deps -v "$$PWD/lib:/app/lib" -v "$$PWD/mix.exs:/app/mix.exs:ro" -v "$$PWD/.git:/app/.git:ro" -v "$$PWD/local-docs:/app/local-docs" tools mix alex_claw.api_map
 
 test-down:
 	docker compose -f docker-compose.test.yml down

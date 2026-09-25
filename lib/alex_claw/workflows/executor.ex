@@ -416,7 +416,18 @@ defmodule AlexClaw.Workflows.Executor do
 
   # A step saved before the config contract is held to it here: one that breaks
   # it fails at this step, naming the field, instead of running on what it has.
+  # So is one saved before its skill stopped being available as a step (Coder,
+  # since 0.4.0): it fails with the skill's reason, and the skill never runs.
   defp run_resolved_skill({:ok, module}, step, args) do
+    module
+    |> StepConfig.available?(args.config)
+    |> run_available(module, step, args)
+  end
+
+  defp run_available(false, module, step, _args),
+    do: {:error, {:unavailable, Skill.unavailable_reason(module, step.skill)}}
+
+  defp run_available(true, module, step, args) do
     module
     |> StepConfig.validate(args.config, runtime: true)
     |> with_secrets(step, args)

@@ -70,7 +70,7 @@ defmodule AlexClawWeb.GateAuditsTest do
       {:ok, wf} = Workflows.create_workflow(%{name: "Runs #{System.unique_integer([:positive])}"})
       {:ok, _run} = Workflows.create_run(wf)
 
-      {:ok, view, _html} = conn |> authenticate(sid) |> live("/workflow-runs")
+      {:ok, view, _html} = conn |> authenticate(sid) |> live("/workflows/#{wf.id}/runs")
       render_click(view, "clear_runs", %{})
 
       assert Repo.aggregate(AlexClaw.Workflows.WorkflowRun, :count) >= 1
@@ -129,7 +129,7 @@ defmodule AlexClawWeb.GateAuditsTest do
       {:ok, _} =
         AlexClaw.Secrets.define(%{name: name, kind: "api_token", binding: ["host:a.example"]})
 
-      {:ok, _} = AlexClaw.Secrets.rebind(name, ["host:b.example"])
+      :ok = AlexClaw.Secrets.rebind(name, ["host:b.example"])
 
       entries = any_row(name)
       assert Enum.any?(entries, &(&1.reason =~ ~r/defin/i))

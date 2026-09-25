@@ -217,6 +217,42 @@ defmodule AlexClaw.Auth.AuditLog do
   end
 
   @doc """
+  Record an attempt to resolve a secret: its name, the destination asked for
+  and the outcome. Allowed and refused alike, and never the value
+  (`AlexClaw.Secrets.resolve/2`).
+  """
+  @spec log_secret_resolve(String.t(), String.t(), :ok | {:error, atom()}) :: :ok
+  def log_secret_resolve(name, destination, outcome) do
+    secret_entry("secret.resolve", outcome, "secret #{name} for #{destination}")
+  end
+
+  @doc "Record an attempt to set a secret's value: its name and the outcome, never the value."
+  @spec log_secret_set(String.t(), :ok | {:error, atom()}) :: :ok
+  def log_secret_set(name, outcome) do
+    secret_entry("secret.set", outcome, "secret #{name}: value set")
+  end
+
+  defp secret_entry(permission, :ok, what) do
+    Logger.debug("#{what}: allowed", auth: :secrets)
+    insert_entry(secret_row(permission, "allow", what))
+  end
+
+  defp secret_entry(permission, {:error, reason}, what) do
+    Logger.warning("#{what}: refused (#{reason})", auth: :secrets)
+    insert_entry(secret_row(permission, "deny", "#{what} — refused: #{reason}"))
+  end
+
+  defp secret_row(permission, decision, reason) do
+    %{
+      caller: "secrets",
+      caller_type: "system",
+      permission: permission,
+      decision: decision,
+      reason: reason
+    }
+  end
+
+  @doc """
   Prune audit entries older than thirty days.
 
   The application's database role cannot delete from the audit log, so this

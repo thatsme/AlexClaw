@@ -41,6 +41,8 @@ defmodule AlexClaw.Database.Roles do
     "reasoning_sessions" => @full,
     "reasoning_steps" => @full,
     "resources" => @full,
+    # The secrets catalogue: names, kinds, bindings, dates — never a value.
+    "secrets" => @full,
     "settings" => @full,
     "skill_outcomes" => @full,
     "workflow_resources" => @full,

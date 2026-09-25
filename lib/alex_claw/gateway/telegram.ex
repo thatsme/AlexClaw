@@ -339,8 +339,7 @@ defmodule AlexClaw.Gateway.Telegram do
         send_plain(url, Map.merge(%{chat_id: chat_id, text: plain_text}, send_options))
 
       {:ok, %{status: 401, body: body}} ->
-        # The held token is no longer valid: resolved again on next use.
-        Token.invalidate()
+        invalidate_if_held(token)
         Logger.warning("Send failed: 401 - #{inspect(body)}")
         {:error, {:telegram, 401, body}}
 
@@ -353,6 +352,14 @@ defmodule AlexClaw.Gateway.Telegram do
         {:error, reason}
     end
   end
+
+  # A 401 says the token that was used is not valid. When that is the held
+  # token, it is resolved again on next use; a step's own token says nothing
+  # about the held one.
+  defp invalidate_if_held(token), do: invalidated(token == Token.get())
+
+  defp invalidated(true), do: Token.invalidate()
+  defp invalidated(false), do: :ok
 
   defp send_plain(url, request) do
     case Req.post(url, json: request) do

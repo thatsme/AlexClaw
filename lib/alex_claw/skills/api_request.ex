@@ -70,6 +70,12 @@ defmodule AlexClaw.Skills.ApiRequest do
   def validate_config(_config),
     do: {:error, ["url: required (or a path, with an assigned api resource)"]}
 
+  # The request's host and path, for the log: a query string may carry a token.
+  defp loggable(url) do
+    uri = URI.parse(url)
+    URI.to_string(%URI{scheme: uri.scheme, host: uri.host, port: uri.port, path: uri.path})
+  end
+
   # A password in a URL is stored, shown and logged with it: a credential goes
   # in a header, where it is kept as a secret.
   defp without_userinfo(%URI{userinfo: nil}), do: :ok
@@ -170,7 +176,7 @@ defmodule AlexClaw.Skills.ApiRequest do
   defp merge_auth_headers(config, _metadata), do: config
 
   defp execute_request(method, url, headers, body) do
-    Logger.info("ApiRequest #{method} #{url}", skill: :api_request)
+    Logger.info("ApiRequest #{method} #{loggable(url)}", skill: :api_request)
 
     method
     |> dispatch_request(url, [headers: headers, receive_timeout: 30_000], body)

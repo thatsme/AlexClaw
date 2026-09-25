@@ -20,7 +20,9 @@ defmodule AlexClaw.Database.Restore do
 
   Every encrypted value in the file is checked to decrypt before anything is
   written — see `AlexClaw.Database.KeyCheck` — so a file made under another
-  `SECRET_KEY_BASE` is refused whole.
+  `SECRET_KEY_BASE` is refused whole. Every reference a step or resource holds
+  to a secret must name one the file's catalogue (`secrets`) holds, or the
+  file is refused, naming the table and the secret.
 
   A full backup, schema and audit log included, is restored by an operator
   with the database owner's credentials; see the upgrade guide.
@@ -29,6 +31,8 @@ defmodule AlexClaw.Database.Restore do
   alias AlexClaw.Auth.{AuditLog, Principal}
   alias AlexClaw.Database.{DataExport, DataSet, KeyCheck}
   alias AlexClaw.Repo
+  alias AlexClaw.Resources.ResourceSecrets
+  alias AlexClaw.Workflows.StepSecrets
 
   @staging_prefix "alexclaw-restore-"
   @max_params 60_000
@@ -106,6 +110,7 @@ defmodule AlexClaw.Database.Restore do
   @spec load(term()) :: {:ok, String.t()} | {:error, String.t()}
   def load(data) do
     with {:ok, plan} <- plan(data),
+         :ok <- references_known(plan),
          {:ok, count} <- Repo.transaction(fn -> replace(plan) end, timeout: :infinity) do
       {:ok, "Restore completed: #{count} rows in #{length(plan)} tables"}
     end
@@ -252,6 +257,59 @@ defmodule AlexClaw.Database.Restore do
 
   defp reversed({:ok, plan}), do: {:ok, Enum.reverse(plan)}
   defp reversed(error), do: error
+
+  # --- Secret references ---
+
+  # A step or resource holds references to secrets (AlexClaw.Secrets.Owned);
+  # the restore replaces the catalogue with the file's. A reference to a name
+  # the file's catalogue does not hold would never resolve: refused, naming
+  # the table and the secret.
+  defp references_known(plan) do
+    catalogue = MapSet.new(column_values(plan, "secrets", "name"))
+
+    plan
+    |> Enum.flat_map(&references/1)
+    |> Enum.find(fn {_table, name} -> not MapSet.member?(catalogue, name) end)
+    |> unknown_reference()
+  end
+
+  defp unknown_reference(nil), do: :ok
+
+  defp unknown_reference({table, name}),
+    do:
+      {:error,
+       "#{table}: references the secret #{name}, which the export's catalogue does not hold"}
+
+  defp references({"workflow_steps" = table, live, rows}) do
+    for row <- rows,
+        values = row_map(live, row),
+        name <- Map.values(StepSecrets.references(values["skill"], decoded_map(values["config"]))),
+        do: {table, name}
+  end
+
+  defp references({"resources" = table, live, rows}) do
+    for row <- rows,
+        name <-
+          Map.values(ResourceSecrets.references(decoded_map(row_map(live, row)["metadata"]))),
+        do: {table, name}
+  end
+
+  defp references(_entry), do: []
+
+  defp column_values(plan, table, column) do
+    for {^table, live, rows} <- plan, row <- rows, do: row_map(live, row)[column]
+  end
+
+  defp row_map(live, row), do: live |> Enum.map(&elem(&1, 0)) |> Enum.zip(row) |> Map.new()
+
+  defp decoded_map(json) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, map} when is_map(map) -> map
+      _other -> %{}
+    end
+  end
+
+  defp decoded_map(_value), do: %{}
 
   # --- Replacing the data ---
 

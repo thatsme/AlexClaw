@@ -3,7 +3,7 @@ defmodule AlexClaw.Workflows do
   Context for managing workflows, steps, resource assignments, and runs.
   """
   import Ecto.Query
-  alias AlexClaw.Repo
+  alias AlexClaw.{Repo, Resources}
   alias AlexClaw.Secrets.Owned
 
   alias AlexClaw.Workflows.{
@@ -215,8 +215,12 @@ defmodule AlexClaw.Workflows do
 
   defp export_resource(nil), do: Map.new(@resource_fields, &{Atom.to_string(&1), nil})
 
-  defp export_resource(resource),
-    do: Map.new(@resource_fields, &{Atom.to_string(&1), Map.fetch!(resource, &1)})
+  # A resource's credential and recorded values are not exported: the same
+  # rule MCP applies, with the credential shown as the placeholder.
+  defp export_resource(resource) do
+    exported = Resources.exported(resource, @secret_placeholder)
+    Map.new(@resource_fields, &{Atom.to_string(&1), Map.fetch!(exported, &1)})
+  end
 
   @doc "Import a workflow from a JSON-decoded map. Returns {:ok, workflow, warnings} or {:error, message}."
   @spec import_workflow(map()) :: {:ok, Workflow.t(), [String.t()]} | {:error, String.t()}
@@ -459,22 +463,27 @@ defmodule AlexClaw.Workflows do
   defp found_or_create(nil, res), do: create_resource(res)
   defp found_or_create(resource, _res), do: {:ok, resource, :found}
 
+  # Through Resources, like any resource: a credential in the file is stored
+  # as the resource's secret; a placeholder is emptied, to be entered again.
+  # Inside the import's transaction, so discovery is not started here.
   defp create_resource(res) do
-    alias AlexClaw.Resources.Resource
-
-    %Resource{}
-    |> Resource.changeset(%{
+    %{
       name: res["name"],
       type: res["type"],
       url: res["url"],
       content: res["content"],
-      metadata: res["metadata"] || %{},
+      metadata: unredacted_metadata(res["metadata"] || %{}),
       tags: res["tags"] || [],
       enabled: res["enabled"] != false
-    })
-    |> Repo.insert()
+    }
+    |> Resources.create_resource(skip_discovery: true)
     |> created()
   end
+
+  defp unredacted_metadata(%{"auth" => %{"value" => @secret_placeholder} = auth} = metadata),
+    do: %{metadata | "auth" => %{auth | "value" => ""}}
+
+  defp unredacted_metadata(metadata), do: metadata
 
   defp created({:ok, resource}), do: {:ok, resource, :created}
   defp created({:error, changeset}), do: {:error, changeset_to_message(changeset)}

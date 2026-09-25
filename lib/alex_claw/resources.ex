@@ -103,6 +103,23 @@ defmodule AlexClaw.Resources do
     %{resource | metadata: redacted_metadata(metadata || %{}), url: redacted_url(url)}
   end
 
+  @doc """
+  `resource` as a workflow export writes it: its credential's value replaced by
+  `placeholder` (the header name stays, so an import shows what is needed),
+  and what a recording captured redacted as `redacted/1` redacts it.
+  """
+  @spec exported(Resource.t(), String.t()) :: Resource.t()
+  def exported(%Resource{metadata: metadata, url: url} = resource, placeholder) do
+    metadata = (metadata || %{}) |> exported_auth(placeholder) |> redacted_steps()
+    %{resource | metadata: metadata, url: redacted_url(url)}
+  end
+
+  defp exported_auth(%{"auth" => %{"value" => value} = auth} = metadata, placeholder)
+       when value not in [nil, ""],
+       do: %{metadata | "auth" => %{auth | "value" => placeholder}}
+
+  defp exported_auth(metadata, _placeholder), do: metadata
+
   defp redacted_metadata(metadata) do
     metadata
     |> Map.drop(["auth"])

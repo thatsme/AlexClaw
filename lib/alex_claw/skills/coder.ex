@@ -27,6 +27,17 @@ defmodule AlexClaw.Skills.Coder do
   @spec permissions() :: :all
   def permissions, do: :all
 
+  # Generating a skill is authoring: it is done on the admin UI's Forge page
+  # (generate_skill, with the elevation), never by a workflow step (0.4.0 S5b).
+  @impl true
+  @spec available?(map()) :: false
+  def available?(_config), do: false
+
+  @impl true
+  @spec unavailable_reason() :: String.t()
+  def unavailable_reason,
+    do: "coder is not a workflow step: skills are generated on the admin UI's Forge page"
+
   @impl true
   @spec step_fields() :: [atom()]
   def step_fields, do: [:config]

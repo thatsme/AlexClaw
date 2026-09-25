@@ -5,11 +5,11 @@ defmodule AlexClawWeb.GitHubWebhookController do
   use Phoenix.Controller, formats: [:json]
   require Logger
 
-  alias AlexClaw.Config
+  alias AlexClaw.{Config, ControlPlane}
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Skills.GitHubSecurityReview
   alias AlexClaw.Webhooks.{GitHubEvent, GitHubSecret}
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.Executor
 
   @spec handle(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def handle(conn, params) do
@@ -109,12 +109,22 @@ defmodule AlexClawWeb.GitHubWebhookController do
     end
   end
 
+  # The run is :run_workflow from the webhook entry point: the control plane
+  # audits it and refuses a disabled or protected workflow.
   defp start_workflow(workflow, event, what) do
     Logger.info("GitHub review workflow '#{workflow.name}' for #{what}", skill: :github)
 
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      Executor.run_with_initial_input(workflow.id, event)
-    end)
+    :run_workflow
+    |> ControlPlane.perform(%{workflow_id: workflow.id, input: event}, Context.webhook("github"))
+    |> started(workflow)
+  end
+
+  defp started({:ok, _started}, _workflow), do: :ok
+
+  defp started({:error, reason}, workflow) do
+    Logger.warning("GitHub review workflow '#{workflow.name}' not started: #{inspect(reason)}",
+      skill: :github
+    )
 
     :ok
   end

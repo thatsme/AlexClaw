@@ -54,6 +54,12 @@ defmodule AlexClaw.Skill do
   @callback available?() :: boolean()
   @doc "Whether a step with this config can run on this instance; used instead of `available?/0` when declared."
   @callback available?(config :: map()) :: boolean()
+  @doc """
+  Why a step for this skill cannot be saved, when `available?` is false for a
+  reason other than missing configuration. Default: "<skill> is not
+  configured on this instance".
+  """
+  @callback unavailable_reason() :: String.t()
   @doc "Rules across config fields, after each field passed `config_schema/0`."
   @callback validate_config(config :: map()) :: :ok | {:error, [String.t()]}
 
@@ -75,6 +81,7 @@ defmodule AlexClaw.Skill do
                       config_schema: 0,
                       available?: 0,
                       available?: 1,
+                      unavailable_reason: 0,
                       validate_config: 1
 
   @doc "`skill`'s error routes, or `[:on_error]` when it declares none."
@@ -90,7 +97,13 @@ defmodule AlexClaw.Skill do
     declared(function_exported?(skill, callback, 0), skill, callback, default)
   end
 
+  @doc "Why a step for `skill` (named `name`) cannot be saved: its own reason, or that it is not configured."
+  @spec unavailable_reason(module(), String.t()) :: String.t()
+  def unavailable_reason(skill, name),
+    do: declared(skill, :unavailable_reason, "#{name} is not configured on this instance")
+
   defp declared(true, skill, :error_routes, _default), do: skill.error_routes()
   defp declared(true, skill, :empty_routes, _default), do: skill.empty_routes()
+  defp declared(true, skill, :unavailable_reason, _default), do: skill.unavailable_reason()
   defp declared(false, _skill, _callback, default), do: default
 end

@@ -167,12 +167,15 @@ defmodule AlexClaw.ControlPlane.Effects do
   defp unprotected(true), do: {:error, :protected_workflow}
   defp unprotected(false), do: :ok
 
-  # MCP waits for the run and answers with its result; the admin UI and a chat
-  # start it and are told so.
+  # MCP waits for the run and answers with its result; the admin UI, a chat
+  # and a webhook start it and are told so. An input is the first step's.
   defp start(workflow, %{wait: true} = params), do: execute(workflow.id, params[:input])
 
-  defp start(workflow, _params) do
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn -> Executor.run(workflow.id) end)
+  defp start(workflow, params) do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      execute(workflow.id, params[:input])
+    end)
+
     {:ok, {:started, workflow}}
   end
 

@@ -68,7 +68,7 @@ defmodule AlexClaw.Workflows.WorkflowStep do
   defp check_skill({:ok, module}, skill, config, changeset) do
     if StepConfig.available?(module, config),
       do: check_config(StepConfig.validate(module, config), changeset),
-      else: add_error(changeset, :skill, "#{skill} is not configured on this instance")
+      else: add_error(changeset, :skill, AlexClaw.Skill.unavailable_reason(module, skill))
   end
 
   defp check_config(:ok, changeset), do: changeset

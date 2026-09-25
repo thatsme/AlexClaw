@@ -4,7 +4,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   use Phoenix.LiveView
   alias AlexClawWeb.Live.Elevation
 
-  alias AlexClaw.{ControlPlane, Resources}
+  alias AlexClaw.Resources
   alias AlexClaw.Resources.ApiDiscovery
   alias AlexClaw.WebAutomation.Recording
 
@@ -70,9 +70,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   def handle_event("save", params, socket) do
     editing = socket.assigns.editing
 
-    Elevation.gated(socket, "resource saved: #{params["name"]}",
-      write: fn -> persist_resource(editing, resource_attrs(params)) end,
-      after_commit: discover_for(socket),
+    Elevation.perform(socket, :save_resource, %{resource: editing, attrs: resource_attrs(params)},
       ok: fn socket, _resource ->
         action = if editing, do: "updated", else: "created"
 
@@ -96,53 +94,15 @@ defmodule AlexClawWeb.AdminLive.Resources do
         "attach_login",
         %{"id" => id, "selector" => selector, "value" => value},
         socket
-      ) do
-    Elevation.gated(socket, "recording login attached: id #{id}, #{selector}",
-      write: fn ->
-        with {:ok, resource} <- fetch_resource(id),
-             {:ok, metadata} <- Recording.filled(resource.metadata || %{}, selector, value) do
-          Resources.update_resource(resource, %{metadata: metadata}, skip_discovery: true)
-        end
-      end,
-      ok: fn socket, _resource ->
-        socket
-        |> put_flash(:info, "Login attached")
-        |> assign(resources: list_resources(socket.assigns.type_filter))
-      end,
-      error: &not_saved/2
-    )
-  end
+      ),
+      do: attach_login(parse_id(id), selector, value, socket)
 
   @impl true
-  def handle_event("delete", %{"id" => id}, socket) do
-    Elevation.gated(socket, "resource deleted: id #{id}",
-      write: fn ->
-        with {:ok, resource} <- fetch_resource(id), do: Resources.delete_resource(resource)
-      end,
-      ok: fn socket, _resource ->
-        socket
-        |> put_flash(:info, "Resource deleted")
-        |> assign(resources: list_resources(socket.assigns.type_filter))
-      end,
-      error: &not_saved/2
-    )
-  end
+  def handle_event("delete", %{"id" => id}, socket), do: delete_resource(parse_id(id), socket)
 
   @impl true
-  def handle_event("toggle_enabled", %{"id" => id}, socket) do
-    Elevation.gated(socket, "resource enabled toggled: id #{id}",
-      write: fn ->
-        with {:ok, resource} <- fetch_resource(id) do
-          Resources.update_resource(resource, %{enabled: !resource.enabled}, skip_discovery: true)
-        end
-      end,
-      after_commit: discover_for(socket),
-      ok: fn socket, _resource ->
-        assign(socket, resources: list_resources(socket.assigns.type_filter))
-      end,
-      error: &not_saved/2
-    )
-  end
+  def handle_event("toggle_enabled", %{"id" => id}, socket),
+    do: toggle_enabled(fetch_resource(id), socket)
 
   @impl true
   def handle_event("filter_type", %{"type" => ""}, socket) do
@@ -158,16 +118,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
   # change like any other: audited, behind an elevation, and started after the
   # row that records it is committed.
   @impl true
-  def handle_event("discover", %{"id" => id}, socket) do
-    Elevation.gated(socket, "resource discovery started: id #{id}",
-      write: fn -> fetch_resource(id) end,
-      after_commit: discover_for(socket),
-      ok: fn socket, resource ->
-        put_flash(socket, :info, "API discovery started for #{resource.name}")
-      end,
-      error: &not_saved/2
-    )
-  end
+  def handle_event("discover", %{"id" => id}, socket), do: discover(parse_id(id), socket)
 
   def handle_event("unlock_editing", _params, socket) do
     Elevation.open_entry(socket)
@@ -200,20 +151,6 @@ defmodule AlexClawWeb.AdminLive.Resources do
   defp put_metadata(attrs, {:ok, map}) when is_map(map), do: Map.put(attrs, :metadata, map)
   defp put_metadata(attrs, _decoded), do: attrs
 
-  # Discovery outlives the event, so it carries who asked — by fingerprint and
-  # principal, never the sid — to the row it writes when it finishes.
-  defp discover_for(socket) do
-    requester = ControlPlane.requester(socket.assigns.elevation_sid)
-    fn resource -> Resources.discover(resource, requester) end
-  end
-
-  # Discovery fetches the API and writes back to the resource, so it is started
-  # after commit, never from inside the change.
-  defp persist_resource(nil, attrs), do: Resources.create_resource(attrs, skip_discovery: true)
-
-  defp persist_resource(resource, attrs),
-    do: Resources.update_resource(resource, attrs, skip_discovery: true)
-
   # The fields of a recording still waiting for a login.
   defp login_slots(%{metadata: metadata}) when is_map(metadata),
     do: Recording.login_slots(metadata)
@@ -241,6 +178,60 @@ defmodule AlexClawWeb.AdminLive.Resources do
   @impl true
   def handle_info({:discovery_updated, _resource_id, _status}, socket) do
     {:noreply, assign(socket, resources: list_resources(socket.assigns.type_filter))}
+  end
+
+  defp attach_login(:error, _selector, _value, socket), do: {:noreply, socket}
+
+  defp attach_login({:ok, id}, selector, value, socket) do
+    Elevation.perform(
+      socket,
+      :attach_login,
+      %{resource_id: id, selector: selector, value: value},
+      ok: fn socket, _resource ->
+        socket
+        |> put_flash(:info, "Login attached")
+        |> assign(resources: list_resources(socket.assigns.type_filter))
+      end,
+      error: &not_saved/2
+    )
+  end
+
+  defp delete_resource(:error, socket), do: {:noreply, socket}
+
+  defp delete_resource({:ok, id}, socket) do
+    Elevation.perform(socket, :delete_resource, %{resource_id: id},
+      ok: fn socket, _resource ->
+        socket
+        |> put_flash(:info, "Resource deleted")
+        |> assign(resources: list_resources(socket.assigns.type_filter))
+      end,
+      error: &not_saved/2
+    )
+  end
+
+  defp toggle_enabled({:error, reason}, socket), do: {:noreply, not_saved(socket, reason)}
+
+  defp toggle_enabled({:ok, resource}, socket) do
+    Elevation.perform(
+      socket,
+      :save_resource,
+      %{resource: resource, attrs: %{enabled: !resource.enabled}},
+      ok: fn socket, _resource ->
+        assign(socket, resources: list_resources(socket.assigns.type_filter))
+      end,
+      error: &not_saved/2
+    )
+  end
+
+  defp discover(:error, socket), do: {:noreply, socket}
+
+  defp discover({:ok, id}, socket) do
+    Elevation.perform(socket, :discover_resource, %{resource_id: id},
+      ok: fn socket, resource ->
+        put_flash(socket, :info, "API discovery started for #{resource.name}")
+      end,
+      error: &not_saved/2
+    )
   end
 
   defp list_resources(nil), do: Resources.list_resources()

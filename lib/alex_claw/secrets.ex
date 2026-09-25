@@ -32,28 +32,45 @@ defmodule AlexClaw.Secrets do
   @spec topic() :: String.t()
   def topic, do: @topic
 
-  @doc "Define a secret: name, description, kind, binding. Never a value."
+  @doc "Define a secret: name, description, kind, binding. Never a value. Audited."
   @spec define(map()) :: {:ok, Secret.t()} | {:error, Ecto.Changeset.t()}
   def define(attrs) do
-    %Secret{}
-    |> Secret.changeset(attrs)
-    |> Repo.insert()
+    changeset = Secret.changeset(%Secret{}, attrs)
+    result = Repo.insert(changeset)
+
+    AuditLog.log_secret_define(
+      to_string(Ecto.Changeset.get_field(changeset, :name)),
+      Ecto.Changeset.get_field(changeset, :binding) || [],
+      catalogued(result)
+    )
+
+    result
   end
 
   @doc """
   Bind the secret `name` to `binding` instead of what it was bound to: a
   credential re-entered for a new destination. The value is not touched.
+  Audited.
   """
   @spec rebind(String.t(), [String.t()]) :: :ok | {:error, Ecto.Changeset.t() | :unknown_secret}
   def rebind(name, binding) do
-    case get(name) do
-      nil -> {:error, :unknown_secret}
-      secret -> secret |> Secret.changeset(%{binding: binding}) |> Repo.update() |> rebound()
-    end
+    result = name |> get() |> rebound(binding)
+    AuditLog.log_secret_rebind(name, binding, catalogued(result))
+    result
   end
+
+  defp rebound(nil, _binding), do: {:error, :unknown_secret}
+
+  defp rebound(secret, binding),
+    do: secret |> Secret.changeset(%{binding: binding}) |> Repo.update() |> rebound()
 
   defp rebound({:ok, _secret}), do: :ok
   defp rebound({:error, _changeset} = error), do: error
+
+  # A catalogue change refused by its changeset is audited as :invalid, never
+  # the changeset itself.
+  defp catalogued({:error, %Ecto.Changeset{}}), do: {:error, :invalid}
+  defp catalogued(result), do: outcome(result)
 
   @doc "The catalogue entry named `name`, or nil."
   @spec get(String.t()) :: Secret.t() | nil

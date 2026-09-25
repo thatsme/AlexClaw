@@ -4,6 +4,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
   use Phoenix.LiveView
   require Logger
 
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Workflows.SkillRegistry
   alias AlexClawWeb.Live.{ActionCode, Elevation}
 
@@ -50,7 +52,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
     result =
       consume_uploaded_entries(socket, :skill_file, fn %{path: tmp_path}, entry ->
-        {:ok, store_upload(tmp_path, entry.client_name)}
+        {:ok, store_upload(socket, tmp_path, entry.client_name)}
       end)
 
     case result do
@@ -61,6 +63,13 @@ defmodule AlexClawWeb.AdminLive.Skills do
         {:noreply,
          socket
          |> put_flash(:error, "Rejected: skill files must be a plain .ex filename")
+         |> assign(uploading: false)}
+
+      [{:error, :second_factor_required}] ->
+        {:noreply,
+         socket
+         |> Elevation.refresh()
+         |> put_flash(:error, "Unlock editing first")
          |> assign(uploading: false)}
 
       [] ->
@@ -98,8 +107,12 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   # Staged under skills_dir/pending, never the live directory: until the 2FA code
   # is verified the upload cannot replace a skill that is already loaded.
-  defp store_upload(tmp_path, client_name) do
-    case SkillRegistry.stage_upload(tmp_path, client_name) do
+  defp store_upload(socket, tmp_path, client_name) do
+    case ControlPlane.perform(
+           :stage_skill,
+           %{path: tmp_path, name: client_name},
+           Context.admin_ui(socket.assigns.elevation_sid)
+         ) do
       {:ok, file_name} ->
         file_name
 

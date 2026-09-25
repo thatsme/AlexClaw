@@ -85,6 +85,75 @@ defmodule AlexClaw.Auth.AuditLog do
   end
 
   @doc """
+  Write the row for an action `AlexClaw.ControlPlane.perform/3` allowed:
+  `decision` is "write" for a change (inside its transaction) or "allow" for
+  an effect (before it starts). Not best effort: a row that cannot be written
+  stops the action.
+  """
+  @spec record_action(String.t(), atom(), atom(), String.t(), String.t()) ::
+          :ok | {:error, term()}
+  def record_action(caller, entry_point, action, decision, reason) do
+    Logger.info("#{action} by #{caller}: #{reason}", auth: :control_plane)
+    record(stamp(action_row(caller, entry_point, action, decision, reason)))
+  end
+
+  @doc "Record an action `AlexClaw.ControlPlane.perform/3` refused, and why."
+  @spec log_action_refusal(String.t(), atom(), atom(), String.t()) :: :ok
+  def log_action_refusal(caller, entry_point, action, reason) do
+    Logger.warning("#{action} by #{caller} refused: #{reason}", auth: :denied)
+    insert_entry(action_row(caller, entry_point, action, "deny", reason))
+  end
+
+  defp action_row(caller, entry_point, action, decision, reason) do
+    %{
+      caller: caller,
+      caller_type: to_string(entry_point),
+      permission: "control_plane.#{action}",
+      decision: decision,
+      reason: reason
+    }
+  end
+
+  @doc """
+  Record an admin login attempt: the session it opened (by fingerprint) or why
+  it was refused, and the client address. Never the password.
+  """
+  @spec log_login(
+          {:ok, String.t()} | {:error, :invalid_password | :no_admin_password},
+          String.t()
+        ) ::
+          :ok
+  def log_login({:ok, session_fingerprint}, ip) do
+    Logger.info("Admin login from #{ip}", auth: :login)
+
+    insert_entry(
+      login_row("admin:" <> session_fingerprint, "allow", "login succeeded from #{ip}")
+    )
+  end
+
+  def log_login({:error, reason}, ip) do
+    Logger.warning("Admin login refused (#{reason}) from #{ip}", auth: :login)
+    insert_entry(login_row("ip:" <> ip, "deny", "login refused from #{ip}: #{reason}"))
+  end
+
+  @doc "Record an admin logout, by the session's fingerprint."
+  @spec log_logout(String.t()) :: :ok
+  def log_logout(session_fingerprint) do
+    Logger.info("Admin logout by #{session_fingerprint}", auth: :login)
+    insert_entry(login_row("admin:" <> session_fingerprint, "allow", "logout"))
+  end
+
+  defp login_row(caller, decision, reason) do
+    %{
+      caller: caller,
+      caller_type: "admin",
+      permission: "admin.session",
+      decision: decision,
+      reason: reason
+    }
+  end
+
+  @doc """
   Write the row for a control-plane change, and say whether it was written.
 
   Unlike the `log_*` functions this is not best effort: it is called inside the
@@ -231,6 +300,25 @@ defmodule AlexClaw.Auth.AuditLog do
   def log_secret_set(name, outcome) do
     secret_entry("secret.set", outcome, "secret #{name}: value set")
   end
+
+  @doc "Record an attempt to define a secret: its name, its binding and the outcome."
+  @spec log_secret_define(String.t(), [String.t()], :ok | {:error, atom()}) :: :ok
+  def log_secret_define(name, binding, outcome) do
+    secret_entry(
+      "secret.define",
+      outcome,
+      "secret #{name}: defined, bound to #{bindings(binding)}"
+    )
+  end
+
+  @doc "Record an attempt to rebind a secret: its name, the new binding and the outcome."
+  @spec log_secret_rebind(String.t(), [String.t()], :ok | {:error, atom()}) :: :ok
+  def log_secret_rebind(name, binding, outcome) do
+    secret_entry("secret.rebind", outcome, "secret #{name}: rebound to #{bindings(binding)}")
+  end
+
+  defp bindings([]), do: "nothing"
+  defp bindings(binding), do: Enum.join(binding, ", ")
 
   @doc "Record an attempt to delete a secret: its name and the outcome."
   @spec log_secret_delete(String.t(), :ok | {:error, atom()}) :: :ok

@@ -4,8 +4,9 @@ defmodule AlexClawWeb.AdminLive.Services do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.{Challenge, CodeEntry, RecoveryCodes, Sessions, TOTP}
-  alias AlexClaw.Config
+  alias AlexClaw.Auth.{Challenge, RecoveryCodes, Sessions, TOTP}
+  alias AlexClaw.{Config, ControlPlane}
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
   alias AlexClaw.Google.TokenManager
@@ -54,15 +55,16 @@ defmodule AlexClawWeb.AdminLive.Services do
   # to break, and adding protection is not a privileged act.
   @impl true
   def handle_event("setup_2fa", _params, socket) do
-    {:noreply, set_up(TOTP.setup(), socket)}
+    {:noreply, set_up(set_up_step(socket, %{step: :setup}), socket)}
   end
 
   def handle_event("confirm_2fa", %{"code" => code}, socket) do
-    {:noreply, confirmed(TOTP.confirm_setup(String.trim(code)), socket)}
+    confirmation = set_up_step(socket, %{step: :confirm, code: String.trim(code)})
+    {:noreply, confirmed(confirmation, socket)}
   end
 
   def handle_event("cancel_2fa_setup", _params, socket) do
-    Config.delete("auth.totp.pending_secret")
+    {:ok, _removed} = set_up_step(socket, %{step: :cancel})
     {:noreply, assign(socket, totp_setup: nil, totp_message: nil)}
   end
 
@@ -70,8 +72,10 @@ defmodule AlexClawWeb.AdminLive.Services do
   # opened an hour of typing ago should not be able to remove the factor that
   # opened it.
   def handle_event("disable_2fa", %{"code" => code}, socket) do
-    verified = CodeEntry.verify_with(sid(socket), :web, fn -> TOTP.disable_by(code) end)
-    {:noreply, disabled(verified, socket)}
+    performed =
+      ControlPlane.perform(:disable_second_factor, %{}, Context.admin_ui(sid(socket), code))
+
+    {:noreply, disabled(performed, socket)}
   end
 
   @impl true
@@ -114,15 +118,16 @@ defmodule AlexClawWeb.AdminLive.Services do
   # A fresh set invalidates the old one, so it answers to a code like any other
   # change to the second factor.
   def handle_event("regenerate_recovery_codes", %{"code" => code}, socket) do
-    {:noreply, regenerated(CodeEntry.verify(sid(socket), code, :web), socket)}
+    performed =
+      ControlPlane.perform(:regenerate_recovery_codes, %{}, Context.admin_ui(sid(socket), code))
+
+    {:noreply, regenerated(performed, socket)}
   end
 
   # Ends every admin login, this one included, on every node. A change like any
   # other: behind an elevation, and audited with the delete.
   def handle_event("sign_out_everywhere", _params, socket) do
-    Elevation.gated(socket, "all admin sessions signed out",
-      write: &Sessions.remove_all/0,
-      after_commit: &Sessions.disconnect/1,
+    Elevation.perform(socket, :sign_out_everywhere, %{},
       ok: fn socket, _socket_ids -> redirect(socket, to: "/login") end
     )
   end
@@ -308,12 +313,15 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   # The codes exist in readable form for exactly this render. They are shown
   # once, and the operator confirms they have them before the page lets go.
-  defp confirmed(:ok, socket) do
+  defp set_up_step(socket, params),
+    do: ControlPlane.perform(:set_up_second_factor, params, Context.admin_ui(sid(socket)))
+
+  defp confirmed({:ok, codes}, socket) do
     socket
     |> assign(
       totp_setup: nil,
       totp_message: nil,
-      recovery_codes: RecoveryCodes.generate(),
+      recovery_codes: codes,
       recovery: RecoveryCodes.status(),
       services: build_services(),
       # The badge and the setup button both read this. Without refreshing it the
@@ -331,9 +339,9 @@ defmodule AlexClawWeb.AdminLive.Services do
     assign(socket, totp_setup: nil, totp_message: "That setup expired. Start again.")
   end
 
-  defp regenerated(:ok, socket) do
+  defp regenerated({:ok, codes}, socket) do
     socket
-    |> assign(recovery_codes: RecoveryCodes.generate(), totp_message: nil)
+    |> assign(recovery_codes: codes, totp_message: nil)
     |> assign(recovery: RecoveryCodes.status())
     |> put_flash(:info, "New recovery codes. The old ones no longer work.")
   end
@@ -364,7 +372,7 @@ defmodule AlexClawWeb.AdminLive.Services do
     )
   end
 
-  defp disabled(:ok, socket) do
+  defp disabled({:ok, :disabled}, socket) do
     {:ok, _closed} = Sessions.close_others(sid(socket), "two-factor authentication disabled")
 
     socket

@@ -4,13 +4,19 @@ defmodule AlexClawWeb.WorkflowExportController do
   use Phoenix.Controller, formats: [:json]
   import Plug.Conn
 
-  alias AlexClaw.Workflows
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
+  alias AlexClawWeb.DatabaseController
 
   @spec export(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def export(conn, %{"id" => id}) do
-    case Workflows.get_workflow(id) do
-      {:ok, workflow} ->
-        json_data = workflow |> Workflows.export_workflow() |> Jason.encode!(pretty: true)
+    case ControlPlane.perform(
+           :export_workflow,
+           %{workflow_id: id},
+           Context.admin_ui(get_session(conn, :elevation_sid))
+         ) do
+      {:ok, {workflow, exported}} ->
+        json_data = Jason.encode!(exported, pretty: true)
 
         safe_name =
           workflow.name |> String.replace(~r/[^\w\s-]/u, "") |> String.replace(~r/\s+/, "_")
@@ -26,6 +32,9 @@ defmodule AlexClawWeb.WorkflowExportController do
         conn
         |> put_status(404)
         |> text("Workflow not found")
+
+      {:error, reason} ->
+        DatabaseController.refused(conn, reason)
     end
   end
 end

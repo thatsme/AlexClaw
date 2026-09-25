@@ -3,12 +3,13 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
 
   use Phoenix.LiveView
 
-  alias AlexClaw.Workflows
+  alias AlexClaw.{ControlPlane, Workflows}
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Workflows.Launch
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     if connected?(socket) do
       :timer.send_interval(30_000, :refresh)
     end
@@ -16,6 +17,7 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
     {:ok,
      assign(socket,
        page_title: "Scheduler",
+       elevation_sid: session["elevation_sid"],
        jobs: list_jobs()
      )}
   end
@@ -42,7 +44,14 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
   defp trigger(:error, socket), do: put_flash(socket, :error, "Invalid workflow ID")
 
   defp found({:ok, workflow}, socket) do
-    {kind, message} = Launch.describe(Launch.start(workflow), workflow)
+    {kind, message} =
+      :run_workflow
+      |> ControlPlane.perform(
+        %{workflow_id: workflow.id},
+        Context.admin_ui(socket.assigns.elevation_sid)
+      )
+      |> Launch.describe(workflow)
+
     put_flash(socket, kind, message)
   end
 

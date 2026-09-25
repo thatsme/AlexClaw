@@ -67,8 +67,10 @@ defmodule AlexClawWeb.AdminLive.LLM do
   def handle_event("save_provider", params, socket) do
     editing = socket.assigns.editing
 
-    Elevation.gated(socket, "llm provider saved: #{params["name"]}",
-      write: fn -> save_provider(editing, provider_attrs(params)) end,
+    Elevation.perform(
+      socket,
+      :save_provider,
+      %{provider: editing, attrs: saved_attrs(editing, provider_attrs(params))},
       ok: fn socket, _provider ->
         action = if editing, do: "updated", else: "added"
 
@@ -82,19 +84,8 @@ defmodule AlexClawWeb.AdminLive.LLM do
   end
 
   @impl true
-  def handle_event("delete_provider", %{"id" => id}, socket) do
-    Elevation.gated(socket, "llm provider deleted: id #{id}",
-      write: fn ->
-        with {:ok, provider} <- fetch_provider(id), do: LLM.delete_provider(provider)
-      end,
-      ok: fn socket, _provider ->
-        socket
-        |> put_flash(:info, "Provider deleted")
-        |> assign_data()
-      end,
-      error: &not_saved/2
-    )
-  end
+  def handle_event("delete_provider", %{"id" => id}, socket),
+    do: delete_provider(parse_id(id), socket)
 
   @impl true
   def handle_event("cancel_form", _, socket) do
@@ -125,6 +116,19 @@ defmodule AlexClawWeb.AdminLive.LLM do
     Elevation.unlock(socket)
   end
 
+  defp delete_provider(:error, socket), do: {:noreply, socket}
+
+  defp delete_provider({:ok, id}, socket) do
+    Elevation.perform(socket, :save_provider, %{provider_id: id, delete: true},
+      ok: fn socket, _provider ->
+        socket
+        |> put_flash(:info, "Provider deleted")
+        |> assign_data()
+      end,
+      error: &not_saved/2
+    )
+  end
+
   defp provider_attrs(params) do
     %{
       name: params["name"],
@@ -140,15 +144,8 @@ defmodule AlexClawWeb.AdminLive.LLM do
     }
   end
 
-  defp save_provider(nil, attrs), do: LLM.create_provider(attrs)
-
-  defp save_provider(provider, attrs),
-    do: LLM.update_provider(provider, drop_blank_api_key(attrs, provider))
-
-  defp fetch_provider(id), do: id |> parse_id() |> fetched_provider()
-
-  defp fetched_provider({:ok, provider_id}), do: LLM.get_provider(provider_id)
-  defp fetched_provider(:error), do: {:error, :invalid_id}
+  defp saved_attrs(nil, attrs), do: attrs
+  defp saved_attrs(provider, attrs), do: drop_blank_api_key(attrs, provider)
 
   defp not_saved(socket, :invalid_id), do: socket
   defp not_saved(socket, :not_found), do: put_flash(socket, :error, "Provider not found")

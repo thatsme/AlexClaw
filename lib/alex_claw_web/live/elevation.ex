@@ -22,6 +22,7 @@ defmodule AlexClawWeb.Live.Elevation do
 
   alias AlexClaw.Auth.{AuditLog, CodeAttempts, CodeEntry, Elevation, Gate}
   alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias Phoenix.LiveView.Socket
 
   @refusal "Unlock editing first"
@@ -76,7 +77,22 @@ defmodule AlexClawWeb.Live.Elevation do
     |> replied(socket, Keyword.fetch!(change, :ok), Keyword.get(change, :error, &not_made/2))
   end
 
+  @doc """
+  Perform the catalogued `action` with `params` from a page, through
+  `AlexClaw.ControlPlane.perform/3`, for this page's session. `reply` takes
+  `:ok` and `:error` as in `gated/3`; a refusal is answered the same way.
+  """
+  @spec perform(Socket.t(), atom(), map(), keyword()) :: {:noreply, Socket.t()}
+  def perform(socket, action, params, reply) do
+    action
+    |> ControlPlane.perform(params, Context.admin_ui(sid(socket)))
+    |> replied(socket, Keyword.fetch!(reply, :ok), Keyword.get(reply, :error, &not_made/2))
+  end
+
   defp replied({:ok, result}, socket, ok, _error), do: {:noreply, ok.(socket, result)}
+
+  defp replied({:error, :second_factor_required}, socket, ok, error),
+    do: replied({:error, refusal(Elevation.configured?())}, socket, ok, error)
 
   defp replied({:error, :not_elevated}, socket, _ok, _error),
     do: {:noreply, socket |> refresh() |> put_flash(:error, @refusal)}
@@ -88,6 +104,9 @@ defmodule AlexClawWeb.Live.Elevation do
     do: {:noreply, put_flash(socket, :error, @unrecorded)}
 
   defp replied({:error, reason}, socket, _ok, error), do: {:noreply, error.(socket, reason)}
+
+  defp refusal(true), do: :not_elevated
+  defp refusal(false), do: :no_second_factor
 
   defp not_made(socket, reason),
     do: put_flash(socket, :error, "Not saved: #{inspect(reason)}")

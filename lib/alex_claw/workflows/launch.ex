@@ -38,12 +38,15 @@ defmodule AlexClaw.Workflows.Launch do
   end
 
   @doc """
-  How to report a launch to the operator.
+  How to report a launch to the operator: `start/1`'s result, or what
+  `AlexClaw.ControlPlane.perform/3` answered for `:run_workflow`.
 
   Lives next to the rule so the two pages that start runs cannot drift into
   telling the user different things about the same outcome.
   """
-  @spec describe(result(), Workflow.t()) :: {:info | :error, String.t()}
+  @spec describe(result() | {:ok, {result(), Workflow.t()}} | {:error, term()}, Workflow.t()) ::
+          {:info | :error, String.t()}
+  def describe({:ok, {result, _workflow}}, workflow), do: describe(result, workflow)
   def describe(:started, %Workflow{name: name}), do: {:info, "Workflow '#{name}' triggered"}
 
   def describe(:challenged, _workflow),
@@ -57,6 +60,9 @@ defmodule AlexClaw.Workflows.Launch do
 
   def describe(:no_2fa, _workflow),
     do: {:error, "This workflow requires 2FA. Enable 2FA and configure a gateway first."}
+
+  def describe({:error, reason}, _workflow),
+    do: {:error, "The run was not started: #{inspect(reason)}"}
 
   @doc """
   Whether this workflow's own flag demands a second factor before it runs.

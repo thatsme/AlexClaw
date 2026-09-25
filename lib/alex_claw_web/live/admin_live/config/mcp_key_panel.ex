@@ -10,7 +10,6 @@ defmodule AlexClawWeb.AdminLive.Config.McpKeyPanel do
   """
   use Phoenix.Component
 
-  alias AlexClaw.MCP.Key
   alias AlexClawWeb.Live.Elevation
 
   @setting "mcp.api_key"
@@ -22,8 +21,7 @@ defmodule AlexClawWeb.AdminLive.Config.McpKeyPanel do
   @doc "Generate a new key (replacing any old one), behind the elevation, and show it."
   @spec generate(Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def generate(socket) do
-    Elevation.gated(socket, "#{@setting}: generated",
-      write: &Key.generate/0,
+    Elevation.perform(socket, :generate_mcp_key, %{detail: "#{@setting}: generated"},
       ok: fn socket, key ->
         socket
         |> Phoenix.LiveView.put_flash(:info, "MCP key generated. Copy it now: it is shown once.")
@@ -35,9 +33,8 @@ defmodule AlexClawWeb.AdminLive.Config.McpKeyPanel do
   @doc "Revoke the key, behind the elevation: MCP then refuses every request."
   @spec revoke(Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def revoke(socket) do
-    Elevation.gated(socket, "#{@setting}: revoked",
-      write: fn -> with :ok <- Key.revoke(), do: {:ok, :revoked} end,
-      ok: fn socket, :revoked ->
+    Elevation.perform(socket, :clear_secret, %{key: @setting, detail: "#{@setting}: revoked"},
+      ok: fn socket, _key ->
         socket
         |> Phoenix.LiveView.put_flash(:info, "MCP key revoked")
         |> assign(mcp_key_configured: false, new_mcp_key: nil)

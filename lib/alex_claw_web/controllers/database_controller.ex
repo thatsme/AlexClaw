@@ -1,36 +1,31 @@
 defmodule AlexClawWeb.DatabaseController do
-  @moduledoc "Serves downloadable pg_dump database backups."
+  @moduledoc """
+  Serves the database as a download: the full `pg_dump` script, and the data
+  export a restore reads. Each needs the session's elevation and is audited
+  (`AlexClaw.ControlPlane.perform/3`); without it the answer is 403.
+  """
 
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
 
-  alias AlexClaw.Database.DataExport
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
 
   @spec download(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def download(conn, _params) do
-    db_config = db_connection_env()
     timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d_%H%M%S")
-    filename = "alexclaw_backup_#{timestamp}.sql"
 
-    port =
-      Port.open(
-        {:spawn_executable, System.find_executable("pg_dump")},
-        [
-          :binary,
-          :exit_status,
-          :stderr_to_stdout,
-          args: pg_dump_args(db_config),
-          env: [{~c"PGPASSWORD", String.to_charlist(db_config.password)}]
-        ]
-      )
-
-    conn =
-      conn
-      |> put_resp_content_type("application/sql")
-      |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
-      |> send_chunked(200)
-
-    stream_port(conn, port)
+    :download_database
+    |> ControlPlane.perform(
+      %{
+        acc: conn,
+        open: &open(&1, "application/sql", "alexclaw_backup_#{timestamp}.sql"),
+        emit: &dumped/2,
+        detail: "full database dump"
+      },
+      context(conn)
+    )
+    |> served(conn)
   end
 
   @doc """
@@ -41,60 +36,47 @@ defmodule AlexClawWeb.DatabaseController do
   def export(conn, _params) do
     timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d_%H%M%S")
 
-    conn
-    |> put_resp_content_type("application/json")
-    |> put_resp_header(
-      "content-disposition",
-      ~s(attachment; filename="alexclaw_data_#{timestamp}.json")
+    :export_data
+    |> ControlPlane.perform(
+      %{
+        acc: conn,
+        open: &open(&1, "application/json", "alexclaw_data_#{timestamp}.json"),
+        emit: &exported/2,
+        detail: "data export"
+      },
+      context(conn)
     )
+    |> served(conn)
+  end
+
+  defp context(conn), do: Context.admin_ui(get_session(conn, :elevation_sid))
+
+  # The response starts only once the download is allowed and audited.
+  defp open(conn, content_type, filename) do
+    conn
+    |> put_resp_content_type(content_type)
+    |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
     |> send_chunked(200)
-    |> DataExport.write(fn data, conn ->
-      {:ok, conn} = chunk(conn, data)
-      conn
-    end)
   end
 
-  defp stream_port(conn, port) do
-    receive do
-      {^port, {:data, chunk}} ->
-        case Plug.Conn.chunk(conn, chunk) do
-          {:ok, conn} -> stream_port(conn, port)
-          {:error, :closed} -> conn
-        end
+  defp dumped(data, conn), do: chunk(conn, data)
 
-      {^port, {:exit_status, 0}} ->
-        conn
-
-      {^port, {:exit_status, _code}} ->
-        conn
-    after
-      60_000 ->
-        Port.close(port)
-        conn
-    end
+  defp exported(data, conn) do
+    {:ok, conn} = chunk(conn, data)
+    conn
   end
 
-  defp pg_dump_args(config) do
-    [
-      "-h",
-      config.hostname,
-      "-U",
-      config.username,
-      "-d",
-      config.database,
-      "--no-owner",
-      "--no-privileges",
-      "--clean",
-      "--if-exists"
-    ]
+  defp served({:ok, conn}, _conn), do: conn
+  defp served({:error, reason}, conn), do: refused(conn, reason)
+
+  @doc "The answer to a download `AlexClaw.ControlPlane.perform/3` refused: 403, and why."
+  @spec refused(Plug.Conn.t(), term()) :: Plug.Conn.t()
+  def refused(conn, reason) do
+    conn
+    |> put_status(403)
+    |> text("Not allowed: #{refusal(reason)}")
   end
 
-  defp db_connection_env do
-    %{
-      hostname: System.get_env("DATABASE_HOSTNAME", "db"),
-      username: System.get_env("DATABASE_USERNAME", "alexclaw"),
-      password: System.get_env("DATABASE_PASSWORD", ""),
-      database: "alex_claw_prod"
-    }
-  end
+  defp refusal(:second_factor_required), do: "unlock editing first"
+  defp refusal(reason), do: inspect(reason)
 end

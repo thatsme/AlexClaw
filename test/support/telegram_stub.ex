@@ -42,6 +42,16 @@ defmodule AlexClawTest.TelegramStub do
       |> Plug.Conn.resp(200, Jason.encode!(%{"ok" => true, "result" => %{"message_id" => 1}}))
     end)
 
+    # The gateway long-polls getUpdates about once a second while Telegram is
+    # enabled — in tests too. Answer it the way Telegram does when there is
+    # nothing new, so a poll landing during a test is a quiet no-op, not a
+    # "no route" failure (reports/CODER_TRUTH_FLAKE.md).
+    Bypass.stub(bypass, "GET", "/:bot/getUpdates", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{"ok" => true, "result" => []}))
+    end)
+
     %{telegram: bypass}
   end
 

@@ -16,6 +16,7 @@ defmodule AlexClaw.Auth.TOTP do
   require Logger
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
+  alias AlexClaw.Auth.RecoveryCodes
   alias AlexClaw.Config
   alias AlexClaw.Config.Crypto
   alias AlexClaw.Config.Setting
@@ -114,23 +115,42 @@ defmodule AlexClaw.Auth.TOTP do
   end
 
   @doc """
-  Disable 2FA, when `code` is a current code for the active secret.
-
-  The code is verified here, replay protection included, so no caller can turn
-  the second factor off by forgetting to check it. A recovery code does not
-  qualify: only the factor itself can remove the factor.
+  Disable 2FA, when `code` is a current authenticator code or an unused
+  recovery code (the lost-phone path). See `disable_by/1`.
   """
   @spec disable(String.t()) :: :ok | {:error, :invalid_code}
-  def disable(code) when is_binary(code) do
+  def disable(code) do
+    with {:ok, _factor} <- disable_by(code), do: :ok
+  end
+
+  @doc """
+  Disable 2FA with `code`, and say which factor did it: `:totp` for a current
+  authenticator code, `:recovery_code` for an unused recovery code.
+
+  The code is verified here — replay protection for an authenticator code, a
+  recovery code spent — so no caller can turn the second factor off by
+  forgetting to check it. Turning it off wipes every recovery code: with no
+  second factor they unlock nothing.
+  """
+  @spec disable_by(String.t()) :: {:ok, :totp | :recovery_code} | {:error, :invalid_code}
+  def disable_by(code) when is_binary(code) do
     code
     |> String.replace(~r/\s/, "")
-    |> verify()
+    |> factor()
     |> disabled()
   end
 
-  defp disabled(false), do: {:error, :invalid_code}
+  defp factor(code), do: authenticator_or_recovery(verify(code), code)
 
-  defp disabled(true) do
+  defp authenticator_or_recovery(true, _code), do: {:ok, :totp}
+  defp authenticator_or_recovery(false, code), do: recovery(RecoveryCodes.redeem(code))
+
+  defp recovery({:ok, _remaining}), do: {:ok, :recovery_code}
+  defp recovery({:error, :invalid_code} = refused), do: refused
+
+  defp disabled({:error, :invalid_code} = refused), do: refused
+
+  defp disabled({:ok, factor}) do
     Config.set("auth.totp.enabled", "false",
       type: "boolean",
       category: "auth",
@@ -140,8 +160,9 @@ defmodule AlexClaw.Auth.TOTP do
     Config.delete("auth.totp.secret")
     Config.delete("auth.totp.pending_secret")
     Config.delete(@last_used_key)
-    Logger.info("2FA disabled")
-    :ok
+    RecoveryCodes.discard()
+    Logger.info("2FA disabled (#{factor})")
+    {:ok, factor}
   end
 
   # --- Verification ---

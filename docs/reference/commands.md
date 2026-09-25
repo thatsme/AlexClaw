@@ -93,7 +93,8 @@ All commands work identically on both Telegram and Discord. Responses route back
 | `/confirm 2fa <code>` | Confirm 2FA setup |
 
 2FA is turned off from the Services page of the admin UI, with a current
-authenticator code. There is no gateway command for it.
+authenticator code or, for a lost phone, a recovery code. `/disable 2fa` on a
+gateway is refused and answers where to do it.
 
 ## Free Text
 

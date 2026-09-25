@@ -85,8 +85,8 @@ initialised() { bao status -format=json 2>/dev/null | grep -q '"initialized": tr
 
 confirm_saved() {
   while :; do
-    printf 'Type SAVED once the recovery key above and the unseal key file are stored offline: '
-    read -r answer || fail "no confirmation: the root token is revoked; store the recovery key before closing this terminal"
+    printf 'Saved the unseal key file AND the recovery key above offline? Type SAVED: '
+    read -r answer || fail "no confirmation: the root token is revoked; store the unseal key file and the recovery key before closing this terminal"
     [ "$answer" = "SAVED" ] && return 0
   done
 }
@@ -155,7 +155,8 @@ initialise() {
   trap revoke_root EXIT
 
   printf '\n  Recovery key (shown once, never again): %s\n' "$recovery"
-  printf '  The unseal key is the key file you mounted at /openbao/unseal.\n\n'
+  printf '  Unseal key: the file "key" in the host directory OPENBAO_UNSEAL_DIR\n'
+  printf '  (default ./openbao/unseal). Losing it loses every secret in OpenBao.\n\n'
   unset recovery
 
   if [ "${OPENBAO_INIT_UNATTENDED:-}" != "1" ]; then

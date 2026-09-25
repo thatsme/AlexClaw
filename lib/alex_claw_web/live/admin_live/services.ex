@@ -76,7 +76,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   # opened an hour of typing ago should not be able to remove the factor that
   # opened it.
   def handle_event("disable_2fa", %{"code" => code}, socket) do
-    verified = CodeEntry.verify_with(sid(socket), :web, fn -> disabling(TOTP.disable(code)) end)
+    verified = CodeEntry.verify_with(sid(socket), :web, fn -> TOTP.disable_by(code) end)
     {:noreply, disabled(verified, socket)}
   end
 
@@ -352,13 +352,10 @@ defmodule AlexClawWeb.AdminLive.Services do
   # With the second factor gone, every other login was made under a guarantee
   # that no longer holds: they are ended, and this one — which just proved
   # itself with a code — is kept.
-  # TOTP.disable/1 verified the code and turned 2FA off; CodeEntry counted the
-  # attempt and wrote the audit row around it.
-  defp disabling(:ok), do: {:ok, :totp}
-  defp disabling({:error, :invalid_code} = refused), do: refused
-
+  # TOTP.disable_by/1 verified the code (authenticator or recovery), turned 2FA
+  # off and wiped the recovery codes; CodeEntry counted the attempt and audited
+  # which factor was used.
   defp disabled(:ok, socket) do
-    RecoveryCodes.discard()
     {:ok, _closed} = Sessions.close_others(sid(socket), "two-factor authentication disabled")
 
     socket

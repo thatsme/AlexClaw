@@ -40,8 +40,12 @@ is not running.
     chmod 0440 openbao/unseal/key
     ```
 
-    On Linux, also `sudo chown 100 openbao/unseal/key`. Keep a copy offline:
-    without it, OpenBao's data cannot be decrypted.
+    On Linux, also `sudo chown 100 openbao/unseal/key`.
+
+    The key file lives in the host directory named by `OPENBAO_UNSEAL_DIR`
+    (default `./openbao/unseal`, next to `docker-compose.yml`). OpenBao
+    encrypts all of its data with it: **losing the key file loses every secret
+    in OpenBao**, and nothing can recover them. Keep a copy offline.
 
 2. Start the stack: `docker compose up -d`. `openbao-init` makes the
    certificate and exits with an error saying OpenBao is not initialised —
@@ -53,8 +57,9 @@ is not running.
     docker compose run --rm openbao-init
     ```
 
-    It prints the recovery key once and waits until `SAVED` is typed, confirming
-    the recovery key and the unseal key file are stored offline. It then
+    It prints the recovery key once and says where the unseal key file is,
+    then waits until `SAVED` is typed, confirming that **both** the unseal key
+    file and the recovery key are stored offline. It then
     enables kv-v2 at `secret/` and transit (key `alexclaw`), writes AlexClaw's
     policy, creates the AppRole bound to AlexClaw's address, writes the
     bootstrap files, and revokes the root token.

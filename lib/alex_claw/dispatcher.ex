@@ -195,6 +195,7 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/setup 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
   def dispatch(%Message{text: "/confirm 2fa " <> _} = msg), do: AuthCommands.dispatch(msg)
+  def dispatch(%Message{text: "/disable 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
   def dispatch(%Message{text: "/connect" <> _} = msg), do: AuthCommands.dispatch(msg)
   def dispatch(%Message{text: "/disconnect" <> _} = msg), do: AuthCommands.dispatch(msg)
 

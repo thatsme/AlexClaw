@@ -65,6 +65,22 @@ defmodule AlexClaw.Auth.RecoveryCodes do
     |> claim()
   end
 
+  @doc "Whether `code` is one of the unused codes, without spending it."
+  @spec valid?(String.t()) :: boolean()
+  def valid?(code) do
+    candidate = normalize(code)
+
+    candidate
+    |> hash()
+    |> matching_row()
+    |> unspent?(candidate)
+  end
+
+  defp unspent?(nil, _candidate), do: false
+
+  defp unspent?(%RecoveryCode{} = row, candidate),
+    do: Plug.Crypto.secure_compare(row.hash, hash(candidate))
+
   @doc "How many codes are left to use."
   @spec remaining() :: non_neg_integer()
   def remaining do

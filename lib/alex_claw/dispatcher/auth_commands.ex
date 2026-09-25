@@ -62,6 +62,17 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end
   end
 
+  # A chat is not a place for the factor that guards everything else: turning
+  # it off is refused whatever the code, and the reply says where it is done.
+  def dispatch(%Message{text: "/disable 2fa" <> _} = msg) do
+    Gateway.send_message(
+      "Two-factor authentication is turned off in the admin UI (Services page), " <>
+        "with an authenticator code or a recovery code — not over a chat.",
+      chat_id: msg.chat_id,
+      gateway: msg.gateway
+    )
+  end
+
   # --- OAuth ---
 
   def dispatch(%Message{text: "/connect google" <> _} = msg) do

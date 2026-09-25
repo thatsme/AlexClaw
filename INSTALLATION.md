@@ -33,7 +33,6 @@ ADMIN_PASSWORD=changeme
 CLUSTER_COOKIE=generate_with_openssl_rand_base64_32
 
 # === Telegram ===
-TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather
 TELEGRAM_CHAT_ID=              # optional — auto-detected on first message
 
 # === LLM Providers (at least one required) ===
@@ -89,7 +88,6 @@ Then fill in the remaining values:
 | `ADMIN_PASSWORD` | Choose a strong password for the web admin UI |
 | `CLUSTER_COOKIE` | Paste the output of the `openssl rand -base64 32` command. The container does not start without it, and every node of a cluster shares the same value |
 | `DATABASE_OWNER_USERNAME`, `DATABASE_USERNAME` | Leave as `alexclaw` and `alexclaw_app`. They must be two different roles: AlexClaw refuses to start as the owner. The application role is created automatically on a fresh install; to upgrade an existing one, see [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md) |
-| `TELEGRAM_BOT_TOKEN` | From @BotFather (see [Getting Your Bot Token](#getting-your-telegram-bot-token) below) |
 | `TELEGRAM_CHAT_ID` | **Optional** — leave empty and AlexClaw will auto-detect it when you send the bot its first message. Or set it manually (see [Getting Your Chat ID](#getting-your-telegram-chat-id) below) |
 | `GEMINI_API_KEY` | Free key from [ai.google.dev](https://ai.google.dev/) — gives you `light` and `medium` LLM tiers with no credit card |
 
@@ -165,7 +163,7 @@ the data.
 2. Send `/newbot`
 3. Choose a name and username for your bot
 4. BotFather will give you a token like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
-5. Copy this token to `TELEGRAM_BOT_TOKEN` in your `.env`
+5. After the first start, enter it on the Config page (Telegram → `telegram.bot_token`), which keeps it in OpenBao. It is not set in `.env`
 
 ## Getting Your Telegram Chat ID
 
@@ -740,7 +738,7 @@ AlexClaw runs on **Windows**, **macOS**, and **Linux** via Docker. A few things 
 
 ### Bot not responding
 
-- Check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct in `.env`
+- Check that the bot token is set on the Config page (it shows when it was set, never the value) and that `TELEGRAM_CHAT_ID` is correct in `.env`
 - Check logs: `docker compose logs alexclaw-prod | grep -i telegram`
 - Make sure you started a conversation with the bot first (send it any message)
 
@@ -849,7 +847,7 @@ Look for Elixir/Erlang crash messages. Common causes:
 
 ### Bot not receiving messages (multiple instances)
 
-If you run two AlexClaw instances with the same `TELEGRAM_BOT_TOKEN` (e.g., dev and prod), Telegram sends each update to only one of them at random. This causes silent message loss with no errors in logs. Use a separate bot token for each instance.
+If you run two AlexClaw instances with the same Telegram bot token (e.g., dev and prod), Telegram sends each update to only one of them at random. This causes silent message loss with no errors in logs. Use a separate bot token for each instance.
 
 ### Locked out after changing SECRET_KEY_BASE
 

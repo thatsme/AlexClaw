@@ -8,6 +8,8 @@ defmodule AlexClaw.Gateway.Telegram do
   use GenServer
   require Logger
 
+  @token_key "telegram.bot_token"
+
   alias AlexClaw.{Config, Message}
 
   # --- Behaviour callbacks ---
@@ -18,9 +20,29 @@ defmodule AlexClaw.Gateway.Telegram do
   @impl AlexClaw.Gateway.Behaviour
   @spec configured?() :: boolean()
   def configured? do
-    enabled = Config.get("telegram.enabled")
-    token = Config.get("telegram.bot_token")
-    enabled in [true, "true"] and token != nil and token != ""
+    Config.enabled?("telegram.enabled") and Config.secret_set_at(@token_key) != nil
+  end
+
+  @doc """
+  The bot token, resolved from OpenBao for the Telegram API host in use
+  (`Config.secret/2`: binding checked, use audited), or nil when none is set or
+  it cannot be resolved. Not resolved at all while none has been set, so an
+  unconfigured gateway writes no audit rows.
+  """
+  @spec bot_token() :: String.t() | nil
+  def bot_token, do: bot_token(Config.secret_set_at(@token_key))
+
+  defp bot_token(nil), do: nil
+
+  defp bot_token(_set_at) do
+    case Config.secret(@token_key, for: Config.secret_binding(@token_key)) do
+      {:ok, token} ->
+        token
+
+      {:error, reason} ->
+        Logger.warning("Telegram bot token unavailable (#{reason})")
+        nil
+    end
   end
 
   # --- Client API ---
@@ -169,7 +191,7 @@ defmodule AlexClaw.Gateway.Telegram do
   defp token_for(false, _peers), do: nil
 
   # Single node: always poll, ignore node assignment
-  defp token_for(true, []), do: Config.get("telegram.bot_token")
+  defp token_for(true, []), do: bot_token()
 
   # Cluster: must be assigned to this node
   defp token_for(true, _peers), do: token_for_node(Config.get("telegram.node"))
@@ -177,7 +199,7 @@ defmodule AlexClaw.Gateway.Telegram do
   defp token_for_node(node_name) when node_name in [nil, ""], do: nil
 
   defp token_for_node(node_name) do
-    if node_name == to_string(node()), do: Config.get("telegram.bot_token")
+    if node_name == to_string(node()), do: bot_token()
   end
 
   defp get_chat_id do

@@ -6,8 +6,8 @@ defmodule AlexClaw.Config do
   """
   require Logger
   import Ecto.Query
-  alias AlexClaw.Config.{Crypto, Setting}
-  alias AlexClaw.Repo
+  alias AlexClaw.Config.{Crypto, SecretSettings, Setting}
+  alias AlexClaw.{Repo, Secrets}
 
   @type config_value :: String.t() | integer() | float() | boolean() | map() | list() | nil
   @type set_opts :: [
@@ -54,7 +54,7 @@ defmodule AlexClaw.Config do
     case Repo.all(Setting) do
       entries when is_list(entries) ->
         entries
-        |> Enum.reject(&(&1.key in @uncached_keys))
+        |> Enum.reject(&(&1.key in @uncached_keys or SecretSettings.secret?(&1.key)))
         |> Enum.each(fn s ->
           decrypted = decrypt_setting(s)
           :ets.insert(@table, {s.key, cast_value(decrypted), s.sensitive})
@@ -94,7 +94,20 @@ defmodule AlexClaw.Config do
     """
   end
 
-  def get(key, default) do
+  def get(key, default), do: from_cache(SecretSettings.secret?(key), key, default)
+
+  # A declared-secret setting lives in OpenBao; its value is never in the cache.
+  defp from_cache(true, key, _default) do
+    raise ArgumentError, """
+    #{key} is a secret setting: its value is kept in OpenBao, not in the config
+    cache, and Config.get/2 does not serve it.
+
+    Resolve it for the destination it is used for:
+    Config.secret(#{inspect(key)}, for: Config.secret_binding(#{inspect(key)})).
+    """
+  end
+
+  defp from_cache(false, key, default) do
     case :ets.lookup(@table, key) do
       [{_key, value, _sensitive}] -> value
       # Tolerated rather than matched-or-crash: a config read should degrade, not
@@ -114,10 +127,38 @@ defmodule AlexClaw.Config do
   @spec sensitive?(String.t()) :: boolean()
   def sensitive?(key) when key in @uncached_keys, do: true
 
-  def sensitive?(key) do
+  def sensitive?(key), do: SecretSettings.secret?(key) or cached_sensitive?(key)
+
+  defp cached_sensitive?(key) do
     case :ets.lookup(@table, key) do
       [{_key, _value, sensitive}] -> sensitive
       _unknown_shape_or_missing -> true
+    end
+  end
+
+  # --- Secret settings ---
+
+  @doc "Whether `key` is a declared-secret setting (`AlexClaw.Config.SecretSettings`)."
+  @spec secret?(String.t()) :: boolean()
+  defdelegate secret?(key), to: SecretSettings
+
+  @doc "The destination `key`'s value may be used for, as a binding (`host:...`)."
+  @spec secret_binding(String.t()) :: String.t()
+  def secret_binding(key), do: SecretSettings.binding_for(key)
+
+  @doc """
+  The value of the secret setting `key`, for the destination `for:` — through
+  `AlexClaw.Secrets.resolve/2`: the binding is checked and the use audited.
+  """
+  @spec secret(String.t(), keyword()) :: {:ok, String.t()} | {:error, Secrets.error()}
+  def secret(key, opts), do: Secrets.resolve(SecretSettings.secret_name(key), opts)
+
+  @doc "When the secret setting `key` was last set, or nil if it never was."
+  @spec secret_set_at(String.t()) :: DateTime.t() | nil
+  def secret_set_at(key) do
+    case Secrets.get(SecretSettings.secret_name(key)) do
+      nil -> nil
+      secret -> secret.rotated_at
     end
   end
 
@@ -140,7 +181,7 @@ defmodule AlexClaw.Config do
   `AlexClaw.ControlPlane.gated/4` and publishes after it commits.
   """
   @spec set(String.t(), config_value(), set_opts()) ::
-          {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, Setting.t()} | {:error, Ecto.Changeset.t() | Secrets.error()}
   def set(key, value, opts \\ []) do
     with {:ok, setting} <- persist(key, value, opts) do
       :ok = publish(key)
@@ -153,10 +194,42 @@ defmodule AlexClaw.Config do
 
   Safe inside a transaction: no cache is touched and nobody is told, so a
   rollback leaves nothing to undo. Follow it with `publish/1` once committed.
+
+  Every write goes through here, so this is where a declared-secret setting is
+  routed: its value goes to OpenBao (`AlexClaw.Secrets`, catalogued and bound
+  as declared) and the setting row keeps no value. "" keeps the current value;
+  a new one rotates it. (An OpenBao write is not undone by a rollback.)
   """
   @spec persist(String.t(), config_value(), set_opts()) ::
-          {:ok, Setting.t()} | {:error, Ecto.Changeset.t()}
-  def persist(key, value, opts \\ []) do
+          {:ok, Setting.t()} | {:error, Ecto.Changeset.t() | Secrets.error()}
+  def persist(key, value, opts \\ []),
+    do: persisted(SecretSettings.secret?(key), key, value, opts)
+
+  # OpenBao first, then the row: a failed store leaves the row as it was. A
+  # value not yet moved by AlexClaw.Config.SecretUpgrade stays in the row when
+  # "" (keep) is saved, so the upgrade can still move it; a new value makes it
+  # obsolete.
+  defp persisted(true, key, value, opts) do
+    type = Keyword.get(opts, :type, "string")
+    encoded = encode_value(value, type)
+    existing = Repo.get_by(Setting, key: key)
+
+    attrs = %{
+      key: key,
+      value: row_value(encoded, existing),
+      type: type,
+      description: Keyword.get(opts, :description),
+      category: Keyword.get(opts, :category, "general"),
+      sensitive: true
+    }
+
+    with :ok <- store_secret(key, encoded), do: upsert_setting(existing, attrs)
+  end
+
+  defp row_value("", %Setting{value: not_yet_moved}), do: not_yet_moved
+  defp row_value(_encoded, _existing), do: ""
+
+  defp persisted(false, key, value, opts) do
     type = Keyword.get(opts, :type, "string")
     existing_record = Repo.get_by(Setting, key: key)
     sensitive = sensitive_flag(Keyword.fetch(opts, :sensitive), existing_record)
@@ -187,7 +260,19 @@ defmodule AlexClaw.Config do
     broadcast_change(key, nil)
   end
 
-  def publish(key), do: cached(Repo.get_by(Setting, key: key), key)
+  def publish(key), do: published(SecretSettings.secret?(key), key)
+
+  # A secret setting is announced as changed, never with its value.
+  defp published(true, key) do
+    :ets.delete(@table, key)
+    broadcast_change(key, nil)
+  end
+
+  defp published(false, key), do: cached(Repo.get_by(Setting, key: key), key)
+
+  # "" keeps the current value.
+  defp store_secret(_key, ""), do: :ok
+  defp store_secret(key, value), do: SecretSettings.store(key, value)
 
   defp sensitive_flag({:ok, val}, _existing_record), do: val
 

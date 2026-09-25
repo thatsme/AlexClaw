@@ -97,6 +97,21 @@ defmodule AlexClaw.Secrets do
     result
   end
 
+  @doc """
+  Whether OpenBao holds exactly `value` for the secret `name` — a read-back
+  check for code that has just written it (the upgrade that moves secrets out
+  of the database). The value read is compared and dropped, never returned.
+
+  Options: `vault:` — the `AlexClaw.Vault` server to use.
+  """
+  @spec value_matches?(String.t(), String.t(), keyword()) :: boolean() | {:error, error()}
+  def value_matches?(name, value, opts \\ []) when is_binary(name) and is_binary(value) do
+    case read_value(name, vault(opts)) do
+      {:ok, stored} -> Plug.Crypto.secure_compare(stored, value)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp fetch(name) do
     case get(name) do
       nil -> {:error, :unknown_secret}

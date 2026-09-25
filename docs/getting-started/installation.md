@@ -21,7 +21,6 @@ Edit `.env` with your settings:
 DATABASE_PASSWORD=your_secure_db_password
 SECRET_KEY_BASE=$(openssl rand -base64 48)   # at least 64 bytes; shorter is refused
 ADMIN_PASSWORD=your_admin_password
-TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 
 # At least one LLM provider

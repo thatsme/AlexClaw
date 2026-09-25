@@ -24,7 +24,8 @@ git clone https://github.com/thatsme/AlexClaw.git
 cd AlexClaw
 cp .env.example .env
 # Edit .env — set DATABASE_OWNER_PASSWORD, DATABASE_PASSWORD, SECRET_KEY_BASE, ADMIN_PASSWORD,
-# TELEGRAM_BOT_TOKEN, and at least one LLM API key (GEMINI_API_KEY is free)
+# and at least one LLM API key (GEMINI_API_KEY is free). The Telegram bot token
+# is entered on the Config page after the first start.
 docker compose up -d
 ```
 

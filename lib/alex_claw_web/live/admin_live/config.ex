@@ -172,8 +172,14 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   defp setting_change(params) do
     key = params["key"]
-    Elevation.describe_setting(key, AlexClaw.Config.get(key), params["value"])
+    Elevation.describe_setting(key, current_value(key), params["value"])
   end
+
+  # A secret setting's value is in OpenBao and never read back into the page:
+  # the audit description has no old value to show for it.
+  defp current_value(key), do: current_value(AlexClaw.Config.secret?(key), key)
+  defp current_value(true, _key), do: nil
+  defp current_value(false, key), do: AlexClaw.Config.get(key)
 
   defp delete_setting(true, key, socket) do
     {:noreply, put_flash(socket, :error, managed_message(key))}

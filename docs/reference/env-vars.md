@@ -9,7 +9,6 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 | `DATABASE_PASSWORD` | PostgreSQL password |
 | `SECRET_KEY_BASE` | Phoenix session/encryption secret (min 64 bytes) |
 | `ADMIN_PASSWORD` | Web UI login password |
-| `TELEGRAM_BOT_TOKEN` | *Seeded.* Telegram bot token from @BotFather |
 
 ## Telegram
 

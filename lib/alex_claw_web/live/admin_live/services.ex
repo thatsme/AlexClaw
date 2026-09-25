@@ -401,7 +401,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   defp live_check("telegram") do
     telegram_check(
       Config.enabled?("telegram.enabled"),
-      Config.get("telegram.bot_token"),
+      Telegram.bot_token(),
       Config.get("telegram.chat_id")
     )
   end
@@ -510,7 +510,7 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   defp telegram_check(true, token, chat_id) do
     token
-    |> AlexClaw.Gateway.Telegram.api_url("sendMessage")
+    |> Telegram.api_url("sendMessage")
     |> Req.post(json: %{chat_id: chat_id, text: "🦇 AlexClaw connectivity check"})
     |> telegram_result()
   end

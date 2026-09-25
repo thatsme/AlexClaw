@@ -10,8 +10,9 @@ defmodule AlexClaw.Config.Seeder do
   @defaults [
     # Telegram
     {"telegram.enabled", "true", "boolean", "telegram", "Enable Telegram gateway polling", false},
-    {"telegram.bot_token", &__MODULE__.env/1, "string", "telegram", "Telegram Bot API token",
-     true},
+    # A secret setting (AlexClaw.Config.SecretSettings): its value is set on the
+    # Config page and kept in OpenBao; the environment never seeds it.
+    {"telegram.bot_token", "", "string", "telegram", "Telegram Bot API token", true},
     {"telegram.chat_id", &__MODULE__.env/1, "string", "telegram",
      "Telegram chat ID for notifications", false},
     {"telegram.poll_interval", "1000", "integer", "telegram", "Telegram polling interval in ms",
@@ -225,7 +226,6 @@ defmodule AlexClaw.Config.Seeder do
   ]
 
   @env_mapping %{
-    "telegram.bot_token" => {"TELEGRAM_BOT_TOKEN", ""},
     "telegram.chat_id" => {"TELEGRAM_CHAT_ID", ""},
     "llm.gemini_api_key" => {"GEMINI_API_KEY", ""},
     "llm.anthropic_api_key" => {"ANTHROPIC_API_KEY", ""},
@@ -255,8 +255,17 @@ defmodule AlexClaw.Config.Seeder do
   def shell_default("shell.blocklist"), do: Jason.encode!(Shell.default_blocklist())
   def shell_default("shell.exact_commands"), do: Jason.encode!(Shell.default_exact_commands())
 
+  @doc """
+  The environment's value for `key`, or its default. A declared-secret setting
+  is never read from the environment: one home per value, and that home is
+  OpenBao.
+  """
   @spec env(String.t()) :: String.t()
-  def env(key) do
+  def env(key), do: env_for(Config.secret?(key), key)
+
+  defp env_for(true, _key), do: ""
+
+  defp env_for(false, key) do
     case Map.get(@env_mapping, key) do
       {env_var, default} -> System.get_env(env_var) || default
       nil -> ""

@@ -296,7 +296,18 @@ defmodule AlexClaw.MCP.ResourceProvider do
     json_reply(entries, frame)
   end
 
-  defp read_config(key, frame) do
+  defp read_config(key, frame), do: read_config(AlexClaw.Config.secret?(key), key, frame)
+
+  # A secret setting's value lives in OpenBao and never comes through here:
+  # whether it is set can be seen, the value cannot.
+  defp read_config(true, key, frame) do
+    case AlexClaw.Config.secret_set_at(key) do
+      nil -> not_found("config key", key, frame)
+      _set_at -> json_reply(%{key: key, value: @redacted}, frame)
+    end
+  end
+
+  defp read_config(false, key, frame) do
     case AlexClaw.Config.get(key) do
       nil ->
         not_found("config key", key, frame)

@@ -187,7 +187,8 @@ git clone https://github.com/thatsme/AlexClaw.git
 cd AlexClaw
 cp .env.example .env
 # Edit .env — set DATABASE_PASSWORD, SECRET_KEY_BASE, ADMIN_PASSWORD,
-# TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, and at least one LLM API key
+# TELEGRAM_CHAT_ID, and at least one LLM API key. The Telegram bot token is
+# entered on the Config page after the first start.
 docker compose up -d
 ```
 
@@ -209,7 +210,6 @@ All configuration is managed at runtime through the admin UI (`/config`). On fir
 | `DATABASE_PASSWORD` | PostgreSQL password |
 | `SECRET_KEY_BASE` | Phoenix session secret (`mix phx.gen.secret`) |
 | `ADMIN_PASSWORD` | Web interface login password |
-| `TELEGRAM_BOT_TOKEN` | From @BotFather |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 
 ### LLM providers (at least one required)

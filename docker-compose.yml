@@ -149,7 +149,6 @@ services:
       CHECK_ORIGIN: ${CHECK_ORIGIN:-}
 
       # Telegram
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
 
       # LLM providers (at least one required)

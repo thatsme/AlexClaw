@@ -75,10 +75,16 @@ supported — it connects to the wrong database or none at all. The test stack i
 its own compose project and publishes no ports, so it can run while the
 production containers are up.
 
-`make test-elixir` runs `scripts/test-elixir.sh`, which watches for a run that
-hangs before any test starts. If none has started within 120 seconds
-(`TEST_WATCHDOG_SECONDS`), it has the BEAM write a crash dump to
-`local-docs/erl_crash-<timestamp>.dump`, stops the run, and exits with status 124.
+`make test-elixir` runs `scripts/test-elixir.sh` and `make test-python` runs
+`scripts/test-python.sh`. Both run under a hard time limit for the whole run,
+build included (`TEST_TIME_LIMIT`, default 2400 seconds), write the full output
+to a log that is kept (`local-docs/test-logs/<suite>-<timestamp>.log`, or
+`TEST_LOG_DIR`), print its path at the start and the end, and print a progress
+line every 30 seconds. A run past the time limit is stopped, and the script
+exits with status 124. The Elixir script also watches for a run that hangs
+before any test starts: if none has started within 120 seconds
+(`TEST_WATCHDOG_SECONDS`), the run is stopped the same way. In both cases it
+first has the BEAM write a crash dump to `local-docs/erl_crash-<timestamp>.dump`.
 
 ### Skill Contributions
 

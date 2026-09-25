@@ -3,6 +3,7 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   use Phoenix.LiveView
   alias AlexClaw.Config.SecretSettings
+  alias AlexClawWeb.AdminLive.Config.McpKeyPanel
   alias AlexClawWeb.Live.Elevation
 
   @impl true
@@ -18,6 +19,8 @@ defmodule AlexClawWeb.AdminLive.Config do
        settings: settings,
        grouped: group_by_category(settings),
        secret_states: secret_states(),
+       mcp_key_configured: McpKeyPanel.configured?(),
+       new_mcp_key: nil,
        collapsed: group_by_category(settings) |> Enum.map(&elem(&1, 0)) |> MapSet.new(),
        show_form: false,
        editing: nil,
@@ -38,7 +41,8 @@ defmodule AlexClawWeb.AdminLive.Config do
      assign(socket,
        settings: settings,
        grouped: group_by_category(settings),
-       secret_states: secret_states()
+       secret_states: secret_states(),
+       mcp_key_configured: McpKeyPanel.configured?()
      )}
   end
 
@@ -48,6 +52,12 @@ defmodule AlexClawWeb.AdminLive.Config do
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil)}
   end
+
+  def handle_event("generate_mcp_key", _params, socket), do: McpKeyPanel.generate(socket)
+  def handle_event("revoke_mcp_key", _params, socket), do: McpKeyPanel.revoke(socket)
+
+  def handle_event("dismiss_mcp_key", _params, socket),
+    do: {:noreply, assign(socket, new_mcp_key: nil)}
 
   @impl true
   def handle_event("save", params, socket) do
@@ -286,7 +296,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     end
   end
 
-  @category_order ~w(telegram discord llm embedding github google auth shell web_automator skills cluster prompts identity display general)
+  @category_order ~w(telegram discord llm embedding github google mcp auth shell web_automator skills cluster prompts identity display general)
   @category_labels %{
     "telegram" => "Telegram",
     "discord" => "Discord",
@@ -294,6 +304,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     "embedding" => "Embedding",
     "github" => "GitHub",
     "google" => "Google",
+    "mcp" => "MCP",
     "auth" => "Authentication",
     "shell" => "Shell",
     "web_automator" => "Web Automator",
@@ -305,8 +316,14 @@ defmodule AlexClawWeb.AdminLive.Config do
     "general" => "General"
   }
 
+  # The MCP key has no value to show or edit, only its panel, so its row is not
+  # listed; the "mcp" group is always there to hold the panel.
   defp group_by_category(settings) do
-    groups = Enum.group_by(settings, &(&1.category || "general"))
+    groups =
+      settings
+      |> Enum.reject(&SecretSettings.recognised_only?(&1.key))
+      |> Enum.group_by(&(&1.category || "general"))
+      |> Map.put_new("mcp", [])
 
     known = Enum.filter(@category_order, &Map.has_key?(groups, &1))
     extra = Map.keys(groups) |> Enum.reject(&(&1 in @category_order)) |> Enum.sort()

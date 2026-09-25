@@ -8,7 +8,7 @@ MCP tool calls pass through the same PolicyEngine used for skill authorization, 
 Bearer token (transport layer)
     │
     ▼
-McpAuth Plug ── validates token against mcp.api_key
+McpAuth Plug ── validates the token's HMAC against the stored fingerprint
     │
     ▼
 PolicyEngine.evaluate/2 ── evaluates mcp_restriction policies

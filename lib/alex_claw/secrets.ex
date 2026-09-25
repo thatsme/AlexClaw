@@ -92,8 +92,10 @@ defmodule AlexClaw.Secrets do
   The value of the secret `name`, for `destination` — which must be one of the
   secret's bindings, exactly.
 
-  Options: `for:` (required) — the destination; `vault:` — the `AlexClaw.Vault`
-  server to use.
+  Options: `for:` (required) — the destination; `bindings:` — the bindings to
+  check against, for a caller that derives them from a declaration at each use
+  (secret settings, `AlexClaw.Config.secret/2`), instead of the catalogue's;
+  `vault:` — the `AlexClaw.Vault` server to use.
   """
   @spec resolve(String.t(), keyword()) :: {:ok, String.t()} | {:error, error()}
   def resolve(name, opts) when is_binary(name) do
@@ -101,7 +103,7 @@ defmodule AlexClaw.Secrets do
 
     result =
       with {:ok, secret} <- fetch(name),
-           :ok <- bound(secret, destination) do
+           :ok <- bound(Keyword.get(opts, :bindings, secret.binding), destination) do
         read_value(name, vault(opts))
       end
 
@@ -139,8 +141,8 @@ defmodule AlexClaw.Secrets do
   defp non_empty(""), do: {:error, :empty_value}
   defp non_empty(_value), do: :ok
 
-  defp bound(%Secret{binding: binding}, destination) do
-    if destination in binding, do: :ok, else: {:error, :not_bound}
+  defp bound(bindings, destination) do
+    if destination in bindings, do: :ok, else: {:error, :not_bound}
   end
 
   defp read_value(name, vault) do

@@ -165,7 +165,14 @@ defmodule AlexClaw.Config do
   def secret(key, opts), do: resolved(SecretSettings.recognised_only?(key), key, opts)
 
   defp resolved(true, _key, _opts), do: {:error, :not_retrievable}
-  defp resolved(false, key, opts), do: Secrets.resolve(SecretSettings.secret_name(key), opts)
+  # The bindings are derived from the declaration now, never taken from the
+  # first save: moving a configurable base moves the host the secret may go to.
+  defp resolved(false, key, opts) do
+    Secrets.resolve(
+      SecretSettings.secret_name(key),
+      Keyword.put(opts, :bindings, SecretSettings.bindings_for(key))
+    )
+  end
 
   @doc """
   The value of the secret setting `key` for the destination `for:`, or nil when

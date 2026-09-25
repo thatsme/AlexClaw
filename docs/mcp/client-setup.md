@@ -3,7 +3,7 @@
 ## Prerequisites
 
 1. AlexClaw running with the MCP server started (check `GET /health` — `mcp` should be `"running"`)
-2. An API key configured: set `mcp.api_key` in **Admin > Config** (see [Authentication](authentication.md))
+2. An MCP key: generated in **Admin > Config**, group **MCP** (see [Authentication](authentication.md)). It is shown once; keep it in the client's config
 
 ## Claude Code
 
@@ -95,7 +95,7 @@ You should see the UTC time, hostname, and Elixir version returned from the Alex
 | Problem | Solution |
 |---|---|
 | "Server unavailable" | Check that AlexClaw container is running and `/health` returns `mcp: running` |
-| 401 Unauthorized | Verify your API key matches `mcp.api_key` in Admin > Config |
+| 401 Unauthorized | The key is not the current one (a newer one was generated, or it was revoked): generate a new key in Admin > Config, group **MCP**, and update the client |
 | Connection refused | Check the URL and port — default is `5001` |
 | Tools not showing | Run `/mcp` to reconnect, or check container logs for startup errors |
 | Tool call timeout | Increase `mcp.tool_timeout_ms` in Admin > Config (default 30000ms) |

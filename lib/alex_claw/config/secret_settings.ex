@@ -91,12 +91,16 @@ defmodule AlexClaw.Config.SecretSettings do
   @doc """
   Store `value` as the secret behind `key`: catalogued on first use (named and
   bound as declared), then written to OpenBao, which stamps when it was set.
+
+  Options: `vault:` — the `AlexClaw.Vault` server to use.
   """
-  @spec store(String.t(), String.t()) :: :ok | {:error, Ecto.Changeset.t() | Secrets.error()}
-  def store(key, value) do
+  @spec store(String.t(), String.t(), keyword()) ::
+          :ok | {:error, Ecto.Changeset.t() | Secrets.error()}
+  def store(key, value, opts \\ []) do
     name = secret_name(key)
 
-    with :ok <- catalogued(Secrets.get(name), key, name), do: Secrets.put_value(name, value)
+    with :ok <- catalogued(Secrets.get(name), key, name),
+         do: Secrets.put_value(name, value, opts)
   end
 
   defp catalogued(nil, key, name) do

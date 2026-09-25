@@ -32,7 +32,11 @@ defmodule AlexClaw.Config.SecretUpgrade do
   alias AlexClaw.MCP.Key
   alias AlexClaw.{Repo, Secrets, Vault}
 
-  @type result :: %{moved: [String.t()], failed: [{String.t(), term()}]}
+  @type result :: %{
+          moved: [String.t()],
+          fingerprinted: [String.t()],
+          failed: [{String.t(), term()}]
+        }
 
   @doc false
   @spec child_spec(term()) :: Supervisor.child_spec()
@@ -42,17 +46,27 @@ defmodule AlexClaw.Config.SecretUpgrade do
   @doc false
   @spec start_link() :: :ignore
   def start_link do
-    run() |> report()
+    {:ok, result} = run()
+    report(result)
     :ignore
   end
 
-  @doc "Move every declared-secret setting that still holds a value. Returns what moved and what did not."
-  @spec run(keyword()) :: result()
+  @doc """
+  Move every declared-secret setting that still holds a value. Returns what
+  moved to OpenBao, which keys became a fingerprint (the MCP key), and what
+  did not move, with why.
+
+  Options: `vault:` — the `AlexClaw.Vault` server to use.
+  """
+  @spec run(keyword()) :: {:ok, result()}
   def run(opts \\ []) do
-    SecretSettings.keys()
-    |> Enum.map(&{&1, pending(Repo.get_by(Setting, key: &1))})
-    |> Enum.reject(fn {_key, pending} -> pending == :nothing end)
-    |> moved_all(Keyword.get(opts, :vault, Vault))
+    result =
+      SecretSettings.keys()
+      |> Enum.map(&{&1, pending(Repo.get_by(Setting, key: &1))})
+      |> Enum.reject(fn {_key, pending} -> pending == :nothing end)
+      |> moved_all(Keyword.get(opts, :vault, Vault))
+
+    {:ok, result}
   end
 
   defp pending(nil), do: :nothing
@@ -67,34 +81,36 @@ defmodule AlexClaw.Config.SecretUpgrade do
 
   # Nothing to move: OpenBao is not even asked, so an instance without it boots
   # as before once everything has moved.
-  defp moved_all([], _vault), do: %{moved: [], failed: []}
+  defp moved_all([], _vault), do: %{moved: [], fingerprinted: [], failed: []}
 
-  defp moved_all(pending, vault), do: pending |> by_status(Vault.status(server: vault)) |> tally()
+  defp moved_all(pending, vault),
+    do: pending |> by_status(Vault.status(server: vault), vault) |> tally()
 
-  defp by_status(pending, :ok), do: Enum.map(pending, fn {key, {:move, s}} -> {key, move(s)} end)
+  defp by_status(pending, :ok, vault),
+    do: Enum.map(pending, fn {key, {:move, s}} -> {key, move(s, vault)} end)
 
-  defp by_status(pending, {:error, reason}),
+  defp by_status(pending, {:error, reason}, _vault),
     do: Enum.map(pending, fn {key, _move} -> {key, {:error, {:vault, reason}}} end)
 
-  defp move(%Setting{key: key} = setting),
-    do: move(SecretSettings.recognised_only?(key), setting)
+  defp move(%Setting{key: key} = setting, vault),
+    do: move(SecretSettings.recognised_only?(key), setting, vault: vault)
 
   # A recognised-only key: its fingerprint replaces it. Computed twice and
   # compared before the row is touched, as a moved value is read back: the key
   # is dropped only for a fingerprint that recognises it.
-  defp move(true, %Setting{key: key, value: stored}) do
+  defp move(true, %Setting{key: key, value: stored}, opts) do
     with {:ok, value} <- plaintext(Crypto.decrypt(stored)),
-         {:ok, fingerprint} <- Key.fingerprint_of(value),
-         :ok <- recognised(Key.fingerprint_of(value), fingerprint),
+         {:ok, fingerprint} <- Key.fingerprint_of(value, opts),
+         :ok <- recognised(Key.fingerprint_of(value, opts), fingerprint),
          {:ok, _setting} <- Config.set(key, fingerprint) do
-      :ok
+      :fingerprinted
     end
   end
 
-  defp move(false, %Setting{key: key, value: stored} = setting) do
+  defp move(false, %Setting{key: key, value: stored} = setting, opts) do
     with {:ok, value} <- plaintext(Crypto.decrypt(stored)),
-         :ok <- SecretSettings.store(key, value),
-         :ok <- read_back(SecretSettings.secret_name(key), value),
+         :ok <- SecretSettings.store(key, value, opts),
+         :ok <- read_back(SecretSettings.secret_name(key), value, opts),
          {:ok, _setting} <- setting |> Ecto.Changeset.change(value: "") |> Repo.update() do
       :ok
     end
@@ -108,8 +124,8 @@ defmodule AlexClaw.Config.SecretUpgrade do
   defp plaintext({:ok, _empty}), do: {:error, :empty}
   defp plaintext({:error, _reason}), do: {:error, :does_not_decrypt}
 
-  defp read_back(name, value) do
-    case Secrets.value_matches?(name, value) do
+  defp read_back(name, value, opts) do
+    case Secrets.value_matches?(name, value, opts) do
       true -> :ok
       false -> {:error, :read_back_differs}
       {:error, reason} -> {:error, {:read_back, reason}}
@@ -119,17 +135,24 @@ defmodule AlexClaw.Config.SecretUpgrade do
   defp tally(results) do
     %{
       moved: for({key, :ok} <- results, do: key),
+      fingerprinted: for({key, :fingerprinted} <- results, do: key),
       failed: for({key, {:error, reason}} <- results, do: {key, reason})
     }
   end
 
-  defp report(%{moved: [], failed: []}), do: :ok
+  defp report(%{moved: [], fingerprinted: [], failed: []}), do: :ok
 
-  defp report(%{moved: moved, failed: failed}) do
+  defp report(%{moved: moved, fingerprinted: fingerprinted, failed: failed}) do
     if moved != [],
       do:
         Logger.info(
           "Moved to OpenBao: #{Enum.join(moved, ", ")} (the settings table keeps no value)"
+        )
+
+    if fingerprinted != [],
+      do:
+        Logger.info(
+          "Kept as a fingerprint: #{Enum.join(fingerprinted, ", ")} (the key itself is dropped)"
         )
 
     Enum.each(failed, fn {key, reason} ->

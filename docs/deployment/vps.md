@@ -39,10 +39,9 @@ openssl rand -base64 32
 
 # CLUSTER_COOKIE
 openssl rand -base64 32
-
-# MCP API key
-openssl rand -base64 32
 ```
+
+The MCP key is not generated here: AlexClaw generates it on the Config page (group **MCP**) and shows it once.
 
 ## Backups
 

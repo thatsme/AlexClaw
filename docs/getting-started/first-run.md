@@ -60,8 +60,8 @@ This invokes the `web_search` skill — searches DuckDuckGo, fetches top results
 
 If you want to connect AI clients (Claude Code, Cursor):
 
-1. Go to **Admin > Config**
-2. Set `mcp.api_key` to a strong random value (category: `mcp`, sensitive: `true`)
+1. Go to **Admin > Config** and open the **MCP** group
+2. Click **Generate** and copy the key: it is shown once
 3. Configure your client — see [MCP Client Setup](../mcp/client-setup.md)
 
 ## Next Steps

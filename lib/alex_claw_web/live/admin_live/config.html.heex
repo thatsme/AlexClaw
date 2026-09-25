@@ -63,7 +63,7 @@
       </div>
     </button>
 
-    <table :if={!MapSet.member?(@collapsed, cat)} class="w-full table-fixed">
+    <table :if={!MapSet.member?(@collapsed, cat) and items != []} class="w-full table-fixed">
       <thead>
         <tr class="border-t border-gray-800">
           <th class="w-[30%] px-4 py-2 text-left text-xs text-gray-500 uppercase">Key</th>
@@ -171,5 +171,11 @@
         </tr>
       </tbody>
     </table>
+
+    <McpKeyPanel.panel
+      :if={cat == "mcp" and !MapSet.member?(@collapsed, cat)}
+      configured={@mcp_key_configured}
+      new_key={@new_mcp_key}
+    />
   </div>
 </div>

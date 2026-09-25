@@ -71,7 +71,7 @@ Settings are organized by category in the Admin UI:
 | `prompts` | System prompts, context templates |
 | `llm` | Provider-specific settings |
 | `identity` | Agent name, base prompt |
-| `mcp` | MCP API key, tool timeout |
+| `mcp` | MCP key (Generate / Revoke; only its fingerprint is stored), tool timeout |
 | `github` | Access token, webhook secret, default repo, watched branches |
 | `auth` | Login rate limits, 2FA state |
 

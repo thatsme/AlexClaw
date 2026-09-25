@@ -50,10 +50,15 @@ defmodule AlexClaw.MCP.Key do
   @spec fingerprint() :: String.t() | nil
   def fingerprint, do: Config.fingerprint(@key)
 
-  @doc "The fingerprint of `value`, in the form stored for the MCP key."
-  @spec fingerprint_of(String.t()) :: {:ok, String.t()} | {:error, Vault.error()}
-  def fingerprint_of(value) do
-    with {:ok, hmac} <- Vault.hmac(value), do: {:ok, Config.fingerprint_prefix() <> hmac}
+  @doc """
+  The fingerprint of `value`, in the form stored for the MCP key.
+
+  Options: `vault:` — the `AlexClaw.Vault` server to use.
+  """
+  @spec fingerprint_of(String.t(), keyword()) :: {:ok, String.t()} | {:error, Vault.error()}
+  def fingerprint_of(value, opts \\ []) do
+    with {:ok, hmac} <- Vault.hmac(value, server: Keyword.get(opts, :vault, Vault)),
+         do: {:ok, Config.fingerprint_prefix() <> hmac}
   end
 
   # No key set: nothing to compare with, and OpenBao is not asked.

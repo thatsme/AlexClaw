@@ -6,7 +6,9 @@ defmodule AlexClaw.Secrets.Secret do
   A binding is one of:
     * `host:<hostname>` — sent to that host;
     * `connection:<name>` — a configured database connection;
-    * `origin:<scheme>://<host>[:<port>]` — a web origin (a login a recipe types).
+    * `origin:<scheme>://<host>[:<port>]` — a web origin (a login a recipe types);
+    * `inbound:<receiver>` — checked by AlexClaw itself on a request it
+      receives (a webhook signature), never sent anywhere.
 
   Bindings are matched exactly, so `host:api.github.com` does not cover a
   subdomain or a longer name.
@@ -19,7 +21,8 @@ defmodule AlexClaw.Secrets.Secret do
   @binding_forms [
     ~r/^host:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/,
     ~r/^connection:[A-Za-z0-9_.-]+$/,
-    ~r/^origin:https?:\/\/[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?$/
+    ~r/^origin:https?:\/\/[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?$/,
+    ~r/^inbound:[a-z0-9_]+$/
   ]
 
   @type t :: %__MODULE__{
@@ -72,7 +75,7 @@ defmodule AlexClaw.Secrets.Secret do
   defp binding_errors(binding) do
     case Enum.reject(binding, &known_form?/1) do
       [] -> []
-      bad -> [binding: "not host:, connection: or origin: — #{Enum.join(bad, ", ")}"]
+      bad -> [binding: "not host:, connection:, origin: or inbound: — #{Enum.join(bad, ", ")}"]
     end
   end
 

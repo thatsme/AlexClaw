@@ -36,12 +36,12 @@ These must be set in `.env` before first boot:
 
 ## LLM Providers
 
-At least one LLM provider is required:
+At least one LLM provider is required. The Gemini (free tier available) and
+Anthropic API keys are entered on the Config page (`llm.gemini_api_key`,
+`llm.anthropic_api_key`) and kept in OpenBao; local models are enabled in `.env`:
 
 | Variable | Description |
 |---|---|
-| `GEMINI_API_KEY` | Google Gemini (free tier available) |
-| `ANTHROPIC_API_KEY` | Anthropic Claude |
 | `OLLAMA_ENABLED=true` + `OLLAMA_HOST` | Local Ollama instance |
 | `LMSTUDIO_ENABLED=true` + `LMSTUDIO_HOST` | Local LM Studio instance |
 

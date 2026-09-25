@@ -7,7 +7,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
 
   alias AlexClaw.Config
   alias AlexClaw.Skills.GitHubSecurityReview
-  alias AlexClaw.Webhooks.GitHubEvent
+  alias AlexClaw.Webhooks.{GitHubEvent, GitHubSecret}
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.Executor
 
@@ -32,26 +32,20 @@ defmodule AlexClawWeb.GitHubWebhookController do
     end
   end
 
-  defp verify_signature(_body, nil) do
-    secret = Config.get("github.webhook_secret", "")
-    if secret == "", do: {:error, :no_secret_configured}, else: {:error, :invalid_signature}
+  defp verify_signature(body, signature), do: signed(GitHubSecret.get(), body, signature)
+
+  defp signed(secret, _body, _signature) when secret in [nil, ""],
+    do: {:error, :no_secret_configured}
+
+  defp signed(secret, body, "sha256=" <> hex_sig) do
+    expected = Base.encode16(:crypto.mac(:hmac, :sha256, secret, body), case: :lower)
+
+    if Plug.Crypto.secure_compare(expected, hex_sig),
+      do: :ok,
+      else: {:error, :invalid_signature}
   end
 
-  defp verify_signature(body, "sha256=" <> hex_sig) do
-    secret = Config.get("github.webhook_secret", "")
-
-    if secret == "" do
-      {:error, :no_secret_configured}
-    else
-      expected = Base.encode16(:crypto.mac(:hmac, :sha256, secret, body), case: :lower)
-
-      if Plug.Crypto.secure_compare(expected, hex_sig),
-        do: :ok,
-        else: {:error, :invalid_signature}
-    end
-  end
-
-  defp verify_signature(_body, _sig), do: {:error, :invalid_signature}
+  defp signed(_secret, _body, _signature), do: {:error, :invalid_signature}
 
   defp dispatch_event("pull_request", %{
          "action" => action,

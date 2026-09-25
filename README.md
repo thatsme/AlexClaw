@@ -187,7 +187,7 @@ git clone https://github.com/thatsme/AlexClaw.git
 cd AlexClaw
 cp .env.example .env
 # Edit .env — set DATABASE_PASSWORD, SECRET_KEY_BASE, ADMIN_PASSWORD,
-# TELEGRAM_CHAT_ID, and at least one LLM API key. The Telegram bot token is
+# and TELEGRAM_CHAT_ID. The Telegram bot token and the LLM API keys are
 # entered on the Config page after the first start.
 docker compose up -d
 ```
@@ -214,10 +214,12 @@ All configuration is managed at runtime through the admin UI (`/config`). On fir
 
 ### LLM providers (at least one required)
 
+The Gemini (free tier available) and Anthropic API keys are entered on the
+Config page after the first start and kept in OpenBao; local models are
+enabled here:
+
 | Variable | Description |
 |---|---|
-| `GEMINI_API_KEY` | Google Gemini (free tier available) |
-| `ANTHROPIC_API_KEY` | Anthropic Claude |
 | `OLLAMA_ENABLED=true` + `OLLAMA_HOST` | Local Ollama instance |
 | `LMSTUDIO_ENABLED=true` + `LMSTUDIO_HOST` | Local LM Studio instance |
 

@@ -73,30 +73,26 @@ defmodule AlexClaw.Google.OAuth do
     end
   end
 
-  @doc "Disconnect Google — remove stored tokens."
-  @spec disconnect() :: :ok
+  @doc "Disconnect Google — remove the stored refresh token from OpenBao."
+  @spec disconnect() :: :ok | {:error, term()}
   def disconnect do
-    Config.set("google.oauth.refresh_token", "",
-      type: "string",
-      category: "google",
-      description: "Google OAuth refresh token (obtained via one-time authorization flow)"
-    )
-
-    Logger.info("Google OAuth disconnected")
-    :ok
+    with :ok <- Config.clear("google.oauth.refresh_token") do
+      Logger.info("Google OAuth disconnected")
+      :ok
+    end
   end
 
   @doc "Check if Google OAuth is connected."
   @spec connected?() :: boolean()
   def connected? do
-    not blank?(Config.get("google.oauth.refresh_token"))
+    Config.secret_set?("google.oauth.refresh_token")
   end
 
   # --- Internal ---
 
   defp exchange_code(code, chat_id) do
     client_id = Config.get("google.oauth.client_id")
-    client_secret = Config.get("google.oauth.client_secret")
+    client_secret = Config.secret_value("google.oauth.client_secret")
     redirect_uri = get_redirect_uri()
 
     body = %{

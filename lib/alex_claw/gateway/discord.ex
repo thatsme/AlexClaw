@@ -21,9 +21,7 @@ defmodule AlexClaw.Gateway.Discord do
   @impl AlexClaw.Gateway.Behaviour
   @spec configured?() :: boolean()
   def configured? do
-    enabled = Config.get("discord.enabled")
-    token = Config.get("discord.bot_token")
-    (enabled == true or enabled == "true") and token != nil and token != ""
+    Config.enabled?("discord.enabled") and Config.secret_set?("discord.bot_token")
   end
 
   @impl AlexClaw.Gateway.Behaviour

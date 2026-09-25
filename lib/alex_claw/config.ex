@@ -34,6 +34,9 @@ defmodule AlexClaw.Config do
   # hide, so it is raised and not returned.
   @uncached_keys ["auth.totp.secret", "auth.totp.last_used_at"]
 
+  # A recognised-only key's row holds a fingerprint, never a value.
+  @fingerprint_prefix "hmac:"
+
   @doc "Keys that get/2 refuses and the seeder must never write a default over."
   @spec uncached_keys() :: [String.t()]
   def uncached_keys, do: @uncached_keys
@@ -142,16 +145,71 @@ defmodule AlexClaw.Config do
   @spec secret?(String.t()) :: boolean()
   defdelegate secret?(key), to: SecretSettings
 
-  @doc "The destination `key`'s value may be used for, as a binding (`host:...`)."
+  @doc "The destination of a single-binding secret key, as a binding (`host:...`)."
   @spec secret_binding(String.t()) :: String.t()
   def secret_binding(key), do: SecretSettings.binding_for(key)
+
+  @doc "Every destination the secret key `key` may be used for, as bindings."
+  @spec secret_bindings(String.t()) :: [String.t()]
+  def secret_bindings(key), do: SecretSettings.bindings_for(key)
 
   @doc """
   The value of the secret setting `key`, for the destination `for:` — through
   `AlexClaw.Secrets.resolve/2`: the binding is checked and the use audited.
+
+  A recognised-only key (`mcp.api_key`) has no value to return:
+  `{:error, :not_retrievable}`.
   """
-  @spec secret(String.t(), keyword()) :: {:ok, String.t()} | {:error, Secrets.error()}
-  def secret(key, opts), do: Secrets.resolve(SecretSettings.secret_name(key), opts)
+  @spec secret(String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, Secrets.error() | :not_retrievable}
+  def secret(key, opts), do: resolved(SecretSettings.recognised_only?(key), key, opts)
+
+  defp resolved(true, _key, _opts), do: {:error, :not_retrievable}
+  defp resolved(false, key, opts), do: Secrets.resolve(SecretSettings.secret_name(key), opts)
+
+  @doc """
+  The value of the secret setting `key` for the destination `for:`, or nil when
+  it was never set or cannot be resolved. A key that was never set is not
+  resolved at all, so asking writes no audit row.
+  """
+  @spec secret_value(String.t(), keyword()) :: String.t() | nil
+  def secret_value(key, opts), do: value_if_set(secret_set?(key), key, opts)
+
+  @doc "`secret_value/2` for a single-binding key, for its one destination."
+  @spec secret_value(String.t()) :: String.t() | nil
+  def secret_value(key), do: secret_value(key, for: secret_binding(key))
+
+  defp value_if_set(false, _key, _opts), do: nil
+
+  defp value_if_set(true, key, opts) do
+    case secret(key, opts) do
+      {:ok, value} -> value
+      {:error, _reason} -> nil
+    end
+  end
+
+  @doc "Whether the secret setting `key` has a value (or, recognised-only, a fingerprint)."
+  @spec secret_set?(String.t()) :: boolean()
+  def secret_set?(key), do: secret_set_at(key) != nil
+
+  @doc """
+  The stored fingerprint of the recognised-only key `key` (`mcp.api_key`), or
+  nil when none is set. A fingerprint is not a secret; see `AlexClaw.MCP.Key`.
+  """
+  @spec fingerprint(String.t()) :: String.t() | nil
+  def fingerprint(key) do
+    true = SecretSettings.recognised_only?(key)
+    stored_fingerprint(Repo.get_by(Setting, key: key))
+  end
+
+  defp stored_fingerprint(%Setting{value: @fingerprint_prefix <> _ = fingerprint}),
+    do: fingerprint
+
+  defp stored_fingerprint(_row), do: nil
+
+  @doc "The prefix every stored fingerprint carries."
+  @spec fingerprint_prefix() :: String.t()
+  def fingerprint_prefix, do: @fingerprint_prefix
 
   @doc """
   Clear the setting `key`. An empty value means "keep" for a secret setting, so
@@ -161,7 +219,18 @@ defmodule AlexClaw.Config do
   @spec clear(String.t()) :: :ok | {:error, term()}
   def clear(key), do: cleared(SecretSettings.secret?(key), key)
 
-  defp cleared(true, key) do
+  defp cleared(true, key), do: cleared_secret(SecretSettings.recognised_only?(key), key)
+
+  defp cleared(false, key) do
+    with {:ok, _setting} <- set(key, ""), do: :ok
+  end
+
+  # A recognised-only key is cleared by dropping its fingerprint.
+  defp cleared_secret(true, key) do
+    with {:ok, _setting} <- replace_row(Repo.get_by(Setting, key: key), ""), do: publish(key)
+  end
+
+  defp cleared_secret(false, key) do
     case Secrets.delete(SecretSettings.secret_name(key)) do
       :ok -> publish(key)
       {:error, :unknown_secret} -> :ok
@@ -169,13 +238,23 @@ defmodule AlexClaw.Config do
     end
   end
 
-  defp cleared(false, key) do
-    with {:ok, _setting} <- set(key, ""), do: :ok
-  end
+  defp replace_row(nil, _value), do: {:ok, nil}
+
+  defp replace_row(setting, value),
+    do: setting |> Setting.changeset(%{value: value}) |> Repo.update()
 
   @doc "When the secret setting `key` was last set, or nil if it never was."
   @spec secret_set_at(String.t()) :: DateTime.t() | nil
-  def secret_set_at(key) do
+  def secret_set_at(key), do: set_at(SecretSettings.recognised_only?(key), key)
+
+  defp set_at(true, key) do
+    case Repo.get_by(Setting, key: key) do
+      %Setting{value: @fingerprint_prefix <> _, updated_at: at} -> at
+      _ -> nil
+    end
+  end
+
+  defp set_at(false, key) do
     case Secrets.get(SecretSettings.secret_name(key)) do
       nil -> nil
       secret -> secret.rotated_at
@@ -201,7 +280,7 @@ defmodule AlexClaw.Config do
   `AlexClaw.ControlPlane.gated/4` and publishes after it commits.
   """
   @spec set(String.t(), config_value(), set_opts()) ::
-          {:ok, Setting.t()} | {:error, Ecto.Changeset.t() | Secrets.error()}
+          {:ok, Setting.t()} | {:error, Ecto.Changeset.t() | Secrets.error() | :not_settable}
   def set(key, value, opts \\ []) do
     with {:ok, setting} <- persist(key, value, opts) do
       :ok = publish(key)
@@ -219,17 +298,55 @@ defmodule AlexClaw.Config do
   routed: its value goes to OpenBao (`AlexClaw.Secrets`, catalogued and bound
   as declared) and the setting row keeps no value. "" keeps the current value;
   a new one rotates it. (An OpenBao write is not undone by a rollback.)
+
+  A recognised-only key (`mcp.api_key`) takes only a fingerprint made by
+  `AlexClaw.MCP.Key`; any other value is refused with `{:error, :not_settable}`.
   """
   @spec persist(String.t(), config_value(), set_opts()) ::
-          {:ok, Setting.t()} | {:error, Ecto.Changeset.t() | Secrets.error()}
+          {:ok, Setting.t()} | {:error, Ecto.Changeset.t() | Secrets.error() | :not_settable}
   def persist(key, value, opts \\ []),
     do: persisted(SecretSettings.secret?(key), key, value, opts)
+
+  defp persisted(true, key, value, opts),
+    do: persisted_secret(SecretSettings.recognised_only?(key), key, value, opts)
+
+  defp persisted(false, key, value, opts) do
+    type = Keyword.get(opts, :type, "string")
+    existing_record = Repo.get_by(Setting, key: key)
+    sensitive = sensitive_flag(Keyword.fetch(opts, :sensitive), existing_record)
+
+    attrs = %{
+      key: key,
+      value: db_value(encode_value(value, type), sensitive),
+      type: type,
+      description: Keyword.get(opts, :description),
+      category: Keyword.get(opts, :category, "general"),
+      sensitive: sensitive
+    }
+
+    upsert_setting(existing_record, attrs)
+  end
+
+  # A recognised-only key stores its fingerprint, and nothing else: a value
+  # that is not one is refused, so no key can land in the table as typed.
+  defp persisted_secret(true, key, @fingerprint_prefix <> _ = fingerprint, opts) do
+    upsert_setting(Repo.get_by(Setting, key: key), %{
+      key: key,
+      value: fingerprint,
+      type: "string",
+      description: Keyword.get(opts, :description),
+      category: Keyword.get(opts, :category, "mcp"),
+      sensitive: true
+    })
+  end
+
+  defp persisted_secret(true, _key, _value, _opts), do: {:error, :not_settable}
 
   # OpenBao first, then the row: a failed store leaves the row as it was. A
   # value not yet moved by AlexClaw.Config.SecretUpgrade stays in the row when
   # "" (keep) is saved, so the upgrade can still move it; a new value makes it
   # obsolete.
-  defp persisted(true, key, value, opts) do
+  defp persisted_secret(false, key, value, opts) do
     type = Keyword.get(opts, :type, "string")
     encoded = encode_value(value, type)
     existing = Repo.get_by(Setting, key: key)
@@ -248,23 +365,6 @@ defmodule AlexClaw.Config do
 
   defp row_value("", %Setting{value: not_yet_moved}), do: not_yet_moved
   defp row_value(_encoded, _existing), do: ""
-
-  defp persisted(false, key, value, opts) do
-    type = Keyword.get(opts, :type, "string")
-    existing_record = Repo.get_by(Setting, key: key)
-    sensitive = sensitive_flag(Keyword.fetch(opts, :sensitive), existing_record)
-
-    attrs = %{
-      key: key,
-      value: db_value(encode_value(value, type), sensitive),
-      type: type,
-      description: Keyword.get(opts, :description),
-      category: Keyword.get(opts, :category, "general"),
-      sensitive: sensitive
-    }
-
-    upsert_setting(existing_record, attrs)
-  end
 
   @doc """
   Make the cache and subscribers agree with what the database holds for `key`.

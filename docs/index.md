@@ -23,9 +23,9 @@ AlexClaw monitors the world — RSS feeds, GitHub repositories, Google services,
 git clone https://github.com/thatsme/AlexClaw.git
 cd AlexClaw
 cp .env.example .env
-# Edit .env — set DATABASE_OWNER_PASSWORD, DATABASE_PASSWORD, SECRET_KEY_BASE, ADMIN_PASSWORD,
-# and at least one LLM API key (GEMINI_API_KEY is free). The Telegram bot token
-# is entered on the Config page after the first start.
+# Edit .env — set DATABASE_OWNER_PASSWORD, DATABASE_PASSWORD, SECRET_KEY_BASE and ADMIN_PASSWORD.
+# The Telegram bot token and at least one LLM API key (Gemini's is free) are
+# entered on the Config page after the first start.
 docker compose up -d
 ```
 

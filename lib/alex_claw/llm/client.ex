@@ -6,6 +6,7 @@ defmodule AlexClaw.LLM.Client do
   """
   require Logger
 
+  alias AlexClaw.Config
   alias AlexClaw.LLM.Provider
 
   # --- API Key Resolution ---
@@ -15,20 +16,41 @@ defmodule AlexClaw.LLM.Client do
     "anthropic" => "llm.anthropic_api_key"
   }
 
-  @doc "Resolve API key from provider record or config database."
+  @gemini_base "https://generativelanguage.googleapis.com"
+  @anthropic_url "https://api.anthropic.com/v1/messages"
+
+  @doc """
+  The API key for a provider's completion calls: its own, or else its type's
+  secret setting, resolved for the host the call goes to.
+  """
   @spec resolve_api_key(Provider.t()) :: String.t()
-  def resolve_api_key(%Provider{api_key: key}) when is_binary(key) and key != "", do: key
+  def resolve_api_key(%Provider{type: type} = p), do: resolve_api_key(p, completion_host(type))
 
-  def resolve_api_key(%Provider{type: type}), do: setting_api_key(type) || ""
+  defp resolve_api_key(%Provider{api_key: key}, _destination) when is_binary(key) and key != "",
+    do: key
 
-  @doc "The API key a provider type reads from the settings, if it has one."
+  defp resolve_api_key(%Provider{type: type}, destination),
+    do: setting_api_key(type, destination) || ""
+
+  @doc """
+  The API key a provider type reads from its secret setting, if it has one,
+  resolved for the type's completion host (the use is audited).
+  """
   @spec setting_api_key(String.t()) :: String.t() | nil
-  def setting_api_key(type) do
+  def setting_api_key(type), do: setting_api_key(type, completion_host(type))
+
+  defp setting_api_key(type, destination) do
     case Map.get(@config_key_map, type) do
       nil -> nil
-      config_key -> AlexClaw.Config.get(config_key)
+      config_key -> Config.secret_value(config_key, for: destination)
     end
   end
+
+  defp completion_host("gemini"), do: host_binding(@gemini_base)
+  defp completion_host("anthropic"), do: host_binding(@anthropic_url)
+  defp completion_host(_type), do: nil
+
+  defp host_binding(url), do: "host:" <> URI.parse(url).host
 
   # --- Provider Completion Calls ---
 
@@ -87,11 +109,12 @@ defmodule AlexClaw.LLM.Client do
   @spec call_embedding(Provider.t(), String.t(), String.t()) ::
           {:ok, list(float())} | {:error, term()}
   def call_embedding(%Provider{type: "gemini"} = p, text, model) do
-    api_key = resolve_api_key(p)
+    base = embedding_base_url() || @gemini_base
+    api_key = resolve_api_key(p, host_binding(base))
 
     if api_key == "",
       do: {:error, :api_key_not_set},
-      else: call_embedding_gemini(api_key, text, model)
+      else: call_embedding_gemini(base, api_key, text, model)
   end
 
   def call_embedding(%Provider{type: "ollama"} = p, text, model) do
@@ -114,9 +137,10 @@ defmodule AlexClaw.LLM.Client do
 
   # --- Gemini ---
 
+  # The key goes in the x-goog-api-key header, never in the URL, where it would
+  # land in any log that records request lines.
   defp call_gemini(model, api_key, prompt, system) do
-    url =
-      "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+    url = "#{@gemini_base}/v1beta/models/#{model}:generateContent"
 
     contents = [%{role: "user", parts: [%{text: prompt}]}]
 
@@ -127,11 +151,11 @@ defmodule AlexClaw.LLM.Client do
         %{contents: contents}
       end
 
-    do_gemini_request(url, body, _retries = 3)
+    do_gemini_request([url: url, headers: [{"x-goog-api-key", api_key}]], body, _retries = 3)
   end
 
-  defp do_gemini_request(url, body, retries) do
-    case Req.post(url, json: body) do
+  defp do_gemini_request(request, body, retries) do
+    case Req.post([json: body] ++ request) do
       {:ok,
        %{
          status: 200,
@@ -140,7 +164,7 @@ defmodule AlexClaw.LLM.Client do
         {:ok, text}
 
       {:ok, %{status: 429, body: resp_body}} ->
-        gemini_rate_limited(url, body, retries, resp_body, quota_exhausted?(resp_body))
+        gemini_rate_limited(request, body, retries, resp_body, quota_exhausted?(resp_body))
 
       {:ok, %{status: status, body: resp_body}} ->
         {:error, {:gemini, status, resp_body}}
@@ -150,16 +174,16 @@ defmodule AlexClaw.LLM.Client do
     end
   end
 
-  defp gemini_rate_limited(_url, _body, _retries, resp_body, true) do
+  defp gemini_rate_limited(_request, _body, _retries, resp_body, true) do
     Logger.warning("Gemini daily quota exhausted, not retrying")
     {:error, {:gemini_quota_exhausted, resp_body}}
   end
 
-  defp gemini_rate_limited(_url, _body, retries, resp_body, false) when retries <= 0 do
+  defp gemini_rate_limited(_request, _body, retries, resp_body, false) when retries <= 0 do
     {:error, {:gemini, 429, resp_body}}
   end
 
-  defp gemini_rate_limited(url, body, retries, _resp_body, false) do
+  defp gemini_rate_limited(request, body, retries, _resp_body, false) do
     wait = (4 - retries) * 5_000
 
     Logger.warning(
@@ -167,7 +191,7 @@ defmodule AlexClaw.LLM.Client do
     )
 
     Process.sleep(wait)
-    do_gemini_request(url, body, retries - 1)
+    do_gemini_request(request, body, retries - 1)
   end
 
   defp quota_exhausted?(%{"error" => %{"status" => "RESOURCE_EXHAUSTED"} = error}) do
@@ -181,7 +205,7 @@ defmodule AlexClaw.LLM.Client do
   # --- Anthropic ---
 
   defp call_anthropic(model, api_key, prompt, system) do
-    url = "https://api.anthropic.com/v1/messages"
+    url = @anthropic_url
 
     headers = [
       {"x-api-key", api_key},
@@ -309,9 +333,8 @@ defmodule AlexClaw.LLM.Client do
 
   # --- Gemini Embeddings ---
 
-  defp call_embedding_gemini(api_key, text, model) do
-    base = embedding_base_url() || "https://generativelanguage.googleapis.com"
-    url = "#{base}/v1beta/models/#{model}:embedContent?key=#{api_key}"
+  defp call_embedding_gemini(base, api_key, text, model) do
+    url = "#{base}/v1beta/models/#{model}:embedContent"
 
     body = %{
       model: "models/#{model}",
@@ -319,7 +342,7 @@ defmodule AlexClaw.LLM.Client do
       outputDimensionality: 768
     }
 
-    case Req.post(url, json: body) do
+    case Req.post(url, json: body, headers: [{"x-goog-api-key", api_key}]) do
       {:ok, %{status: 200, body: %{"embedding" => %{"values" => values}}}} when is_list(values) ->
         {:ok, values}
 

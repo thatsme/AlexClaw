@@ -36,8 +36,7 @@ CLUSTER_COOKIE=generate_with_openssl_rand_base64_32
 TELEGRAM_CHAT_ID=              # optional — auto-detected on first message
 
 # === LLM Providers (at least one required) ===
-GEMINI_API_KEY=
-ANTHROPIC_API_KEY=
+# API keys are entered on the Config page after the first start (step 4).
 
 # === Local Models (optional) ===
 # OLLAMA_ENABLED=true
@@ -50,8 +49,6 @@ ANTHROPIC_API_KEY=
 
 # === Google OAuth (optional — for Calendar, Keep skills) ===
 # GOOGLE_OAUTH_CLIENT_ID=
-# GOOGLE_OAUTH_CLIENT_SECRET=
-# GOOGLE_OAUTH_REFRESH_TOKEN=
 
 # === Clustering (optional — multi-node) ===
 # NODE_NAME=alexclaw@node1.local
@@ -89,7 +86,6 @@ Then fill in the remaining values:
 | `CLUSTER_COOKIE` | Paste the output of the `openssl rand -base64 32` command. The container does not start without it, and every node of a cluster shares the same value |
 | `DATABASE_OWNER_USERNAME`, `DATABASE_USERNAME` | Leave as `alexclaw` and `alexclaw_app`. They must be two different roles: AlexClaw refuses to start as the owner. The application role is created automatically on a fresh install; to upgrade an existing one, see [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md) |
 | `TELEGRAM_CHAT_ID` | **Optional** — leave empty and AlexClaw will auto-detect it when you send the bot its first message. Or set it manually (see [Getting Your Chat ID](#getting-your-telegram-chat-id) below) |
-| `GEMINI_API_KEY` | Free key from [ai.google.dev](https://ai.google.dev/) — gives you `light` and `medium` LLM tiers with no credit card |
 
 ### 3. Start
 
@@ -117,6 +113,8 @@ When you see `Running AlexClawWeb.Endpoint at 0.0.0.0:5001`, it's ready.
 Open [http://localhost:5001](http://localhost:5001) and log in with your `ADMIN_PASSWORD`.
 
 You should see the Dashboard with the version number and example workflows listed under Workflows.
+
+On the Config page, enter the Telegram bot token (`telegram.bot_token`) and at least one LLM API key: `llm.gemini_api_key` (a free key from [ai.google.dev](https://ai.google.dev/) gives the `light` and `medium` tiers with no credit card) or `llm.anthropic_api_key`. They are kept in OpenBao; the page shows when each was set, never the value.
 
 > **macOS users:** Port 5001 is used by AirPlay Receiver by default. If you get a port conflict, either disable AirPlay Receiver (System Settings > General > AirDrop & Handoff) or set `ADMIN_PORT=5002` in your `.env` and restart.
 
@@ -193,11 +191,11 @@ AlexClaw needs at least one LLM provider. The router automatically selects the c
 
 | Provider | Tier | Cost | Setup |
 |---|---|---|---|
-| Gemini Flash | light | Free (250 req/day) | Set `GEMINI_API_KEY` |
-| Gemini Pro | medium | Free (50 req/day) | Set `GEMINI_API_KEY` |
-| Claude Haiku | light | Paid | Set `ANTHROPIC_API_KEY` |
-| Claude Sonnet | medium | Paid | Set `ANTHROPIC_API_KEY` |
-| Claude Opus | heavy | Paid | Set `ANTHROPIC_API_KEY` |
+| Gemini Flash | light | Free (250 req/day) | Set `llm.gemini_api_key` on the Config page |
+| Gemini Pro | medium | Free (50 req/day) | Set `llm.gemini_api_key` on the Config page |
+| Claude Haiku | light | Paid | Set `llm.anthropic_api_key` on the Config page |
+| Claude Sonnet | medium | Paid | Set `llm.anthropic_api_key` on the Config page |
+| Claude Opus | heavy | Paid | Set `llm.anthropic_api_key` on the Config page |
 | Ollama | local | Free (your hardware) | See Local Models below |
 | LM Studio | local | Free (your hardware) | See Local Models below |
 
@@ -292,15 +290,11 @@ Copy the `refresh_token` from the response.
 
 ### 3. Configure AlexClaw
 
-Add to your `.env`:
-
-```
-GOOGLE_OAUTH_CLIENT_ID=your-client-id
-GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
-GOOGLE_OAUTH_REFRESH_TOKEN=your-refresh-token
-```
-
-Or set them at runtime in Admin > Config under the `google` category.
+Set the client ID in `.env` (`GOOGLE_OAUTH_CLIENT_ID=your-client-id`) or in
+Admin > Config under the `google` category. Enter the client secret
+(`google.oauth.client_secret`) and the refresh token
+(`google.oauth.refresh_token`) on the Config page: both are secrets, kept in
+OpenBao, and are not read from `.env`.
 
 Restart: `docker compose restart alexclaw-prod`
 

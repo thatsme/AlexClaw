@@ -117,6 +117,11 @@ path "transit/encrypt/alexclaw" {
 path "transit/decrypt/alexclaw" {
   capabilities = ["update"]
 }
+
+# The MCP key is kept as an HMAC under this key: recognised, never stored.
+path "transit/hmac/alexclaw" {
+  capabilities = ["update"]
+}
 POLICY
 
   bao auth enable approle >/dev/null

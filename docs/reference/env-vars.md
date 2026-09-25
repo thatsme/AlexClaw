@@ -18,10 +18,12 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 
 ## LLM Providers (at least one)
 
+The Gemini and Anthropic API keys are not environment variables: they are set
+on the Config page (`llm.gemini_api_key`, `llm.anthropic_api_key`) and kept in
+OpenBao.
+
 | Variable | Description |
 |---|---|
-| `GEMINI_API_KEY` | *Seeded.* Google Gemini API key (free tier available) |
-| `ANTHROPIC_API_KEY` | *Seeded.* Anthropic Claude API key |
 | `OLLAMA_ENABLED` | *Seeded.* `true` to enable Ollama |
 | `OLLAMA_HOST` | *Seeded.* Ollama API URL (e.g., `http://host.docker.internal:11434`) |
 | `OLLAMA_MODEL` | *Seeded.* Default Ollama model (default `llama3.2`) |
@@ -34,9 +36,10 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 | Variable | Description |
 |---|---|
 | `GOOGLE_OAUTH_CLIENT_ID` | *Seeded.* OAuth client ID |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | *Seeded.* OAuth client secret |
-| `GOOGLE_OAUTH_REFRESH_TOKEN` | *Seeded.* Refresh token, if one was obtained outside AlexClaw |
 | `GOOGLE_OAUTH_REDIRECT_URI` | *Seeded.* OAuth redirect URI |
+
+The client secret (`google.oauth.client_secret`) is set on the Config page and
+the refresh token by the authorization flow; both are kept in OpenBao.
 
 ## Web Automator (optional)
 

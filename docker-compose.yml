@@ -151,10 +151,6 @@ services:
       # Telegram
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
 
-      # LLM providers (at least one required)
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-
       # Local models (optional)
       OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
@@ -165,8 +161,6 @@ services:
 
       # Google OAuth (optional) — seeded into Admin > Config on first boot
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
-      GOOGLE_OAUTH_REFRESH_TOKEN: ${GOOGLE_OAUTH_REFRESH_TOKEN:-}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
 
       # Web automator (optional)

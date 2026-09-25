@@ -2,12 +2,14 @@ defmodule AlexClawWeb.Plugs.McpAuth do
   @moduledoc """
   Bearer token authentication for the MCP endpoint.
 
-  Checks the `Authorization: Bearer <token>` header against the
-  `mcp.api_key` value stored in AlexClaw.Config. Returns 401 if
-  the token is missing or invalid.
+  Checks the `Authorization: Bearer <token>` header with
+  `AlexClaw.MCP.Key.valid?/1`: the token's fingerprint against the stored one.
+  Returns 401 if no key is set, or the token is missing or not the key.
   """
 
   import Plug.Conn
+
+  alias AlexClaw.MCP.Key
 
   @behaviour Plug
 
@@ -15,27 +17,19 @@ defmodule AlexClawWeb.Plugs.McpAuth do
   def init(opts), do: opts
 
   @impl true
-  def call(conn, _opts) do
-    authenticate(conn, AlexClaw.Config.get("mcp.api_key"))
-  end
+  def call(conn, _opts), do: authenticate(conn, Key.fingerprint())
 
-  defp authenticate(conn, expected_key) when expected_key in [nil, ""],
-    do: send_unauthorized(conn, "MCP API key not configured")
+  defp authenticate(conn, nil), do: send_unauthorized(conn, "MCP API key not configured")
 
-  defp authenticate(conn, expected_key) do
+  defp authenticate(conn, _fingerprint) do
     case get_req_header(conn, "authorization") do
-      ["Bearer " <> token] -> verify_token(conn, token, expected_key)
+      ["Bearer " <> token] -> verify_token(conn, Key.valid?(token))
       _ -> send_unauthorized(conn, "Missing Authorization header")
     end
   end
 
-  defp verify_token(conn, token, expected_key) do
-    if Plug.Crypto.secure_compare(token, expected_key) do
-      conn
-    else
-      send_unauthorized(conn, "Invalid API key")
-    end
-  end
+  defp verify_token(conn, true), do: conn
+  defp verify_token(conn, false), do: send_unauthorized(conn, "Invalid API key")
 
   defp send_unauthorized(conn, message) do
     conn

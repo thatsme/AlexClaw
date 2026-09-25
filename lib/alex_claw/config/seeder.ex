@@ -30,9 +30,9 @@ defmodule AlexClaw.Config.Seeder do
     {"discord.node", "", "string", "discord",
      "Cluster: only this node runs the Discord bot. Empty = cluster-wide (any node)", false},
 
-    # LLM - API Keys
-    {"llm.gemini_api_key", &__MODULE__.env/1, "string", "llm", "Google Gemini API key", true},
-    {"llm.anthropic_api_key", &__MODULE__.env/1, "string", "llm", "Anthropic API key", true},
+    # LLM - API Keys. Secret settings: set on the Config page, kept in OpenBao.
+    {"llm.gemini_api_key", "", "string", "llm", "Google Gemini API key", true},
+    {"llm.anthropic_api_key", "", "string", "llm", "Anthropic API key", true},
 
     # LLM - Ollama
     {"llm.ollama_enabled", &__MODULE__.env/1, "boolean", "llm", "Enable local Ollama model",
@@ -101,9 +101,10 @@ defmodule AlexClaw.Config.Seeder do
     # Google OAuth (Calendar, Keep, etc.)
     {"google.oauth.client_id", &__MODULE__.env/1, "string", "google", "Google OAuth client ID",
      false},
-    {"google.oauth.client_secret", &__MODULE__.env/1, "string", "google",
-     "Google OAuth client secret", true},
-    {"google.oauth.refresh_token", &__MODULE__.env/1, "string", "google",
+    # Secret settings: the client secret is set on the Config page, the refresh
+    # token by the authorization flow; both are kept in OpenBao.
+    {"google.oauth.client_secret", "", "string", "google", "Google OAuth client secret", true},
+    {"google.oauth.refresh_token", "", "string", "google",
      "Google OAuth refresh token (obtained via one-time authorization flow)", true},
     {"google.oauth.redirect_uri", &__MODULE__.env/1, "string", "google",
      "Google OAuth redirect URI (default: http://localhost:5001/auth/google/callback)", false},
@@ -227,8 +228,6 @@ defmodule AlexClaw.Config.Seeder do
 
   @env_mapping %{
     "telegram.chat_id" => {"TELEGRAM_CHAT_ID", ""},
-    "llm.gemini_api_key" => {"GEMINI_API_KEY", ""},
-    "llm.anthropic_api_key" => {"ANTHROPIC_API_KEY", ""},
     "llm.ollama_enabled" => {"OLLAMA_ENABLED", "false"},
     "llm.ollama_host" => {"OLLAMA_HOST", "http://localhost:11434"},
     "llm.ollama_model" => {"OLLAMA_MODEL", "llama3.2"},
@@ -236,8 +235,6 @@ defmodule AlexClaw.Config.Seeder do
     "llm.lmstudio_host" => {"LMSTUDIO_HOST", "http://host.docker.internal:1234"},
     "llm.lmstudio_model" => {"LMSTUDIO_MODEL", "qwen2.5-14b-instruct"},
     "google.oauth.client_id" => {"GOOGLE_OAUTH_CLIENT_ID", ""},
-    "google.oauth.client_secret" => {"GOOGLE_OAUTH_CLIENT_SECRET", ""},
-    "google.oauth.refresh_token" => {"GOOGLE_OAUTH_REFRESH_TOKEN", ""},
     "google.oauth.redirect_uri" => {"GOOGLE_OAUTH_REDIRECT_URI", ""},
     "web_automator.enabled" => {"WEB_AUTOMATOR_ENABLED", "false"},
     "web_automator.host" => {"WEB_AUTOMATOR_HOST", "http://web-automator:6900"}
@@ -254,6 +251,10 @@ defmodule AlexClaw.Config.Seeder do
   def shell_default("shell.whitelist"), do: Jason.encode!(Shell.default_whitelist())
   def shell_default("shell.blocklist"), do: Jason.encode!(Shell.default_blocklist())
   def shell_default("shell.exact_commands"), do: Jason.encode!(Shell.default_exact_commands())
+
+  @doc "Every setting the environment can seed."
+  @spec env_mapped_keys() :: [String.t()]
+  def env_mapped_keys, do: Map.keys(@env_mapping)
 
   @doc """
   The environment's value for `key`, or its default. A declared-secret setting

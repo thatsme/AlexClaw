@@ -37,6 +37,10 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   # Configurable so the diff fetch can be tested against a local server.
   defp github_api, do: Application.get_env(:alex_claw, :github_api_base, "https://api.github.com")
 
+  # Resolved at each use, for the API host it is sent to; "" when not set, so
+  # public repositories are still read without one.
+  defp github_token, do: Config.secret_value("github.token") || ""
+
   @impl true
   @spec step_fields() :: [atom()]
   def step_fields, do: [:config]
@@ -62,7 +66,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   @impl true
   @spec available?() :: boolean()
-  def available?, do: Config.get("github.token", "") not in [nil, ""]
+  def available?, do: Config.secret_set?("github.token")
 
   @impl true
   @spec config_presets() :: %{String.t() => map()}
@@ -86,7 +90,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   @impl true
   @spec run(map()) :: {:ok, String.t(), atom()} | {:error, any()}
   def run(args) do
-    token = Config.get("github.token", "")
+    token = github_token()
     args |> review_mode() |> run_mode(args, token)
   end
 
@@ -202,7 +206,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   @spec review_pr(String.t(), integer() | nil, keyword()) :: :ok
   def review_pr(repo, pr_number, opts \\ []) do
-    token = Config.get("github.token", "")
+    token = github_token()
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       result =
@@ -231,7 +235,7 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
 
   @spec review_commit(String.t(), String.t(), keyword()) :: :ok
   def review_commit(repo, sha, opts \\ []) do
-    token = Config.get("github.token", "")
+    token = github_token()
 
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       case fetch_commit(repo, sha, token) do

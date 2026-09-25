@@ -71,6 +71,14 @@ defmodule AlexClaw.Vault do
   def decrypt(ciphertext, opts \\ []) when is_binary(ciphertext),
     do: call(opts, {:decrypt, ciphertext})
 
+  @doc """
+  HMAC-SHA256 of `input` under OpenBao's transit key, as OpenBao writes it
+  (`vault:v<n>:<base64>`); AlexClaw never holds the key, so the result cannot
+  be recomputed or tried offline without OpenBao.
+  """
+  @spec hmac(binary(), keyword()) :: {:ok, String.t()} | {:error, error()}
+  def hmac(input, opts \\ []) when is_binary(input), do: call(opts, {:hmac, input})
+
   @doc "`:ok` when logged in to OpenBao."
   @spec status(keyword()) :: :ok | {:error, :vault_unavailable}
   def status(opts \\ []), do: call(opts, :status)
@@ -245,6 +253,12 @@ defmodule AlexClaw.Vault do
     |> outcome(:decrypt, @transit_key, fn %{"data" => %{"plaintext" => p}} ->
       {:ok, Base.decode64!(p)}
     end)
+  end
+
+  defp perform(s, {:hmac, input}) do
+    s.req
+    |> request(s.token, :post, "/v1/transit/hmac/#{@transit_key}", %{input: Base.encode64(input)})
+    |> outcome(:hmac, @transit_key, fn %{"data" => %{"hmac" => hmac}} -> {:ok, hmac} end)
   end
 
   defp kv_path(path), do: "/v1/secret/data/" <> path

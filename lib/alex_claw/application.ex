@@ -35,6 +35,9 @@ defmodule AlexClaw.Application do
       # read back and compared before the database copy is emptied. Before the
       # gateways, which read their tokens from OpenBao.
       AlexClaw.Config.SecretUpgrade,
+      # The webhook secret, resolved once rather than per delivery. Before the
+      # endpoint, which checks deliveries against it.
+      AlexClaw.Webhooks.GitHubSecret,
       AlexClaw.Workflows.Registry,
       AlexClaw.LogBuffer,
       AlexClaw.Google.TokenManager,

@@ -13,6 +13,11 @@ defmodule AlexClaw.Config.SecretUpgrade do
   3. it is READ BACK from OpenBao and compared with what was read in step 1;
   4. only then is the value emptied in the settings table.
 
+  The MCP key is recognised, never stored (`AlexClaw.MCP.Key`), so it is not
+  moved: its fingerprint is computed from it (twice, and compared, before the
+  row is touched) and stored in its place. A configured MCP client keeps
+  working with the key it has.
+
   Any failure — OpenBao unreachable, a write refused, a value that does not
   decrypt, a read-back that differs — leaves the database copy exactly as it
   was, is logged by the setting's name (never its value), and the move is tried
@@ -22,7 +27,9 @@ defmodule AlexClaw.Config.SecretUpgrade do
   """
   require Logger
 
+  alias AlexClaw.Config
   alias AlexClaw.Config.{Crypto, SecretSettings, Setting}
+  alias AlexClaw.MCP.Key
   alias AlexClaw.{Repo, Secrets, Vault}
 
   @type result :: %{moved: [String.t()], failed: [{String.t(), term()}]}
@@ -50,7 +57,13 @@ defmodule AlexClaw.Config.SecretUpgrade do
 
   defp pending(nil), do: :nothing
   defp pending(%Setting{value: value}) when value in [nil, ""], do: :nothing
-  defp pending(%Setting{} = setting), do: {:move, setting}
+
+  defp pending(%Setting{value: value} = setting),
+    do:
+      pending_unless_fingerprint(String.starts_with?(value, Config.fingerprint_prefix()), setting)
+
+  defp pending_unless_fingerprint(true, _setting), do: :nothing
+  defp pending_unless_fingerprint(false, setting), do: {:move, setting}
 
   # Nothing to move: OpenBao is not even asked, so an instance without it boots
   # as before once everything has moved.
@@ -63,7 +76,22 @@ defmodule AlexClaw.Config.SecretUpgrade do
   defp by_status(pending, {:error, reason}),
     do: Enum.map(pending, fn {key, _move} -> {key, {:error, {:vault, reason}}} end)
 
-  defp move(%Setting{key: key, value: stored} = setting) do
+  defp move(%Setting{key: key} = setting),
+    do: move(SecretSettings.recognised_only?(key), setting)
+
+  # A recognised-only key: its fingerprint replaces it. Computed twice and
+  # compared before the row is touched, as a moved value is read back: the key
+  # is dropped only for a fingerprint that recognises it.
+  defp move(true, %Setting{key: key, value: stored}) do
+    with {:ok, value} <- plaintext(Crypto.decrypt(stored)),
+         {:ok, fingerprint} <- Key.fingerprint_of(value),
+         :ok <- recognised(Key.fingerprint_of(value), fingerprint),
+         {:ok, _setting} <- Config.set(key, fingerprint) do
+      :ok
+    end
+  end
+
+  defp move(false, %Setting{key: key, value: stored} = setting) do
     with {:ok, value} <- plaintext(Crypto.decrypt(stored)),
          :ok <- SecretSettings.store(key, value),
          :ok <- read_back(SecretSettings.secret_name(key), value),
@@ -71,6 +99,10 @@ defmodule AlexClaw.Config.SecretUpgrade do
       :ok
     end
   end
+
+  defp recognised({:ok, fingerprint}, fingerprint), do: :ok
+  defp recognised({:ok, _other}, _fingerprint), do: {:error, :fingerprint_differs}
+  defp recognised({:error, reason}, _fingerprint), do: {:error, {:fingerprint, reason}}
 
   defp plaintext({:ok, value}) when is_binary(value) and value != "", do: {:ok, value}
   defp plaintext({:ok, _empty}), do: {:error, :empty}

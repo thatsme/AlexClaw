@@ -22,10 +22,11 @@ DATABASE_PASSWORD=your_secure_db_password
 SECRET_KEY_BASE=$(openssl rand -base64 48)   # at least 64 bytes; shorter is refused
 ADMIN_PASSWORD=your_admin_password
 TELEGRAM_CHAT_ID=your_chat_id
-
-# At least one LLM provider
-GEMINI_API_KEY=your_gemini_key          # Free tier available
 ```
+
+At least one LLM provider is required. The Gemini (free tier available) and
+Anthropic API keys are entered on the Config page after the first start, and
+kept in OpenBao.
 
 Start the stack:
 

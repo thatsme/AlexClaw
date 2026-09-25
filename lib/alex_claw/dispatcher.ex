@@ -434,14 +434,14 @@ defmodule AlexClaw.Dispatcher do
   defp provider_status("Ollama", _key_path), do: toggle_status("llm.ollama_enabled")
   defp provider_status("LM Studio", _key_path), do: toggle_status("llm.lmstudio_enabled")
   defp provider_status(_name, nil), do: "disabled"
-  defp provider_status(_name, key_path), do: key_status(Config.get(key_path) || "")
+  defp provider_status(_name, key_path), do: key_status(Config.secret_set_at(key_path))
 
   defp toggle_status(config_key) do
     if Config.get(config_key), do: "enabled", else: "disabled"
   end
 
-  defp key_status(""), do: "no key"
-  defp key_status(_key), do: "configured"
+  defp key_status(nil), do: "no key"
+  defp key_status(_set_at), do: "configured"
 
   # --- GitHub ---
 

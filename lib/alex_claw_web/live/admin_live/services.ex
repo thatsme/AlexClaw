@@ -277,8 +277,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp initial_status("github") do
-    token = Config.get("github.token")
-    if token && token != "", do: :configured, else: :not_configured
+    if Config.secret_set?("github.token"), do: :configured, else: :not_configured
   end
 
   defp initial_status("web_automator") do
@@ -409,7 +408,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   defp live_check("discord") do
     discord_check(
       Config.enabled?("discord.enabled"),
-      Config.get("discord.bot_token"),
+      Config.secret_set?("discord.bot_token"),
       Config.get("discord.channel_id")
     )
   end
@@ -445,13 +444,15 @@ defmodule AlexClawWeb.AdminLive.Services do
     lmstudio_status(Config.enabled?("llm.lmstudio_enabled"), host)
   end
 
+  # The same API base and binding as the GitHub skill.
   defp live_check("github") do
-    token = Config.get("github.token")
+    base = Application.get_env(:alex_claw, :github_api_base, "https://api.github.com")
+    token = Config.secret_value("github.token")
 
-    if !token || token == "" do
+    if token in [nil, ""] do
       %{status: :not_configured, detail: "Token not set"}
     else
-      case Req.get("https://api.github.com/user",
+      case Req.get("#{base}/user",
              headers: [
                {"authorization", "Bearer #{token}"},
                {"accept", "application/vnd.github+json"}
@@ -523,16 +524,16 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   defp telegram_result({:error, reason}), do: %{status: :error, detail: inspect(reason)}
 
-  defp discord_check(false, _token, _channel_id),
+  defp discord_check(false, _token_set, _channel_id),
     do: %{status: :not_configured, detail: "Gateway disabled"}
 
-  defp discord_check(true, token, _channel_id) when token in [nil, ""],
+  defp discord_check(true, false, _channel_id),
     do: %{status: :not_configured, detail: "Bot token not set"}
 
-  defp discord_check(true, _token, channel_id) when channel_id in [nil, ""],
+  defp discord_check(true, true, channel_id) when channel_id in [nil, ""],
     do: %{status: :not_configured, detail: "Channel ID not set"}
 
-  defp discord_check(true, _token, channel_id) do
+  defp discord_check(true, true, channel_id) do
     channel_id
     |> discord_channel_id()
     |> Message.create(content: "🦇 AlexClaw connectivity check")

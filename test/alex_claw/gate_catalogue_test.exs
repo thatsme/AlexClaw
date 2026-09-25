@@ -50,13 +50,17 @@ defmodule AlexClaw.GateCatalogueTest do
     delete_resource: %{admin_ui: :elevation},
     discover_resource: %{admin_ui: :elevation},
     set_setting: %{admin_ui: :elevation},
-    load_skill: %{admin_ui: :elevation},
+    # Staging writes into the quarantine directory; loading approves THAT
+    # file's code, per action (like a restore).
+    stage_skill: %{admin_ui: :elevation},
+    load_skill: %{admin_ui: :code},
     unload_skill: %{admin_ui: :elevation},
     generate_skill: %{admin_ui: :elevation},
     save_provider: %{admin_ui: :elevation},
     save_policy: %{admin_ui: :elevation},
     save_node: %{admin_ui: :elevation},
     set_gateway_owner: %{admin_ui: :elevation},
+    delete_memory: %{admin_ui: :elevation},
     # secrets
     set_secret: %{admin_ui: :elevation},
     clear_secret: %{admin_ui: :elevation},
@@ -66,6 +70,11 @@ defmodule AlexClaw.GateCatalogueTest do
     disconnect_google: %{admin_ui: :elevation},
     upgrade_secrets: %{system: :none},
     # identity
+    # Setting up the second factor needs only the login: requiring a second
+    # factor to configure the second factor is the circle this design breaks.
+    # It is refused while 2FA is on (S3). Covers setup, confirm, cancel and the
+    # first recovery codes.
+    set_up_second_factor: %{admin_ui: :none},
     disable_second_factor: %{admin_ui: :code},
     regenerate_recovery_codes: %{admin_ui: :code},
     sign_out_everywhere: %{admin_ui: :elevation},

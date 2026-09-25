@@ -80,6 +80,9 @@ defmodule AlexClawWeb.GateAuditsTest do
 
   describe "run starts are audited" do
     test "a run started from the admin UI names the workflow and the entry point" do
+      # The run executes in its own process: share the test's connection with it.
+      Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+
       {:ok, wf} =
         Workflows.create_workflow(%{
           name: "Audited run #{System.unique_integer([:positive])}",

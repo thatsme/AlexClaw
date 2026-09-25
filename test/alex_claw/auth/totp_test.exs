@@ -129,6 +129,20 @@ defmodule AlexClaw.Auth.TOTPTest do
       assert {:error, :invalid_code} = TOTP.disable("000000")
       assert TOTP.enabled?()
     end
+
+    # The lost-phone path. Recovery codes exist for exactly this: without it,
+    # a lost authenticator would lock the admin out for good.
+    test "a recovery code disables 2FA, and every code is wiped" do
+      enabled_secret()
+      codes = AlexClaw.Auth.RecoveryCodes.generate()
+
+      :ok = TOTP.disable(hd(codes))
+      refute TOTP.enabled?()
+
+      # With 2FA off, leftover recovery codes mean nothing: all are wiped, the
+      # one used included.
+      refute Enum.any?(codes, &AlexClaw.Auth.RecoveryCodes.valid?/1)
+    end
   end
 
   describe "challenge system" do

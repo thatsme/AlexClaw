@@ -103,9 +103,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   @doc """
-  The config keys registered skills declare secret, stored encrypted
-  (`AlexClaw.Encrypted.StepConfig`). The core skills' keys are known before
-  this process starts, so a step read during boot is still decrypted.
+  The config keys registered skills declare secret: a step holds each as a
+  reference to a secret in OpenBao (`AlexClaw.Workflows.StepSecrets`). The
+  core skills' keys are known before this process starts.
   """
   @spec secret_config_keys() :: [String.t()]
   def secret_config_keys do

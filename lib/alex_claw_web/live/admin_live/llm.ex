@@ -267,12 +267,6 @@ defmodule AlexClawWeb.AdminLive.LLM do
     end
   end
 
-  defp mask_value(val) when is_binary(val) and byte_size(val) > 8 do
-    String.slice(val, 0, 4) <> "********" <> String.slice(val, -4, 4)
-  end
-
-  defp mask_value(_), do: ""
-
   defp format_limit(nil), do: "unlimited"
   defp format_limit(n), do: "#{n}/day"
 

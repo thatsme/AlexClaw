@@ -109,6 +109,16 @@ defmodule AlexClawWeb.Live.Elevation do
   defp refusal(true), do: :not_elevated
   defp refusal(false), do: :no_second_factor
 
+  defp not_made(socket, :undeclared_credential),
+    do:
+      put_flash(
+        socket,
+        :error,
+        "Not saved: this key is named like a credential, and only a declared secret " <>
+          "setting is kept (in OpenBao). Declare it, or choose a name without " <>
+          "api_key, token, password or secret."
+      )
+
   defp not_made(socket, reason),
     do: put_flash(socket, :error, "Not saved: #{inspect(reason)}")
 

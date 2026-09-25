@@ -20,7 +20,6 @@ defmodule AlexClaw.Auth.TOTP do
 
   alias AlexClaw.Auth.RecoveryCodes
   alias AlexClaw.Config
-  alias AlexClaw.Config.Crypto
   alias AlexClaw.Config.Setting
   alias AlexClaw.{Repo, Vault}
 
@@ -323,18 +322,26 @@ defmodule AlexClaw.Auth.TOTP do
   Import the secret an enrolment before 0.4.0 left in the `auth.totp.secret`
   row into OpenBao, then delete the row. `:imported`, `:none` when there is
   nothing to import, or `{:error, reason}` — the row is kept and the import
-  tried again next time. Options: `vault:`.
+  tried again next time. Options: `vault:`; `open:` — a function opening the
+  stored value, which the boot upgrade passes for a row 0.3.x encrypted.
   """
   @spec import_legacy(keyword()) :: :imported | :none | {:error, term()}
-  def import_legacy(opts \\ []), do: legacy_import(recorded(@legacy_secret), server(opts))
+  def import_legacy(opts \\ []),
+    do: legacy_import(recorded(@legacy_secret), Keyword.get(opts, :open, &plain/1), server(opts))
+
+  # Without an opener, only a row holding the Base32 text is imported. A row
+  # 0.3.x left encrypted is opened by the boot upgrade, which passes `open:`
+  # (0.4.0 S7): nothing here decrypts.
+  defp plain("enc:" <> _sealed), do: {:error, :sealed}
+  defp plain(secret), do: {:ok, secret}
 
   # `vault:` here is AlexClaw.Vault's `server:`.
   defp server(opts), do: [server: Keyword.get(opts, :vault, Vault)]
 
-  defp legacy_import(nil, _opts), do: :none
+  defp legacy_import(nil, _open, _opts), do: :none
 
-  defp legacy_import(stored, opts) do
-    with {:ok, secret} <- decrypted(Crypto.decrypt(stored)),
+  defp legacy_import(stored, open, opts) do
+    with {:ok, secret} <- decrypted(open.(stored)),
          :ok <- Vault.totp_import(@key, secret, enrolled_issuer(), @account, opts) do
       mark(@key_marker, @key, "The admin's TOTP key in OpenBao")
       unmark(@legacy_secret)
@@ -345,6 +352,7 @@ defmodule AlexClaw.Auth.TOTP do
 
   defp decrypted({:ok, secret}) when is_binary(secret), do: {:ok, secret}
   defp decrypted({:ok, nil}), do: {:error, :undecryptable}
+  defp decrypted({:error, :sealed}), do: {:error, :sealed}
   defp decrypted({:error, _reason}), do: {:error, :undecryptable}
 
   # --- The rows ---

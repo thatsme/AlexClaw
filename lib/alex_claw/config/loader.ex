@@ -5,7 +5,6 @@ defmodule AlexClaw.Config.Loader do
   use GenServer
   require Logger
   alias AlexClaw.Auth.SecondFactor
-  alias AlexClaw.Config.EncryptExisting
   alias AlexClaw.Config.Seeder
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
@@ -43,25 +42,24 @@ defmodule AlexClaw.Config.Loader do
     # here so a supervised process owns it, rather than the first query to want it.
     AlexClaw.Config.init()
     QueryRewriter.init_cache()
-    # 2. Seed defaults (marks sensitive keys, encrypts new values)
+    # 2. Seed defaults (marks sensitive keys). Nothing is encrypted since 0.4.0
+    #    (S7): a credential is in OpenBao, never in this table.
     Seeder.seed()
-    # 3. Encrypt any remaining plaintext sensitive values
-    EncryptExisting.run()
-    # 4. Reload ETS with decrypted values
+    # 3. Reload ETS with the seeded values
     AlexClaw.Config.init()
-    # 5. Seed default LLM providers (reads API keys from Config)
+    # 4. Seed default LLM providers (reads API keys from Config)
     unless Application.get_env(:alex_claw, :skip_provider_seed, false) do
       ProviderSeeder.seed()
     end
 
-    # 6. Load self-awareness docs into knowledge base (background, non-blocking)
+    # 5. Load self-awareness docs into knowledge base (background, non-blocking)
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       SelfAwareness.load()
     end)
 
-    # 7. Subscribe to config changes for cross-node ETS sync
+    # 6. Subscribe to config changes for cross-node ETS sync
     AlexClaw.Config.subscribe()
-    # 8. Report a configured shell allowlist that still grants what 0.3.22 dropped,
+    # 7. Report a configured shell allowlist that still grants what 0.3.22 dropped,
     #    and say so if the control plane is read-only for want of a second factor
     Process.send_after(self(), :audit_shell_allowlist, @audit_delay_ms)
     Process.send_after(self(), :report_second_factor, @audit_delay_ms)

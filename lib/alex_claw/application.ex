@@ -28,9 +28,6 @@ defmodule AlexClaw.Application do
       AlexClaw.LLM.UsageTracker,
       AlexClaw.Config.Loader,
       AlexClaw.Workflows.SkillRegistry,
-      # Encrypts credentials still stored in plain text and checks the rest
-      # decrypt, before anything reads them; the boot stops if one fails.
-      AlexClaw.Database.EncryptCredentials,
       # Moves secret settings still held in the settings table into OpenBao —
       # read back and compared before the database copy is emptied. Before the
       # gateways, which read their tokens from OpenBao.

@@ -112,8 +112,6 @@ defmodule AlexClawWeb.AdminLive.Config do
     Elevation.close_entry(socket)
   end
 
-  @sensitive_patterns ~w(api_key token password secret)
-
   # auth.totp.* is written only by the second-factor setup (Services, and
   # /setup 2fa on a gateway until 0.4.0 removes it). Elevation does not open it: the setting that decides whether
   # elevation is required at all must not be editable from behind that gate,
@@ -257,10 +255,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     )
   end
 
-  defp sensitive_key?(key) do
-    key_down = String.downcase(key)
-    Enum.any?(@sensitive_patterns, &String.contains?(key_down, &1))
-  end
+  defp sensitive_key?(key), do: AlexClaw.Config.credential_key?(key)
 
   defp mask_value(nil), do: ""
   defp mask_value(""), do: ""

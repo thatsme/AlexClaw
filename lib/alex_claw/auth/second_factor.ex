@@ -79,7 +79,9 @@ defmodule AlexClaw.Auth.SecondFactor do
   Carry an enrolment made before 0.4.0 into the factor's current store, so the
   authenticator keeps working through the upgrade: `:imported`, `:none` when
   there is nothing to carry, or `{:error, reason}` to be tried again at the
-  next start. Options: `vault:` — the `AlexClaw.Vault` server to use.
+  next start. Options: `vault:` — the `AlexClaw.Vault` server to use; `open:`
+  — a function opening a stored value 0.3.x encrypted, passed by the boot
+  upgrade (0.4.0 S7).
   """
   @callback carry_over(keyword()) :: :imported | :none | {:error, term()}
 

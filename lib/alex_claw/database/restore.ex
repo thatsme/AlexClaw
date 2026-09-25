@@ -18,9 +18,10 @@ defmodule AlexClaw.Database.Restore do
   audited on both sides: a row before anything runs — no restore without it —
   and a row saying how it ended.
 
-  Every encrypted value in the file is checked to decrypt before anything is
-  written — see `AlexClaw.Database.KeyCheck` — so a file made under another
-  `SECRET_KEY_BASE` is refused whole. Every reference a step or resource holds
+  A file holding a value AlexClaw 0.3 stored encrypted under `SECRET_KEY_BASE`
+  is refused whole, before anything is written: since 0.4.0 nothing decrypts
+  such a value outside the boot upgrade, so it is restored into 0.3.x and
+  upgraded. Every reference a step or resource holds
   to a secret must name one the file's catalogue (`secrets`) holds, or the
   file is refused, naming the table and the secret.
 
@@ -29,7 +30,7 @@ defmodule AlexClaw.Database.Restore do
   """
 
   alias AlexClaw.Auth.{AuditLog, Principal}
-  alias AlexClaw.Database.{DataExport, DataSet, KeyCheck}
+  alias AlexClaw.Database.{DataExport, DataSet}
   alias AlexClaw.Repo
   alias AlexClaw.Resources.ResourceSecrets
   alias AlexClaw.Workflows.StepSecrets
@@ -231,21 +232,43 @@ defmodule AlexClaw.Database.Restore do
     Enum.map(live, fn {name, _type} -> Map.get(values, name) end)
   end
 
-  # Encrypted values must decrypt under this key before anything is written, so
-  # a file made under another SECRET_KEY_BASE is refused whole.
+  # A value 0.3.x stored encrypted under SECRET_KEY_BASE (`enc:`) is refused
+  # before anything is written: since 0.4.0 (S7) nothing decrypts it outside
+  # the boot upgrade, so such a file is restored into 0.3.x and upgraded.
   defp checked(table, live, rows) do
     names = Enum.map(live, &elem(&1, 0))
 
     rows
-    |> Enum.find_value(:ok, &refusal(KeyCheck.check(table, names, &1)))
+    |> Enum.any?(&legacy_row?(table, names, &1))
     |> checked_plan(table, live, rows)
   end
 
-  defp refusal(:ok), do: nil
-  defp refusal(error), do: error
+  @credential_columns %{
+    "settings" => ["value"],
+    "llm_providers" => ["api_key", "headers", "credentials"],
+    "workflow_steps" => ["config"],
+    "resources" => ["metadata"]
+  }
 
-  defp checked_plan(:ok, table, live, rows), do: {:ok, {table, live, rows}}
-  defp checked_plan({:error, reason}, table, _live, _rows), do: {:error, "#{table}: #{reason}"}
+  defp legacy_row?(table, names, row) do
+    columns = Map.get(@credential_columns, table, [])
+
+    names
+    |> Enum.zip(row)
+    |> Enum.any?(fn {name, value} -> name in columns and legacy_value?(value) end)
+  end
+
+  defp legacy_value?("enc:" <> _sealed), do: true
+  defp legacy_value?(value) when is_binary(value), do: String.contains?(value, ~s|"enc:|)
+  defp legacy_value?(_null), do: false
+
+  defp checked_plan(false, table, live, rows), do: {:ok, {table, live, rows}}
+
+  defp checked_plan(true, table, _live, _rows),
+    do:
+      {:error,
+       "#{table}: holds values AlexClaw 0.3 stored encrypted. Restore this file into 0.3.x " <>
+         "and upgrade to 0.4.0, which moves them into OpenBao."}
 
   defp row?(row, width) when is_list(row) and length(row) == width,
     do: Enum.all?(row, &(is_binary(&1) or is_nil(&1)))

@@ -355,9 +355,10 @@ still acts on live pages with whatever the page allows, so recorded recipes are
 reviewed before they are assigned to scheduled workflows.
 
 - **Authentication.** Every sidecar route except `/health` requires
-  `Authorization: Bearer <WEB_AUTOMATOR_TOKEN>`, compared in constant time. With
-  no token configured the sidecar refuses every protected route, and AlexClaw
-  sends it nothing. The interactive API documentation is not served.
+  `Authorization: Bearer <token>`, compared in constant time. The token is
+  generated at the first start into a volume only AlexClaw and the sidecar
+  mount, read-only; no operator sets or copies it. With no token the sidecar
+  refuses every protected route, and AlexClaw sends it nothing. The interactive API documentation is not served.
 - **Network.** The sidecar is on its own `automation` network, shared with the
   AlexClaw container and not with the database. Its API port (6900) is not
   published on the host. On some Docker engines traffic by IP address still
@@ -505,46 +506,50 @@ the first start, before the gateways:
 
 ## Encryption at Rest
 
-Sensitive settings that are not secret settings (see
-[Secrets in OpenBao](#secrets-in-openbao)), and values written by 0.3.x that
-the upgrade has not moved yet, are encrypted at the application level using
-**AES-256-GCM** before being stored in PostgreSQL.
+Since 0.4.0 no credential is kept in AlexClaw's database, encrypted or not:
+settings, workflow steps, resources and LLM providers hold references to
+secrets in OpenBao (see [Secrets in OpenBao](#secrets-in-openbao)), which
+encrypts them. Nothing is encrypted at the application level with a key
+derived from `SECRET_KEY_BASE` any more.
 
-- Encryption key is derived from `SECRET_KEY_BASE` via HKDF-SHA256
-- Each value gets a unique 12-byte random IV — identical plaintext produces different ciphertext
-- Encrypted values are stored with an `enc:` prefix (base64-encoded IV + ciphertext + GCM tag)
-- Decryption happens transparently on boot (the ETS cache holds plaintext for runtime use)
-- The admin UI displays masked values — never raw ciphertext or full plaintext
-- The TOTP secret is excluded from the cache: `auth.totp.secret` is read from the row and decrypted per verification, so `Config.get/2` never serves it and its plaintext exists only for the length of a check
-- Every cached row carries its `sensitive` flag alongside its value, and `SkillAPI.config_get/3` refuses any key marked sensitive rather than returning the plaintext. A key the cache does not know is treated as sensitive
+- A setting named like a credential (`api_key`, `token`, `password` or
+  `secret` in its key) is refused unless it is a declared secret setting,
+  which is routed to OpenBao.
+- The rows AlexClaw keeps that relate to credentials are designed to be safe
+  at rest: the MCP key's fingerprint (an HMAC under a key that never leaves
+  OpenBao), the admin password's salted PBKDF2-HMAC-SHA256 hash, and the TOTP
+  replay guard's keyed fingerprint of the last accepted code.
+- Every cached row carries its `sensitive` flag alongside its value, and
+  `SkillAPI.config_get/3` refuses any key marked sensitive. A key the cache
+  does not know is treated as sensitive.
+- An LLM provider's API key and header values are secrets bound to the host
+  its calls go to; the row keeps the header names and references.
 
-**Changing `SECRET_KEY_BASE` needs a rotation, not an edit.** Changed alone,
-it leaves every encrypted value unreadable, the TOTP secret included, and the
-application refuses to start, naming each value it cannot decrypt (never the
-value itself). The rotation re-encrypts them from the old key to the new one
-in a single audited transaction, and changes nothing if any value cannot be
-decrypted with the old key: see
-[Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). A key
-lost for good has its own audited procedure there, which discards only the
-values that no longer decrypt.
+**Upgrading from 0.3.x.** 0.3.x encrypted sensitive settings and some
+credentials under `SECRET_KEY_BASE`. The first start of 0.4.0 reads them, once
+and under the same `SECRET_KEY_BASE`, and leaves nothing encrypted: each
+credential is moved into OpenBao (read back and compared before its row is
+changed); the MCP key's fingerprint and the admin password's hash go back to
+their plain form; a setting the admin had added and marked sensitive is moved
+into OpenBao as a parked secret, sent nowhere, and named in the log to be
+declared or deleted. `SECRET_KEY_BASE` must not change until that first start
+has run. A value that cannot be moved stays in its row, is never used — a step
+or resource holding one refuses to run — and is tried again at the next start.
 
-**Credentials outside the settings** are encrypted the same way:
-- an LLM provider's API key and header values (`llm_providers.api_key`,
-  `llm_providers.headers`);
-- a step credential written by 0.3.x, until the upgrade moves it to OpenBao.
+**Changing `SECRET_KEY_BASE`** ends every login; no stored value becomes
+unreadable. See [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
 
 A skill whose configuration has a key with a name
 one of whose underscore-separated parts is `token`, `key`, `apikey`,
 `password`, `secret`, `credential`, `auth`, `authorization` or `headers` must declare it with
 `secret_config_keys/0`: a core skill that does not fails the build, and a
-dynamic skill that does not is refused at load. Values written before this
-existed are encrypted at the next boot, and a stored value that does not
-decrypt under the running key stops the boot. Seeded cloud providers read
+dynamic skill that does not is refused at load. Seeded cloud providers read
 their key from its setting rather than holding a copy.
 
-**Export Data** writes every encrypted value as it is stored. A restore checks
-that each one decrypts under the running key before anything changes, so an
-export made under another `SECRET_KEY_BASE` is refused.
+**Export Data** carries no credential: the file holds references and the
+secrets catalogue (names and bindings), never a value. A restore refuses a
+file holding values 0.3.x encrypted: such a file is restored into 0.3.x and
+upgraded.
 
 ---
 

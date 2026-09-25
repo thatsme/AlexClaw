@@ -6,9 +6,9 @@ defmodule AlexClaw.Database.DataExport do
       {"format": "alexclaw-data", "version": 1, "schema": <migration>,
        "tables": {"settings": {"columns": [...], "rows": [[...], ...]}, ...}}
 
-  Encrypted values — sensitive settings and stored credentials — are written
-  as they are stored, encrypted: a file restores only under the
-  `SECRET_KEY_BASE` it was made with (`AlexClaw.Database.KeyCheck`).
+  No credential is in the file: since 0.4.0 settings, steps, resources and
+  LLM providers hold references to secrets in OpenBao, and the file carries
+  the secrets catalogue (names and bindings), never a value.
 
   Text form, because it is exact for every type the schema uses — timestamps,
   JSON, arrays, bytea, pgvector — and a restore casts it back to the column's

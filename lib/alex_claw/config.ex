@@ -6,7 +6,7 @@ defmodule AlexClaw.Config do
   """
   require Logger
   import Ecto.Query
-  alias AlexClaw.Config.{Crypto, SecretSettings, Setting}
+  alias AlexClaw.Config.{SecretSettings, Setting}
   alias AlexClaw.{Repo, Secrets}
 
   @type config_value :: String.t() | integer() | float() | boolean() | map() | list() | nil
@@ -58,10 +58,7 @@ defmodule AlexClaw.Config do
       entries when is_list(entries) ->
         entries
         |> Enum.reject(&(&1.key in @uncached_keys or SecretSettings.secret?(&1.key)))
-        |> Enum.each(fn s ->
-          decrypted = decrypt_setting(s)
-          :ets.insert(@table, {s.key, cast_value(decrypted), s.sensitive})
-        end)
+        |> Enum.each(fn s -> :ets.insert(@table, {s.key, cast_value(s), s.sensitive}) end)
 
       _ ->
         :ok
@@ -317,11 +314,43 @@ defmodule AlexClaw.Config do
 
   A recognised-only key (`mcp.api_key`) takes only a fingerprint made by
   `AlexClaw.MCP.Key`; any other value is refused with `{:error, :not_settable}`.
+
+  A key named like a credential (`credential_key?/1`) that is not a declared
+  secret setting is refused with `{:error, :undeclared_credential}`: it would
+  be stored in the table as typed (0.4.0 S7).
   """
   @spec persist(String.t(), config_value(), set_opts()) ::
-          {:ok, Setting.t()} | {:error, Ecto.Changeset.t() | Secrets.error() | :not_settable}
-  def persist(key, value, opts \\ []),
-    do: persisted(SecretSettings.secret?(key), key, value, opts)
+          {:ok, Setting.t()}
+          | {:error,
+             Ecto.Changeset.t() | Secrets.error() | :not_settable | :undeclared_credential}
+  def persist(key, value, opts \\ []) do
+    with :ok <- declared_if_credential(key),
+         do: persisted(SecretSettings.secret?(key), key, value, opts)
+  end
+
+  @credential_patterns ~w(api_key token password secret)
+
+  @doc """
+  Whether `key` is named like a credential: `api_key`, `token`, `password`
+  or `secret` in it.
+  """
+  @spec credential_key?(String.t()) :: boolean()
+  def credential_key?(key) when is_binary(key) do
+    key_down = String.downcase(key)
+    Enum.any?(@credential_patterns, &String.contains?(key_down, &1))
+  end
+
+  # A credential belongs in OpenBao, and only a declared secret setting is
+  # routed there (0.4.0 S7): any other key named like one is refused. The keys
+  # AlexClaw manages itself and never serves (@uncached_keys) are its own.
+  defp declared_if_credential(key),
+    do:
+      credential_refusal(
+        credential_key?(key) and not SecretSettings.secret?(key) and key not in @uncached_keys
+      )
+
+  defp credential_refusal(true), do: {:error, :undeclared_credential}
+  defp credential_refusal(false), do: :ok
 
   defp persisted(true, key, value, opts),
     do: persisted_secret(SecretSettings.recognised_only?(key), key, value, opts)
@@ -333,7 +362,7 @@ defmodule AlexClaw.Config do
 
     attrs = %{
       key: key,
-      value: db_value(encode_value(value, type), sensitive),
+      value: encode_value(value, type),
       type: type,
       description: Keyword.get(opts, :description),
       category: Keyword.get(opts, :category, "general"),
@@ -415,10 +444,6 @@ defmodule AlexClaw.Config do
   defp sensitive_flag(:error, existing_record),
     do: (existing_record && existing_record.sensitive) || false
 
-  defp db_value("", _sensitive), do: ""
-  defp db_value(encoded, true), do: Crypto.encrypt!(encoded)
-  defp db_value(encoded, _sensitive), do: encoded
-
   defp upsert_setting(nil, attrs), do: %Setting{} |> Setting.changeset(attrs) |> Repo.insert()
   defp upsert_setting(existing, attrs), do: existing |> Setting.changeset(attrs) |> Repo.update()
 
@@ -427,9 +452,9 @@ defmodule AlexClaw.Config do
     broadcast_change(key, nil)
   end
 
-  # ETS gets the plaintext value, alongside the flag that decides who may see it
+  # ETS gets the value, alongside the flag that decides who may see it
   defp cached(%Setting{} = setting, key) do
-    value = setting |> decrypt_setting() |> cast_value()
+    value = cast_value(setting)
     :ets.insert(@table, {key, value, setting.sensitive})
     broadcast_change(key, value)
   end
@@ -473,7 +498,6 @@ defmodule AlexClaw.Config do
     |> maybe_filter_category(category)
     |> order_by(:key)
     |> Repo.all()
-    |> Enum.map(&decrypt_setting/1)
   end
 
   @doc "Subscribe to config changes."
@@ -505,19 +529,6 @@ defmodule AlexClaw.Config do
 
   defp encode_value(value, "json") when is_map(value) or is_list(value), do: Jason.encode!(value)
   defp encode_value(value, _type), do: to_string(value)
-
-  defp decrypt_setting(%Setting{sensitive: true, value: v} = s) when is_binary(v) do
-    case Crypto.decrypt(v) do
-      {:ok, plaintext} ->
-        %{s | value: plaintext}
-
-      {:error, reason} ->
-        Logger.error("Failed to decrypt setting #{s.key}: #{inspect(reason)}")
-        s
-    end
-  end
-
-  defp decrypt_setting(s), do: s
 
   defp maybe_filter_category(q, nil), do: q
   defp maybe_filter_category(q, cat), do: where(q, [s], s.category == ^cat)

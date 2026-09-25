@@ -1,9 +1,11 @@
 defmodule AlexClaw.Config.SecretUpgrade.Records do
   @moduledoc """
   The part of `AlexClaw.Config.SecretUpgrade` for records: the credentials a
-  0.3.x step config or resource still holds as values move to OpenBao, as
-  secrets the record owns (`AlexClaw.Secrets.Owned`), and the record keeps
-  references.
+  0.3.x step config, resource or LLM provider still holds as values move to
+  OpenBao, as secrets the record owns (`AlexClaw.Secrets.Owned`), and the
+  record keeps references. A provider's sealed `api_key` and `headers`
+  columns, which the schema no longer maps, are emptied once its
+  `credentials` hold the references (0.4.0 S7).
 
   For each record, in this order: every credential value is read (decrypted
   where 0.3.x encrypted it), stored in OpenBao bound to the record's host,
@@ -12,9 +14,11 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   leaves the row exactly as it was, deletes what was stored for it, is
   reported by the record, and is tried again at the next start.
   """
-  alias AlexClaw.{Encrypted, Repo, Secrets}
+  alias AlexClaw.LLM.ProviderSecrets
+  alias AlexClaw.{Repo, Secrets}
   alias AlexClaw.Resources.ResourceSecrets
   alias AlexClaw.Secrets.Owned
+  alias AlexClaw.Upgrade.Legacy03
   alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.StepSecrets
 
@@ -22,10 +26,21 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   @type pending ::
           {:step, integer(), integer(), String.t(), map()}
           | {:resource, integer(), String.t(), map()}
+          | {:provider, integer(), String.t(), String.t() | nil, String.t() | nil, map()}
 
-  @doc "Every step and resource still holding a credential value."
+  @doc "Every step, resource and LLM provider still holding a credential value."
   @spec pending() :: [pending()]
-  def pending, do: pending_steps() ++ pending_resources()
+  def pending, do: pending_steps() ++ pending_resources() ++ pending_providers()
+
+  # The columns the schema no longer maps: what 0.3.x stored, sealed.
+  defp pending_providers do
+    %{rows: rows} =
+      Repo.query!("SELECT id, type, host, api_key, headers FROM llm_providers ORDER BY id")
+
+    for [id, type, host, api_key, headers] <- rows,
+        value?(api_key) or (is_map(headers) and headers != %{}),
+        do: {:provider, id, type, host, api_key, headers || %{}}
+  end
 
   defp pending_steps do
     %{rows: rows} =
@@ -72,19 +87,20 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   @spec label(pending()) :: String.t()
   def label({:step, id, _workflow_id, _skill, _config}), do: "step #{id}"
   def label({:resource, id, _url, _metadata}), do: "resource #{id}"
+  def label({:provider, id, _type, _host, _api_key, _headers}), do: "provider #{id}"
 
   defp move({:step, id, workflow_id, skill, config}, opts) do
-    config = opened(config, StepSecrets.fields(skill, config))
-
-    config
-    |> values(StepSecrets.fields(skill, config))
-    |> moved(
-      StepSecrets.destination(skill, config),
-      "step_#{workflow_id}",
-      &StepSecrets.kind/1,
-      opts
-    )
-    |> rewritten(config, "UPDATE workflow_steps SET config = $2 WHERE id = $1", id)
+    with {:ok, config} <- opened(config, StepSecrets.fields(skill, config)) do
+      config
+      |> values(StepSecrets.fields(skill, config))
+      |> moved(
+        StepSecrets.destination(skill, config),
+        "step_#{workflow_id}",
+        &StepSecrets.kind/1,
+        opts
+      )
+      |> rewritten(config, "UPDATE workflow_steps SET config = $2 WHERE id = $1", id)
+    end
   end
 
   # Its credential is bound to the resource's host, a recording's logins to its
@@ -94,6 +110,19 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
     |> resource_parts(url)
     |> moved_parts(metadata, opts)
     |> rewritten(metadata, "UPDATE resources SET metadata = $2 WHERE id = $1", id)
+  end
+
+  # The key and every header value, each bound to the provider's host; the row
+  # gets references in `credentials`, and the legacy columns are emptied.
+  defp move({:provider, id, type, host, api_key, headers}, opts) do
+    with {:ok, api_key} <- Legacy03.decrypt(api_key),
+         {:ok, headers} <- Legacy03.decrypt_all(headers) do
+      %{["api_key"] => api_key}
+      |> Map.merge(Map.new(headers, fn {name, value} -> {["headers", name], value} end))
+      |> Map.filter(fn {_path, value} -> value?(value) end)
+      |> moved(ProviderSecrets.destination(type, host), "provider", &provider_kind/1, opts)
+      |> provider_rewritten(id)
+    end
   end
 
   defp resource_parts(metadata, url) do
@@ -127,19 +156,20 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   end
 
   # Every sealed string in a credential field, decrypted (a sealed header map
-  # also held the headers that are not credentials).
+  # also held the headers that are not credentials). A value that does not
+  # decrypt stops this record: it is reported, and the row left as it was.
   defp opened(config, fields) do
-    keys = fields |> Map.keys() |> Enum.map(&hd/1) |> Enum.uniq()
-    Enum.reduce(keys, config, fn key, acc -> Map.update!(acc, key, &open/1) end)
+    fields
+    |> Map.keys()
+    |> Enum.map(&hd/1)
+    |> Enum.uniq()
+    |> Enum.reduce_while({:ok, config}, fn key, {:ok, acc} ->
+      acc |> Map.fetch!(key) |> Legacy03.decrypt_all() |> opened_key(key, acc)
+    end)
   end
 
-  defp open(value) when is_map(value) do
-    if Owned.reference?(value), do: value, else: Map.new(value, fn {k, v} -> {k, open(v)} end)
-  end
-
-  defp open(value) when is_list(value), do: Enum.map(value, &open/1)
-  defp open("enc:" <> _ = value), do: Encrypted.open!(value)
-  defp open(value), do: value
+  defp opened_key({:ok, value}, key, acc), do: {:cont, {:ok, Map.put(acc, key, value)}}
+  defp opened_key(error, _key, _acc), do: {:halt, error}
 
   defp values(record, fields),
     do:
@@ -196,6 +226,20 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
       end
     end)
   end
+
+  defp provider_kind(["api_key"]), do: "api_token"
+  defp provider_kind(_header), do: "other"
+
+  defp provider_rewritten({:ok, plan}, id) do
+    Repo.query!(
+      "UPDATE llm_providers SET credentials = $2, api_key = NULL, headers = '{}' WHERE id = $1",
+      [id, Owned.referenced(%{"headers" => %{}}, plan)]
+    )
+
+    :ok
+  end
+
+  defp provider_rewritten(error, _id), do: error
 
   defp rewritten({:ok, plan}, record, sql, id) do
     Repo.query!(sql, [id, Owned.referenced(record, plan)])

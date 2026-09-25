@@ -6,7 +6,7 @@ defmodule AlexClaw.LLM do
   """
   import Ecto.Query
 
-  alias AlexClaw.LLM.Provider
+  alias AlexClaw.LLM.{Provider, ProviderSecrets}
   alias AlexClaw.LLM.UsageTracker
 
   @type tier :: :light | :medium | :heavy | :local
@@ -34,22 +34,33 @@ defmodule AlexClaw.LLM do
   @spec get_provider!(integer()) :: Provider.t()
   def get_provider!(id), do: AlexClaw.Repo.get!(Provider, id)
 
-  @doc "Create a new LLM provider. Refuses a second enabled local provider."
+  @doc """
+  Create a new LLM provider. Refuses a second enabled local provider. Its API
+  key and headers go to OpenBao (`AlexClaw.LLM.ProviderSecrets`).
+  """
   @spec create_provider(map()) :: {:ok, Provider.t()} | {:error, Ecto.Changeset.t()}
   def create_provider(attrs) do
     %Provider{}
     |> Provider.changeset(attrs)
     |> only_one_local()
-    |> AlexClaw.Repo.insert()
+    |> saved(nil, &AlexClaw.Repo.insert/1)
   end
 
-  @doc "Update an existing provider. Refuses a second enabled local provider."
+  @doc """
+  Update an existing provider. Refuses a second enabled local provider. A
+  blank API key keeps the stored one (`AlexClaw.LLM.ProviderSecrets`).
+  """
   @spec update_provider(Provider.t(), map()) :: {:ok, Provider.t()} | {:error, Ecto.Changeset.t()}
   def update_provider(%Provider{} = provider, attrs) do
     provider
     |> Provider.changeset(attrs)
     |> only_one_local()
-    |> AlexClaw.Repo.update()
+    |> saved(provider.credentials, &AlexClaw.Repo.update/1)
+  end
+
+  defp saved(changeset, old_credentials, persist) do
+    with {:ok, changeset, secrets} <- ProviderSecrets.plan(changeset, old_credentials),
+         do: ProviderSecrets.saved(changeset, secrets, persist)
   end
 
   @doc """
@@ -90,10 +101,13 @@ defmodule AlexClaw.LLM do
 
   defp refuse_second_local(changeset, _none), do: changeset
 
-  @doc "Delete a provider."
+  @doc "Delete a provider, and then the secrets it referenced."
   @spec delete_provider(Provider.t()) :: {:ok, Provider.t()} | {:error, Ecto.Changeset.t()}
   def delete_provider(%Provider{} = provider) do
-    AlexClaw.Repo.delete(provider)
+    with {:ok, deleted} <- AlexClaw.Repo.delete(provider) do
+      ProviderSecrets.delete(deleted)
+      {:ok, deleted}
+    end
   end
 
   # --- Client API ---

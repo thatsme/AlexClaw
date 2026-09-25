@@ -136,10 +136,17 @@ defmodule AlexClaw.Workflows.StepSecrets do
 
   @doc """
   `config` with each reference replaced by its value, resolved for the step's
-  destination: what the executor hands the skill. Every use is audited.
+  destination: what the executor hands the skill. Every use is audited. A
+  credential still held as a value (0.3.x, not yet moved by the upgrade) is
+  refused, never handed over.
   """
   @spec resolved(String.t(), map() | nil) :: {:ok, map() | nil} | {:error, term()}
   def resolved(skill, config) do
+    with :ok <- all_moved(Owned.all_moved(fields(skill, config))),
+         do: resolved_references(skill, config)
+  end
+
+  defp resolved_references(skill, config) do
     skill
     |> references(config)
     |> Enum.reduce_while({:ok, config}, fn {path, name}, {:ok, acc} ->
@@ -149,6 +156,9 @@ defmodule AlexClaw.Workflows.StepSecrets do
       end
     end)
   end
+
+  defp all_moved(:ok), do: :ok
+  defp all_moved({:error, path}), do: {:error, {:secret, List.last(path), :not_moved}}
 
   defp resolve(_name, nil), do: {:error, :no_destination}
   defp resolve(name, destination), do: Secrets.resolve(name, for: destination)

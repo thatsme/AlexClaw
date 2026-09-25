@@ -1,5 +1,14 @@
 defmodule AlexClaw.LLM.Provider do
-  @moduledoc "Schema for LLM provider configurations (all providers live in DB)."
+  @moduledoc """
+  Schema for LLM provider configurations (all providers live in DB).
+
+  A provider's API key and header values are secrets in OpenBao, bound to the
+  host its calls go to (`AlexClaw.LLM.ProviderSecrets`); `credentials` holds
+  the references. `api_key` and `headers` are what a save is given, planned
+  into references before the row is written: they are never stored. The
+  columns of those names hold only what 0.3.x left, until the boot upgrade
+  moves it, and are not mapped here.
+  """
 
   use Ecto.Schema
   import Ecto.Changeset
@@ -15,9 +24,10 @@ defmodule AlexClaw.LLM.Provider do
     field(:tier, :string)
     field(:host, :string)
     field(:model, :string)
-    field(:api_key, AlexClaw.Encrypted.Text)
+    field(:api_key, :string, virtual: true)
     field(:daily_limit, :integer)
-    field(:headers, AlexClaw.Encrypted.Map, default: %{})
+    field(:headers, :map, virtual: true)
+    field(:credentials, :map, default: %{})
     field(:enabled, :boolean, default: true)
     field(:priority, :integer, default: 100)
     field(:options, :map, default: %{})

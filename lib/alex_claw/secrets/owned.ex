@@ -56,6 +56,22 @@ defmodule AlexClaw.Secrets.Owned do
       )
 
   @doc """
+  `:ok` when every credential field holds a reference or nothing; else
+  `{:error, path}` for the first that still holds a value — one 0.3.x left
+  that the boot upgrade has not moved yet. Such a value is never used: since
+  0.4.0 (S7) nothing decrypts it, and it never went through a binding.
+  """
+  @spec all_moved(%{path() => term()}) :: :ok | {:error, path()}
+  def all_moved(fields) do
+    fields
+    |> Enum.find(fn {_path, value} -> value not in [nil, ""] and not reference?(value) end)
+    |> moved()
+  end
+
+  defp moved(nil), do: :ok
+  defp moved({path, _value}), do: {:error, path}
+
+  @doc """
   Plan the save of the credential `fields` (path => value in the record being
   saved) against `old` (path => the secret it referenced), for `destination`.
   `new_name` names the secret of a field that had none. Returns the plan and

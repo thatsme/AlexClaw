@@ -409,12 +409,13 @@ Add to your `.env`:
 ```bash
 WEB_AUTOMATOR_ENABLED=true
 WEB_AUTOMATOR_HOST=http://web-automator:6900
-WEB_AUTOMATOR_TOKEN=<output of: openssl rand -hex 32>
 ```
 
-`WEB_AUTOMATOR_TOKEN` is passed to both AlexClaw and the sidecar. The sidecar
-answers every route except `/health` only with `Authorization: Bearer <token>`;
-without a configured token it refuses them all, and AlexClaw sends it nothing.
+The token AlexClaw and the sidecar share is generated at the first start by the
+one-shot `automator-token-init` service, into a volume only those two mount,
+read-only; there is nothing to set. The sidecar answers every route except
+`/health` only with `Authorization: Bearer <token>`; without a token it refuses
+them all, and AlexClaw sends it nothing.
 
 The sidecar sits on its own `automation` network, shared with AlexClaw and not
 with the database. During a replay, its browser reaches the internet only
@@ -843,11 +844,17 @@ Look for Elixir/Erlang crash messages. Common causes:
 
 If you run two AlexClaw instances with the same Telegram bot token (e.g., dev and prod), Telegram sends each update to only one of them at random. This causes silent message loss with no errors in logs. Use a separate bot token for each instance.
 
-### Locked out after changing SECRET_KEY_BASE
+### Signed out after changing SECRET_KEY_BASE
 
-Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes every encrypted value (API keys, tokens, the TOTP secret) unreadable. To change it deliberately, follow [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
+Changing `SECRET_KEY_BASE` ends every login: sign in again. Since 0.4.0 it
+encrypts nothing, so no stored value becomes unreadable — see
+[Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). When
+upgrading from 0.3.x, keep it unchanged until the first start of 0.4.0 has
+run.
 
-If it was changed without a rotation, the application does not start: the log says `These stored values do not decrypt under this SECRET_KEY_BASE` and names each one, never its value. Put the old value back and restart. If the old value is lost for good, those values cannot be recovered. Follow [Lost key](docs/deployment/rotate-secret-key-base.md#lost-key) to discard exactly them, then enter them again. If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
+The admin password is not read from `.env` once it has been used: the first
+login stores its hash. To set a new one, delete the `auth.admin_password_hash`
+setting from the database and restart with the new `ADMIN_PASSWORD`.
 
 ### Web automator noVNC behind a proxy
 

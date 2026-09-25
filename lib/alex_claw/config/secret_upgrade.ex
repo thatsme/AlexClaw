@@ -27,19 +27,24 @@ defmodule AlexClaw.Config.SecretUpgrade do
   """
   require Logger
 
+  import Ecto.Query
+
   alias AlexClaw.Auth.{RecoveryCodes, SecondFactor}
   alias AlexClaw.Config
-  alias AlexClaw.Config.{Crypto, SecretSettings, Setting}
+  alias AlexClaw.Config.{SecretSettings, Setting}
   alias AlexClaw.Config.SecretUpgrade.Records
   alias AlexClaw.ControlPlane
   alias AlexClaw.ControlPlane.Context
   alias AlexClaw.MCP.Key
   alias AlexClaw.{Repo, Secrets, Vault}
+  alias AlexClaw.Upgrade.Legacy03
 
   @type result :: %{
           moved: [String.t()],
           fingerprinted: [String.t()],
           records_moved: [String.t()],
+          custom_moved: [{String.t(), String.t()}],
+          opened: [String.t()],
           failed: [{String.t(), term()}],
           totp: :imported | :none | {:error, term()},
           recovery_codes: non_neg_integer()
@@ -57,15 +62,26 @@ defmodule AlexClaw.Config.SecretUpgrade do
       ControlPlane.perform(:upgrade_secrets, %{}, Context.system("secret upgrade at boot"))
 
     report(result)
+    report_parked(result.custom_moved)
     :ignore
   end
 
   @doc """
-  Move every declared-secret setting, and every step and resource credential
-  (`AlexClaw.Config.SecretUpgrade.Records`), that still holds a value.
-  Returns the settings moved to OpenBao, the keys that became a fingerprint
-  (the MCP key), the records moved (`"step 12"`, `"resource 3"`), and what did
-  not move, with why.
+  Move every declared-secret setting, and every step, resource and LLM
+  provider credential (`AlexClaw.Config.SecretUpgrade.Records`), that still
+  holds a value. Returns the settings moved to OpenBao, the keys that became
+  a fingerprint (the MCP key), the records moved (`"step 12"`, `"resource
+  3"`, `"provider 2"`), and what did not move, with why.
+
+  What 0.3.x encrypted under `SECRET_KEY_BASE` is read here, once, through
+  `AlexClaw.Upgrade.Legacy03` (0.4.0 S7), and nothing encrypted is left:
+  - AlexClaw's own sensitive rows, designed to be safe at rest (the MCP key's
+    fingerprint, the admin password's hash), are decrypted in place
+    (`opened:`), OpenBao or not;
+  - a sensitive setting the admin added that is not a declared secret goes
+    to OpenBao as a parked secret, bound to nothing it can be sent to, and the
+    row is emptied (`custom_moved:`, `{key, secret name}`) — to be declared or
+    deleted.
 
   The second factor is carried over too (0.4.0 S6): a TOTP key enrolled
   before 0.4.0 is imported into OpenBao's TOTP engine (`totp:` `:imported`,
@@ -76,18 +92,22 @@ defmodule AlexClaw.Config.SecretUpgrade do
   """
   @spec run(keyword()) :: {:ok, result()}
   def run(opts \\ []) do
+    vault = Keyword.get(opts, :vault, Vault)
+    opened = open_own_rows()
+
     settings =
       SecretSettings.keys()
       |> Enum.map(&{&1, pending(Repo.get_by(Setting, key: &1))})
       |> Enum.reject(fn {_key, pending} -> pending == :nothing end)
 
-    vault = Keyword.get(opts, :vault, Vault)
     {:ok, rekeyed} = RecoveryCodes.rekey_legacy(vault: vault)
 
     result =
       settings
-      |> moved_all(Records.pending(), vault)
-      |> Map.put(:totp, SecondFactor.impl().carry_over(vault: vault))
+      |> moved_all(Records.pending(), custom_rows(), vault)
+      |> Map.update!(:opened, &(opened.opened ++ &1))
+      |> Map.update!(:failed, &(opened.failed ++ &1))
+      |> Map.put(:totp, SecondFactor.impl().carry_over(vault: vault, open: &Legacy03.decrypt/1))
       |> Map.put(:recovery_codes, rekeyed)
 
     {:ok, result}
@@ -105,20 +125,144 @@ defmodule AlexClaw.Config.SecretUpgrade do
 
   # Nothing to move: OpenBao is not even asked, so an instance without it boots
   # as before once everything has moved.
-  defp moved_all([], [], _vault),
-    do: %{moved: [], fingerprinted: [], records_moved: [], failed: []}
+  defp moved_all([], [], [], _vault),
+    do: %{
+      moved: [],
+      fingerprinted: [],
+      records_moved: [],
+      custom_moved: [],
+      opened: [],
+      failed: []
+    }
 
-  defp moved_all(settings, records, vault) do
+  defp moved_all(settings, records, custom, vault) do
     status = Vault.status(server: vault)
     settings_result = settings |> by_status(status, vault) |> tally()
     records_result = records_by_status(records, status, vault)
+    custom_result = custom_by_status(custom, status, vault)
 
     %{
       settings_result
-      | failed: settings_result.failed ++ records_result.failed
+      | failed: settings_result.failed ++ records_result.failed ++ custom_result.failed
     }
     |> Map.put(:records_moved, records_result.moved)
+    |> Map.put(:custom_moved, custom_result.moved)
+    |> Map.put(:opened, [])
   end
+
+  # --- AlexClaw's own sensitive rows (0.4.0 S7) ---
+
+  # Rows AlexClaw writes that are designed to be safe at rest: the MCP key's
+  # fingerprint (an HMAC), the admin password's hash. 0.3.x — and 0.4.0 before
+  # S7, through EncryptExisting — encrypted them as sensitive; they go back to
+  # their plain form, with no OpenBao needed, so the admin can log in and the
+  # MCP key keeps working while OpenBao is down. The 0.3.x TOTP secret is not
+  # one of them: it is imported into OpenBao (`carry_over/1`).
+  defp open_own_rows do
+    results =
+      from(s in Setting, where: like(s.value, "enc:%"))
+      |> Repo.all()
+      |> Enum.filter(&own_row?/1)
+      |> Enum.map(&{&1.key, opened_row(&1)})
+
+    %{
+      opened: for({key, :opened} <- results, do: key),
+      failed: for({key, {:error, reason}} <- results, do: {key, reason})
+    }
+  end
+
+  defp own_row?(%Setting{key: key}),
+    do: key in (Config.uncached_keys() -- ["auth.totp.secret"]) or own_fingerprint?(key)
+
+  defp own_fingerprint?(key), do: SecretSettings.recognised_only?(key)
+
+  defp opened_row(%Setting{key: key, value: stored} = setting) do
+    with {:ok, value} <- plaintext(Legacy03.decrypt(stored)),
+         :ok <- own_value(own_fingerprint?(key), value),
+         {:ok, _setting} <- setting |> Ecto.Changeset.change(value: value) |> Repo.update() do
+      :opened
+    end
+  end
+
+  # A recognised-only key's row is opened in place only when it held its
+  # fingerprint; a raw key is fingerprinted by the settings move instead.
+  defp own_value(true, value) do
+    if String.starts_with?(value, Config.fingerprint_prefix()),
+      do: :ok,
+      else: {:error, :not_a_fingerprint}
+  end
+
+  defp own_value(false, _value), do: :ok
+
+  # --- Sensitive settings the admin added (0.4.0 S7) ---
+
+  # A sensitive row that is neither a declared secret nor one of AlexClaw's
+  # own: the admin added it, and before 0.4.0 it was stored encrypted. It is
+  # never dropped: its value goes to OpenBao as a parked secret — bound to
+  # `inbound:carried_over`, which nothing resolves for, so it is sent nowhere
+  # — and the row is emptied, to be declared or deleted.
+  @parked "inbound:carried_over"
+
+  defp custom_rows do
+    own = Config.uncached_keys()
+
+    from(s in Setting, where: s.sensitive == true and s.value != "" and not is_nil(s.value))
+    |> Repo.all()
+    |> Enum.reject(&(SecretSettings.secret?(&1.key) or &1.key in own))
+  end
+
+  defp custom_by_status(custom, :ok, vault) do
+    results = Enum.map(custom, &{&1.key, parked(&1, vault: vault)})
+
+    %{
+      moved: for({key, {:ok, name}} <- results, do: {key, name}),
+      failed: for({key, {:error, reason}} <- results, do: {key, reason})
+    }
+  end
+
+  defp custom_by_status(custom, {:error, reason}, _vault),
+    do: %{moved: [], failed: Enum.map(custom, &{&1.key, {:vault, reason}})}
+
+  defp parked(%Setting{key: key, value: stored} = setting, opts) do
+    name = parked_name(key)
+
+    with {:ok, value} <- plaintext(Legacy03.decrypt(stored)),
+         :ok <- catalogued(Secrets.get(name), name, key),
+         :ok <- Secrets.put_value(name, value, opts),
+         :ok <- read_back(name, value, opts),
+         {:ok, _setting} <- setting |> Ecto.Changeset.change(parked_row(name)) |> Repo.update() do
+      {:ok, name}
+    end
+  end
+
+  defp parked_name(key) do
+    safe = key |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
+    String.slice("setting_" <> safe, 0, 64)
+  end
+
+  defp catalogued(nil, name, key) do
+    attrs = %{
+      name: name,
+      kind: "other",
+      binding: [@parked],
+      description:
+        "The setting #{key}, carried over by the 0.4.0 upgrade: declare it or delete it"
+    }
+
+    case Secrets.define(attrs) do
+      {:ok, _secret} -> :ok
+      {:error, _changeset} -> {:error, :not_catalogued}
+    end
+  end
+
+  defp catalogued(_secret, _name, _key), do: :ok
+
+  defp parked_row(name),
+    do: %{
+      value: "",
+      description:
+        "Moved to OpenBao as the secret #{name} by the 0.4.0 upgrade: declare it or delete it"
+    }
 
   defp records_by_status(records, :ok, vault), do: Records.move_all(records, vault: vault)
 
@@ -138,7 +282,7 @@ defmodule AlexClaw.Config.SecretUpgrade do
   # compared before the row is touched, as a moved value is read back: the key
   # is dropped only for a fingerprint that recognises it.
   defp move(true, %Setting{key: key, value: stored}, opts) do
-    with {:ok, value} <- plaintext(Crypto.decrypt(stored)),
+    with {:ok, value} <- plaintext(Legacy03.decrypt(stored)),
          {:ok, fingerprint} <- Key.fingerprint_of(value, opts),
          :ok <- recognised(Key.fingerprint_of(value, opts), fingerprint),
          {:ok, _setting} <- Config.set(key, fingerprint) do
@@ -147,7 +291,7 @@ defmodule AlexClaw.Config.SecretUpgrade do
   end
 
   defp move(false, %Setting{key: key, value: stored} = setting, opts) do
-    with {:ok, value} <- plaintext(Crypto.decrypt(stored)),
+    with {:ok, value} <- plaintext(Legacy03.decrypt(stored)),
          :ok <- SecretSettings.store(key, value, opts),
          :ok <- read_back(SecretSettings.secret_name(key), value, opts),
          {:ok, _setting} <- setting |> Ecto.Changeset.change(value: "") |> Repo.update() do
@@ -177,6 +321,17 @@ defmodule AlexClaw.Config.SecretUpgrade do
       fingerprinted: for({key, :fingerprinted} <- results, do: key),
       failed: for({key, {:error, reason}} <- results, do: {key, reason})
     }
+  end
+
+  # A setting the admin added, parked in OpenBao: named at every start it is
+  # moved, since it waits for the admin to declare it or delete it.
+  defp report_parked(parked) do
+    Enum.each(parked, fn {key, name} ->
+      Logger.warning(
+        "Setting #{key} was stored encrypted; its value is now the OpenBao secret #{name}, " <>
+          "sent nowhere. Declare it as a secret setting, or delete it."
+      )
+    end)
   end
 
   defp report(%{moved: [], fingerprinted: [], records_moved: [], failed: []}), do: :ok

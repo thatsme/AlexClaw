@@ -16,8 +16,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.LLM.UsageTracker          # ETS owner for per-provider call counters
   ├── AlexClaw.Config.Loader             # Seeds config, loads it into the ETS cache
   ├── AlexClaw.Workflows.SkillRegistry   # ETS owner for the skill catalogue
-  ├── AlexClaw.Database.EncryptCredentials  # Boot step: stops the boot on any value that does not decrypt; encrypts plain credentials
-  ├── AlexClaw.Config.SecretUpgrade     # Boot step: moves secret settings still in the database into OpenBao (read back before the copy is emptied)
+  ├── AlexClaw.Config.SecretUpgrade     # Boot step: moves every credential 0.3.x left in the database into OpenBao (read back before the copy is emptied)
   ├── AlexClaw.Webhooks.GitHubSecret   # The GitHub webhook secret, resolved once from OpenBao and again after a rotation
   ├── AlexClaw.Workflows.Registry        # Tracks in-flight workflow runs
   ├── AlexClaw.LogBuffer                 # In-memory ring buffer for recent logs

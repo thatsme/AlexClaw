@@ -7,7 +7,7 @@ defmodule AlexClaw.LLM.Client do
   require Logger
 
   alias AlexClaw.Config
-  alias AlexClaw.LLM.Provider
+  alias AlexClaw.LLM.{Provider, ProviderSecrets}
 
   # --- API Key Resolution ---
 
@@ -26,11 +26,22 @@ defmodule AlexClaw.LLM.Client do
   @spec resolve_api_key(Provider.t()) :: String.t()
   def resolve_api_key(%Provider{type: type} = p), do: resolve_api_key(p, completion_host(type))
 
-  defp resolve_api_key(%Provider{api_key: key}, _destination) when is_binary(key) and key != "",
-    do: key
+  defp resolve_api_key(%Provider{type: type} = p, destination),
+    do: own_key(p) || setting_api_key(type, destination) || ""
 
-  defp resolve_api_key(%Provider{type: type}, destination),
-    do: setting_api_key(type, destination) || ""
+  # The provider's own key, from OpenBao for its host. A failure to resolve it
+  # is logged by name and falls back as a missing key would.
+  defp own_key(%Provider{} = p), do: own_key(ProviderSecrets.resolved(p), p)
+
+  defp own_key({:ok, key, _headers}, _p), do: key
+
+  defp own_key({:error, reason}, p) do
+    Logger.warning(
+      "LLM provider #{p.name}: its API key could not be resolved (#{inspect(reason)})"
+    )
+
+    nil
+  end
 
   @doc """
   The API key a provider type reads from its secret setting, if it has one,
@@ -124,15 +135,18 @@ defmodule AlexClaw.LLM.Client do
 
   def call_embedding(%Provider{type: type} = p, text, model)
       when type in ["openai_compatible", "custom"] do
-    host = p.host || ""
-
-    if host == "",
-      do: {:error, :host_not_set},
-      else: call_embedding_openai(host, p.api_key, p.headers, text, model)
+    embedded_openai(p.host || "", p, text, model)
   end
 
   def call_embedding(%Provider{type: "anthropic"}, _text, _model) do
     {:error, :anthropic_no_embeddings}
+  end
+
+  defp embedded_openai("", _p, _text, _model), do: {:error, :host_not_set}
+
+  defp embedded_openai(host, p, text, model) do
+    with {:ok, api_key, headers} <- ProviderSecrets.resolved(p),
+         do: call_embedding_openai(host, api_key, headers, text, model)
   end
 
   # --- Gemini ---
@@ -265,13 +279,14 @@ defmodule AlexClaw.LLM.Client do
   # --- OpenAI Compatible (LM Studio, GROQ, custom) ---
 
   defp call_openai_compatible(%Provider{} = p, prompt, system, timeout) do
-    url = "#{p.host}/v1/chat/completions"
-    body = openai_body(p.model, p.options || %{}, chat_messages(prompt, system))
-    headers = openai_headers(p.headers, p.api_key)
+    with {:ok, api_key, headers} <- ProviderSecrets.resolved(p) do
+      url = "#{p.host}/v1/chat/completions"
+      body = openai_body(p.model, p.options || %{}, chat_messages(prompt, system))
 
-    url
-    |> Req.post(json: body, headers: headers, receive_timeout: timeout)
-    |> openai_response()
+      url
+      |> Req.post(json: body, headers: openai_headers(headers, api_key), receive_timeout: timeout)
+      |> openai_response()
+    end
   end
 
   defp chat_messages(prompt, nil), do: [%{role: "user", content: prompt}]

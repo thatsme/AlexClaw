@@ -94,18 +94,28 @@ defmodule AlexClaw.Resources.ResourceSecrets do
 
   @doc """
   The resource with its credential resolved for the host it is bound to: what
-  the executor hands a skill. The use is audited.
+  the executor hands a skill. The use is audited. A credential or a login
+  still held as a value (0.3.x, not yet moved by the upgrade) is refused.
   """
   @spec resolved(struct()) :: {:ok, struct()} | {:error, term()}
   def resolved(%{metadata: metadata, url: url} = resource) do
-    case references(metadata) do
-      map when map == %{} ->
-        {:ok, resource}
+    with :ok <- all_moved(resource, Map.merge(fields(metadata), Recording.fields(metadata))) do
+      case references(metadata) do
+        map when map == %{} ->
+          {:ok, resource}
 
-      %{@path => name} ->
-        resource |> resolve(name, destination(url, metadata)) |> with_value(resource)
+        %{@path => name} ->
+          resource |> resolve(name, destination(url, metadata)) |> with_value(resource)
+      end
     end
   end
+
+  defp all_moved(resource, fields), do: moved_for(Owned.all_moved(fields), resource)
+
+  defp moved_for(:ok, _resource), do: :ok
+
+  defp moved_for({:error, _path}, resource),
+    do: {:error, {:secret, "resource #{resource.name}", :not_moved}}
 
   defp resolve(_resource, _name, nil), do: {:error, :no_destination}
   defp resolve(_resource, name, destination), do: Secrets.resolve(name, for: destination)

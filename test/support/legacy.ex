@@ -47,4 +47,71 @@ defmodule AlexClawTest.Legacy do
 
   defp stored(value, true), do: Crypto.encrypt!(value)
   defp stored(value, false), do: value
+
+  @doc """
+  Insert a step of `skill` with `config` into workflow `workflow_id`, after its
+  last step, as 0.3.x stored it. Returns the step's id.
+  """
+  @spec insert_step(integer(), String.t(), map()) :: integer()
+  def insert_step(workflow_id, skill, config) do
+    now = DateTime.utc_now(:second)
+
+    {1, [%{id: id}]} =
+      Repo.insert_all(
+        "workflow_steps",
+        [
+          %{
+            workflow_id: workflow_id,
+            position: next_position(workflow_id),
+            name: "Legacy #{skill}",
+            skill: skill,
+            config: sealed(config),
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        returning: [:id]
+      )
+
+    id
+  end
+
+  @doc "Insert an `api` resource at `url` with `metadata`, as 0.3.x stored it. Returns its id."
+  @spec insert_resource(String.t(), map()) :: integer()
+  def insert_resource(url, metadata) do
+    now = DateTime.utc_now(:second)
+
+    {1, [%{id: id}]} =
+      Repo.insert_all(
+        "resources",
+        [
+          %{
+            name: "Legacy #{System.unique_integer([:positive])}",
+            type: "api",
+            url: url,
+            metadata: metadata,
+            tags: [],
+            enabled: true,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        returning: [:id]
+      )
+
+    id
+  end
+
+  defp sealed(config),
+    do: Map.new(config, fn {k, v} -> {k, seal_if(k in @step_secret_keys, v)} end)
+
+  defp seal_if(true, value), do: Encrypted.seal(value)
+  defp seal_if(false, value), do: value
+
+  defp next_position(workflow_id) do
+    %{rows: [[max]]} =
+      Repo.query!("SELECT MAX(position) FROM workflow_steps WHERE workflow_id = $1", [workflow_id])
+
+    (max || 0) + 1
+  end
 end

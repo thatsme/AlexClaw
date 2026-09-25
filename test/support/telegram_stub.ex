@@ -35,7 +35,7 @@ defmodule AlexClawTest.TelegramStub do
     Bypass.stub(bypass, "POST", "/:bot/sendMessage", fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
       text = body |> Jason.decode!() |> Map.get("text")
-      Agent.update(@agent, &(&1 ++ [text]))
+      record(text)
 
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
@@ -43,6 +43,16 @@ defmodule AlexClawTest.TelegramStub do
     end)
 
     %{telegram: bypass}
+  end
+
+  # A fire-and-forget notice (the executor's "workflow started", sent with a
+  # cast) can arrive after its test has ended and the agent is gone. It is
+  # answered like any other and simply not recorded: no test is waiting for
+  # it, and crashing on it would fail a test that did nothing wrong.
+  defp record(text) do
+    if Process.whereis(@agent), do: Agent.update(@agent, &(&1 ++ [text]))
+  catch
+    :exit, _ -> :ok
   end
 
   @doc "The texts Telegram received so far, in order."

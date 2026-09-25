@@ -35,7 +35,9 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
   alias AlexClaw.{Config, Secrets}
   alias AlexClaw.Gateway.Telegram
 
-  @token "123456:test-token-#{System.unique_integer([:positive])}"
+  # Real Telegram tokens contain ":"; Bypass cannot take a ":" in any request
+  # path, so the test tokens use "-" instead. The gateway does not care.
+  @token "123456-test-token-#{System.unique_integer([:positive])}"
 
   setup do
     bypass = Bypass.open()
@@ -101,9 +103,9 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
       assert %DateTime{} = first
 
       Process.sleep(1_100)
-      set_token("999:rotated")
+      set_token("999-rotated")
 
-      assert {:ok, "999:rotated"} = Config.secret("telegram.bot_token", for: "host:localhost")
+      assert {:ok, "999-rotated"} = Config.secret("telegram.bot_token", for: "host:localhost")
       assert DateTime.compare(Config.secret_set_at("telegram.bot_token"), first) == :gt
     end
 
@@ -227,11 +229,11 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
       for _ <- 1..5, do: :ok = Telegram.deliver("4242", "hello", [])
       assert resolves.() - before <= 1, "the token was resolved on every send"
 
-      set_token("999:rotated")
+      set_token("999-rotated")
       :ok = Telegram.deliver("4242", "after rotation", [])
 
       paths = for _ <- 1..6, do: receive(do: ({:sent_on, p} -> p), after: (1_000 -> nil))
-      assert List.last(paths) == "/bot999:rotated/sendMessage", "the rotation was not picked up"
+      assert List.last(paths) == "/bot999-rotated/sendMessage", "the rotation was not picked up"
     end
   end
 end

@@ -9,6 +9,14 @@ config :alex_claw, AlexClaw.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
+# The test stack's OpenBao, initialised for each run by openbao-test-init,
+# which leaves AlexClaw's AppRole credentials and the CA in the bootstrap mount.
+config :alex_claw, AlexClaw.Vault,
+  address: "https://openbao-test:8200",
+  ca_file: "/run/alexclaw/openbao/ca.pem",
+  role_id_file: "/run/alexclaw/openbao/role_id",
+  secret_id_file: "/run/alexclaw/openbao/secret_id"
+
 config :alex_claw, AlexClaw.Gateway,
   telegram_token: "test-token",
   chat_id: "test-chat-id",

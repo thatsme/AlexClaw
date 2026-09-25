@@ -19,6 +19,9 @@ defmodule AlexClaw.Application do
       AlexClaw.Repo,
       {Phoenix.PubSub, name: AlexClaw.PubSub},
       {Task.Supervisor, name: AlexClaw.TaskSupervisor},
+      # The OpenBao client, on its own branch: OpenBao unreachable or the client
+      # failing is a value callers get, never a restart of anything else.
+      {AlexClaw.Vault.Supervisor, Application.get_env(:alex_claw, AlexClaw.Vault, [])},
       # Before anything that audits: a row lost at boot is announced too.
       AlexClaw.Auth.AuditLoss,
       AlexClaw.Knowledge.EmbedThrottle,

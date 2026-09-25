@@ -40,6 +40,19 @@ services:
     depends_on:
       db-test:
         condition: service_healthy
+      # A real OpenBao, initialised for this run (test/alex_claw/vault_test.exs).
+      openbao-test:
+        condition: service_started
+      openbao-test-init:
+        condition: service_completed_successfully
+    # The AppRole is bound to this address: one test-elixir container at a
+    # time. Credo, format and other side work run in `tools`.
+    networks:
+      default: {}
+      vault:
+        ipv4_address: 10.213.64.10
+    volumes:
+      - ./.openbao-test/bootstrap:/run/alexclaw/openbao:ro
     environment:
       MIX_ENV: test
       DATABASE_USERNAME: alexclaw_app
@@ -50,6 +63,77 @@ services:
       DATABASE_HOSTNAME: db-test
       DATABASE_NAME: alex_claw_test
       SECRET_KEY_BASE: test_secret_key_base_that_is_at_least_64_bytes_long_for_phoenix_to_accept_it
+
+  # The test image, for Credo, mix format and other work beside a suite run:
+  # no database, no OpenBao, not on the vault network.
+  tools:
+    build:
+      context: .
+      target: test
+    environment:
+      MIX_ENV: test
+
+  # The same OpenBao as production, hardened the same way. Its data is a tmpfs:
+  # every run starts an empty server, initialised by openbao-test-init.
+  openbao-test:
+    image: openbao/openbao:2.6.3@sha256:a60afafda36337abe833c4a63894bf1095098f29abea4091e7e555a33dd52889
+    user: "100:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command: ["server", "-config=/openbao/config/config.hcl"]
+    environment:
+      SKIP_CHOWN: "1"
+      BAO_API_ADDR: https://openbao-test:8200
+      BAO_CLUSTER_ADDR: https://openbao-test:8201
+    tmpfs:
+      - /openbao/file:uid=100,gid=1000,mode=0700
+    volumes:
+      - ./openbao/config.hcl:/openbao/config/config.hcl:ro
+      - ./.openbao-test/tls:/openbao/tls:ro
+      # A fixed test key, committed: it seals nothing but this run's data.
+      - ./test/fixtures/openbao/unseal:/openbao/unseal:ro
+    networks:
+      vault:
+        ipv4_address: 10.213.64.2
+    depends_on:
+      openbao-test-init:
+        condition: service_healthy
+
+  # openbao-init, unattended: certificates, initialisation, AppRole, bootstrap
+  # files — rewritten every run.
+  openbao-test-init:
+    build:
+      context: ./openbao
+      dockerfile: init.Dockerfile
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      OPENBAO_ADDR: https://openbao-test:8200
+      OPENBAO_HOSTNAME: openbao-test
+      ALEXCLAW_ADDRESS: 10.213.64.10
+      OPENBAO_INIT_UNATTENDED: "1"
+    volumes:
+      - ./.openbao-test/tls:/openbao/tls
+      - ./.openbao-test/bootstrap:/bootstrap
+    networks:
+      - vault
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/ready"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
 
   # Runs under the production sidecar's constraints (test/compose_hardening_test.exs),
   # so the suite — real Chromium included — proves the browser works that way.
@@ -73,3 +157,15 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ./web-automator/tests:/app/tests
+
+# A subnet of its own: production's vault network is 10.213.63.0/24, and two
+# networks with one subnet cannot exist on one host.
+networks:
+  vault:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.213.64.0/24
+          # Automatic addresses (the init service) from the upper half, away
+          # from the pinned ones.
+          ip_range: 10.213.64.128/25

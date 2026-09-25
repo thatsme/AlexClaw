@@ -76,6 +76,17 @@ if config_env() == :prod do
 
   config :alex_claw, admin_password: System.get_env("ADMIN_PASSWORD")
 
+  # OpenBao: its address, and the directory where openbao-init leaves the
+  # AppRole credentials and the CA certificate. Unset, the client reports every
+  # secret unavailable; nothing falls back.
+  openbao_bootstrap = System.get_env("OPENBAO_BOOTSTRAP_DIR")
+
+  config :alex_claw, AlexClaw.Vault,
+    address: System.get_env("OPENBAO_ADDR"),
+    ca_file: openbao_bootstrap && Path.join(openbao_bootstrap, "ca.pem"),
+    role_id_file: openbao_bootstrap && Path.join(openbao_bootstrap, "role_id"),
+    secret_id_file: openbao_bootstrap && Path.join(openbao_bootstrap, "secret_id")
+
   # The running application must connect as its own restricted role, never as
   # the database owner: the boot stops otherwise. Unconditional, by design —
   # see AlexClaw.Database.PrivilegeCheck.

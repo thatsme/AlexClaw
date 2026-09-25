@@ -53,6 +53,7 @@ nav:
   - Architecture:
     - Overview: architecture/overview.md
     - Supervision Tree: architecture/supervision-tree.md
+    - OpenBao: architecture/openbao.md
     - LLM Router: architecture/llm-router.md
     - Workflow Engine: architecture/workflow-engine.md
     - Skills: architecture/skills.md

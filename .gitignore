@@ -79,3 +79,8 @@ __pycache__/
 .venv/
 .pytest_cache/
 .mypy_cache/
+
+# OpenBao: the test stack's certificates and bootstrap files (rewritten each run),
+# and the production unseal key's default directory.
+/.openbao-test/
+/openbao/unseal/

@@ -9,6 +9,8 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Repo                      # PostgreSQL connection pool (Ecto)
   ├── Phoenix.PubSub (AlexClaw.PubSub)   # Config changes, skill list, run events
   ├── Task.Supervisor (AlexClaw.TaskSupervisor)  # Supervised fire-and-forget work
+  ├── AlexClaw.Vault.Supervisor          # The OpenBao client's branch (see below)
+  │   └── AlexClaw.Vault                 # Logs in to OpenBao; every secret call
   ├── AlexClaw.Auth.AuditLoss            # Announces audit rows that could not be written
   ├── AlexClaw.Knowledge.EmbedThrottle   # Paces embedding calls against provider limits
   ├── AlexClaw.LLM.UsageTracker          # ETS owner for per-provider call counters
@@ -59,6 +61,13 @@ gateway crashing repeatedly uses up this supervisor's intensity; the root then
 restarts the gateway supervisor once, and no other child is touched. The
 Telegram gateway also handles each incoming update in isolation: an update whose
 handling fails is logged and acknowledged, never delivered again.
+
+**The OpenBao client under its own supervisor** — `AlexClaw.Vault.Supervisor`
+holds `AlexClaw.Vault`, which logs in to OpenBao and serves every secret read,
+write, encryption and decryption. OpenBao unreachable or sealed is a value its
+callers receive (`{:error, :vault_unavailable}`), not a crash; a client that
+crashes repeatedly uses up this supervisor's restarts, and the root restarts
+the branch without touching any other child. See [OpenBao](openbao.md).
 
 **Task.Supervisor for async work** — workflow executions, background embeddings
 and notification sends run under `AlexClaw.TaskSupervisor`. A crash there is

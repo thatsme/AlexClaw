@@ -48,6 +48,14 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 | `WEB_AUTOMATOR_HOST` | `http://web-automator:6900` | *Seeded.* The sidecar's API URL |
 | `WEB_AUTOMATOR_TOKEN` | — | Shared bearer token, read by both AlexClaw and the sidecar at start; not stored. Without it the sidecar refuses every request and AlexClaw sends none. Generate with `openssl rand -hex 32` |
 
+## OpenBao
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENBAO_UNSEAL_DIR` | `./openbao/unseal` | Host directory holding `key`, OpenBao's 32-byte unseal key, mounted read-only into the `openbao` service only. It must exist before the first start. See [OpenBao](../architecture/openbao.md) |
+
+`OPENBAO_ADDR` and `OPENBAO_BOOTSTRAP_DIR` are set by the compose file.
+
 ## Discord (optional)
 
 Discord has no environment variables. Set `discord.enabled`,

@@ -79,6 +79,50 @@ defmodule AlexClaw.Vault do
   @spec hmac(binary(), keyword()) :: {:ok, String.t()} | {:error, error()}
   def hmac(input, opts \\ []) when is_binary(input), do: call(opts, {:hmac, input})
 
+  @doc """
+  Whether `hmac` (as `hmac/2` wrote it) is the HMAC of `input` under the
+  transit key. OpenBao compares in constant time; an HMAC of an older key
+  version still verifies.
+  """
+  @spec verify_hmac(binary(), String.t(), keyword()) :: {:ok, boolean()} | {:error, error()}
+  def verify_hmac(input, hmac, opts \\ []) when is_binary(input) and is_binary(hmac),
+    do: call(opts, {:verify_hmac, input, hmac})
+
+  @doc """
+  Create the TOTP key `name` in OpenBao's TOTP engine, for `account` at
+  `issuer`. Returns the otpauth URI and the QR code (a PNG) — the only time
+  the secret leaves OpenBao, to be shown for enrolment.
+  """
+  @spec totp_create(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, %{url: String.t(), barcode: binary()}} | {:error, error()}
+  def totp_create(name, issuer, account, opts \\ []),
+    do: call(opts, {:totp_create, name, issuer, account})
+
+  @doc """
+  Import an existing TOTP secret (Base32) as the key `name`, replacing any:
+  an authenticator enrolled before keeps working.
+  """
+  @spec totp_import(String.t(), String.t(), String.t(), String.t(), keyword()) ::
+          :ok | {:error, error()}
+  def totp_import(name, key_b32, issuer, account, opts \\ []),
+    do: call(opts, {:totp_import, name, key_b32, issuer, account})
+
+  @doc """
+  Whether `code` is a valid code for the TOTP key `name`. OpenBao refuses a
+  code it has already accepted in its window, and a malformed one, as
+  `{:error, :invalid}`.
+  """
+  @spec totp_validate(String.t(), String.t(), keyword()) :: {:ok, boolean()} | {:error, error()}
+  def totp_validate(name, code, opts \\ []), do: call(opts, {:totp_validate, name, code})
+
+  @doc "The TOTP key `name`'s metadata (issuer, account, period…); never its secret."
+  @spec totp_key(String.t(), keyword()) :: {:ok, map()} | {:error, error()}
+  def totp_key(name, opts \\ []), do: call(opts, {:totp_key, name})
+
+  @doc "Delete the TOTP key `name`."
+  @spec totp_delete(String.t(), keyword()) :: :ok | {:error, error()}
+  def totp_delete(name, opts \\ []), do: call(opts, {:totp_delete, name})
+
   @doc "`:ok` when logged in to OpenBao."
   @spec status(keyword()) :: :ok | {:error, :vault_unavailable}
   def status(opts \\ []), do: call(opts, :status)
@@ -259,6 +303,62 @@ defmodule AlexClaw.Vault do
     s.req
     |> request(s.token, :post, "/v1/transit/hmac/#{@transit_key}", %{input: Base.encode64(input)})
     |> outcome(:hmac, @transit_key, fn %{"data" => %{"hmac" => hmac}} -> {:ok, hmac} end)
+  end
+
+  defp perform(s, {:verify_hmac, input, hmac}) do
+    s.req
+    |> request(s.token, :post, "/v1/transit/verify/#{@transit_key}", %{
+      input: Base.encode64(input),
+      hmac: hmac
+    })
+    |> outcome(:verify, @transit_key, fn %{"data" => %{"valid" => valid}} -> {:ok, valid} end)
+  end
+
+  defp perform(s, {:totp_create, name, issuer, account}) do
+    s.req
+    |> request(s.token, :post, "/v1/totp/keys/#{name}", %{
+      generate: true,
+      exported: true,
+      issuer: issuer,
+      account_name: account,
+      skew: 1
+    })
+    |> outcome(:totp_create, name, fn %{"data" => %{"url" => url, "barcode" => barcode}} ->
+      {:ok, %{url: url, barcode: Base.decode64!(barcode)}}
+    end)
+  end
+
+  defp perform(s, {:totp_import, name, key_b32, issuer, account}) do
+    s.req
+    |> request(s.token, :post, "/v1/totp/keys/#{name}", %{
+      generate: false,
+      key: key_b32,
+      issuer: issuer,
+      account_name: account,
+      period: 30,
+      digits: 6,
+      algorithm: "SHA1",
+      skew: 1
+    })
+    |> outcome(:totp_import, name, fn _body -> :ok end)
+  end
+
+  defp perform(s, {:totp_validate, name, code}) do
+    s.req
+    |> request(s.token, :post, "/v1/totp/code/#{name}", %{code: code})
+    |> outcome(:totp_validate, name, fn %{"data" => %{"valid" => valid}} -> {:ok, valid} end)
+  end
+
+  defp perform(s, {:totp_key, name}) do
+    s.req
+    |> request(s.token, :get, "/v1/totp/keys/#{name}", nil)
+    |> outcome(:totp_key, name, fn %{"data" => data} -> {:ok, data} end)
+  end
+
+  defp perform(s, {:totp_delete, name}) do
+    s.req
+    |> request(s.token, :delete, "/v1/totp/keys/#{name}", nil)
+    |> outcome(:totp_delete, name, fn _body -> :ok end)
   end
 
   defp kv_path(path), do: "/v1/secret/data/" <> path

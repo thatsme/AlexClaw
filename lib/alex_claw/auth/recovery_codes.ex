@@ -3,9 +3,14 @@ defmodule AlexClaw.Auth.RecoveryCodes do
   The way back in when the authenticator is gone.
 
   Ten one-time codes, generated when 2FA is enabled and shown once. What is
-  stored is a SHA-256 hash of each: the rows cannot be used to log in, so a
-  database dump is not a set of keys. Comparison is constant-time, because a
-  timing difference on a fifty-bit secret is a real one.
+  stored is an HMAC of each code's SHA-256 digest under OpenBao's transit key
+  (`AlexClaw.Vault.hmac/2`), which never leaves OpenBao: a database dump is
+  not a set of keys, and cannot be brute-forced offline. OpenBao checks a
+  presented code against each unused one, in constant time.
+
+  Codes stored before 0.4.0 are the digest alone. They still redeem, and the
+  secret upgrade at boot re-keys them (`rekey_legacy/1`), so no code has to be
+  generated or saved again.
 
   A code is consumed by the first redemption that claims it — the update names
   the row only while `used_at` is null, so two tabs racing produce one
@@ -20,7 +25,7 @@ defmodule AlexClaw.Auth.RecoveryCodes do
 
   alias AlexClaw.Auth.{AuditLog, RecoveryCode}
   alias AlexClaw.Gateway.Router
-  alias AlexClaw.Repo
+  alias AlexClaw.{Repo, Vault}
 
   @count 10
   @group_size 5
@@ -46,7 +51,7 @@ defmodule AlexClaw.Auth.RecoveryCodes do
 
     Repo.insert_all(
       RecoveryCode,
-      Enum.map(codes, &%{hash: hash(&1), inserted_at: DateTime.utc_now(:second)})
+      Enum.map(codes, &%{hash: keyed(digest(&1)), inserted_at: DateTime.utc_now(:second)})
     )
 
     AuditLog.log_recovery_codes(:generated, @count)
@@ -67,19 +72,7 @@ defmodule AlexClaw.Auth.RecoveryCodes do
 
   @doc "Whether `code` is one of the unused codes, without spending it."
   @spec valid?(String.t()) :: boolean()
-  def valid?(code) do
-    candidate = normalize(code)
-
-    candidate
-    |> hash()
-    |> matching_row()
-    |> unspent?(candidate)
-  end
-
-  defp unspent?(nil, _candidate), do: false
-
-  defp unspent?(%RecoveryCode{} = row, candidate),
-    do: Plug.Crypto.secure_compare(row.hash, hash(candidate))
+  def valid?(code), do: code |> normalize() |> digest() |> matching_row() != nil
 
   @doc "How many codes are left to use."
   @spec remaining() :: non_neg_integer()
@@ -121,28 +114,30 @@ defmodule AlexClaw.Auth.RecoveryCodes do
 
   # --- Internals ---
 
-  # The lookup is by hash, so the query itself does not leak which code was
-  # tried; secure_compare guards the comparison that decides.
   defp claim(candidate) do
     candidate
-    |> hash()
+    |> digest()
     |> matching_row()
-    |> spend(candidate)
+    |> spend()
   end
 
-  defp matching_row(hash) do
-    Repo.one(from(c in RecoveryCode, where: c.hash == ^hash and is_nil(c.used_at)))
+  # Every unused code is asked, until one matches: at most ten.
+  defp matching_row(digest) do
+    from(c in RecoveryCode, where: is_nil(c.used_at))
+    |> Repo.all()
+    |> Enum.find(&matches?(&1.hash, digest))
   end
 
-  defp spend(nil, _candidate), do: {:error, :invalid_code}
+  # OpenBao checks a keyed one, in constant time; a digest from before 0.4.0
+  # is compared here, in constant time too.
+  defp matches?("vault:" <> _ = stored, digest),
+    do: Vault.verify_hmac(digest, stored) == {:ok, true}
 
-  defp spend(%RecoveryCode{} = row, candidate) do
-    verified(Plug.Crypto.secure_compare(row.hash, hash(candidate)), row)
-  end
+  defp matches?(legacy, digest), do: Plug.Crypto.secure_compare(legacy, digest)
 
-  defp verified(false, _row), do: {:error, :invalid_code}
+  defp spend(nil), do: {:error, :invalid_code}
 
-  defp verified(true, row) do
+  defp spend(%RecoveryCode{} = row) do
     row
     |> mark_used()
     |> report()
@@ -184,9 +179,38 @@ defmodule AlexClaw.Auth.RecoveryCodes do
     |> to_string()
   end
 
-  defp hash(code) do
-    :sha256 |> :crypto.hash(code) |> Base.encode16(case: :lower)
+  defp digest(code), do: :sha256 |> :crypto.hash(code) |> Base.encode16(case: :lower)
+
+  defp keyed(digest) do
+    {:ok, hmac} = Vault.hmac(digest)
+    hmac
   end
+
+  @doc """
+  Re-key the codes stored before 0.4.0 — their plain SHA-256 digest — as an
+  HMAC of that digest under OpenBao's transit key. The codes themselves do not
+  change. Returns how many were re-keyed; one OpenBao refuses is left as it
+  was and tried again next time. Options: `vault:`.
+  """
+  @spec rekey_legacy(keyword()) :: {:ok, non_neg_integer()}
+  def rekey_legacy(opts \\ []) do
+    rekeyed =
+      from(c in RecoveryCode, where: not like(c.hash, "vault:%"))
+      |> Repo.all()
+      |> Enum.count(&(rekey(&1, Vault.hmac(&1.hash, server(opts))) == :ok))
+
+    {:ok, rekeyed}
+  end
+
+  # `vault:` here is AlexClaw.Vault's `server:`.
+  defp server(opts), do: [server: Keyword.get(opts, :vault, Vault)]
+
+  defp rekey(row, {:ok, hmac}) do
+    row |> Ecto.Changeset.change(hash: hmac) |> Repo.update!()
+    :ok
+  end
+
+  defp rekey(_row, {:error, _reason}), do: :error
 
   # Typed back in, a code arrives with whatever case and spacing the operator
   # used. The hyphen is punctuation, not part of the secret.

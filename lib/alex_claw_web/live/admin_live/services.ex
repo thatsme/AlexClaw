@@ -16,6 +16,8 @@ defmodule AlexClawWeb.AdminLive.Services do
   alias Ecto.Adapters.SQL
   alias Nostrum.Api.Message
 
+  @unavailable "The second factor cannot be reached right now (OpenBao is unavailable). Try again shortly."
+
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, session, socket) do
@@ -373,6 +375,9 @@ defmodule AlexClawWeb.AdminLive.Services do
     assign(socket, totp_setup: nil, totp_message: "That setup expired. Start again.")
   end
 
+  defp confirmed({:error, :unavailable}, socket),
+    do: assign(socket, totp_message: @unavailable)
+
   defp regenerated({:ok, codes}, socket) do
     socket
     |> assign(recovery_codes: codes, totp_message: nil)
@@ -398,6 +403,9 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   # The button is hidden while 2FA is on; a crafted event still arrives here.
+  defp set_up({:error, :unavailable}, socket),
+    do: assign(socket, totp_setup: nil, totp_message: @unavailable)
+
   defp set_up({:error, :already_enabled}, socket) do
     assign(socket,
       totp_setup: nil,

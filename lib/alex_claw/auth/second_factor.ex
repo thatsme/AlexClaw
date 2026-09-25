@@ -36,7 +36,7 @@ defmodule AlexClaw.Auth.SecondFactor do
   `AlexClaw.Auth.CodeEntry` owns those, for every implementation.
   """
   @callback verify(secret :: String.t(), method :: method()) ::
-              {:ok, factor()} | {:error, :invalid_code}
+              {:ok, factor()} | {:error, :invalid_code | :unavailable}
 
   @doc "Whether a second factor exists to be asked for on this instance."
   @callback configured?() :: boolean()
@@ -74,6 +74,14 @@ defmodule AlexClaw.Auth.SecondFactor do
   and says so, loudly, to a person.
   """
   @callback misconfigured?() :: boolean()
+
+  @doc """
+  Carry an enrolment made before 0.4.0 into the factor's current store, so the
+  authenticator keeps working through the upgrade: `:imported`, `:none` when
+  there is nothing to carry, or `{:error, reason}` to be tried again at the
+  next start. Options: `vault:` — the `AlexClaw.Vault` server to use.
+  """
+  @callback carry_over(keyword()) :: :imported | :none | {:error, term()}
 
   @doc "The configured implementation."
   @spec impl() :: module()

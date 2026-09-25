@@ -30,7 +30,7 @@ defmodule AlexClaw.Auth.Sessions do
 
   import Ecto.Query
 
-  alias AlexClaw.Auth.AdminSession
+  alias AlexClaw.Auth.{AdminPassword, AdminSession}
   alias AlexClaw.{ControlPlane, Repo}
 
   @max_age_seconds 8 * 60 * 60
@@ -184,10 +184,11 @@ defmodule AlexClaw.Auth.Sessions do
 
   defp hash(sid), do: :crypto.hash(:sha256, sid)
 
-  # Keyed, so the column is not an offline-crackable hash of the password.
+  # Keyed, so the column is not an offline-crackable copy of the password (or
+  # of its hash). It follows AdminPassword.current/0: a new password — a new
+  # stored hash — ends every login made under the old one.
   defp password_fingerprint do
-    password = Application.get_env(:alex_claw, :admin_password) || ""
-    :crypto.mac(:hmac, :sha256, secret_key_base(), "admin-password:" <> password)
+    :crypto.mac(:hmac, :sha256, secret_key_base(), "admin-password:" <> AdminPassword.current())
   end
 
   defp secret_key_base do

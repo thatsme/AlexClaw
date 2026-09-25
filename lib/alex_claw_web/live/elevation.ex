@@ -208,6 +208,10 @@ defmodule AlexClawWeb.Live.Elevation do
   defp refusal_message(:not_configured),
     do: "No second factor is configured yet."
 
+  defp refusal_message(:unavailable),
+    do:
+      "The second factor cannot be checked right now (OpenBao is unavailable). Try again shortly."
+
   defp state(sid), do: state(sid, false, nil)
 
   defp state(sid, entry_open?, message) do

@@ -55,6 +55,7 @@ defmodule AlexClaw.Auth.Challenge do
           | :locked_instance
           | :invalid_code
           | :too_many_attempts
+          | :unavailable
 
   @spec resolve(String.t() | integer(), String.t()) :: {:ok, map()} | {:error, resolve_error()}
   def resolve(chat_id, code) do
@@ -181,9 +182,9 @@ defmodule AlexClaw.Auth.Challenge do
     {:ok, challenge.action}
   end
 
-  defp resolved({:error, locked}, _challenge, _chat_id_str)
-       when locked in [:locked_session, :locked_instance] do
-    {:error, locked}
+  defp resolved({:error, reason}, _challenge, _chat_id_str)
+       when reason in [:locked_session, :locked_instance, :unavailable] do
+    {:error, reason}
   end
 
   defp resolved({:error, _reason}, _challenge, chat_id_str) do

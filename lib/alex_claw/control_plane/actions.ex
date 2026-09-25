@@ -31,8 +31,6 @@ defmodule AlexClaw.ControlPlane.Actions do
   alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.{SchedulerSync, Workflow, WorkflowStep}
 
-  @pending_secret "auth.totp.pending_secret"
-
   @gateway_owners ~w(telegram.chat_id discord.channel_id)
 
   # The changes: one database write each, in the transaction with its row.
@@ -221,7 +219,7 @@ defmodule AlexClaw.ControlPlane.Actions do
     with :ok <- TOTP.confirm_setup(code), do: {:ok, RecoveryCodes.generate()}
   end
 
-  def run(:set_up_second_factor, %{step: :cancel}), do: Config.remove(@pending_secret)
+  def run(:set_up_second_factor, %{step: :cancel}), do: TOTP.cancel_setup()
 
   # Disabling the second factor happens as its code is checked, in the same
   # transaction as this row (`verifier/2`: `TOTP.disable_by/1` verifies and
@@ -271,9 +269,6 @@ defmodule AlexClaw.ControlPlane.Actions do
   # Cleared or generated inside the transaction; announced once committed.
   def after_commit(:clear_secret, %{key: key}, _key, _context), do: Config.publish(key)
   def after_commit(:generate_mcp_key, _params, _key, _context), do: Config.publish("mcp.api_key")
-
-  def after_commit(:set_up_second_factor, %{step: :cancel}, _removed, _context),
-    do: Config.publish(@pending_secret)
 
   # Asking a node whether it answers is not something a transaction can hold:
   # the answer, and the status it sets, are recorded once known.

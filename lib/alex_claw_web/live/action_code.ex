@@ -22,7 +22,7 @@ defmodule AlexClawWeb.Live.ActionCode do
   alias AlexClaw.ControlPlane.Context
   alias Phoenix.LiveView.Socket
 
-  @code_refusals [:invalid_code, :locked_session, :locked_instance, :not_configured]
+  @code_refusals [:invalid_code, :locked_session, :locked_instance, :not_configured, :unavailable]
 
   @doc """
   Ask for a code for the catalogued `action` with `params`. The page shows a
@@ -123,6 +123,10 @@ defmodule AlexClawWeb.Live.ActionCode do
     do: "Too many wrong codes across sessions. Code entry is locked for fifteen minutes."
 
   defp refusal(:not_configured), do: "No second factor is configured yet."
+
+  defp refusal(:unavailable),
+    do:
+      "The second factor cannot be checked right now (OpenBao is unavailable). Try again shortly."
 
   defp sid(%{assigns: %{elevation_sid: sid}}), do: sid
   defp sid(_socket), do: nil

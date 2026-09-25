@@ -99,6 +99,8 @@ configure() {
   bao write secret/config max_versions=1 >/dev/null
   bao secrets enable transit >/dev/null
   bao write -f transit/keys/alexclaw >/dev/null
+  # The admin's second factor: OpenBao holds the key and checks the codes.
+  bao secrets enable totp >/dev/null
 
   bao policy write alexclaw - >/dev/null <<'POLICY'
 path "secret/data/alexclaw/*" {
@@ -120,6 +122,23 @@ path "transit/decrypt/alexclaw" {
 
 # The MCP key is kept as an HMAC under this key: recognised, never stored.
 path "transit/hmac/alexclaw" {
+  capabilities = ["update"]
+}
+
+# Recovery codes are checked against their HMACs here, in constant time.
+path "transit/verify/alexclaw" {
+  capabilities = ["update"]
+}
+
+# The admin's TOTP key: enrolled (update writes it), described (read gives
+# metadata, never the secret) and deleted when 2FA is turned off.
+path "totp/keys/admin" {
+  capabilities = ["read", "update", "delete"]
+}
+
+# Codes are checked here. A read of this path would generate a code, so it
+# is not granted.
+path "totp/code/admin" {
   capabilities = ["update"]
 }
 POLICY

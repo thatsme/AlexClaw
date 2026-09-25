@@ -27,6 +27,7 @@ defmodule AlexClaw.Config.SecretUpgrade do
   """
   require Logger
 
+  alias AlexClaw.Auth.{RecoveryCodes, SecondFactor}
   alias AlexClaw.Config
   alias AlexClaw.Config.{Crypto, SecretSettings, Setting}
   alias AlexClaw.Config.SecretUpgrade.Records
@@ -39,7 +40,9 @@ defmodule AlexClaw.Config.SecretUpgrade do
           moved: [String.t()],
           fingerprinted: [String.t()],
           records_moved: [String.t()],
-          failed: [{String.t(), term()}]
+          failed: [{String.t(), term()}],
+          totp: :imported | :none | {:error, term()},
+          recovery_codes: non_neg_integer()
         }
 
   @doc false
@@ -64,6 +67,11 @@ defmodule AlexClaw.Config.SecretUpgrade do
   (the MCP key), the records moved (`"step 12"`, `"resource 3"`), and what did
   not move, with why.
 
+  The second factor is carried over too (0.4.0 S6): a TOTP key enrolled
+  before 0.4.0 is imported into OpenBao's TOTP engine (`totp:` `:imported`,
+  `:none`, or `{:error, reason}`), and recovery codes stored as their plain
+  digest are re-keyed (`recovery_codes:`, how many).
+
   Options: `vault:` — the `AlexClaw.Vault` server to use.
   """
   @spec run(keyword()) :: {:ok, result()}
@@ -73,7 +81,16 @@ defmodule AlexClaw.Config.SecretUpgrade do
       |> Enum.map(&{&1, pending(Repo.get_by(Setting, key: &1))})
       |> Enum.reject(fn {_key, pending} -> pending == :nothing end)
 
-    {:ok, moved_all(settings, Records.pending(), Keyword.get(opts, :vault, Vault))}
+    vault = Keyword.get(opts, :vault, Vault)
+    {:ok, rekeyed} = RecoveryCodes.rekey_legacy(vault: vault)
+
+    result =
+      settings
+      |> moved_all(Records.pending(), vault)
+      |> Map.put(:totp, SecondFactor.impl().carry_over(vault: vault))
+      |> Map.put(:recovery_codes, rekeyed)
+
+    {:ok, result}
   end
 
   defp pending(nil), do: :nothing

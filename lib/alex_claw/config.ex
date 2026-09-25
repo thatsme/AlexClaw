@@ -32,7 +32,7 @@ defmodule AlexClaw.Config do
   #
   # A caller that reaches for one of these has made a mistake that nil would
   # hide, so it is raised and not returned.
-  @uncached_keys ["auth.totp.secret", "auth.totp.last_used_at"]
+  @uncached_keys ["auth.totp.secret", "auth.totp.last_used_at", "auth.admin_password_hash"]
 
   # A recognised-only key's row holds a fingerprint, never a value.
   @fingerprint_prefix "hmac:"

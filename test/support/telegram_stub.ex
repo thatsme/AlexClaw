@@ -20,7 +20,9 @@ defmodule AlexClawTest.TelegramStub do
   @token "stub-token"
   @agent __MODULE__.Sent
 
-  def accept_all(chat_id \\ "4242") do
+  def accept_all(chat_id \\ "4242", opts \\ []) do
+    # Tokens answered with 401, as Telegram answers a revoked or wrong token.
+    rejected = Keyword.get(opts, :reject_tokens, [])
     bypass = Bypass.open()
     Application.put_env(:alex_claw, :telegram_api_base, "http://localhost:#{bypass.port}")
     on_exit(fn -> Application.delete_env(:alex_claw, :telegram_api_base) end)
@@ -33,13 +35,19 @@ defmodule AlexClawTest.TelegramStub do
 
     # Any bot token: tests that pass a custom token hit /bot<token>/sendMessage.
     Bypass.stub(bypass, "POST", "/:bot/sendMessage", fn conn ->
-      {:ok, body, conn} = Plug.Conn.read_body(conn)
-      text = body |> Jason.decode!() |> Map.get("text")
-      record(text)
+      if Enum.any?(rejected, &(conn.request_path == "/bot#{&1}/sendMessage")) do
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(401, ~s({"ok":false,"error_code":401,"description":"Unauthorized"}))
+      else
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        text = body |> Jason.decode!() |> Map.get("text")
+        record(text)
 
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{"ok" => true, "result" => %{"message_id" => 1}}))
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"ok" => true, "result" => %{"message_id" => 1}}))
+      end
     end)
 
     # The gateway long-polls getUpdates about once a second while Telegram is

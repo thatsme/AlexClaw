@@ -125,17 +125,15 @@ defmodule AlexClaw.MCP.SecretsTest do
       refute_leak(read("alexclaw://resources/list"), "resources/list")
     end
 
-    test "a URL's user:password is not returned" do
-      {:ok, res} =
-        AlexClaw.Resources.create_resource(%{
-          name: "Userinfo #{System.unique_integer([:positive])}",
-          type: "website",
-          url: "https://admin:#{@secret}@internal.example.com/"
-        })
-
-      text = read("alexclaw://resources/#{res.id}")
-      refute_leak(text, "resources/#{res.id}")
-      assert text =~ "internal.example.com", "the host must still be readable"
+    # Since 0.4.0 such a URL cannot be created at all, so there is nothing to
+    # leak: the test pins the refusal instead.
+    test "a URL's user:password cannot even be stored" do
+      assert {:error, _} =
+               AlexClaw.Resources.create_resource(%{
+                 name: "Userinfo #{System.unique_integer([:positive])}",
+                 type: "website",
+                 url: "https://admin:#{@secret}@internal.example.com/"
+               })
     end
 
     test "values a recording captured are not returned" do

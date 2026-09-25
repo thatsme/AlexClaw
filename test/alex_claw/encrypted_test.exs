@@ -83,27 +83,33 @@ defmodule AlexClaw.EncryptedTest do
   end
 
   describe "a workflow step's config" do
-    test "stores the keys its skill declares secret encrypted, and nothing else" do
+    # Since 0.4.0 (S4a) a step's credential is not encrypted in the row: it is
+    # a reference to OpenBao, and the row holds no ciphertext of it at all.
+    # Legacy rows sealed under SECRET_KEY_BASE are read until the upgrade
+    # moves them (the "does not decrypt" test below still covers those).
+    @describetag :vault
+
+    test "stores a declared secret key as a reference, and nothing else changes" do
       s = step("telegram_notify", %{"bot_token" => "123:bot-secret", "chat_id" => "42"})
       stored = raw("SELECT config FROM workflow_steps WHERE id = $1", s.id)
 
-      assert Crypto.encrypted?(stored["bot_token"])
+      assert %{"secret" => _name} = stored["bot_token"]
+      refute inspect(stored) =~ "bot-secret"
       assert stored["chat_id"] == "42"
 
-      assert Repo.get!(WorkflowStep, s.id).config == %{
-               "bot_token" => "123:bot-secret",
-               "chat_id" => "42"
-             }
+      # The schema hands back the reference, never the value.
+      assert %{"secret" => _} = Repo.get!(WorkflowStep, s.id).config["bot_token"]
     end
 
-    test "encrypts a declared map value string by string" do
+    test "a credential header becomes a reference; an ordinary header stays as it is" do
       headers = %{"authorization" => "Bearer api-secret", "accept" => "application/json"}
       s = step("api_request", %{"url" => "https://example.com", "headers" => headers})
       stored = raw("SELECT config FROM workflow_steps WHERE id = $1", s.id)
 
-      assert Enum.all?(Map.values(stored["headers"]), &Crypto.encrypted?/1)
+      assert %{"secret" => _} = stored["headers"]["authorization"]
+      assert stored["headers"]["accept"] == "application/json"
+      refute inspect(stored) =~ "api-secret"
       assert stored["url"] == "https://example.com"
-      assert Repo.get!(WorkflowStep, s.id).config["headers"] == headers
     end
 
     test "leaves an empty secret, and a config without one, as they are" do

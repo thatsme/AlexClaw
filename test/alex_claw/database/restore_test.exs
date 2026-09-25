@@ -116,6 +116,12 @@ defmodule AlexClaw.Database.RestoreTest do
   end
 
   describe "credentials stored outside the settings" do
+    # LLM providers still keep their credentials encrypted in the row. Since
+    # 0.4.0 (S4a) a step's credential is a reference to OpenBao: an export
+    # carries the reference, a restore puts it back, and OpenBao — which a
+    # database restore does not touch — still holds the value.
+    @describetag :vault
+
     defp provider(attrs) do
       {:ok, provider} =
         LLM.create_provider(
@@ -149,7 +155,7 @@ defmodule AlexClaw.Database.RestoreTest do
       step
     end
 
-    test "are exported encrypted, as stored, and restored readable" do
+    test "are exported as stored (encrypted, or a reference) and restored usable" do
       p = provider(%{api_key: "sk-plain-key", headers: %{"x-api-key" => "hdr-secret"}})
       step = telegram_step(%{"bot_token" => "123:bot-secret", "chat_id" => "42"})
       original = export()
@@ -162,7 +168,7 @@ defmodule AlexClaw.Database.RestoreTest do
       assert Crypto.encrypted?(headers["x-api-key"])
 
       config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
-      assert Crypto.encrypted?(config["bot_token"])
+      assert %{"secret" => name} = config["bot_token"]
       assert config["chat_id"] == "42"
 
       Repo.query!("UPDATE llm_providers SET api_key = 'changed'")
@@ -172,11 +178,16 @@ defmodule AlexClaw.Database.RestoreTest do
       assert restored.api_key == "sk-plain-key"
       assert restored.headers == %{"x-api-key" => "hdr-secret"}
 
-      assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"] ==
-               "123:bot-secret"
+      assert %{"secret" => ^name} =
+               Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"]
+
+      assert {:ok, "123:bot-secret"} =
+               AlexClaw.Secrets.resolve(name,
+                 for: AlexClaw.Config.secret_binding("telegram.bot_token")
+               )
     end
 
-    test "include an API Request step's headers, string by string" do
+    test "include an API Request step's credential header, as a reference" do
       workflow = fixtures()
 
       {:ok, step} =
@@ -193,13 +204,12 @@ defmodule AlexClaw.Database.RestoreTest do
       refute Jason.encode!(original) =~ "api-secret"
 
       config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
-      assert Crypto.encrypted?(config["headers"]["authorization"])
+      assert %{"secret" => name} = config["headers"]["authorization"]
       assert config["url"] == "https://example.com"
 
       assert {:ok, _} = Restore.load(original)
 
-      assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["headers"] ==
-               %{"authorization" => "Bearer api-secret"}
+      assert {:ok, "Bearer api-secret"} = AlexClaw.Secrets.resolve(name, for: "host:example.com")
     end
 
     test "that are nil or empty stay so" do
@@ -270,16 +280,22 @@ defmodule AlexClaw.Database.RestoreTest do
       assert AlexClaw.Config.get("restore.sealed") == "mine"
     end
 
-    test "a step secret that was tampered with is refused" do
+    # There is no ciphertext left to tamper with in a step. What can be wrong
+    # now is a reference naming a secret that does not exist: a restore that
+    # accepted it would leave a step that fails at 6 a.m.
+    test "a step reference to a secret that does not exist is refused, and nothing changes" do
       step = telegram_step(%{"bot_token" => "t", "chat_id" => "1"})
       original = export()
       config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
-      tampered = Jason.encode!(%{config | "bot_token" => "enc:" <> Base.encode64("short")})
+      tampered = Jason.encode!(%{config | "bot_token" => %{"secret" => "no_such_secret_xyz"}})
       bad = replace_value(original, "workflow_steps", step.id, "config", tampered)
 
       assert {:error, message} = Restore.load(bad)
       assert message =~ "workflow_steps"
-      assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"] == "t"
+      assert message =~ "no_such_secret_xyz"
+
+      assert %{"secret" => _} =
+               Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"]
     end
 
     defp replace_value(export, table, id, column, value) do

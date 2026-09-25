@@ -74,6 +74,8 @@ defmodule AlexClaw.Config.RekeyTest do
   end
 
   describe "credentials stored outside the settings" do
+    @describetag :vault
+
     defp raw(sql, id) do
       %{rows: [[value]]} = Repo.query!(sql, [id])
       value
@@ -109,17 +111,21 @@ defmodule AlexClaw.Config.RekeyTest do
       {provider, step} = credentials()
 
       assert {:ok, moved} = Rekey.run(@old, @new)
-      assert moved >= 5, "2 settings, the API key, one header value and the bot token"
+      # Since 0.4.0 (S4a) a step's bot token is a reference to OpenBao, not a
+      # value under SECRET_KEY_BASE: it is not re-keyed, and is not counted.
+      assert moved >= 4, "2 settings, the API key and one header value"
 
       api_key = raw("SELECT api_key FROM llm_providers WHERE id = $1", provider)
       header = raw("SELECT headers FROM llm_providers WHERE id = $1", provider)["x-api-key"]
-      bot = raw("SELECT config FROM workflow_steps WHERE id = $1", step)["bot_token"]
 
       assert opens_under(@new, api_key) == {:ok, "sk-rekey"}
       assert opens_under(@new, header) == {:ok, "hdr-rekey"}
-      assert opens_under(@new, bot) == {:ok, "123:rekey"}
       assert {:error, _} = opens_under(@old, api_key)
-      assert raw("SELECT config FROM workflow_steps WHERE id = $1", step)["chat_id"] == "1"
+
+      # The step's reference comes through the rotation untouched.
+      config = raw("SELECT config FROM workflow_steps WHERE id = $1", step)
+      assert %{"secret" => _} = config["bot_token"]
+      assert config["chat_id"] == "1"
     end
 
     test "one the old key cannot decrypt refuses the whole rotation" do

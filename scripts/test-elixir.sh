@@ -39,18 +39,23 @@ DUMP_DIR="local-docs"
 DUMP_NAME="erl_crash-$(date +%Y%m%d-%H%M%S).dump"
 CACHE_DIR=".test-cache/elixir"
 
+# The cache is mounted at the same depth as _build/test, so the relative links
+# mix keeps in a build directory (a dependency's priv/ into deps/) resolve the
+# same way; MIX_BUILD_PATH points mix at it for targeted runs.
+CACHE_MOUNT="/app/_build/cached"
+
 # The whole suite. With no stale manifest in a fresh build, `--stale` runs
 # every test and, when none fails, writes the baseline. The cache is emptied on
 # the host before the run; the container only copies into it.
 FULL_RUN='mix ecto.create && mix ecto.migrate && mix test --stale; rc=$?
-cp -a _build/test /test-cache/test
+cp -a _build/test/. '"$CACHE_MOUNT"'/
 exit $rc'
 
 # A targeted run on the cached build directory.
-TARGETED_RUN='if [ ! -f /test-cache/test/lib/alex_claw/.mix/compile.elixir ]; then
-  mkdir -p /test-cache/test && cp -a _build/test/. /test-cache/test/
+TARGETED_RUN='if [ ! -f '"$CACHE_MOUNT"'/lib/alex_claw/.mix/compile.elixir ]; then
+  cp -a _build/test/. '"$CACHE_MOUNT"'/
 fi
-rm -rf _build/test && ln -s /test-cache/test _build/test
+export MIX_BUILD_PATH='"$CACHE_MOUNT"'
 mix ecto.create && mix ecto.migrate && mix test "$@"'
 
 cleanup() {
@@ -112,7 +117,7 @@ open_log elixir
 mkdir -p "$DUMP_DIR" "$CACHE_DIR"
 if [ "$#" -eq 0 ]; then
   note "Whole suite on the fresh image; its build is kept in $CACHE_DIR."
-  rm -rf "${CACHE_DIR:?}/test"
+  rm -rf "${CACHE_DIR:?}" && mkdir -p "$CACHE_DIR"
   set -- sh -c "$FULL_RUN"
 else
   note "Targeted run on the build in $CACHE_DIR: mix test $*"
@@ -137,7 +142,7 @@ fi
 
 $COMPOSE run --rm --name "$CONTAINER" \
   -v "$PWD/$DUMP_DIR:/dumps" -e "ERL_CRASH_DUMP=/dumps/$DUMP_NAME" \
-  -v "$PWD/$CACHE_DIR:/test-cache" \
+  -v "$PWD/$CACHE_DIR:$CACHE_MOUNT" \
   test-elixir "$@" >>"$LOG" 2>&1 &
 run=$!
 run_started=$(date +%s)

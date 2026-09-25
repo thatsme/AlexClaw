@@ -93,7 +93,7 @@ Targeted runs go through the same script and the same limits:
 | `make test-elixir` | the whole suite, on a freshly built test image |
 | `make test-elixir FILES="test/a_test.exs test/b_test.exs"` | only those files |
 | `make test-failed` | only the tests that failed in the previous run (`mix test --failed`) |
-| `make test-stale` | only the tests affected by modules changed since the last passing whole or stale run (`mix test --stale`) |
+| `make test-stale` | only the tests affected by modules changed since the last passing whole or stale run (`mix test --stale`). Mix follows references transitively, so a change to a module many others reach (a gateway, a context) selects most of the suite |
 
 `--failed` and `--stale` read records of the previous run, so the build
 directory is kept between runs in `.test-cache/elixir` (untracked). A whole-suite

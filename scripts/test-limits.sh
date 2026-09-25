@@ -18,11 +18,14 @@ PROGRESS_EVERY=30
 
 # Prints to the terminal and the log. Used while no tailer is showing the log.
 banner() {
+  [ -s "$LOG" ] && [ -n "$(tail -c 1 "$LOG")" ] && printf '\n' >>"$LOG"
   printf '[%s] %s\n' "$(date +%H:%M:%S)" "$1" | tee -a "$LOG"
 }
 
-# Appends to the log; the tailer shows it on the terminal.
+# Appends to the log on a line of its own (ExUnit's dots leave the last line
+# open); the tailer shows it on the terminal.
 note() {
+  [ -n "$(tail -c 1 "$LOG")" ] && printf '\n' >>"$LOG"
   printf '[%s] %s\n' "$(date +%H:%M:%S)" "$1" >>"$LOG"
 }
 

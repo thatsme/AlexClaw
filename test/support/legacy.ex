@@ -8,9 +8,21 @@ defmodule AlexClawTest.Legacy do
   other setting's value as plain text. The current `Config` API routes a secret
   setting to OpenBao, so these helpers write and read the row directly, below
   that routing.
+
+  Steps and resources, as 0.3.x left them:
+  - a workflow step's `config` held each key some skill declares secret
+    (`secret_config_keys/0`: `api_request`'s `headers`, `telegram_notify`'s
+    `bot_token`) sealed with `AlexClaw.Encrypted.seal/1`, every string in it
+    stored as `"enc:" <> ciphertext`; the other keys as they were;
+  - a resource's `metadata`, `auth` included, was stored as it was, with no
+    encryption.
   """
   alias AlexClaw.Config.{Crypto, Setting}
+  alias AlexClaw.Encrypted
   alias AlexClaw.Repo
+
+  # The secret keys 0.3.x sealed in a step config.
+  @step_secret_keys ["headers", "bot_token"]
 
   @doc """
   Write `key` = `value` as 0.3.x did: `encrypted: true` for a sensitive setting

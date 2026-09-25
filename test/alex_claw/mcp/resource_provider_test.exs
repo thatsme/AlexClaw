@@ -146,7 +146,9 @@ defmodule AlexClaw.MCP.ResourceProviderTest do
     # passed without checking anything. It creates its own workflow now.
     test "get by ID returns workflow with steps" do
       {:ok, wf} =
-        AlexClaw.Workflows.create_workflow(%{name: "MCP read #{System.unique_integer([:positive])}"})
+        AlexClaw.Workflows.create_workflow(%{
+          name: "MCP read #{System.unique_integer([:positive])}"
+        })
 
       {:reply, %Response{} = resp, _frame} =
         ResourceProvider.read("alexclaw://workflows/#{wf.id}", new_frame())

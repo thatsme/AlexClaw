@@ -36,7 +36,8 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
     AlexClaw.Config.delete("auth.totp.pending_secret")
     AlexClaw.Config.delete("auth.totp.last_used_at")
 
-    # 2FA on, with a known secret.
+    # 2FA on, with a known secret. TOTP.setup/0 returns the raw secret bytes;
+    # what is stored, and what TOTP.secret/0 returns, is its Base32 text.
     {:ok, %{secret: secret}} = TOTP.setup()
     :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
     AlexClaw.Config.delete("auth.totp.last_used_at")
@@ -46,7 +47,7 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
       CodeAttempts.reset()
     end)
 
-    {:ok, sid: sid, secret: secret}
+    {:ok, sid: sid, secret: secret, active: Base.encode32(secret, padding: false)}
   end
 
   defp open(conn, sid) do
@@ -72,29 +73,28 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
   end
 
   describe "the context" do
-    test "a new setup is refused while 2FA is on", %{secret: secret} do
+    test "a new setup is refused while 2FA is on", %{active: active} do
       assert {:error, :already_enabled} = TOTP.setup()
-      assert TOTP.secret() == secret
+      assert TOTP.secret() == active
       refute AlexClaw.Config.get("auth.totp.pending_secret")
     end
 
-    test "a confirm cannot replace the active secret", %{secret: secret} do
+    test "a confirm cannot replace the active secret", %{active: active} do
       # Even with a pending secret planted by some other path.
-      AlexClaw.Config.set("auth.totp.pending_secret", NimbleTOTP.secret() |> Base.encode32(padding: false),
+      planted = NimbleTOTP.secret()
+
+      AlexClaw.Config.set("auth.totp.pending_secret", Base.encode32(planted, padding: false),
         type: "string",
         category: "auth",
         sensitive: true
       )
 
-      planted = AlexClaw.Config.get("auth.totp.pending_secret") |> Base.decode32!(padding: false)
-
       assert {:error, _} = TOTP.confirm_setup(NimbleTOTP.verification_code(planted))
-      assert TOTP.secret() == secret
+      assert TOTP.secret() == active
     end
 
     test "after turning it off with a code, a new setup is allowed", %{secret: secret} do
-      code = secret |> Base.decode32!(padding: false) |> NimbleTOTP.verification_code()
-      :ok = TOTP.disable(code)
+      :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
 
       assert {:ok, %{secret: _new}} = TOTP.setup()
     end
@@ -108,7 +108,7 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
 
       html = render_click(view, "setup_2fa", %{})
 
-      assert TOTP.secret() == ctx.secret
+      assert TOTP.secret() == ctx.active
       refute AlexClaw.Config.get("auth.totp.pending_secret")
       refute html =~ "data:image/png;base64,"
       assert html =~ ~r/already/i
@@ -130,9 +130,9 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
       refute AlexClaw.Config.get("auth.totp.pending_secret")
     end
 
-    test "/setup 2fa leaves the active factor as it was", %{secret: secret} do
+    test "/setup 2fa leaves the active factor as it was", %{active: active} do
       send_command("/setup 2fa")
-      assert TOTP.secret() == secret
+      assert TOTP.secret() == active
     end
   end
 end

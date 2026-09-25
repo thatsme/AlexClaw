@@ -35,9 +35,18 @@ defmodule AlexClaw.MCP.SecretsTest do
   end
 
   describe "settings" do
-    for key <- ["test.sensitive.single", "telegram.bot_token", "mcp.api_key", "auth.totp.pending_secret"] do
+    for key <- [
+          "test.sensitive.single",
+          "telegram.bot_token",
+          "mcp.api_key",
+          "auth.totp.pending_secret"
+        ] do
       test "a single-key read of #{key} does not return its value" do
-        AlexClaw.Config.set(unquote(key), @secret, type: "string", category: "test", sensitive: true)
+        AlexClaw.Config.set(unquote(key), @secret,
+          type: "string",
+          category: "test",
+          sensitive: true
+        )
 
         text = read("alexclaw://config/#{unquote(key)}")
 
@@ -49,7 +58,11 @@ defmodule AlexClaw.MCP.SecretsTest do
     # The single read and the list use one rule: a setting that is redacted
     # in one is redacted in the other.
     test "the single read and the list agree, key by key" do
-      AlexClaw.Config.set("test.sensitive.agree", @secret, type: "string", category: "test", sensitive: true)
+      AlexClaw.Config.set("test.sensitive.agree", @secret,
+        type: "string",
+        category: "test",
+        sensitive: true
+      )
 
       listed =
         read("alexclaw://config/list")
@@ -67,7 +80,9 @@ defmodule AlexClaw.MCP.SecretsTest do
       AlexClawTest.TelegramStub.accept_all()
 
       {:ok, wf} =
-        AlexClaw.Workflows.create_workflow(%{name: "MCP secrets #{System.unique_integer([:positive])}"})
+        AlexClaw.Workflows.create_workflow(%{
+          name: "MCP secrets #{System.unique_integer([:positive])}"
+        })
 
       {:ok, _} =
         AlexClaw.Workflows.add_step(wf, %{
@@ -119,8 +134,12 @@ defmodule AlexClaw.MCP.SecretsTest do
           url: "https://login.example.com",
           metadata: %{
             "steps" => [
-              %{"action" => "fill", "selector" => "#password", "value" => @secret,
-                "description" => "Fill #password with " <> String.slice(@secret, 0, 50)}
+              %{
+                "action" => "fill",
+                "selector" => "#password",
+                "value" => @secret,
+                "description" => "Fill #password with " <> String.slice(@secret, 0, 50)
+              }
             ]
           }
         })

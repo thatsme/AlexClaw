@@ -59,15 +59,19 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
   end
 
   describe "with 2FA configured" do
-    test "a restore is challenged rather than performed", %{conn: conn, sid: sid} do
+    # Since 0.4.0 (S5b) a restore is approved only by a code typed on this page
+    # (restore_data: admin UI, code): it is never sent to a chat, whose code
+    # approves protected runs and nothing else. So "challenged" means the page
+    # waits for its code, and no chat is prompted.
+    test "a restore is challenged on the page, not in a chat", %{conn: conn, sid: sid} do
       chat_id = enable_totp_with_gateway()
       {view, _html} = open(conn, sid)
       upload_dump(view)
 
-      render_click(view, "restore", %{})
+      html = render_click(view, "restore", %{})
 
-      assert Challenge.pending?(chat_id),
-             "the restore ran without asking for a code"
+      assert html =~ "Code from your authenticator", "the restore ran without asking for a code"
+      refute Challenge.pending?(chat_id), "a restore was sent to a chat"
     end
 
     # The point of the per-action rule: an unlock earned on the Config page is
@@ -78,10 +82,12 @@ defmodule AlexClawWeb.AdminLive.DatabaseRestoreTest do
       {view, _html} = open(conn, sid)
       upload_dump(view)
 
-      render_click(view, "restore", %{})
+      html = render_click(view, "restore", %{})
 
-      assert Challenge.pending?(chat_id),
+      assert html =~ "Code from your authenticator",
              "an elevation covered a restore, which it must never do"
+
+      refute Challenge.pending?(chat_id)
     end
 
     test "the page says so instead of offering an unlock", %{conn: conn, sid: sid} do

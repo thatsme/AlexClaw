@@ -58,11 +58,13 @@ defmodule AlexClaw.MCP.OperateNotAuthorTest do
           enabled: true
         })
 
+      # Protection is read from metadata["requires_2fa"] (workflow.ex:31,45);
+      # a top-level attribute is not cast.
       {:ok, protected} =
         Workflows.create_workflow(%{
           name: "mcp-protected-#{System.unique_integer([:positive])}",
           enabled: true,
-          requires_2fa: true
+          metadata: %{"requires_2fa" => true}
         })
 
       %{open: open, protected: protected}

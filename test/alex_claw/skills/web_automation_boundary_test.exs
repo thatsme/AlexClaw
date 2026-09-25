@@ -19,7 +19,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.{Dispatcher, Message, RecordingGateway}
   alias AlexClaw.Skills.WebAutomation
 
   @token "test-automator-token"
@@ -43,17 +42,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
       type: "boolean",
       category: "web_automator"
     )
-  end
-
-  defp msg(text) do
-    %Message{
-      text: text,
-      chat_id: "123",
-      from: "Test",
-      timestamp: DateTime.utc_now(),
-      raw: %{},
-      gateway: :test
-    }
   end
 
   describe "with web_automator.enabled false, nothing reaches the sidecar" do
@@ -81,23 +69,9 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
                })
     end
 
-    test "the Telegram commands refuse too, and say so" do
-      RecordingGateway.install()
-
-      for text <- [
-            "/record https://example.com",
-            "/record stop abc12345",
-            "/automate https://example.com"
-          ] do
-        Dispatcher.dispatch(msg(text))
-      end
-
-      sent = RecordingGateway.sent()
-      assert length(sent) >= 3, "each command answers: #{inspect(sent)}"
-
-      assert Enum.all?(sent, &(&1 =~ ~r/disabled/i)),
-             "not every answer says disabled: #{inspect(sent)}"
-    end
+    # The chat commands (/record, /automate) no longer exist since 0.4.0 (S5b):
+    # a chat refuses them always, pointing to the admin UI
+    # (dispatcher/operate_not_author_test.exs) — not only while disabled.
   end
 
   describe "every request carries the token" do

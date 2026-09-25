@@ -2,8 +2,8 @@ defmodule AlexClaw.Workflows.SkillStagingTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Dispatcher.AuthCommands
-  alias AlexClaw.Message
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Workflows.SkillRegistry
 
   setup do
@@ -27,15 +27,24 @@ defmodule AlexClaw.Workflows.SkillStagingTest do
     """
   end
 
-  defp msg do
-    %Message{
-      text: "",
-      chat_id: "123",
-      from: "Test",
-      timestamp: DateTime.utc_now(),
-      raw: %{},
-      gateway: :test
-    }
+  # Since 0.4.0 (S5b) loading a skill is load_skill: the admin UI, with a
+  # per-action code the door verifies itself (Context.admin_ui/2). A chat code
+  # no longer approves it.
+  defp load_with_code(file) do
+    secret = NimbleTOTP.secret()
+
+    AlexClaw.Config.set("auth.totp.secret", Base.encode32(secret, padding: false),
+      type: "string",
+      category: "auth"
+    )
+
+    AlexClaw.Config.set("auth.totp.enabled", "true", type: "boolean", category: "auth")
+    AlexClaw.Config.delete("auth.totp.last_used_at")
+
+    sid = AlexClaw.Auth.Elevation.new_sid()
+    context = Context.admin_ui(sid, NimbleTOTP.verification_code(secret))
+
+    ControlPlane.perform(:load_skill, %{file_path: file}, context)
   end
 
   describe "uploads are staged, not live" do
@@ -100,7 +109,7 @@ defmodule AlexClaw.Workflows.SkillStagingTest do
       assert :no_pending = SkillRegistry.promote_pending("absent.ex")
     end
 
-    test "the 2FA action promotes and then loads", %{skills_dir: dir} do
+    test "loading with a code promotes and then loads", %{skills_dir: dir} do
       tmp = Path.join(System.tmp_dir!(), "via_2fa.ex")
       File.write!(tmp, skill_source("via_2fa"))
       on_exit(fn -> File.rm_rf!(tmp) end)
@@ -108,18 +117,18 @@ defmodule AlexClaw.Workflows.SkillStagingTest do
       {:ok, _} = SkillRegistry.stage_upload(tmp, "staged.ex")
       on_exit(fn -> SkillRegistry.unload_skill("staged") end)
 
-      AuthCommands.execute_2fa_action(%{type: :skill_load, file_path: "staged.ex"}, msg())
+      assert {:ok, _} = load_with_code("staged.ex")
 
       assert File.exists?(Path.join(dir, "staged.ex"))
       assert {:ok, AlexClaw.Skills.Dynamic.Staged} = SkillRegistry.resolve("staged")
     end
 
-    # /skill load names a file already sitting in the skills directory.
+    # A file already sitting in the skills directory.
     test "a file already in place still loads without staging", %{skills_dir: dir} do
       File.write!(Path.join(dir, "staged.ex"), skill_source("in_place"))
       on_exit(fn -> SkillRegistry.unload_skill("staged") end)
 
-      AuthCommands.execute_2fa_action(%{type: :skill_load, file_path: "staged.ex"}, msg())
+      assert {:ok, _} = load_with_code("staged.ex")
 
       assert {:ok, AlexClaw.Skills.Dynamic.Staged} = SkillRegistry.resolve("staged")
     end

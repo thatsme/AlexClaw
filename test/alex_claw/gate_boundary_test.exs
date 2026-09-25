@@ -36,7 +36,7 @@ defmodule AlexClaw.GateBoundaryTest do
     "Key" => ~w(generate revoke),
     "OAuth" => ~w(exchange_code disconnect),
     "WebAutomation" => ~w(record play stop_recording),
-    "Executor" => ~w(run launch),
+    "Executor" => ~w(run launch run_with_initial_input run_remote_trigger),
     "Launch" => ~w(start),
     "Recording" => ~w(attach_login)
   }

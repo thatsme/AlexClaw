@@ -1,13 +1,16 @@
 defmodule AlexClawWeb.GitHubWebhookController do
   @moduledoc """
-  Receives GitHub webhook events and dispatches security reviews.
+  Receives GitHub webhook events and starts the review workflow configured
+  for them (`github.review_workflow`), through `AlexClaw.ControlPlane.perform/3`
+  (`:run_workflow` from the webhook entry point). With none configured,
+  nothing runs, and an audit row says so.
   """
   use Phoenix.Controller, formats: [:json]
   require Logger
 
+  alias AlexClaw.Auth.AuditLog
   alias AlexClaw.{Config, ControlPlane}
   alias AlexClaw.ControlPlane.Context
-  alias AlexClaw.Skills.GitHubSecurityReview
   alias AlexClaw.Webhooks.{GitHubEvent, GitHubSecret}
   alias AlexClaw.Workflows
 
@@ -59,8 +62,7 @@ defmodule AlexClawWeb.GitHubWebhookController do
 
     review(
       %GitHubEvent{event: :pull_request, repo: repo_name, pr_number: pr_number},
-      "pull request ##{pr_number} on #{repo_name}",
-      fn -> GitHubSecurityReview.review_pr(repo_name, pr_number) end
+      "pull request ##{pr_number} on #{repo_name}"
     )
   end
 
@@ -81,23 +83,23 @@ defmodule AlexClawWeb.GitHubWebhookController do
 
       review(
         %GitHubEvent{event: :push, repo: repo_name, commit_sha: sha},
-        "commit #{String.slice(sha, 0, 8)} on #{repo_name}",
-        fn -> GitHubSecurityReview.review_commit(repo_name, sha) end
+        "commit #{String.slice(sha, 0, 8)} on #{repo_name}"
       )
     else
       Logger.debug("GitHub push to #{branch} — not in watched branches, skipping", skill: :github)
     end
   end
 
-  # With github.review_workflow naming an enabled workflow, the event runs it:
-  # the workflow fetches the diff, reviews it and delivers the result. The event
-  # is the run's input, so the first step reviews what the event named. Without
-  # a workflow, the diff itself is sent, as before — no review, just the change.
-  # The event is built here and only here, after the signature check: it is the
-  # one place a %GitHubEvent{} comes from.
-  defp review(event, what, send_diff) do
+  # With github.review_workflow naming a workflow, the event runs it: the
+  # workflow fetches the diff, reviews it and delivers the result. The event is
+  # the run's input, so the first step reviews what the event named; the control
+  # plane refuses a disabled or protected workflow. Without one, nothing runs —
+  # there is no default review — and the audit log says so. The event is built
+  # here and only here, after the signature check: it is the one place a
+  # %GitHubEvent{} comes from.
+  defp review(event, what) do
     case review_workflow() do
-      nil -> send_diff.()
+      nil -> not_reviewed(what)
       workflow -> start_workflow(workflow, event, what)
     end
   end
@@ -105,8 +107,17 @@ defmodule AlexClawWeb.GitHubWebhookController do
   defp review_workflow do
     case String.trim(Config.get("github.review_workflow", "") || "") do
       "" -> nil
-      name -> Enum.find(Workflows.list_workflows(), &(&1.name == name and &1.enabled))
+      name -> Enum.find(Workflows.list_workflows(), &(&1.name == name))
     end
+  end
+
+  defp not_reviewed(what) do
+    AuditLog.log_action_refusal(
+      "webhook:github",
+      :webhook,
+      :run_workflow,
+      "no review workflow configured (github.review_workflow) — #{what} not reviewed"
+    )
   end
 
   # The run is :run_workflow from the webhook entry point: the control plane

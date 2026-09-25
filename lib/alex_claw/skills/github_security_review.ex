@@ -202,59 +202,6 @@ defmodule AlexClaw.Skills.GitHubSecurityReview do
   defp step_config(args), do: args[:config] || %{}
   defp config_repo(config), do: config["repo"] || Config.get("github.default_repo", "")
 
-  # --- Public API for webhook controller and Telegram commands ---
-
-  @spec review_pr(String.t(), integer() | nil, keyword()) :: :ok
-  def review_pr(repo, pr_number, opts \\ []) do
-    token = github_token()
-
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      result =
-        if pr_number do
-          fetch_pr(repo, pr_number, token)
-        else
-          fetch_latest_pr(repo, token)
-        end
-
-      case result do
-        {:ok, report, _branch} ->
-          AlexClaw.Gateway.send_message(report, opts)
-
-        {:error, reason} ->
-          Logger.warning("PR fetch failed: #{inspect(reason)}", skill: :github)
-
-          AlexClaw.Gateway.send_message(
-            "⚠️ Failed to fetch PR ##{pr_number}: #{AlexClaw.FailureText.describe(reason)}",
-            opts
-          )
-      end
-    end)
-
-    :ok
-  end
-
-  @spec review_commit(String.t(), String.t(), keyword()) :: :ok
-  def review_commit(repo, sha, opts \\ []) do
-    token = github_token()
-
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      case fetch_commit(repo, sha, token) do
-        {:ok, report, _branch} ->
-          AlexClaw.Gateway.send_message(report, opts)
-
-        {:error, reason} ->
-          Logger.warning("Commit fetch failed: #{inspect(reason)}", skill: :github)
-
-          AlexClaw.Gateway.send_message(
-            "⚠️ Failed to fetch commit `#{String.slice(sha, 0, 8)}`: #{AlexClaw.FailureText.describe(reason)}",
-            opts
-          )
-      end
-    end)
-
-    :ok
-  end
-
   # --- Mode implementations ---
 
   defp fetch_latest_pr(repo, token) do

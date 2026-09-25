@@ -33,7 +33,7 @@ defmodule AlexClaw.GateCatalogueTest do
   alias AlexClaw.ControlPlane, as: Gate
   alias AlexClaw.ControlPlane.Context
 
-  @entry_points [:admin_ui, :gateway, :mcp, :skill, :webhook, :system]
+  @entry_points [:admin_ui, :gateway, :mcp, :skill, :webhook, :cluster, :system]
 
   # action => %{entry_point => proof}. Entry points not listed may not ask.
   @expected %{
@@ -84,8 +84,16 @@ defmodule AlexClaw.GateCatalogueTest do
     export_workflow: %{admin_ui: :elevation},
     restore_data: %{admin_ui: :code},
     clear_run_history: %{admin_ui: :elevation},
-    # runs
-    run_workflow: %{admin_ui: :none, gateway: :none, mcp: :none, webhook: :none, system: :none},
+    # runs — :cluster is another node's request (S5c): unprotected runs only,
+    # from a registered node the workflow allows (checked by the action).
+    run_workflow: %{
+      admin_ui: :none,
+      gateway: :none,
+      mcp: :none,
+      webhook: :none,
+      cluster: :none,
+      system: :none
+    },
     run_protected_workflow: %{admin_ui: :code, gateway: :code},
     run_skill: %{admin_ui: :none, gateway: :none, skill: :none, system: :none},
     run_privileged_skill: %{admin_ui: :elevation},

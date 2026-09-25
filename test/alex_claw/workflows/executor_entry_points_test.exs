@@ -17,11 +17,12 @@ defmodule AlexClaw.Workflows.ExecutorEntryPointsTest do
 
   alias AlexClaw.Workflows.Executor
 
-  # The definition, and the one legitimate caller: the node that receives
-  # another node's send_to_workflow.
+  # The definition, and the one legitimate caller: since 0.4.0 (S5c) another
+  # node's send_to_workflow is a :cluster request through the one door, so the
+  # call lives in ControlPlane.Effects, not in the cluster manager.
   @allowed [
     "lib/alex_claw/workflows/executor.ex",
-    "lib/alex_claw/cluster/manager.ex"
+    "lib/alex_claw/control_plane/effects.ex"
   ]
 
   # Callers that start a run with input meant for step 1. Each must go through

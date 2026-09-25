@@ -49,7 +49,9 @@ defmodule AlexClaw.GateBoundaryTest do
     "lib/alex_claw/dispatcher/**/*.ex",
     "lib/alex_claw/gateway/**/*.ex",
     "lib/alex_claw/mcp/**/*.ex",
-    "lib/alex_claw/skills/skill_api.ex"
+    "lib/alex_claw/skills/skill_api.ex",
+    # S5c: another node's requests arrive here
+    "lib/alex_claw/cluster/**/*.ex"
   ]
 
   defp pattern do

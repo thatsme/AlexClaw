@@ -13,6 +13,7 @@ defmodule AlexClaw.Resources.ResourceSecrets do
   """
   alias AlexClaw.Secrets
   alias AlexClaw.Secrets.Owned
+  alias AlexClaw.WebAutomation.Recording
 
   @path ["auth", "value"]
 
@@ -65,10 +66,11 @@ defmodule AlexClaw.Resources.ResourceSecrets do
   @spec kind(Owned.path()) :: String.t()
   def kind(_path), do: "api_token"
 
-  @doc "Delete the secret the resource references, if any."
+  @doc "Delete the secrets the resource references: its credential, and a recording's logins."
   @spec delete(%{metadata: map() | nil}) :: :ok
-  def delete(%{metadata: metadata}),
-    do: metadata |> references() |> Map.values() |> Owned.delete()
+  def delete(%{metadata: metadata}) do
+    Owned.delete(Map.values(references(metadata)) ++ Map.values(Recording.references(metadata)))
+  end
 
   @doc """
   The resource with its credential resolved for the host it is bound to: what

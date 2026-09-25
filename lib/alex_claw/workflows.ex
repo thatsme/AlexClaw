@@ -361,10 +361,25 @@ defmodule AlexClaw.Workflows do
 
   defp redacted(nil, _placeholder), do: nil
 
+  # A reference to a secret is shown as the placeholder wherever it is (a
+  # recipe's login is not under a declared key).
   defp redacted(config, placeholder) do
     secret = SkillRegistry.secret_config_keys()
-    Map.new(config, fn {k, v} -> {k, redact_if(to_string(k) in secret, v, placeholder)} end)
+
+    Map.new(config, fn {k, v} ->
+      {k, redact_if(to_string(k) in secret, without_references(v, placeholder), placeholder)}
+    end)
   end
+
+  defp without_references(%{"secret" => name}, placeholder) when is_binary(name), do: placeholder
+
+  defp without_references(value, placeholder) when is_map(value),
+    do: Map.new(value, fn {k, v} -> {k, without_references(v, placeholder)} end)
+
+  defp without_references(value, placeholder) when is_list(value),
+    do: Enum.map(value, &without_references(&1, placeholder))
+
+  defp without_references(value, _placeholder), do: value
 
   defp redact_if(false, value, _placeholder), do: value
   defp redact_if(true, value, placeholder), do: redact(value, placeholder)
@@ -384,18 +399,14 @@ defmodule AlexClaw.Workflows do
   defp redact(_value, placeholder), do: placeholder
 
   # The config with every placeholder emptied, and the declared keys that held one.
+  # Wherever an export put the placeholder: under a declared secret key, or in
+  # a recipe's fill (a web_automation step's login).
   defp unredacted(config) when is_map(config) do
-    secret = SkillRegistry.secret_config_keys()
-    missing = for {k, v} <- config, to_string(k) in secret, placeholder?(v), do: to_string(k)
-
-    {Map.new(config, fn {k, v} -> {k, empty_if(to_string(k) in secret, v)} end),
-     Enum.sort(missing)}
+    missing = for {k, v} <- config, placeholder?(v), do: to_string(k)
+    {Map.new(config, fn {k, v} -> {k, emptied(v)} end), Enum.sort(missing)}
   end
 
   defp unredacted(config), do: {config, []}
-
-  defp empty_if(true, value), do: emptied(value)
-  defp empty_if(false, value), do: value
 
   defp placeholder?(@secret_placeholder), do: true
 

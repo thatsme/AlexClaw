@@ -21,7 +21,8 @@ defmodule AlexClaw.Secrets.Owned do
   """
   alias AlexClaw.{Repo, Secrets}
 
-  @type path :: [String.t()]
+  @typedoc "Where a field is in a record: map keys, and list indices (a recipe's steps)."
+  @type path :: [String.t() | non_neg_integer()]
   @type action :: {:keep, String.t()} | {:store, String.t(), String.t()}
   @type plan :: %{path() => action()}
   @type namer :: (path() -> String.t())
@@ -107,8 +108,21 @@ defmodule AlexClaw.Secrets.Owned do
   def referenced(record, plan),
     do:
       Enum.reduce(plan, record, fn {path, action}, acc ->
-        put_in(acc, path, reference(elem(action, 1)))
+        put(acc, path, reference(elem(action, 1)))
       end)
+
+  @doc "The value at `path` in `record`."
+  @spec get(map(), path()) :: term()
+  def get(record, path), do: get_in(record, access(path))
+
+  @doc "`record` with `value` at `path`."
+  @spec put(map(), path(), term()) :: map()
+  def put(record, path, value), do: put_in(record, access(path), value)
+
+  defp access(path), do: Enum.map(path, &access_key/1)
+
+  defp access_key(index) when is_integer(index), do: Access.at(index)
+  defp access_key(key), do: key
 
   @doc """
   Store the plan's new values in OpenBao, each bound to `destination`: a
@@ -181,6 +195,25 @@ defmodule AlexClaw.Secrets.Owned do
 
   defp dropped_after(error, _dropped), do: error
 
+  @doc """
+  The binding for a web origin: `origin:<scheme>://<host>[:<port>]` of an
+  http(s) URL (the port only when it is not the scheme's default), or nil.
+  """
+  @spec origin_binding(term()) :: String.t() | nil
+  def origin_binding(url) when is_binary(url), do: origin(URI.parse(url))
+  def origin_binding(_url), do: nil
+
+  defp origin(%URI{scheme: scheme, host: host, port: port})
+       when scheme in ["http", "https"] and is_binary(host) and host != "",
+       do: "origin:#{scheme}://#{host}#{port_part(scheme, port)}"
+
+  defp origin(_uri), do: nil
+
+  defp port_part("http", 80), do: ""
+  defp port_part("https", 443), do: ""
+  defp port_part(_scheme, nil), do: ""
+  defp port_part(_scheme, port), do: ":#{port}"
+
   @doc "The binding for a destination URL: `host:<host>` of an http(s) URL, or nil."
   @spec url_binding(term()) :: String.t() | nil
   def url_binding(url) when is_binary(url), do: host_binding(URI.parse(url))
@@ -213,7 +246,12 @@ defmodule AlexClaw.Secrets.Owned do
   @doc "A secret name for a record's field: `<prefix>_<random>_<field>`, at most 64 characters."
   @spec name(String.t(), path()) :: String.t()
   def name(prefix, path) do
-    field = path |> Enum.join("_") |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
+    field =
+      path
+      |> Enum.map_join("_", &to_string/1)
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9_]/, "_")
+
     random = 4 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
     String.slice("#{prefix}_#{random}_#{field}", 0, 64)
   end

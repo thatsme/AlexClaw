@@ -9,10 +9,16 @@ defmodule AlexClaw.Workflows.StepSecrets do
   (`credential_header?/1`), and the others stay as they are. For any other
   map, every entry is secret.
 
-  A step's secrets are bound to the host it sends them to, as it was when they
-  were entered:
+  A `web_automation` step's inline recipe (`steps`, `extra_steps`) has one
+  more kind of credential field: each fill's value
+  (`AlexClaw.WebAutomation.Recording.fields/1`).
+
+  A step's secrets are bound to where it sends them, as it was when they were
+  entered:
 
     * `telegram_notify`: the Telegram API's host (`:telegram_api_base`);
+    * `web_automation`: the origin of the recipe's `url`
+      (`origin:<scheme>://<host>[:<port>]`);
     * any other skill: the host of the step's `url`.
 
   A step with a credential and no such host is refused. At run time the
@@ -22,6 +28,7 @@ defmodule AlexClaw.Workflows.StepSecrets do
   alias AlexClaw.Config
   alias AlexClaw.Secrets
   alias AlexClaw.Secrets.Owned
+  alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.SkillRegistry
 
   @credential_headers ~w(authorization proxy-authorization cookie x-api-key)
@@ -39,13 +46,19 @@ defmodule AlexClaw.Workflows.StepSecrets do
   @doc "The credential fields of a `skill` step's `config`, as path => value."
   @spec fields(String.t() | nil, map() | nil) :: %{Owned.path() => term()}
   def fields(skill, config) when is_map(config) do
-    for key <- secret_keys(skill),
-        {path, value} <- key_fields(key, Map.get(config, key)),
-        into: %{},
-        do: {path, value}
+    declared =
+      for key <- secret_keys(skill),
+          {path, value} <- key_fields(key, Map.get(config, key)),
+          into: %{},
+          do: {path, value}
+
+    Map.merge(declared, recipe_fields(skill, config))
   end
 
   def fields(_skill, _config), do: %{}
+
+  defp recipe_fields("web_automation", config), do: Recording.fields(config)
+  defp recipe_fields(_skill, _config), do: %{}
 
   @doc "The secrets a `skill` step's `config` references, as path => name."
   @spec references(String.t() | nil, map() | nil) :: %{Owned.path() => String.t()}
@@ -54,6 +67,7 @@ defmodule AlexClaw.Workflows.StepSecrets do
   @doc "The destination a `skill` step's credentials are bound to, or nil when it has none."
   @spec destination(String.t() | nil, map() | nil) :: String.t() | nil
   def destination("telegram_notify", _config), do: Config.secret_binding("telegram.bot_token")
+  def destination("web_automation", config), do: Recording.destination(config, nil)
   def destination(_skill, config) when is_map(config), do: Owned.url_binding(config["url"])
   def destination(_skill, _config), do: nil
 
@@ -90,7 +104,12 @@ defmodule AlexClaw.Workflows.StepSecrets do
 
   @doc "The kind of secret the field at `path` holds."
   @spec kind(Owned.path()) :: String.t()
-  def kind(path), do: if(List.last(path) == "bot_token", do: "bot_token", else: "api_token")
+  def kind(path), do: path |> List.last() |> kind_of()
+
+  defp kind_of("bot_token"), do: "bot_token"
+  # A recipe fill's value: a login.
+  defp kind_of("value"), do: "login"
+  defp kind_of(_field), do: "api_token"
 
   @doc "Delete every secret the step references."
   @spec delete(%{skill: String.t(), config: map() | nil}) :: :ok
@@ -109,7 +128,7 @@ defmodule AlexClaw.Workflows.StepSecrets do
       new = Owned.name("step_#{workflow_id}", path)
 
       case Owned.copy(name, new) do
-        :ok -> {:cont, {:ok, put_in(acc, path, Owned.reference(new))}}
+        :ok -> {:cont, {:ok, Owned.put(acc, path, Owned.reference(new))}}
         error -> {:halt, error}
       end
     end)
@@ -125,7 +144,7 @@ defmodule AlexClaw.Workflows.StepSecrets do
     |> references(config)
     |> Enum.reduce_while({:ok, config}, fn {path, name}, {:ok, acc} ->
       case resolve(name, destination(skill, config)) do
-        {:ok, value} -> {:cont, {:ok, put_in(acc, path, value)}}
+        {:ok, value} -> {:cont, {:ok, Owned.put(acc, path, value)}}
         {:error, reason} -> {:halt, {:error, {:secret, List.last(path), reason}}}
       end
     end)

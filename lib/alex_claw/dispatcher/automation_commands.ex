@@ -3,7 +3,7 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
 
   alias AlexClaw.{Gateway, Message}
   alias AlexClaw.Skills.WebAutomation
-  alias AlexClaw.WebAutomation.Recipe
+  alias AlexClaw.WebAutomation.Recording
 
   @spec dispatch(Message.t()) :: :ok | term()
   def dispatch(%Message{text: "/record stop " <> session_id} = msg) do
@@ -74,13 +74,14 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
 
   # A recording is stored only as a recipe the contract accepts; otherwise
   # nothing is saved and the user is told why (field names only, no values).
+  # A credential field the sidecar recorded as a slot stays one: a login to
+  # attach on the resource page (Recording.to_recipe/2).
   defp recording_stopped({:ok, result}, sid, msg) do
     actions = result["actions"] || []
     base_url = (result["summary"] || %{})["base_url"]
-    recipe = %{"url" => base_url, "steps" => Enum.flat_map(actions, &recorded_step/1)}
 
-    recipe
-    |> Recipe.validate()
+    base_url
+    |> Recording.to_recipe(actions)
     |> save_recording(sid, length(actions), msg)
   end
 
@@ -97,19 +98,6 @@ defmodule AlexClaw.Dispatcher.AutomationCommands do
       gateway: msg.gateway
     )
   end
-
-  # A captured action as a recipe step (AlexClaw.WebAutomation.Recipe): only
-  # the fields its action takes. An action a recipe cannot replay is dropped.
-  defp recorded_step(%{"action_type" => "check"} = action),
-    do: [%{"action" => "check", "selector" => action["selector"], "checked" => action["checked"]}]
-
-  defp recorded_step(%{"action_type" => "click"} = action),
-    do: [%{"action" => "click", "selector" => action["selector"]}]
-
-  defp recorded_step(%{"action_type" => type} = action) when type in ["fill", "select"],
-    do: [%{"action" => type, "selector" => action["selector"], "value" => action["value"] || ""}]
-
-  defp recorded_step(_action), do: []
 
   defp recording_saved({:ok, resource}, count, msg) do
     Gateway.send_message(

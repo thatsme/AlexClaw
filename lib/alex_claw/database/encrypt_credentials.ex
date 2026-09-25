@@ -121,7 +121,7 @@ defmodule AlexClaw.Database.EncryptCredentials do
     changed(
       plain != [],
       "UPDATE workflow_steps SET config = $2 WHERE id = $1",
-      [id, Enum.reduce(plain, config, &update_in(&2, &1, fn value -> Encrypted.seal(value) end))]
+      [id, Enum.reduce(plain, config, &Owned.put(&2, &1, Encrypted.seal(Owned.get(&2, &1))))]
     )
   end
 

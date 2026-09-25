@@ -15,6 +15,7 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   alias AlexClaw.{Encrypted, Repo, Secrets}
   alias AlexClaw.Resources.ResourceSecrets
   alias AlexClaw.Secrets.Owned
+  alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.StepSecrets
 
   @typedoc "A record with credential values to move."
@@ -39,9 +40,14 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
     %{rows: rows} = Repo.query!("SELECT id, url, metadata FROM resources ORDER BY id")
 
     for [id, url, metadata] <- rows,
-        values?(ResourceSecrets.fields(metadata)),
+        values?(resource_fields(metadata)),
         do: {:resource, id, url, metadata}
   end
+
+  # A resource's credential, and a recording's fill values: the recorder never
+  # noted field types, so every recorded fill value is treated as a login.
+  defp resource_fields(metadata),
+    do: Map.merge(ResourceSecrets.fields(metadata), Recording.fields(metadata))
 
   defp values?(fields), do: Enum.any?(fields, fn {_path, value} -> value?(value) end)
 
@@ -81,16 +87,43 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
     |> rewritten(config, "UPDATE workflow_steps SET config = $2 WHERE id = $1", id)
   end
 
+  # Its credential is bound to the resource's host, a recording's logins to its
+  # origin: two plans, one rewrite of the row.
   defp move({:resource, id, url, metadata}, opts) do
     metadata
-    |> values(ResourceSecrets.fields(metadata))
-    |> moved(
-      ResourceSecrets.destination(url, metadata),
-      "resource",
-      &ResourceSecrets.kind/1,
-      opts
-    )
+    |> resource_parts(url)
+    |> moved_parts(metadata, opts)
     |> rewritten(metadata, "UPDATE resources SET metadata = $2 WHERE id = $1", id)
+  end
+
+  defp resource_parts(metadata, url) do
+    [
+      {ResourceSecrets.fields(metadata), ResourceSecrets.destination(url, metadata), "resource",
+       &ResourceSecrets.kind/1},
+      {Recording.fields(metadata), Recording.destination(metadata, url), "recording",
+       fn _path -> "login" end}
+    ]
+    |> Enum.reject(fn {fields, _destination, _prefix, _kind} ->
+      values(metadata, fields) == %{}
+    end)
+  end
+
+  defp moved_parts(parts, metadata, opts) do
+    Enum.reduce_while(parts, {:ok, %{}}, fn part, {:ok, plan} ->
+      part |> moved_part(metadata, opts) |> part_moved(plan)
+    end)
+  end
+
+  defp moved_part({fields, destination, prefix, kind}, metadata, opts),
+    do: moved(values(metadata, fields), destination, prefix, kind, opts)
+
+  defp part_moved({:ok, part}, plan), do: {:cont, {:ok, Map.merge(plan, part)}}
+  defp part_moved(error, plan), do: {:halt, undone(error, plan)}
+
+  # A later part failed: what the earlier parts stored is deleted too.
+  defp undone(error, plan) do
+    plan |> Enum.map(fn {_path, {:store, name, _value}} -> name end) |> Owned.delete()
+    error
   end
 
   # Every sealed string in a credential field, decrypted (a sealed header map
@@ -104,6 +137,7 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
     if Owned.reference?(value), do: value, else: Map.new(value, fn {k, v} -> {k, open(v)} end)
   end
 
+  defp open(value) when is_list(value), do: Enum.map(value, &open/1)
   defp open("enc:" <> _ = value), do: Encrypted.open!(value)
   defp open(value), do: value
 
@@ -111,7 +145,7 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
     do:
       for(
         {path, _} <- fields,
-        value = get_in(record, path),
+        value = Owned.get(record, path),
         value?(value),
         into: %{},
         do: {path, value}

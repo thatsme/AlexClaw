@@ -10,7 +10,7 @@ defmodule AlexClaw.Skills.WebAutomation do
   require Logger
 
   alias AlexClaw.Config
-  alias AlexClaw.WebAutomation.{PlayLock, Recipe}
+  alias AlexClaw.WebAutomation.{PlayLock, Recipe, Recording}
 
   @default_deadline_ms 120_000
   # How much longer than the play's own deadline AlexClaw waits for the answer.
@@ -32,6 +32,9 @@ defmodule AlexClaw.Skills.WebAutomation do
           | :stopped
           | {:automation_failed, String.t() | nil, map()}
           | {:unexpected_response, term()}
+          | {:login_required, [String.t()]}
+          | {:not_bound, String.t()}
+          | {:login_unavailable, String.t(), term()}
 
   @impl true
   @spec description() :: String.t()
@@ -146,8 +149,12 @@ defmodule AlexClaw.Skills.WebAutomation do
   @doc """
   Play a recipe headlessly.
 
-  The recipe is validated against the contract (`AlexClaw.WebAutomation.Recipe`)
-  before anything is sent: an invalid one is `{:error, {:invalid_recipe, reasons}}`.
+  A recipe with a login still to attach is refused before anything is sent:
+  `{:error, {:login_required, selectors}}`. Its logins are resolved for the
+  recipe's origin (`AlexClaw.WebAutomation.Recording.resolved/1`); a login
+  bound elsewhere is `{:error, {:not_bound, selector}}`. The resolved recipe is
+  validated against the contract (`AlexClaw.WebAutomation.Recipe`) before it is
+  sent: an invalid one is `{:error, {:invalid_recipe, reasons}}`.
   `opts[:deadline_ms]` bounds the whole play (default 120_000); past it the result
   is `{:error, :timeout}`. One play runs at a time: while one runs, another is
   `{:error, :busy}` without a request. A run that fails keeps its partial
@@ -184,11 +191,10 @@ defmodule AlexClaw.Skills.WebAutomation do
   defp gave_up(result, _play_id), do: result
 
   defp recipe(config, resources) do
-    config
-    |> find_automation_config(resources)
-    |> Map.drop(@skill_keys)
-    |> Recipe.validate()
-    |> invalid_as_reason()
+    assembled = config |> find_automation_config(resources) |> Map.drop(@skill_keys)
+
+    with {:ok, resolved} <- Recording.resolved(assembled),
+         do: resolved |> Recipe.validate() |> invalid_as_reason()
   end
 
   defp invalid_as_reason({:error, reasons}), do: {:error, {:invalid_recipe, reasons}}

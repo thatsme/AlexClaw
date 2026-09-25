@@ -35,7 +35,7 @@ defmodule AlexClaw.Auth.CodeEntry do
 
   @doc """
   `verify/3` with the verification done by `verifier`, for an action that
-  checks the code itself (`AlexClaw.Auth.TOTP.disable/1`): the same limits,
+  checks the code itself (turning the second factor off): the same limits,
   audit row and refusals, and the code verified exactly once. `verifier`
   returns `{:ok, factor}` or `{:error, :invalid_code}`.
   """

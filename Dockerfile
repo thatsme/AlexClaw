@@ -60,6 +60,9 @@ COPY test test/
 # The docs are in the image because documentation_test.exs checks them against
 # the source. Without them the checks would pass by finding nothing.
 COPY docs docs/
+# OpenBao's configuration, checked by openbao_deployment_test against the
+# compose files that mount it.
+COPY openbao openbao/
 COPY mkdocs.yml .env.example ./
 # The compose files are scanned by cluster_cookie_test: a deployment secret
 # must not ship with a default. Without them the scan would find nothing and

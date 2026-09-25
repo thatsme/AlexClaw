@@ -320,8 +320,8 @@ defmodule AlexClaw.Skills.WebAutomation do
     if Config.enabled?("web_automator.enabled"), do: :ok, else: {:error, :web_automator_disabled}
   end
 
-  # From WEB_AUTOMATOR_TOKEN (config/runtime.exs), not a setting: it stays out of
-  # the database and its exports.
+  # From the token file (WEB_AUTOMATOR_TOKEN_FILE, read by config/runtime.exs),
+  # not a setting: it stays out of the database and its exports.
   defp fetch_token do
     case Application.get_env(:alex_claw, :web_automator_token) do
       token when is_binary(token) and token != "" -> {:ok, token}

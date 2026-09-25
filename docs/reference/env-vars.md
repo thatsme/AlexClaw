@@ -48,7 +48,7 @@ the refresh token by the authorization flow; both are kept in OpenBao.
 | `COMPOSE_PROFILES` | — | Docker Compose's own variable, not read by AlexClaw. `web-automation` makes `docker compose up` build and start the sidecar with the rest of the stack |
 | `WEB_AUTOMATOR_ENABLED` | `false` | *Seeded.* Lets AlexClaw call the web-automator sidecar |
 | `WEB_AUTOMATOR_HOST` | `http://web-automator:6900` | *Seeded.* The sidecar's API URL |
-| `WEB_AUTOMATOR_TOKEN` | — | Shared bearer token, read by both AlexClaw and the sidecar at start; not stored. Without it the sidecar refuses every request and AlexClaw sends none. Generate with `openssl rand -hex 32` |
+| `WEB_AUTOMATOR_TOKEN_FILE` | set by compose | Where the shared bearer token is: a file the `automator-token-init` service generates at the first start into a volume only AlexClaw and the sidecar mount, read-only. Not set by an operator. Without the file the sidecar refuses every request and AlexClaw sends none |
 
 ## OpenBao
 

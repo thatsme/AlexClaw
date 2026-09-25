@@ -639,7 +639,7 @@ defmodule AlexClawWeb.AdminLive.Services do
     do: %{status: :not_configured, detail: "Web Automator disabled"}
 
   defp web_automator_status({:error, :web_automator_token_missing}),
-    do: %{status: :error, detail: "WEB_AUTOMATOR_TOKEN is not set"}
+    do: %{status: :error, detail: "the shared token file is missing (automator-token-init)"}
 
   defp web_automator_status({:error, {:http, status, _body}}),
     do: %{status: :error, detail: "HTTP #{status}"}

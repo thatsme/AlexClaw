@@ -116,6 +116,8 @@ services:
         required: false
       migrate:
         condition: service_completed_successfully
+      automator-token-init:
+        condition: service_completed_successfully
     ports:
       # Loopback by default. The admin UI carries session cookies and the MCP
       # endpoint carries bearer tokens, both in clear over HTTP, so the
@@ -137,9 +139,6 @@ services:
 
       # Application
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      # Only for a key rotation, run in a one-off container of this service
-      # (docs/deployment/rotate-secret-key-base.md); unset otherwise.
-      OLD_SECRET_KEY_BASE: ${OLD_SECRET_KEY_BASE:-}
       TOTP_ISSUER: ${TOTP_ISSUER:-AlexClaw}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       # The origins the LiveView socket accepts: loopback on the published
@@ -166,10 +165,9 @@ services:
       # Web automator (optional)
       WEB_AUTOMATOR_ENABLED: ${WEB_AUTOMATOR_ENABLED:-false}
       WEB_AUTOMATOR_HOST: ${WEB_AUTOMATOR_HOST:-http://web-automator:6900}
-      # Shared with the sidecar, which refuses every route but /health without
-      # it. Unset, AlexClaw sends nothing to the sidecar and the sidecar
-      # refuses everything: generate one with `openssl rand -hex 32`.
-      WEB_AUTOMATOR_TOKEN: ${WEB_AUTOMATOR_TOKEN:-}
+      # The token shared with the sidecar, which refuses every route but
+      # /health without it: generated once by automator-token-init, read here.
+      WEB_AUTOMATOR_TOKEN_FILE: /run/alexclaw/automator/token
 
       # Clustering
       NODE_NAME: ${NODE_NAME:-alexclaw@node1.local}
@@ -193,6 +191,8 @@ services:
       - skills_data:/app/skills
       # The only OpenBao mount AlexClaw has: role_id, secret_id, ca.pem.
       - openbao_bootstrap:/run/alexclaw/openbao:ro
+      # The web automator's token, and nothing else.
+      - automator_token:/run/alexclaw/automator:ro
       - ${BACKUP_DIR:-./backups}:/app/backups
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5001/health || exit 1"]
@@ -231,7 +231,13 @@ services:
       - automation
     environment:
       DISPLAY: ":99"
-      WEB_AUTOMATOR_TOKEN: ${WEB_AUTOMATOR_TOKEN:-}
+      WEB_AUTOMATOR_TOKEN_FILE: /run/automator/token
+    volumes:
+      # The token shared with AlexClaw, read at each request; nothing else.
+      - automator_token:/run/automator:ro
+    depends_on:
+      automator-token-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6900/health"]
       interval: 10s
@@ -243,6 +249,29 @@ services:
 # and Docker's automatic pool (172.17-31.x). If they collide with a network of
 # yours, change them here and the pinned addresses with them — alexclaw-prod,
 # migrate, and the two lines of db-init/pg_hba.conf.
+  # One-shot, on every start: the token AlexClaw and the web automator share,
+  # generated once into its own volume. Only those two mount it, read-only:
+  # the sidecar never sees AlexClaw's OpenBao credentials, and no operator
+  # sets or copies the token. An existing token is kept.
+  automator-token-init:
+    image: alexclaw-app:latest
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        test -s /token/token ||
+        { head -c 32 /dev/urandom | base64 | tr -d '\n=' > /token/token.new &&
+        chmod 0444 /token/token.new && mv /token/token.new /token/token; }
+    read_only: true
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    volumes:
+      - automator_token:/token
+
   # Holds every secret AlexClaw uses (docs/architecture/openbao.md). Nothing is
   # published; only AlexClaw and the init service join its network.
   openbao:
@@ -343,6 +372,7 @@ networks:
 
 volumes:
   pgdata:
+  automator_token:
   skills_data:
   openbao_data:
   openbao_tls:

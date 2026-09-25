@@ -3,8 +3,19 @@ import Config
 config :alex_claw, :skills_dir, System.get_env("SKILLS_DIR", "/app/skills")
 
 # The shared token the web-automator sidecar requires on every route but
-# /health. Unset or empty, AlexClaw sends nothing to the sidecar.
-config :alex_claw, :web_automator_token, System.get_env("WEB_AUTOMATOR_TOKEN")
+# /health: generated once by the automator-token-init service into a file only
+# AlexClaw and the sidecar mount (0.4.0 S7). Missing or empty, AlexClaw sends
+# nothing to the sidecar.
+web_automator_token =
+  with path when is_binary(path) and path != "" <- System.get_env("WEB_AUTOMATOR_TOKEN_FILE"),
+       {:ok, contents} <- File.read(path),
+       token when token != "" <- String.trim(contents) do
+    token
+  else
+    _missing -> nil
+  end
+
+config :alex_claw, :web_automator_token, web_automator_token
 
 if config_env() == :prod do
   # The migrate service runs an eval with the database owner's credentials and,

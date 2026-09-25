@@ -87,10 +87,9 @@ defmodule AlexClaw.ControlPlane.Context do
   def webhook(id), do: bare(:webhook, "webhook:#{id}")
 
   @doc """
-  Another AlexClaw node asking this one, named `node`. The control plane
-  checks that the node is registered and that the workflow allows it; the
-  name itself is the one the request carries (the call arrives over
-  `:rpc`, which does not say who sent it).
+  Another AlexClaw node asking this one — `node` as the connection reports
+  the caller (`AlexClaw.Cluster.Manager` takes it from the calling process),
+  never a name the request carries.
   """
   @spec cluster(node() | String.t()) :: t()
   def cluster(node), do: %{bare(:cluster, "cluster:#{node}") | node: to_string(node)}

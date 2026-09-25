@@ -89,15 +89,20 @@ defmodule AlexClaw.Skills.SendToWorkflow do
   defp send_to_node(nil, _target, _workflow, _input, _timeout),
     do: {:error, {:rpc_failed, :unknown_node}}
 
+  # A call to the remote manager itself: the receiving node learns who sent it
+  # from the connection, not from anything this node says about itself.
   defp send_to_node(atom_node, target, workflow, input, timeout) do
-    atom_node
-    |> :rpc.call(
-      AlexClaw.Cluster.Manager,
-      :receive_workflow_data,
-      [workflow, input, to_string(node())],
-      timeout
-    )
+    {AlexClaw.Cluster.Manager, atom_node}
+    |> call({:receive, workflow, input}, timeout)
     |> rpc_result(target, workflow, input)
+  end
+
+  # An unreachable node, or one that does not answer in time, exits the call;
+  # it is this step's failure, not this process's.
+  defp call(server, request, timeout) do
+    GenServer.call(server, request, timeout)
+  catch
+    :exit, reason -> {:badrpc, reason}
   end
 
   defp rpc_result({:ok, _}, target, workflow, input) do

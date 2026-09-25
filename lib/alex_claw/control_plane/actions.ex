@@ -74,7 +74,8 @@ defmodule AlexClaw.ControlPlane.Actions do
   before anything is written or started, so a refusal leaves no run behind.
   Another node (`:cluster`) may run a workflow only when it is registered,
   the workflow's first step is the `receive_from_workflow` gate, that gate's
-  `allowed_nodes` (when set) names it, and the workflow is not protected.
+  `allowed_nodes` names it (empty allows no one), and the workflow is not
+  protected.
   """
   @spec admissible(atom(), map(), Context.t()) :: :ok | {:error, atom()}
   def admissible(:run_workflow, %{workflow_id: id}, %Context{entry_point: :cluster, node: node}) do
@@ -97,10 +98,10 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   defp gate_allows(_first_step, _node), do: {:error, :no_receive_gate}
 
-  defp listed(allowed, node) when is_list(allowed) and allowed != [],
-    do: allowed_node(node in allowed)
-
-  defp listed(_any_registered, _node), do: :ok
+  # An empty or absent allowed_nodes allows no one: a workflow names who may
+  # trigger it.
+  defp listed(allowed, node) when is_list(allowed), do: allowed_node(node in allowed)
+  defp listed(_absent, _node), do: {:error, :node_not_allowed}
 
   defp allowed_node(true), do: :ok
   defp allowed_node(false), do: {:error, :node_not_allowed}

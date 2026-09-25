@@ -293,7 +293,8 @@ Multi-node clusters authenticate via BEAM's distributed Erlang protocol:
 - All nodes must share the same `CLUSTER_COOKIE` (set via environment variable)
 - EPMD (Erlang Port Mapper Daemon) on port 4369 coordinates node discovery
 - Nodes without the correct cookie cannot join the cluster or trigger remote workflows
-- The `receive_from_workflow` gate skill provides an additional per-workflow access control layer via optional `allowed_nodes` config
+- A node is registered in the admin UI (Cluster page, with the elevation); connecting with the cookie does not register it, and an unregistered node's arrival is audited
+- A request from another node names no one: the receiving node takes the sender from the connection. It runs only an enabled workflow that does not require 2FA, whose step 1 is the `receive_from_workflow` gate and whose `allowed_nodes` names that registered node — an empty `allowed_nodes` allows no one. A refusal is audited, and nothing starts
 
 **Hardening recommendations:**
 - Generate `CLUSTER_COOKIE` with `openssl rand -base64 32` — treat it like `SECRET_KEY_BASE`

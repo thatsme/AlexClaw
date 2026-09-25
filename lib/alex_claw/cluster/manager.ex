@@ -3,7 +3,9 @@ defmodule AlexClaw.Cluster.Manager do
   GenServer that manages cluster connectivity and handles incoming
   remote workflow triggers from other BEAM nodes.
 
-  Called via `:rpc.call` from `send_to_workflow` on remote nodes. A request
+  Called by `send_to_workflow` on another node with a GenServer call to this
+  manager; the sender is the node of the calling process, never a name the
+  request carries. A request
   is `:run_workflow` from the `:cluster` entry point, through
   `AlexClaw.ControlPlane.perform/3`: refused, and audited, unless the node is
   registered, the workflow's step 1 is the `receive_from_workflow` gate
@@ -30,13 +32,13 @@ defmodule AlexClaw.Cluster.Manager do
   end
 
   @doc """
-  Called via RPC from a remote node. Validates the target workflow
-  has receive_from_workflow as step 1, then starts it with the given data.
+  Ask this node to run the workflow `workflow_name` with `data`, as the node
+  the calling process runs on — from another node, `send_to_workflow` calls
+  `{AlexClaw.Cluster.Manager, node}` directly.
   """
-  @spec receive_workflow_data(String.t(), any(), String.t()) ::
-          {:ok, :started} | {:error, atom() | tuple()}
-  def receive_workflow_data(workflow_name, data, source_node) do
-    GenServer.call(__MODULE__, {:receive, workflow_name, data, source_node}, 10_000)
+  @spec receive_workflow_data(String.t(), any()) :: {:ok, :started} | {:error, atom() | tuple()}
+  def receive_workflow_data(workflow_name, data) do
+    GenServer.call(__MODULE__, {:receive, workflow_name, data}, 10_000)
   end
 
   # --- GenServer Callbacks ---
@@ -66,8 +68,9 @@ defmodule AlexClaw.Cluster.Manager do
   end
 
   @impl true
-  def handle_call({:receive, workflow_name, data, source_node}, _from, state) do
-    {:reply, request(workflow_named(workflow_name), data, source_node), state}
+  # The sender is the node the calling process runs on.
+  def handle_call({:receive, workflow_name, data}, {caller, _tag}, state) do
+    {:reply, request(workflow_named(workflow_name), data, node(caller)), state}
   end
 
   @impl true
@@ -204,7 +207,7 @@ defmodule AlexClaw.Cluster.Manager do
     :ok
   end
 
-  defp workflow_named(name), do: Repo.get_by(Workflow, name: name)
+  defp workflow_named(name), do: Repo.get_by(Workflow, name: name, enabled: true)
 
   defp request(nil, _data, _source_node), do: {:error, :workflow_not_found}
 

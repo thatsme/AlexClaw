@@ -11,25 +11,27 @@ Node A (alexclaw@node1.local)        Node B (alexclaw@node2.local)
   ├── Executor                         ├── Executor
   ├── SkillRegistry                    ├── SkillRegistry
   ├── Telegram Gateway                 ├── Discord Gateway
-  └── send_to_workflow ──RPC──────────> receive_from_workflow
+  └── send_to_workflow ──call─────────> receive_from_workflow
 ```
 
 ## Cluster Manager
 
 `AlexClaw.Cluster.Manager` is a GenServer that:
 
-- Auto-registers itself and connecting nodes via `:net_kernel.monitor_nodes/1`
+- Registers its own node at boot; another node is registered only in the admin UI (Cluster page). A node that connects without being registered is not registered by connecting — it needs only the cookie — and its arrival is written to the audit log
 - Pings known nodes from the DB 5 seconds after boot
-- Updates node status on `:nodeup`/`:nodedown` events
+- Updates a registered node's status on `:nodeup`/`:nodedown` events
 - Handles incoming remote workflow triggers
 
 ## Cross-Node Workflow Flow
 
 1. Node A runs a workflow with a `send_to_workflow` step
-2. `send_to_workflow` calls `:rpc.call(node_b, ClusterManager, :receive_workflow_data, ...)` with a 5s timeout
-3. Node B's ClusterManager validates the gate (step 1 must be `receive_from_workflow`)
+2. `send_to_workflow` calls Node B's `AlexClaw.Cluster.Manager` directly (a `GenServer.call` to `{Manager, node_b}`, 5s timeout). Node B takes the sender from the connection — the node of the calling process — never from a name the request carries
+3. Node B refuses the request, with an audit row and before any run starts, unless the sender is a registered node, step 1 of the enabled target workflow is `receive_from_workflow`, that step's `allowed_nodes` names the sender, and the workflow does not require 2FA
 4. The target workflow is spawned via `Task.Supervisor`
-5. `receive_from_workflow` receives the data as input with `_source_node` in config
+5. `receive_from_workflow` receives the data as input with `_source_node` in config, and checks `allowed_nodes` again
+
+`allowed_nodes` must name every node that may trigger the workflow. An empty or absent list allows no one.
 
 ## Node Assignment
 

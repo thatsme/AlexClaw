@@ -95,11 +95,23 @@ defmodule AlexClaw.VaultTest do
     end
 
     # A server whose certificate the configured CA did not sign is not
-    # OpenBao, as far as AlexClaw is concerned.
+    # OpenBao, as far as AlexClaw is concerned. The "other" CA is the image's
+    # public bundle: every public CA, and not OpenBao's private one.
     test "a certificate the configured CA did not sign is refused" do
       config = Application.fetch_env!(:alex_claw, AlexClaw.Vault)
       name = :"vault_wrong_ca_#{System.unique_integer([:positive])}"
-      other_ca = CAStore.file_path()
+
+      other_ca =
+        Enum.find(
+          [
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/ssl/cert.pem",
+            "/etc/pki/tls/certs/ca-bundle.crt"
+          ],
+          &File.exists?/1
+        )
+
+      assert other_ca, "no system CA bundle in the test image — the test would prove nothing"
       start_supervised!({Vault, Keyword.merge(config, ca_file: other_ca, name: name)})
 
       assert {:error, :vault_unavailable} = Vault.read(path(), server: name)

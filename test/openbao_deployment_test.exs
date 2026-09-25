@@ -74,16 +74,25 @@ defmodule AlexClaw.OpenBaoDeploymentTest do
       end
 
       test "openbao publishes nothing to the host", %{services: s} do
-        bao = s[if(unquote(file) == @compose, do: "openbao", else: "openbao-test")]
+        name = if(unquote(file) == @compose, do: "openbao", else: "openbao-test")
+        # A service that does not exist has no ports: check it exists first.
+        assert bao = s[name], "no #{name} service"
         assert (bao["ports"] || []) == []
       end
 
+      # Production keeps OpenBao's data on a volume at /openbao/file. The test
+      # stack keeps it on a tmpfs there: empty at every start, so each run
+      # initialises a fresh server with nothing to clean up on the host.
       test "its data lives at /openbao/file; the unseal key is read-only, elsewhere, and only openbao mounts it",
            %{services: s} do
         name = if(unquote(file) == @compose, do: "openbao", else: "openbao-test")
+        assert s[name], "no #{name} service"
         bao_mounts = mounts(s[name])
+        tmpfs = List.wrap(s[name]["tmpfs"]) |> Enum.map(&(&1 |> String.split(":") |> hd()))
 
-        assert Enum.any?(bao_mounts, fn {_src, dst, _} -> dst == "/openbao/file" end)
+        assert Enum.any?(bao_mounts, fn {_src, dst, _} -> dst == "/openbao/file" end) or
+                 "/openbao/file" in tmpfs,
+               "no /openbao/file (volume or tmpfs)"
 
         assert [{unseal_src, "/openbao/unseal" <> _, opts}] =
                  Enum.filter(bao_mounts, fn {_src, dst, _} ->
@@ -121,6 +130,10 @@ defmodule AlexClaw.OpenBaoDeploymentTest do
            %{services: s} do
         app = if(unquote(file) == @compose, do: "alexclaw-prod", else: "test-elixir")
         bao = if(unquote(file) == @compose, do: "openbao", else: "openbao-test")
+        # Services that do not exist have no mounts: check they exist first.
+        assert s[app], "no #{app} service"
+        assert s[bao], "no #{bao} service"
+        assert mounts(s[bao]) != [], "#{bao} mounts nothing — the comparison would be vacuous"
 
         bao_sources = for {src, _dst, _} <- mounts(s[bao]), do: src
         app_sources = for {src, _dst, _} <- mounts(s[app]), do: src

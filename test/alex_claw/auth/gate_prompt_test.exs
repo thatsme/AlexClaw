@@ -38,7 +38,7 @@ defmodule AlexClaw.Auth.GatePromptTest do
     insert_setting("discord.channel_id", "", type: "string", category: "discord")
     RecordingGateway.install()
 
-    %{chat: chat}
+    %{chat: chat, secret: secret}
   end
 
   defp prompts, do: Enum.filter(RecordingGateway.sent(), &(&1 =~ ~r/authenticator/i))
@@ -83,11 +83,18 @@ defmodule AlexClaw.Auth.GatePromptTest do
       refute prompt =~ "AlexClaw-Air", "the prompt names today's issuer, not the enrolled one"
     end
 
-    test "an enrolment made with a custom issuer is named by it" do
-      TOTP.disable()
+    test "an enrolment made with a custom issuer is named by it", %{secret: secret} do
+      # Re-enrolling means turning 2FA off first, with a current code (0.4.0).
+      # The confirming code cannot be replayed; move the marker back.
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
       System.put_env("TOTP_ISSUER", "Terminal-Ops")
-      {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+      {:ok, %{secret: new_secret}} = TOTP.setup()
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(new_secret))
       System.put_env("TOTP_ISSUER", "Something-Else")
 
       assert :challenged = Gate.request(%{type: :test}, "Unlock admin editing for 15 minutes")

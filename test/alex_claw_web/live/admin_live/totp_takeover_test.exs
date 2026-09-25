@@ -94,6 +94,13 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
     end
 
     test "after turning it off with a code, a new setup is allowed", %{secret: secret} do
+      # The code that confirmed the setup cannot be replayed within its
+      # period; move the marker back so a fresh code is valid.
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
       :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
 
       assert {:ok, %{secret: _new}} = TOTP.setup()

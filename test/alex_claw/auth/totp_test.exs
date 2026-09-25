@@ -98,15 +98,36 @@ defmodule AlexClaw.Auth.TOTPTest do
     end
   end
 
-  describe "disable/0" do
-    test "disables 2FA" do
+  # disable/1 verifies the current code itself (0.4.0): no caller can turn
+  # 2FA off by forgetting to check. The code it receives goes through the same
+  # verification as any other, replay protection included — so these tests
+  # move the last-used marker back before using a fresh code.
+  describe "disable/1" do
+    defp enabled_secret do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
-      :ok = TOTP.confirm_setup(code)
+      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      secret
+    end
+
+    test "a current code disables 2FA" do
+      secret = enabled_secret()
       assert TOTP.enabled?()
 
-      :ok = TOTP.disable()
+      :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
       refute TOTP.enabled?()
+    end
+
+    test "a wrong code does not" do
+      enabled_secret()
+
+      assert {:error, :invalid_code} = TOTP.disable("000000")
+      assert TOTP.enabled?()
     end
   end
 
@@ -198,7 +219,14 @@ defmodule AlexClaw.Auth.TOTPTest do
       :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
       assert TOTP.verify(NimbleTOTP.verification_code(secret))
 
-      :ok = TOTP.disable()
+      # The code just accepted cannot be replayed; move the marker back so a
+      # fresh code is valid for disable/1, which verifies it.
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
 
       refute AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
     end

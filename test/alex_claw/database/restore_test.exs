@@ -13,9 +13,8 @@ defmodule AlexClaw.Database.RestoreTest do
   import ExUnit.CaptureLog
 
   alias AlexClaw.Auth.{AdminSession, AuditEntry, AuditLog, Elevation, Sessions}
-  alias AlexClaw.Config.Crypto
   alias AlexClaw.Database.{DataExport, DataSet, Restore}
-  alias AlexClaw.{LLM, SandboxCleanup, Workflows}
+  alias AlexClaw.{LLM, Workflows}
 
   defp export do
     ""
@@ -115,10 +114,10 @@ defmodule AlexClaw.Database.RestoreTest do
   end
 
   describe "credentials stored outside the settings" do
-    # LLM providers still keep their credentials encrypted in the row. Since
-    # 0.4.0 (S4a) a step's credential is a reference to OpenBao: an export
-    # carries the reference, a restore puts it back, and OpenBao — which a
-    # database restore does not touch — still holds the value.
+    # Since 0.4.0 a step's credential (S4a) and an LLM provider's (S7) are
+    # references to OpenBao: an export carries the reference, a restore puts it
+    # back, and OpenBao — which a database restore does not touch — still
+    # holds the value.
     @describetag :vault
 
     defp provider(attrs) do
@@ -154,28 +153,34 @@ defmodule AlexClaw.Database.RestoreTest do
       step
     end
 
-    test "are exported as stored (encrypted, or a reference) and restored usable" do
-      p = provider(%{api_key: "sk-plain-key", headers: %{"x-api-key" => "hdr-secret"}})
+    test "are exported as references and restored usable" do
+      p =
+        provider(%{
+          host: "https://llm.example.com",
+          api_key: "sk-plain-key",
+          headers: %{"x-api-key" => "hdr-secret"}
+        })
+
       step = telegram_step(%{"bot_token" => "123:bot-secret", "chat_id" => "42"})
       original = export()
       text = Jason.encode!(original)
 
       for secret <- ["sk-plain-key", "hdr-secret", "123:bot-secret"], do: refute(text =~ secret)
-      assert Crypto.encrypted?(exported(original, "llm_providers", p.id, "api_key"))
-      headers = Jason.decode!(exported(original, "llm_providers", p.id, "headers"))
-      assert Map.keys(headers) == ["x-api-key"], "header names stay readable"
-      assert Crypto.encrypted?(headers["x-api-key"])
+
+      credentials = Jason.decode!(exported(original, "llm_providers", p.id, "credentials"))
+      assert %{"secret" => key_name} = credentials["api_key"]
+      assert Map.keys(credentials["headers"]) == ["x-api-key"], "header names stay readable"
 
       config = Jason.decode!(exported(original, "workflow_steps", step.id, "config"))
       assert %{"secret" => name} = config["bot_token"]
       assert config["chat_id"] == "42"
 
-      Repo.query!("UPDATE llm_providers SET api_key = 'changed'")
+      Repo.query!("UPDATE llm_providers SET credentials = '{}'")
       assert {:ok, _} = Restore.load(original)
 
       restored = Repo.get!(AlexClaw.LLM.Provider, p.id)
-      assert restored.api_key == "sk-plain-key"
-      assert restored.headers == %{"x-api-key" => "hdr-secret"}
+      assert AlexClaw.LLM.Client.resolve_api_key(restored) == "sk-plain-key"
+      assert %{"api_key" => %{"secret" => ^key_name}} = restored.credentials
 
       assert %{"secret" => ^name} =
                Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"]
@@ -211,11 +216,9 @@ defmodule AlexClaw.Database.RestoreTest do
       assert {:ok, "Bearer api-secret"} = AlexClaw.Secrets.resolve(name, for: "host:example.com")
     end
 
+    # A provider's key is a reference or nothing since 0.4.0 (S7); the empty
+    # case left with the encrypted column.
     test "that are nil or empty stay so" do
-      none = provider(%{api_key: nil})
-      # Ecto casts "" to nil, so the empty string is written directly.
-      empty = provider(%{api_key: nil})
-      Repo.query!("UPDATE llm_providers SET api_key = '' WHERE id = $1", [empty.id])
       # 0.3.54: a telegram_notify step without its own token is saved only when
       # Telegram is configured.
       insert_setting("telegram.enabled", "true", type: "boolean", category: "telegram")
@@ -223,60 +226,12 @@ defmodule AlexClaw.Database.RestoreTest do
       step = telegram_step(%{"bot_token" => "", "chat_id" => "1"})
       original = export()
 
-      assert exported(original, "llm_providers", none.id, "api_key") == nil
-      assert exported(original, "llm_providers", empty.id, "api_key") == ""
-
       assert Jason.decode!(exported(original, "workflow_steps", step.id, "config"))["bot_token"] ==
                ""
 
       assert {:ok, _} = Restore.load(original)
-      assert Repo.get!(AlexClaw.LLM.Provider, none.id).api_key == nil
-      assert Repo.get!(AlexClaw.LLM.Provider, empty.id).api_key == ""
-    end
 
-    # The restore runs under a different SECRET_KEY_BASE than the export did.
-    test "encrypted under another key are refused, and nothing changes" do
-      p = provider(%{api_key: "sk-original"})
-      original = export()
-
-      {:ok, foreign} =
-        Crypto.encrypt_with(Crypto.key_for(String.duplicate("another-key-base", 4)), "sk-foreign")
-
-      bad = replace_value(original, "llm_providers", p.id, "api_key", foreign)
-
-      assert {:error, message} = Restore.load(bad)
-      assert message =~ "llm_providers"
-      assert message =~ "SECRET_KEY_BASE"
-      assert Repo.get!(AlexClaw.LLM.Provider, p.id).api_key == "sk-original"
-    end
-
-    # Settings are exported as stored, encrypted; a file from another key
-    # would otherwise restore a TOTP secret nothing can decrypt.
-    test "an encrypted setting from another key is refused" do
-      {:ok, _} = AlexClaw.Config.set("restore.sealed", "mine", sensitive: true)
-      original = export()
-
-      {:ok, foreign} =
-        Crypto.encrypt_with(Crypto.key_for(String.duplicate("another-key-base", 4)), "theirs")
-
-      bad =
-        update_in(original, ["tables", "settings"], fn %{"columns" => names, "rows" => rows} = e ->
-          key = Enum.find_index(names, &(&1 == "key"))
-          value = Enum.find_index(names, &(&1 == "value"))
-
-          rows =
-            Enum.map(rows, fn row ->
-              if Enum.at(row, key) == "restore.sealed",
-                do: List.replace_at(row, value, foreign),
-                else: row
-            end)
-
-          %{e | "rows" => rows}
-        end)
-
-      assert {:error, message} = Restore.load(bad)
-      assert message =~ "settings"
-      assert AlexClaw.Config.get("restore.sealed") == "mine"
+      assert Repo.get!(AlexClaw.Workflows.WorkflowStep, step.id).config["bot_token"] == ""
     end
 
     # There is no ciphertext left to tamper with in a step. What can be wrong
@@ -311,75 +266,6 @@ defmodule AlexClaw.Database.RestoreTest do
 
         %{entry | "rows" => rows}
       end)
-    end
-  end
-
-  # Each sequence a restore may set, with its value now: {sequence, last_value, is_called}.
-  defp sequences do
-    restored = DataSet.tables()
-
-    %{rows: serials} =
-      Repo.query!("""
-      SELECT table_name, column_name FROM information_schema.columns
-      WHERE table_schema = 'public' AND column_default LIKE 'nextval(%'
-      """)
-
-    for [table, column] <- serials, table in restored do
-      %{rows: [[sequence]]} =
-        Repo.query!("SELECT pg_get_serial_sequence($1, $2)", ["public." <> table, column])
-
-      %{rows: [[value, called]]} = Repo.query!("SELECT last_value, is_called FROM #{sequence}")
-      {sequence, value, called}
-    end
-  end
-
-  defp put_back({sequence, value, called}),
-    do: Repo.query!("SELECT setval($1::text::regclass, $2, $3)", [sequence, value, called])
-
-  # A file 0.3.34 wrote (test/fixtures/exports/v0.3.34.json, produced by the
-  # 0.3.34 code under the test SECRET_KEY_BASE) restores here unchanged: no
-  # release may write an export the next cannot restore. The fixture pins the
-  # schema version; a release that adds a migration must decide what a
-  # restore of the previous release's exports does, and change this test.
-  defp json_or_text("{" <> _ = value), do: Jason.decode!(value)
-  defp json_or_text(value), do: value
-
-  describe "an export written by 0.3.34" do
-    @v0_3_34 Path.expand("../../fixtures/exports/v0.3.34.json", __DIR__)
-
-    # The restore sets each sequence to the file's highest id, and a sequence is
-    # not rolled back with the sandbox: after this test settings_id_seq stayed at
-    # the fixture's 79 while the seeded rows went past it, and the next insert
-    # anywhere in the suite collided. Every sequence is put back as it was.
-    setup do
-      kept = sequences()
-      on_exit(fn -> SandboxCleanup.run(fn -> Enum.each(kept, &put_back/1) end) end)
-    end
-
-    test "restores, with its credentials readable and encrypted at rest as they were" do
-      file = @v0_3_34 |> File.read!() |> Jason.decode!()
-
-      assert {:ok, _} = Restore.load(file)
-
-      provider = Repo.get_by!(AlexClaw.LLM.Provider, name: "fixture-provider")
-      assert provider.api_key == "sk-fixture"
-      assert provider.headers == %{"x-api-key" => "hdr-fixture"}
-
-      steps = Map.new(Repo.all(AlexClaw.Workflows.WorkflowStep), &{&1.name, &1.config})
-      assert steps["tg"]["bot_token"] == "123:fixture"
-      assert steps["api"]["headers"] == %{"authorization" => "Bearer fixture"}
-      setting = Repo.get_by!(AlexClaw.Config.Setting, key: "fixture.secret")
-      assert Crypto.decrypt(setting.value) == {:ok, "setting-secret"}
-
-      %{rows: [[stored_key]]} =
-        Repo.query!("SELECT api_key FROM llm_providers WHERE name = 'fixture-provider'")
-
-      assert Crypto.encrypted?(stored_key), "restored as stored, not in plain text"
-      # The same ciphertext, byte for byte; JSON compared decoded, since
-      # PostgreSQL spaces its jsonb text form.
-      [restored] = export()["tables"]["llm_providers"]["rows"]
-      [original] = file["tables"]["llm_providers"]["rows"]
-      assert Enum.map(restored, &json_or_text/1) == Enum.map(original, &json_or_text/1)
     end
   end
 

@@ -16,7 +16,7 @@ defmodule AlexClawWeb.AdminPasswordTest do
   @moduletag :integration
 
   alias AlexClaw.Auth.{AdminPassword, Elevation, Sessions}
-  alias AlexClaw.Config.Setting
+  alias AlexClaw.Config.{Seeder, Setting}
   alias AlexClaw.Repo
 
   setup do
@@ -76,6 +76,39 @@ defmodule AlexClawWeb.AdminPasswordTest do
 
     assert conn.status == 401
     assert conn.resp_body =~ "ADMIN_PASSWORD is not set"
+  end
+
+  # The steps AlexClaw.Config.Loader runs on the settings table at start, as
+  # the loader has them: EncryptExisting is run only while the loader still
+  # calls it (0.4.0 S7 retires it). survives_restart_test.exs pins that its
+  # own copy of the sequence matches the loader's.
+  defp boot do
+    loader = File.read!("lib/alex_claw/config/loader.ex")
+    AlexClaw.Config.init()
+    Seeder.seed()
+
+    encrypt_existing = Module.concat(AlexClaw.Config, EncryptExisting)
+    if loader =~ "EncryptExisting.run()", do: encrypt_existing.run()
+
+    AlexClaw.Config.init()
+  end
+
+  # A restart must keep the stored hash as it is: no fallback to
+  # ADMIN_PASSWORD, and logins made before it stay valid.
+  test "a restart keeps the stored hash: ADMIN_PASSWORD is still ignored", %{conn: conn} do
+    assert login(conn, "first-password").status == 302
+    %Setting{value: hash} = stored()
+    sid = Elevation.new_sid()
+    :ok = Sessions.open(sid)
+
+    boot()
+
+    assert AdminPassword.stored() == hash
+    assert Sessions.valid?(sid), "a restart ended the login"
+
+    Application.put_env(:alex_claw, :admin_password, "second-password")
+    assert login(build_conn(), "second-password").status == 401
+    assert login(build_conn(), "first-password").status == 302
   end
 
   # The hash stays out of the settings cache a skill reads through.

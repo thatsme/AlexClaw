@@ -23,7 +23,7 @@ defmodule AlexClaw.Config.SurvivesRestartTest do
 
   alias AlexClaw.Auth.{Elevation, SecondFactor, TOTP}
   alias AlexClaw.Config
-  alias AlexClaw.Config.{EncryptExisting, Seeder, Setting}
+  alias AlexClaw.Config.{Seeder, Setting}
 
   # A fresh secret per test: OpenBao remembers the codes it accepted, across
   # tests (0.4.0 S6).
@@ -42,7 +42,6 @@ defmodule AlexClaw.Config.SurvivesRestartTest do
   defp boot do
     Config.init()
     Seeder.seed()
-    EncryptExisting.run()
     Config.init()
     :ok
   end
@@ -106,7 +105,8 @@ defmodule AlexClaw.Config.SurvivesRestartTest do
       |> String.split("\n  end", parts: 2)
       |> List.first()
 
-    performed = ["AlexClaw.Config.init()", "Seeder.seed()", "EncryptExisting.run()"]
+    # EncryptExisting.run() left the loader in 0.4.0 (S7): nothing is encrypted.
+    performed = ["AlexClaw.Config.init()", "Seeder.seed()"]
 
     for call <- performed do
       assert String.contains?(body, call),

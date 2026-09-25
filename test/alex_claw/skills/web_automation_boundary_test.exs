@@ -8,7 +8,7 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
   with the setting false.
 
   And every request to the sidecar carries its token (F2). The token comes
-  from the application environment (runtime.exs reads WEB_AUTOMATOR_TOKEN), not
+  from the application environment (runtime.exs reads the WEB_AUTOMATOR_TOKEN_FILE file), not
   from a setting: it stays out of the database and out of exports. Without a
   token AlexClaw refuses before sending — it never talks to the sidecar
   unauthenticated.

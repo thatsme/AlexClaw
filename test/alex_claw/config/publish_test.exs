@@ -80,13 +80,15 @@ defmodule AlexClaw.Config.PublishTest do
     assert Config.remove("publish.never") == {:ok, :absent}
   end
 
-  test "a sensitive value is stored encrypted and cached in plaintext" do
-    {:ok, row} = Config.persist("publish.secret", "hunter2", sensitive: true)
-    refute row.value == "hunter2"
+  # Since 0.4.0 (S7) sensitive means kept from skills, not encrypted; a key
+  # named like a credential is refused (credential_keys_test.exs).
+  test "a sensitive value is stored as given and cached with its flag" do
+    {:ok, row} = Config.persist("publish.private", "hunter2", sensitive: true)
+    assert row.value == "hunter2"
 
-    :ok = Config.publish("publish.secret")
-    assert Config.get("publish.secret") == "hunter2"
-    assert Config.sensitive?("publish.secret")
+    :ok = Config.publish("publish.private")
+    assert Config.get("publish.private") == "hunter2"
+    assert Config.sensitive?("publish.private")
   end
 
   test "a key the cache never holds is announced, never with its value" do

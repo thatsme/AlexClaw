@@ -72,17 +72,17 @@ defmodule AlexClaw.Skills.SkillAPITest do
     # The redaction is about the route, not the caller: a core skill needing a
     # credential reads Config directly rather than through the skill surface.
     test "a core skill is refused a sensitive setting through config_get too" do
-      AlexClaw.Config.set("test.core_secret", "s3cret",
+      AlexClaw.Config.set("test.core_private", "s3cret",
         type: "string",
         category: "test",
         sensitive: true
       )
 
       assert {:error, :sensitive} =
-               SkillAPI.config_get(AlexClaw.Skills.RSSCollector, "test.core_secret")
+               SkillAPI.config_get(AlexClaw.Skills.RSSCollector, "test.core_private")
 
       # ...and still reaches it directly.
-      assert AlexClaw.Config.get("test.core_secret") == "s3cret"
+      assert AlexClaw.Config.get("test.core_private") == "s3cret"
     end
 
     test "unknown module is denied" do

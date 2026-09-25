@@ -37,11 +37,11 @@ defmodule AlexClaw.MCP.SecretsTest do
   describe "settings" do
     # mcp.api_key is not in this list: since 0.4.0 it is not a stored value at
     # all (only an OpenBao HMAC of it is kept, mcp/key_test.exs), so writing
-    # one is refused. Its own case is below.
+    # one is refused. Its own case is below. auth.totp.pending_secret left it
+    # too: since S6 no TOTP secret is stored, pending or not.
     for key <- [
           "test.sensitive.single",
-          "telegram.bot_token",
-          "auth.totp.pending_secret"
+          "telegram.bot_token"
         ] do
       test "a single-key read of #{key} does not return its value" do
         AlexClaw.Config.set(unquote(key), @secret,

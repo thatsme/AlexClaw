@@ -197,7 +197,7 @@ defmodule AlexClaw.MCP.ResourceProviderTest do
     # It asserted inside `if secret do`: if the setting was missing from the
     # list, it passed without checking anything (SECRETS_INVENTORY.md #15).
     test "sensitive values are redacted" do
-      AlexClaw.Config.set("test.secret", "super_secret",
+      AlexClaw.Config.set("test.private", "super_secret",
         type: "string",
         category: "test",
         sensitive: true
@@ -207,7 +207,7 @@ defmodule AlexClaw.MCP.ResourceProviderTest do
         ResourceProvider.read("alexclaw://config/list", new_frame())
 
       data = decode_response(resp)
-      secret = Enum.find(data, &(&1["key"] == "test.secret"))
+      secret = Enum.find(data, &(&1["key"] == "test.private"))
 
       assert secret, "the sensitive setting is missing from the list"
       assert secret["value"] == "[REDACTED]"

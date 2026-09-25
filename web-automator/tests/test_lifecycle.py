@@ -27,6 +27,7 @@ import socket
 import threading
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
+from tests.token_file import use_token
 
 import httpx
 import pytest
@@ -75,7 +76,7 @@ def sessions():
 
 @pytest.fixture
 def server(monkeypatch, sessions):
-    monkeypatch.setenv("WEB_AUTOMATOR_TOKEN", TOKEN)
+    use_token(monkeypatch, TOKEN)
     app_state.state = SessionState.idle
 
     with socket.socket() as probe:

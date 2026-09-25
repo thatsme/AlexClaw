@@ -16,6 +16,7 @@ fixture file AlexClaw validates against (tests/contract/recipes.json).
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from tests.token_file import use_token
 
 import pytest
 from fastapi.testclient import TestClient
@@ -60,7 +61,7 @@ def test_every_action_has_a_valid_fixture():
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("WEB_AUTOMATOR_TOKEN", TOKEN)
+    use_token(monkeypatch, TOKEN)
     app_state.state = SessionState.idle
     yield TestClient(app, headers={"Authorization": f"Bearer {TOKEN}"})
     app_state.state = SessionState.idle

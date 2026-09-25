@@ -16,6 +16,7 @@ It runs in `make test-python`.
 
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from tests.token_file import use_token
 
 import pytest
 from fastapi.testclient import TestClient
@@ -52,7 +53,7 @@ def internal_server():
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("WEB_AUTOMATOR_TOKEN", TOKEN)
+    use_token(monkeypatch, TOKEN)
     app_state.state = SessionState.idle
     return TestClient(app, headers={"Authorization": f"Bearer {TOKEN}"})
 

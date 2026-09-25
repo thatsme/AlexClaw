@@ -3,7 +3,7 @@ requires the shared token.
 
 The sidecar's API had no authentication at all: anything on its network could
 start a play, including one that runs JavaScript or writes files. The token
-comes from the environment (WEB_AUTOMATOR_TOKEN), read at request time, and is
+comes from the file named by WEB_AUTOMATOR_TOKEN_FILE (0.4.0), read at request time, and is
 compared in constant time. Without a configured token the sidecar refuses every
 protected route (503) — it never falls back to open.
 
@@ -13,6 +13,7 @@ parameters to anyone who asks.
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.token_file import use_token
 
 from app.main import app, app_state, SessionState
 
@@ -39,7 +40,7 @@ def idle_state():
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("WEB_AUTOMATOR_TOKEN", TOKEN)
+    use_token(monkeypatch, TOKEN)
     return TestClient(app)
 
 
@@ -52,7 +53,7 @@ class TestHealthIsOpen:
         assert client.get("/health").status_code == 200
 
     def test_health_works_without_a_configured_token(self, monkeypatch):
-        monkeypatch.delenv("WEB_AUTOMATOR_TOKEN", raising=False)
+        monkeypatch.delenv("WEB_AUTOMATOR_TOKEN_FILE", raising=False)
         assert TestClient(app).get("/health").status_code == 200
 
 
@@ -89,13 +90,13 @@ class TestProtectedRoutes:
 class TestFailClosed:
     @pytest.mark.parametrize("method,path,body", PROTECTED)
     def test_no_configured_token_refuses_everything(self, monkeypatch, method, path, body):
-        monkeypatch.delenv("WEB_AUTOMATOR_TOKEN", raising=False)
+        monkeypatch.delenv("WEB_AUTOMATOR_TOKEN_FILE", raising=False)
         resp = call(TestClient(app), method, path, body, {"Authorization": "Bearer anything"})
         assert resp.status_code == 503
 
     @pytest.mark.parametrize("method,path,body", PROTECTED)
     def test_an_empty_configured_token_refuses_everything(self, monkeypatch, method, path, body):
-        monkeypatch.setenv("WEB_AUTOMATOR_TOKEN", "")
+        use_token(monkeypatch, "")
         resp = call(TestClient(app), method, path, body, {"Authorization": "Bearer "})
         assert resp.status_code == 503
 

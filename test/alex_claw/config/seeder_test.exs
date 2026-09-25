@@ -72,10 +72,20 @@ defmodule AlexClaw.Config.SeederTest do
 
   describe "env/1" do
     test "returns environment variable value when set" do
+      System.put_env("OLLAMA_HOST", "http://ollama.test:11434")
+      on_exit(fn -> System.delete_env("OLLAMA_HOST") end)
+
+      assert Seeder.env("llm.ollama_host") == "http://ollama.test:11434"
+    end
+
+    # One home per value (0.4.0): a declared-secret setting lives in OpenBao,
+    # set through the Config page; the environment never seeds it, even when
+    # the old variable is still around.
+    test "never reads a declared-secret key from the environment" do
       System.put_env("TELEGRAM_BOT_TOKEN", "test_env_token")
       on_exit(fn -> System.delete_env("TELEGRAM_BOT_TOKEN") end)
 
-      assert Seeder.env("telegram.bot_token") == "test_env_token"
+      assert Seeder.env("telegram.bot_token") == ""
     end
 
     test "returns default when environment variable is not set" do

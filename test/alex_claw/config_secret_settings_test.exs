@@ -10,9 +10,13 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
     the gateway actually uses (`:telegram_api_base`), so a test pointing the
     gateway at a local stub binds to that host, and production to
     api.telegram.org.
-  - `Config.set/3` on a declared-secret key stores the value in OpenBao (as
-    the secret `setting_telegram_bot_token`, bound as declared) and leaves
-    no value in the settings table. Setting it to "" keeps the current value.
+  - Every write of a declared-secret key — `Config.set/3` and
+    `Config.persist/3`, which the Config page uses — stores the value in
+    OpenBao (as the secret `setting_telegram_bot_token`, bound as declared)
+    and leaves no value in the settings table. The routing lives at the one
+    point every write goes through, so no path can put a token back in the
+    table. Both return `{:ok, %Setting{}}` as for any key; the setting simply
+    carries no value. Writing "" keeps the current value.
   - `Config.get/1` on a declared-secret key is refused: code that needs the
     token resolves it, with its destination (`Config.secret/2`, which goes
     through `Secrets.resolve/2`: binding checked, use audited).
@@ -38,6 +42,16 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
     {:ok, bypass: bypass}
   end
 
+  defp set_token(value) do
+    {:ok, setting} = Config.set("telegram.bot_token", value, type: "string", category: "telegram")
+    setting
+  end
+
+  defp refute_in_settings_table(value) do
+    %{rows: rows} = Repo.query!("SELECT row_to_json(s)::text FROM settings s")
+    refute Enum.any?(rows, fn [json] -> json =~ value end), "the value is in the settings table"
+  end
+
   describe "the declaration" do
     test "telegram.bot_token is declared secret, the chat id is not" do
       assert Config.secret?("telegram.bot_token")
@@ -52,21 +66,20 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
     end
   end
 
-  describe "saving" do
-    test "the value goes to OpenBao; the settings table holds none" do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+  describe "saving through set/3" do
+    test "the value goes to OpenBao; the setting carries none" do
+      setting = set_token(@token)
+
+      assert is_nil(setting.value) or setting.value == ""
 
       assert {:ok, %{"value" => @token}} =
                AlexClaw.Vault.read("alexclaw/secrets/setting_telegram_bot_token")
 
-      %{rows: rows} = Repo.query!("SELECT row_to_json(s)::text FROM settings s")
-
-      refute Enum.any?(rows, fn [json] -> json =~ @token end),
-             "the token is in the settings table"
+      refute_in_settings_table(@token)
     end
 
     test "it is catalogued, bound as declared" do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+      set_token(@token)
 
       secret = Secrets.get("setting_telegram_bot_token")
       assert secret
@@ -74,19 +87,19 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
     end
 
     test "an empty value keeps the current one" do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
-      :ok = Config.set("telegram.bot_token", "", type: "string", category: "telegram")
+      set_token(@token)
+      set_token("")
 
       assert {:ok, @token} = Config.secret("telegram.bot_token", for: "host:localhost")
     end
 
     test "a new value rotates it, and the set date moves" do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+      set_token(@token)
       first = Config.secret_set_at("telegram.bot_token")
       assert %DateTime{} = first
 
       Process.sleep(1_100)
-      :ok = Config.set("telegram.bot_token", "999:rotated", type: "string", category: "telegram")
+      set_token("999:rotated")
 
       assert {:ok, "999:rotated"} = Config.secret("telegram.bot_token", for: "host:localhost")
       assert DateTime.compare(Config.secret_set_at("telegram.bot_token"), first) == :gt
@@ -97,15 +110,28 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
     end
   end
 
+  # The Config page saves through persist/3, not set/3. Routing only at set/3
+  # would let a page save put the token back into the settings table.
+  describe "saving through persist/3 — the Config page's path" do
+    test "routes the same way: OpenBao, nothing in the table" do
+      {:ok, _setting} =
+        Config.persist("telegram.bot_token", @token, type: "string", category: "telegram")
+
+      assert {:ok, %{"value" => @token}} =
+               AlexClaw.Vault.read("alexclaw/secrets/setting_telegram_bot_token")
+
+      refute_in_settings_table(@token)
+    end
+  end
+
   describe "reading" do
     test "Config.get/1 refuses a declared-secret key, saying how to get it" do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
-
+      set_token(@token)
       assert_raise ArgumentError, ~r/secret/i, fn -> Config.get("telegram.bot_token") end
     end
 
     test "the value is resolved for its bound destination only" do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+      set_token(@token)
 
       assert {:ok, @token} = Config.secret("telegram.bot_token", for: "host:localhost")
       assert {:error, :not_bound} = Config.secret("telegram.bot_token", for: "host:evil.example")
@@ -113,10 +139,8 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
 
     # The ETS cache is public (inventory #13): a secret must not be in it.
     test "the value is not in the settings cache" do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
-
-      cached = :ets.tab2list(:alexclaw_config)
-      refute inspect(cached) =~ @token
+      set_token(@token)
+      refute inspect(:ets.tab2list(:alexclaw_config)) =~ @token
     end
   end
 
@@ -134,7 +158,7 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
 
   describe "the gateway" do
     test "sends with the token from OpenBao", %{bypass: bypass} do
-      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+      set_token(@token)
       Config.set("telegram.chat_id", "4242", type: "string", category: "telegram")
       Config.set("telegram.enabled", "true", type: "boolean", category: "telegram")
 

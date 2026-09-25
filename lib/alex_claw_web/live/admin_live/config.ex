@@ -2,6 +2,7 @@ defmodule AlexClawWeb.AdminLive.Config do
   @moduledoc "LiveView page for viewing and editing key-value configuration settings."
 
   use Phoenix.LiveView
+  alias AlexClaw.Config.SecretSettings
   alias AlexClawWeb.Live.Elevation
 
   @impl true
@@ -16,6 +17,7 @@ defmodule AlexClawWeb.AdminLive.Config do
        page_title: "Configuration",
        settings: settings,
        grouped: group_by_category(settings),
+       secret_states: secret_states(),
        collapsed: group_by_category(settings) |> Enum.map(&elem(&1, 0)) |> MapSet.new(),
        show_form: false,
        editing: nil,
@@ -31,7 +33,13 @@ defmodule AlexClawWeb.AdminLive.Config do
   @impl true
   def handle_info({:config_changed, _key, _value}, socket) do
     settings = AlexClaw.Config.list()
-    {:noreply, assign(socket, settings: settings, grouped: group_by_category(settings))}
+
+    {:noreply,
+     assign(socket,
+       settings: settings,
+       grouped: group_by_category(settings),
+       secret_states: secret_states()
+     )}
   end
 
   @impl true
@@ -128,6 +136,7 @@ defmodule AlexClawWeb.AdminLive.Config do
         |> assign(
           settings: settings,
           grouped: group_by_category(settings),
+          secret_states: secret_states(),
           show_form: false,
           editing: nil
         )
@@ -185,6 +194,7 @@ defmodule AlexClawWeb.AdminLive.Config do
         |> assign(
           settings: settings,
           grouped: group_by_category(settings),
+          secret_states: secret_states(),
           show_form: false,
           editing: nil
         )
@@ -224,7 +234,11 @@ defmodule AlexClawWeb.AdminLive.Config do
 
         socket
         |> put_flash(:info, "Setting '#{key}' deleted")
-        |> assign(settings: settings, grouped: group_by_category(settings))
+        |> assign(
+          settings: settings,
+          grouped: group_by_category(settings),
+          secret_states: secret_states()
+        )
       end
     )
   end
@@ -245,7 +259,12 @@ defmodule AlexClawWeb.AdminLive.Config do
   end
 
   # A secret setting's value is in OpenBao: the page says whether and when it
-  # was set, never any part of the value.
+  # was set, never any part of the value. Kept as an assign, recomputed with the
+  # settings, so LiveView re-renders it when it changes.
+  defp secret_states do
+    Map.new(SecretSettings.keys(), &{&1, secret_state(&1)})
+  end
+
   defp secret_state(key) do
     case AlexClaw.Config.secret_set_at(key) do
       nil -> "not set"
@@ -253,15 +272,11 @@ defmodule AlexClawWeb.AdminLive.Config do
     end
   end
 
-  defp value_hint(setting) do
-    if AlexClaw.Config.secret?(setting.key),
-      do: secret_state(setting.key),
-      else: mask_value(setting.value)
-  end
+  defp value_hint(setting, secret_states),
+    do: Map.get_lazy(secret_states, setting.key, fn -> mask_value(setting.value) end)
 
-  defp display_value(%{key: key} = setting) do
-    if AlexClaw.Config.secret?(key), do: secret_state(key), else: shown_value(setting)
-  end
+  defp display_value(setting, secret_states),
+    do: Map.get_lazy(secret_states, setting.key, fn -> shown_value(setting) end)
 
   defp shown_value(setting) do
     if setting.sensitive || sensitive_key?(setting.key) do

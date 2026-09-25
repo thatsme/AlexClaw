@@ -118,7 +118,7 @@
                     </select>
                   <% else %>
                     <%= if sensitive_key?(setting.key) do %>
-                      <input type="password" name="value" placeholder={value_hint(setting)}
+                      <input type="password" name="value" placeholder={value_hint(setting, @secret_states)}
                         class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm font-mono" />
                       <p class="text-xs text-gray-600 mt-1">Leave empty to keep current value.</p>
                       <input type="hidden" name="_clear" value="false" />
@@ -154,8 +154,8 @@
               </span>
             </td>
             <td class="px-4 py-2.5 text-sm font-mono text-gray-300 truncate" title={if(!sensitive_key?(setting.key), do: setting.value, else: "")}>
-              <span :if={sensitive_key?(setting.key)} class="text-gray-500">{display_value(setting)}</span>
-              <span :if={!sensitive_key?(setting.key)}>{display_value(setting)}</span>
+              <span :if={sensitive_key?(setting.key)} class="text-gray-500">{display_value(setting, @secret_states)}</span>
+              <span :if={!sensitive_key?(setting.key)}>{display_value(setting, @secret_states)}</span>
             </td>
             <td class="px-4 py-2.5">
               <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">{setting.type}</span>

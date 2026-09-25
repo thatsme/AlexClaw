@@ -52,10 +52,15 @@ defmodule AlexClaw.Dispatcher.OperateNotAuthorTest do
   end
 
   describe "writes that a chat can no longer make" do
-    test "--tier on a command writes no setting" do
-      before = settings_snapshot()
-      say("/research --tier heavy what is OpenBao")
-      assert settings_snapshot() == before
+    # --tier with NO query saved it as the command's default setting
+    # (dispatcher.ex:702-708, :120-123); with a query it only applied to that
+    # run. The no-query form is the one that wrote — so that is the one tested.
+    for command <- ["/research --tier heavy", "/search --tier heavy", "/web --tier heavy"] do
+      test "#{command} writes no setting" do
+        before = settings_snapshot()
+        say(unquote(command))
+        assert settings_snapshot() == before
+      end
     end
 
     for command <- ["/record https://example.com", "/replay 1", "/automate https://example.com"] do
@@ -67,8 +72,13 @@ defmodule AlexClaw.Dispatcher.OperateNotAuthorTest do
       end
     end
 
-    test "/confirm 2fa does not turn the second factor on" do
-      say("/confirm 2fa 123456")
+    # With a setup pending and a VALID code for it, /confirm 2fa used to turn
+    # the second factor on. A made-up code proved nothing.
+    test "/confirm 2fa with a valid code for a pending setup does not turn 2FA on" do
+      {:ok, %{secret: secret}} = AlexClaw.Auth.TOTP.setup()
+
+      say("/confirm 2fa " <> NimbleTOTP.verification_code(secret))
+
       refute AlexClaw.Auth.TOTP.enabled?()
     end
 
@@ -120,10 +130,23 @@ defmodule AlexClaw.Dispatcher.OperateNotAuthorTest do
       assert AlexClaw.Config.get("telegram.chat_id") == @owner
     end
 
+    # The claim happened in the gateway's update handling (telegram.ex:297),
+    # not in the dispatcher — so the test goes through the gateway.
     test "with no owner set, the first chat to write does not become the owner" do
       AlexClaw.Config.set("telegram.chat_id", "", type: "string", category: "telegram")
 
-      say("/start", "first-chat-1111")
+      update = %{
+        "update_id" => 1,
+        "message" => %{
+          "message_id" => 1,
+          "chat" => %{"id" => 1111, "type" => "private"},
+          "from" => %{"id" => 1111, "first_name" => "Stranger"},
+          "date" => System.system_time(:second),
+          "text" => "/start"
+        }
+      }
+
+      AlexClaw.Gateway.Telegram.process_updates([update], 0, fn _msg -> :ok end)
 
       assert AlexClaw.Config.get("telegram.chat_id") in [nil, ""]
     end

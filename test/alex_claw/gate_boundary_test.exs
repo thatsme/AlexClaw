@@ -62,7 +62,26 @@ defmodule AlexClaw.GateBoundaryTest do
     )
   end
 
-  defp files, do: Enum.flat_map(@entry_points, &Path.wildcard/1)
+  # Files under an entry-point path that are not entry points, by name, each
+  # with its reason. The MCP key's module is the key's IMPLEMENTATION — the
+  # admin UI reaches it through ControlPlane (generate_mcp_key) — not a door
+  # an MCP client can knock on.
+  @not_entry_points %{
+    "lib/alex_claw/mcp/key.ex" =>
+      "The MCP key's implementation, reached only through ControlPlane (generate_mcp_key)."
+  }
+
+  defp files do
+    @entry_points
+    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.reject(&(&1 in Map.keys(@not_entry_points)))
+  end
+
+  test "every file excluded by name still exists (no stale exclusion)" do
+    for {path, reason} <- @not_entry_points do
+      assert File.exists?(path), "#{path} is excluded and does not exist (#{reason})"
+    end
+  end
 
   test "the scan covers every entry point (no vacuous pass)" do
     found = files()

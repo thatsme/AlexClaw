@@ -12,15 +12,23 @@ defmodule AlexClaw.Skills.SkillAPIOperateNotAuthorTest do
 
   What stays: reading resources (redacted), knowledge and memory, LLM calls,
   HTTP through the guard, sending messages, running other skills
-  (`run_skill`, which the catalogue allows a skill), and reading its own
-  outcomes.
+  (`run_skill`, which the catalogue allows a skill), reading its own
+  outcomes, and reading a workflow run's result (`get_workflow_result`, under
+  its own read-only permission `workflow_read`).
+
+  `read_skill` goes with the rest: reading other skills' source is an
+  authoring aid, not something a skill needs to operate.
   """
   use ExUnit.Case, async: true
   @moduletag :unit
 
   alias AlexClaw.Skills.SkillAPI
 
-  @removed ~w(create_workflow add_workflow_step write_skill load_skill unload_skill reload_skill run_workflow)a
+  @removed ~w(create_workflow add_workflow_step write_skill read_skill load_skill unload_skill
+              reload_skill run_workflow)a
+
+  @kept ~w(get_resource list_resources llm_complete http_get send_message run_skill
+           memory_search get_workflow_result)a
 
   defp exported_names do
     SkillAPI.__info__(:functions) |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
@@ -32,19 +40,22 @@ defmodule AlexClaw.Skills.SkillAPIOperateNotAuthorTest do
   end
 
   test "what a skill legitimately uses is still there (no vacuous pass)" do
-    for kept <-
-          ~w(get_resource list_resources llm_complete http_get send_message run_skill memory_search)a do
+    for kept <- @kept do
       assert kept in exported_names(), "#{kept} disappeared too"
     end
   end
 
-  test "no permission names an authoring capability any more" do
-    authoring =
-      Enum.filter(
-        SkillAPI.known_permissions(),
-        &(to_string(&1) =~ ~r/workflow_write|skill_write|skill_load|workflow_run/)
-      )
+  # By name: the three permissions that granted authoring — skill_write
+  # (write/read skill files), skill_manage (load/unload/reload), and
+  # workflow_manage (create, add steps, run) — are gone. Reading a run's
+  # result has its own read-only permission.
+  test "no permission grants authoring; reading a run's result has its own" do
+    permissions = Enum.map(SkillAPI.known_permissions(), &to_string/1)
 
-    assert authoring == [], "permissions that granted authoring remain: #{inspect(authoring)}"
+    for gone <- ~w(skill_write skill_manage workflow_manage) do
+      refute gone in permissions, "#{gone} is still a permission"
+    end
+
+    assert "workflow_read" in permissions
   end
 end

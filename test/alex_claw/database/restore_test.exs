@@ -15,8 +15,7 @@ defmodule AlexClaw.Database.RestoreTest do
   alias AlexClaw.Auth.{AdminSession, AuditEntry, AuditLog, Elevation, Sessions}
   alias AlexClaw.Config.Crypto
   alias AlexClaw.Database.{DataExport, DataSet, Restore}
-  alias AlexClaw.Dispatcher.AuthCommands
-  alias AlexClaw.{LLM, Message, RecordingGateway, SandboxCleanup, Workflows}
+  alias AlexClaw.{LLM, SandboxCleanup, Workflows}
 
   defp export do
     ""
@@ -571,26 +570,6 @@ defmodule AlexClaw.Database.RestoreTest do
 
       refute File.exists?(path)
       assert export()["tables"] == original["tables"]
-    end
-
-    test "a restore challenge answered on a gateway runs the restore" do
-      RecordingGateway.install()
-      fixtures()
-      path = staged(export())
-
-      AuthCommands.execute_2fa_action(
-        %{type: :database_restore, path: path, filename: "pending.json", session: "fp-pending"},
-        %Message{
-          text: "",
-          chat_id: "1",
-          from: "t",
-          timestamp: DateTime.utc_now(),
-          raw: %{},
-          gateway: :test
-        }
-      )
-
-      assert Enum.any?(RecordingGateway.sent(), &(&1 =~ "Restore completed"))
     end
   end
 

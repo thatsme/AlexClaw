@@ -43,6 +43,11 @@ defmodule AlexClaw.Workflows.WorkflowStep do
     |> validate_tier()
     |> validate_skill_config()
     |> foreign_key_constraint(:workflow_id)
+    # References point at positions, so no two steps of a workflow share one.
+    |> unique_constraint(:position,
+      name: :workflow_steps_workflow_id_position_index,
+      message: "is already taken by another step of this workflow"
+    )
   end
 
   # A step is saved only if it can run: its skill exists, is available on this

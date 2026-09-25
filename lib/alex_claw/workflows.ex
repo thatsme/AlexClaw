@@ -8,6 +8,7 @@ defmodule AlexClaw.Workflows do
   alias AlexClaw.Workflows.{
     SkillOutcome,
     SkillRegistry,
+    StepReferences,
     Workflow,
     WorkflowResource,
     WorkflowRun,
@@ -189,7 +190,7 @@ defmodule AlexClaw.Workflows do
       "llm_tier" => step.llm_tier,
       "llm_model" => step.llm_model,
       "prompt_template" => step.prompt_template,
-      "config" => redacted(step.config),
+      "config" => redacted(step.config, @secret_placeholder),
       "input_from" => step.input_from,
       "routes" => step.routes
     }
@@ -328,20 +329,27 @@ defmodule AlexClaw.Workflows do
     workflow |> Workflow.changeset(%{metadata: metadata}) |> Repo.update!()
   end
 
-  defp redacted(nil), do: nil
+  # Every value under a key some skill declares secret, string by string, is
+  # replaced by `placeholder`: an export's, or a run definition's.
+  defp redacted(nil, _placeholder), do: nil
 
-  defp redacted(config) do
+  defp redacted(config, placeholder) do
     secret = SkillRegistry.secret_config_keys()
-    Map.new(config, fn {k, v} -> {k, redact_if(to_string(k) in secret, v)} end)
+    Map.new(config, fn {k, v} -> {k, redact_if(to_string(k) in secret, v, placeholder)} end)
   end
 
-  defp redact_if(false, value), do: value
-  defp redact_if(true, value), do: redact(value)
+  defp redact_if(false, value, _placeholder), do: value
+  defp redact_if(true, value, placeholder), do: redact(value, placeholder)
 
-  defp redact(value) when value in [nil, ""], do: value
-  defp redact(value) when is_map(value), do: Map.new(value, fn {k, v} -> {k, redact(v)} end)
-  defp redact(value) when is_list(value), do: Enum.map(value, &redact/1)
-  defp redact(_value), do: @secret_placeholder
+  defp redact(value, _placeholder) when value in [nil, ""], do: value
+
+  defp redact(value, placeholder) when is_map(value),
+    do: Map.new(value, fn {k, v} -> {k, redact(v, placeholder)} end)
+
+  defp redact(value, placeholder) when is_list(value),
+    do: Enum.map(value, &redact(&1, placeholder))
+
+  defp redact(_value, placeholder), do: placeholder
 
   # The config with every placeholder emptied, and the declared keys that held one.
   defp unredacted(config) when is_map(config) do
@@ -517,21 +525,87 @@ defmodule AlexClaw.Workflows do
   defp filled?(value) when is_list(value), do: Enum.all?(value, &filled?/1)
   defp filled?(_value), do: true
 
-  @spec remove_step(WorkflowStep.t()) :: {:ok, WorkflowStep.t()} | {:error, Ecto.Changeset.t()}
+  @doc """
+  Remove `step`. The remaining steps are numbered 1..n in order, and every route
+  (`goto`) and `input_from` pointing at them follows, in the same
+  transaction. A step that a route or `input_from` of another step points to
+  is refused, `{:error, {:referenced_by, names}}`, naming those steps: nothing
+  is rewired to something else, and nothing is left dangling.
+  """
+  @spec remove_step(WorkflowStep.t()) ::
+          {:ok, WorkflowStep.t()} | {:error, {:referenced_by, [String.t()]} | term()}
   def remove_step(%WorkflowStep{} = step) do
-    Repo.delete(step)
+    Repo.transaction(fn ->
+      others = Enum.reject(steps_of(step.workflow_id), &(&1.id == step.id))
+      removed(Enum.filter(others, &points_to?(&1, step.position)), step, others)
+    end)
   end
 
+  # The remaining steps are numbered 1..n in their order, which also closes
+  # gaps an earlier removal left; references follow.
+  defp removed([], step, others) do
+    deleted = Repo.delete!(step)
+
+    moved =
+      others
+      |> Enum.sort_by(& &1.position)
+      |> Enum.with_index(1)
+      |> Map.new(fn {other, position} -> {other.position, position} end)
+
+    renumber(others, moved)
+    deleted
+  end
+
+  defp removed(pointing, _step, _others),
+    do: Repo.rollback({:referenced_by, Enum.map(pointing, & &1.name)})
+
+  defp points_to?(step, position),
+    do: step.input_from == position or Enum.any?(step.routes || [], &(&1["goto"] == position))
+
+  defp steps_of(workflow_id),
+    do: WorkflowStep |> where([s], s.workflow_id == ^workflow_id) |> Repo.all()
+
+  # Positions are unique per workflow and checked on every statement, so the
+  # steps are first parked at negative positions (their ids, negated), then
+  # given their new ones: no update meets a position another step still holds.
+  defp renumber(steps, moved) do
+    Enum.each(steps, &park/1)
+    Enum.each(steps, &rewrite_step(&1, moved[&1.position], moved))
+  end
+
+  defp park(step) do
+    WorkflowStep
+    |> where([s], s.id == ^step.id)
+    |> Repo.update_all(set: [position: -step.id])
+  end
+
+  # The step at `position`, its routes and input_from rewritten through `moved`
+  # (old position => new position). "end", "default" and anything that is not
+  # a position are left as they are.
+  defp rewrite_step(step, position, moved) do
+    WorkflowStep
+    |> where([s], s.id == ^step.id)
+    |> Repo.update_all(
+      set: [
+        position: position,
+        routes: Enum.map(step.routes || [], &StepReferences.moved_route(&1, moved)),
+        input_from: StepReferences.moved_position(step.input_from, moved)
+      ]
+    )
+  end
+
+  @doc """
+  Put the steps of `workflow` in the order of `step_ids`. Every route (`goto`)
+  and `input_from` is rewritten in the same transaction, so each still points
+  at the same step.
+  """
   @spec reorder_steps(Workflow.t(), [integer()]) :: {:ok, any()} | {:error, any()}
   def reorder_steps(%Workflow{} = workflow, step_ids) when is_list(step_ids) do
     Repo.transaction(fn ->
-      step_ids
-      |> Enum.with_index(1)
-      |> Enum.each(fn {step_id, position} ->
-        WorkflowStep
-        |> where([s], s.id == ^step_id and s.workflow_id == ^workflow.id)
-        |> Repo.update_all(set: [position: position])
-      end)
+      steps = steps_of(workflow.id)
+      new_positions = step_ids |> Enum.with_index(1) |> Map.new()
+      moved = Map.new(steps, &{&1.position, Map.get(new_positions, &1.id, &1.position)})
+      renumber(steps, moved)
     end)
   end
 
@@ -557,6 +631,28 @@ defmodule AlexClaw.Workflows do
   end
 
   # --- Runs ---
+
+  @doc """
+  The definition a run records when it starts: each step's position, name,
+  skill, config, routes and input_from, as they are now. Secret config values
+  are replaced by `"<secret>"`, so a run's history never stores a credential.
+  `workflow` must have its steps loaded.
+  """
+  @spec run_definition(Workflow.t()) :: map()
+  def run_definition(%Workflow{steps: steps}) when is_list(steps) do
+    %{"steps" => steps |> Enum.sort_by(& &1.position) |> Enum.map(&step_definition/1)}
+  end
+
+  defp step_definition(step) do
+    %{
+      "position" => step.position,
+      "name" => step.name,
+      "skill" => step.skill,
+      "config" => redacted(step.config || %{}, "<secret>"),
+      "routes" => step.routes || [],
+      "input_from" => step.input_from
+    }
+  end
 
   @spec create_run(Workflow.t(), map()) :: {:ok, WorkflowRun.t()} | {:error, Ecto.Changeset.t()}
   def create_run(%Workflow{} = workflow, attrs \\ %{}) do

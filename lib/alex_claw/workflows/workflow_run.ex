@@ -16,6 +16,9 @@ defmodule AlexClaw.Workflows.WorkflowRun do
     field(:error, :string)
     field(:step_results, :map, default: %{})
     field(:node, :string)
+    # The steps as they were when the run started (Workflows.run_definition/1).
+    # Null for runs from before 0.3.55.
+    field(:definition, :map)
 
     timestamps(type: :utc_datetime)
   end
@@ -31,7 +34,8 @@ defmodule AlexClaw.Workflows.WorkflowRun do
       :result,
       :error,
       :step_results,
-      :node
+      :node,
+      :definition
     ])
     |> validate_required([:status, :started_at])
     # recovered: completed, but an error on the way was handled by an on_error route.

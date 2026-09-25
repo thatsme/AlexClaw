@@ -116,12 +116,12 @@ defmodule AlexClaw.Database.Restore do
   defp plan(%{"format" => format, "version" => version, "schema" => schema, "tables" => tables})
        when is_map(tables) do
     with :ok <- same_format({format, version}),
-         :ok <- same_schema(schema),
+         {:ok, age} <- schema_age(schema),
          :ok <- known_tables(Map.keys(tables)) do
       DataSet.tables()
       |> Enum.filter(&Map.has_key?(tables, &1))
       |> Enum.reduce_while({:ok, []}, fn table, {:ok, acc} ->
-        planned(table_plan(table, tables[table]), acc)
+        planned(table_plan(table, tables[table], age), acc)
       end)
       |> reversed()
     end
@@ -135,13 +135,20 @@ defmodule AlexClaw.Database.Restore do
       else: {:error, "The file is not an AlexClaw data export of a version this release reads"}
   end
 
-  defp same_schema(schema) do
-    if schema == DataSet.schema_version(),
-      do: :ok,
-      else:
-        {:error,
-         "The export was made on schema #{inspect(schema)}; this database is on #{DataSet.schema_version()}"}
-  end
+  # A file from this schema restores as it is. One from an older schema
+  # restores when the database has only added nullable columns since (checked
+  # per table). One from a newer schema never does: this database lacks what
+  # that release added.
+  defp schema_age(schema) when is_integer(schema),
+    do: schema_age(schema, DataSet.schema_version())
+
+  defp schema_age(schema), do: {:error, "The export's schema #{inspect(schema)} is not a version"}
+
+  defp schema_age(same, same), do: {:ok, :same}
+  defp schema_age(schema, current) when schema < current, do: {:ok, :older}
+
+  defp schema_age(schema, current),
+    do: {:error, "The export was made on schema #{schema}, newer than this database's #{current}"}
 
   defp known_tables(names) do
     case names -- DataSet.tables() do
@@ -154,22 +161,70 @@ defmodule AlexClaw.Database.Restore do
     end
   end
 
-  defp table_plan(table, %{"columns" => columns, "rows" => rows}) when is_list(rows) do
+  defp table_plan(table, %{"columns" => columns, "rows" => rows}, age)
+       when is_list(columns) and is_list(rows) do
     live = DataSet.columns(table)
 
-    cond do
-      columns != Enum.map(live, &elem(&1, 0)) ->
-        {:error, "The columns of #{table} do not match this database"}
-
-      not Enum.all?(rows, &row?(&1, length(live))) ->
-        {:error, "#{table} holds a row that is not a list of #{length(live)} text values"}
-
-      true ->
-        checked(table, live, rows)
+    with {:ok, added} <- added_columns(table, columns, Enum.map(live, &elem(&1, 0)), age),
+         :ok <- rows_fit(table, rows, length(columns)) do
+      checked(table, live, Enum.map(rows, &with_nulls(&1, columns, live, added)))
     end
   end
 
-  defp table_plan(table, _entry), do: {:error, "#{table} is not a table entry"}
+  defp table_plan(table, _entry, _age), do: {:error, "#{table} is not a table entry"}
+
+  defp rows_fit(table, rows, width) do
+    if Enum.all?(rows, &row?(&1, width)),
+      do: :ok,
+      else: {:error, "#{table} holds a row that is not a list of #{width} text values"}
+  end
+
+  # The columns the database has that the file does not. From the same schema
+  # there are none. From an older one they are the columns added since, and a
+  # restore fills them with null — only when each may be null, the file has no
+  # column the database no longer has, and the rest are in the database's order.
+  defp added_columns(_table, same, same, _age), do: {:ok, []}
+
+  defp added_columns(table, _columns, _live_names, :same),
+    do: {:error, "The columns of #{table} do not match this database"}
+
+  defp added_columns(table, columns, live_names, :older) do
+    added = live_names -- columns
+
+    with :ok <- none_gone(table, columns -- live_names),
+         :ok <- none_required(table, added -- DataSet.nullable_columns(table)),
+         :ok <- same_order(table, columns, live_names -- added) do
+      {:ok, added}
+    end
+  end
+
+  defp none_gone(_table, []), do: :ok
+
+  defp none_gone(table, gone),
+    do:
+      {:error,
+       "#{table}: the export has #{Enum.join(gone, ", ")}, which this database no longer has"}
+
+  defp none_required(_table, []), do: :ok
+
+  defp none_required(table, required),
+    do:
+      {:error,
+       "#{table}: the export lacks #{Enum.join(required, ", ")}, which this database requires"}
+
+  defp same_order(_table, same, same), do: :ok
+
+  defp same_order(table, _columns, _expected),
+    do: {:error, "The columns of #{table} are not in this database's order"}
+
+  # A row from the file, in the database's column order, null where a column
+  # was added since the export.
+  defp with_nulls(row, _columns, _live, []), do: row
+
+  defp with_nulls(row, columns, live, _added) do
+    values = columns |> Enum.zip(row) |> Map.new()
+    Enum.map(live, fn {name, _type} -> Map.get(values, name) end)
+  end
 
   # Encrypted values must decrypt under this key before anything is written, so
   # a file made under another SECRET_KEY_BASE is refused whole.

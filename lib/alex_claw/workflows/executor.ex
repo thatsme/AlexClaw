@@ -92,7 +92,13 @@ defmodule AlexClaw.Workflows.Executor do
 
   defp execute(workflow, remote_data) do
     node_name = to_string(node())
-    {:ok, run} = Workflows.create_run(workflow, %{node: node_name})
+
+    {:ok, run} =
+      Workflows.create_run(workflow, %{
+        node: node_name,
+        definition: Workflows.run_definition(workflow)
+      })
+
     Registry.register(run.id, self(), workflow.id, workflow.name)
     Process.put(:auth_workflow_run_id, run.id)
     steps = workflow.steps

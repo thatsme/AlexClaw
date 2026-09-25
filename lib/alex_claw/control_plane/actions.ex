@@ -17,46 +17,55 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   alias AlexClaw.Auth.{Policies, PolicyEngine, RecoveryCodes, SecondFactor, Sessions, TOTP}
   alias AlexClaw.{Cluster, Config, ControlPlane, LLM, Memory, Repo, Resources, Workflows}
-  alias AlexClaw.ControlPlane.Context
-  alias AlexClaw.Database.{DataExport, Dump}
+  alias AlexClaw.ControlPlane.{Context, Effects}
   alias AlexClaw.MCP.Key
   alias AlexClaw.WebAutomation.Recording
-  alias AlexClaw.Workflows.{Launch, SchedulerSync, SkillRegistry, WorkflowStep}
+  alias AlexClaw.Workflows.{SchedulerSync, WorkflowStep}
 
   @pending_secret "auth.totp.pending_secret"
 
-  @effects [:run_workflow, :download_database, :export_data, :export_workflow, :stage_skill]
+  @gateway_owners ~w(telegram.chat_id discord.channel_id)
 
-  # Catalogued, but still reached by their old paths (AuthCommands, the
-  # gateway, MCP, SkillAPI): perform/3 refuses them with :not_wired until
-  # S5b moves them here.
-  @not_wired [
-    :load_skill,
-    :unload_skill,
-    :generate_skill,
+  # The changes: one database write each, in the transaction with its row.
+  @changes [
+    :save_workflow,
+    :delete_workflow,
+    :duplicate_workflow,
+    :import_workflow,
+    :save_step,
+    :remove_step,
+    :reorder_steps,
+    :assign_resource,
+    :save_resource,
+    :delete_resource,
+    :discover_resource,
+    :attach_login,
+    :set_setting,
+    :set_secret,
+    :clear_secret,
+    :generate_mcp_key,
     :set_gateway_owner,
-    :connect_google,
-    :disconnect_google,
-    :upgrade_secrets,
-    :restore_data,
-    :run_protected_workflow,
-    :run_skill,
-    :run_privileged_skill,
-    :record,
-    :replay
+    :save_provider,
+    :save_policy,
+    :save_node,
+    :delete_memory,
+    :set_up_second_factor,
+    :disable_second_factor,
+    :regenerate_recovery_codes,
+    :sign_out_everywhere,
+    :clear_run_history
   ]
 
-  @doc "Whether `action` runs here yet; one that does not is refused, never attempted."
+  @doc "Whether `action` has an implementation here: every catalogued action does."
   @spec wired?(atom()) :: boolean()
-  def wired?(action), do: action not in @not_wired
+  def wired?(action), do: action in @changes or action in Effects.actions()
 
-  @doc "Whether `action` is a `:change` (transactional) or an `:effect`."
+  @doc "Whether `action` is a `:change` (transactional) or an `:effect` (`AlexClaw.ControlPlane.Effects`)."
   @spec kind(atom()) :: :change | :effect
-  def kind(action) when action in @effects, do: :effect
-  def kind(_action), do: :change
+  def kind(action), do: if(action in @changes, do: :change, else: :effect)
 
   @doc "Run `action` with `params`: `{:ok, result}` or `{:error, reason}`."
-  @spec run(atom(), map()) :: {:ok, term()} | {:error, term()}
+  @spec run(atom(), map()) :: {:ok, term()} | {:error, term()} | term()
 
   # --- workflows
 
@@ -116,8 +125,9 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   # --- settings and secrets
 
-  def run(action, %{key: key, delete: true}) when action in [:set_setting, :set_secret],
-    do: Config.remove(key)
+  def run(action, %{key: key, delete: true})
+      when action in [:set_setting, :set_secret, :set_gateway_owner],
+      do: Config.remove(key)
 
   def run(action, %{key: key, value: value, opts: opts})
       when action in [:set_setting, :set_secret] do
@@ -176,25 +186,14 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   def run(:clear_run_history, %{workflow_id: id}), do: {:ok, Workflows.clear_runs(id)}
 
-  def run(:run_workflow, %{workflow_id: id}) do
-    with {:ok, workflow} <- Workflows.get_workflow(id),
-         do: launched(Launch.start(workflow), workflow)
+  def run(:set_gateway_owner, %{key: key, value: value}) when key in @gateway_owners do
+    with {:ok, _setting} <- Config.persist(key, value, type: "string", category: category(key)),
+         do: {:ok, [key]}
   end
 
-  def run(:download_database, %{acc: acc, open: open, emit: emit}),
-    do: {:ok, Dump.write(open.(acc), emit)}
+  def run(action, params), do: Effects.run(action, params)
 
-  def run(:export_data, %{acc: acc, open: open, emit: emit}),
-    do: {:ok, DataExport.write(open.(acc), emit)}
-
-  def run(:export_workflow, %{workflow_id: id}) do
-    with {:ok, workflow} <- Workflows.get_workflow(id),
-         do: {:ok, {workflow, Workflows.export_workflow(workflow)}}
-  end
-
-  # Staged under skills_dir/pending, never the live directory: loading it
-  # is :load_skill, which approves that file's code.
-  def run(:stage_skill, %{path: path, name: name}), do: SkillRegistry.stage_upload(path, name)
+  defp category(key), do: key |> String.split(".") |> hd()
 
   @doc """
   What to run once a change is committed: everything that is not the
@@ -211,11 +210,11 @@ defmodule AlexClaw.ControlPlane.Actions do
   end
 
   def after_commit(action, _params, keys, _context)
-      when action in [:set_setting, :set_secret] and is_list(keys),
+      when action in [:set_setting, :set_secret, :set_gateway_owner] and is_list(keys),
       do: Enum.each(keys, &Config.publish/1)
 
   def after_commit(action, %{key: key, delete: true}, _removed, _context)
-      when action in [:set_setting, :set_secret],
+      when action in [:set_setting, :set_secret, :set_gateway_owner],
       do: Config.publish(key)
 
   def after_commit(:save_policy, _params, _policy, _context), do: PolicyEngine.reload_policies()
@@ -250,17 +249,45 @@ defmodule AlexClaw.ControlPlane.Actions do
   def verifier(_action, code),
     do: fn -> SecondFactor.impl().verify(code, :web) end
 
+  @doc """
+  Whether a gateway challenge answered with a code was raised for this
+  `action` with these `params`: a chat's code approves the run it was sent
+  for, nothing else.
+  """
+  @spec challenged?(atom(), map()) :: (map() -> boolean())
+  def challenged?(:run_protected_workflow, %{workflow_id: id}),
+    do: &match?(%{type: :run_workflow, workflow_id: ^id}, &1)
+
+  def challenged?(_action, _params), do: fn _challenged -> false end
+
   @doc "The detail of the audit row for `action`: never a secret's value."
   @spec describe(atom(), map()) :: String.t()
   def describe(_action, %{detail: detail}), do: detail
   def describe(:save_workflow, %{attrs: attrs}), do: "workflow #{attrs[:name]}"
 
-  def describe(:run_workflow, %{workflow_id: id}), do: "workflow #{workflow_name(id)} (id #{id})"
+  def describe(action, %{workflow_id: id})
+      when action in [:run_workflow, :run_protected_workflow],
+      do: "workflow #{workflow_name(id)} (id #{id})"
 
   def describe(:attach_login, %{resource_id: id, selector: selector}),
     do: "recording id #{id}, login for #{selector}"
 
   def describe(:stage_skill, %{name: name}), do: "skill upload #{name}"
+
+  def describe(action, %{skill: skill}) when action in [:run_skill, :run_privileged_skill],
+    do: "skill #{skill}"
+
+  def describe(:generate_skill, %{skill_name: name}), do: "skill #{name}"
+  def describe(:load_skill, %{file_path: path}), do: "skill file #{path}"
+
+  def describe(action, %{name: name}) when action in [:load_skill, :unload_skill],
+    do: "skill #{name}"
+
+  def describe(:restore_data, %{filename: filename}), do: "restore from #{filename}"
+  def describe(:record, %{url: url}), do: "recording of #{url}"
+  def describe(:record, %{stop: session_id}), do: "recording #{session_id} stopped"
+  def describe(:connect_google, %{step: step}), do: "Google connection: #{step}"
+  def describe(:set_gateway_owner, %{key: key}), do: "#{key} set"
   def describe(:set_up_second_factor, %{step: step}), do: "second factor set-up: #{step}"
 
   def describe(_action, params) do
@@ -326,7 +353,4 @@ defmodule AlexClaw.ControlPlane.Actions do
   end
 
   defp assign_node(false, _key), do: {:ok, []}
-
-  defp launched({:error, _reason} = refused, _workflow), do: refused
-  defp launched(result, workflow), do: {:ok, {result, workflow}}
 end

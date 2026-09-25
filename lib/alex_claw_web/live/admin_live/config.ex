@@ -6,6 +6,8 @@ defmodule AlexClawWeb.AdminLive.Config do
   alias AlexClawWeb.AdminLive.Config.McpKeyPanel
   alias AlexClawWeb.Live.Elevation
 
+  @gateway_owners ~w(telegram.chat_id discord.channel_id)
+
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
   def mount(_params, session, socket) do
@@ -110,10 +112,6 @@ defmodule AlexClawWeb.AdminLive.Config do
     Elevation.close_entry(socket)
   end
 
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
-  end
-
   @sensitive_patterns ~w(api_key token password secret)
 
   # auth.totp.* is written only by the second-factor setup (Services, and
@@ -182,7 +180,7 @@ defmodule AlexClawWeb.AdminLive.Config do
 
     Elevation.perform(
       socket,
-      setting_action(AlexClaw.Config.secret?(key)),
+      setting_action(key),
       %{
         key: key,
         value: value || "",
@@ -210,8 +208,12 @@ defmodule AlexClawWeb.AdminLive.Config do
     )
   end
 
-  defp setting_action(true), do: :set_secret
-  defp setting_action(false), do: :set_setting
+  # Which chat a gateway answers is its own action: the owner chat receives
+  # every code prompt.
+  defp setting_action(key) when key in @gateway_owners, do: :set_gateway_owner
+
+  defp setting_action(key),
+    do: if(AlexClaw.Config.secret?(key), do: :set_secret, else: :set_setting)
 
   defp gateway_managed?(key) when is_binary(key), do: String.starts_with?(key, "auth.totp.")
   defp gateway_managed?(_key), do: false
@@ -239,7 +241,7 @@ defmodule AlexClawWeb.AdminLive.Config do
   defp delete_setting(false, key, socket) do
     Elevation.perform(
       socket,
-      setting_action(AlexClaw.Config.secret?(key)),
+      setting_action(key),
       %{key: key, delete: true, detail: "#{key}: deleted"},
       ok: fn socket, _removed ->
         settings = AlexClaw.Config.list()

@@ -111,10 +111,6 @@ defmodule AlexClawWeb.AdminLive.Cluster do
     Elevation.close_entry(socket)
   end
 
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
-  end
-
   defp not_added(socket, %Ecto.Changeset{} = changeset) do
     msg =
       Enum.map_join(

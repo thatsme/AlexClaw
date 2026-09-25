@@ -10,19 +10,17 @@ defmodule AlexClaw.Skills.SkillAPI do
   """
   require Logger
 
-  alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken, PolicyEngine}
+  alias AlexClaw.Auth.{AuthContext, PolicyEngine}
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Net.HostGuard
-  alias AlexClaw.Workflows.{Executor, SkillRegistry}
+  alias AlexClaw.Workflows.SkillRegistry
 
-  # Skills that reach the host, the filesystem, the network, or the skill loader
-  # itself, and do not check 2FA inside run/1 — that gate is in the Dispatcher,
-  # which cross-skill invocation goes around. Same set the MCP transport denies.
-  #
-  # Interim: a capability-aware Invoke would decide this per caller, not by name.
-  @privileged_skills ~w(shell coder db_backup web_automation)
-
-  @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke skill_write skill_manage workflow_manage)a
+  # A skill operates AlexClaw; it never authors it. Nothing here writes a
+  # skill, loads one, or creates, changes or starts a workflow — no permission
+  # can bring that back (0.4.0 S5b).
+  @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke workflow_read)a
 
   @type permission_result :: :ok | {:error, :permission_denied}
   @type skill_mod :: module()
@@ -310,59 +308,22 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   # --- Cross-skill invocation ---
 
-  @doc "Invoke another skill by name. Returns the skill's run/1 result."
+  @doc """
+  Invoke another skill by name, through `AlexClaw.ControlPlane.perform/3`
+  (`:run_skill`, audited). Returns the skill's run/1 result. A privileged
+  skill is refused.
+  """
   @spec run_skill(skill_mod(), String.t(), map()) ::
           {:ok, term()} | {:ok, term(), atom()} | {:error, term()}
   def run_skill(skill_module, skill_name, args) do
-    with :ok <- check_permission(skill_module, :skill_invoke),
-         :ok <- check_not_privileged(skill_module, skill_name) do
-      invoke_resolved(SkillRegistry.resolve(skill_name), skill_name, args)
+    with :ok <- check_permission(skill_module, :skill_invoke) do
+      ControlPlane.perform(
+        :run_skill,
+        %{caller: skill_module, skill: skill_name, args: args},
+        Context.skill(inspect(skill_module))
+      )
     end
   end
-
-  defp check_not_privileged(skill_module, skill_name) when skill_name in @privileged_skills do
-    AuditLog.log_deny(
-      AuthContext.build(skill_module, :skill_invoke, SkillRegistry.get_permissions(skill_module)),
-      "cross-skill invocation of privileged skill '#{skill_name}'"
-    )
-
-    {:error, :privileged_skill}
-  end
-
-  defp check_not_privileged(_skill_module, _skill_name), do: :ok
-
-  defp invoke_resolved({:error, :unknown_skill}, skill_name, _args) do
-    {:error, {:unknown_skill, skill_name}}
-  end
-
-  defp invoke_resolved({:ok, target_module}, _skill_name, args) do
-    depth = Process.get(:auth_chain_depth, 0)
-    Process.put(:auth_chain_depth, depth + 1)
-
-    current_token = Process.get(:auth_token)
-    attenuated = attenuate_for(current_token, SkillRegistry.get_permissions(target_module))
-    if attenuated, do: Process.put(:auth_token, attenuated)
-
-    try do
-      target_module.run(args)
-    after
-      Process.put(:auth_chain_depth, depth)
-      if current_token, do: Process.put(:auth_token, current_token)
-    end
-  end
-
-  # Narrow the caller's token to the target skill's permissions. Anything that
-  # cannot be attenuated falls back to the caller's own token unchanged.
-  defp attenuate_for(nil, _target_perms), do: nil
-
-  defp attenuate_for(current_token, target_perms) when is_list(target_perms) do
-    case CapabilityToken.attenuate(current_token, target_perms) do
-      {:ok, token} -> token
-      _ -> current_token
-    end
-  end
-
-  defp attenuate_for(current_token, _target_perms), do: current_token
 
   # --- Skill Outcomes ---
 
@@ -384,88 +345,12 @@ defmodule AlexClaw.Skills.SkillAPI do
     end
   end
 
-  # --- Skill File I/O ---
-
-  @doc "Write a skill file to the skills directory. Validates filename safety."
-  @spec write_skill(skill_mod(), String.t(), String.t()) :: :ok | {:error, term()}
-  def write_skill(skill_module, file_name, code_string) do
-    with :ok <- check_permission(skill_module, :skill_write),
-         :ok <- SkillRegistry.validate_skill_filename(file_name) do
-      dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
-      File.mkdir_p!(dir)
-      File.write(Path.join(dir, file_name), code_string)
-    end
-  end
-
-  @doc "Read a skill file from the skills directory."
-  @spec read_skill(skill_mod(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def read_skill(skill_module, file_name) do
-    with :ok <- check_permission(skill_module, :skill_write),
-         :ok <- SkillRegistry.validate_skill_filename(file_name) do
-      dir = Application.get_env(:alex_claw, :skills_dir, "/app/skills")
-      File.read(Path.join(dir, file_name))
-    end
-  end
-
-  # --- Skill Lifecycle ---
-
-  @doc "Load a dynamic skill from a file in the skills directory."
-  @spec load_skill(skill_mod(), String.t()) :: {:ok, map()} | {:error, term()}
-  def load_skill(skill_module, file_name) do
-    with :ok <- check_permission(skill_module, :skill_manage) do
-      SkillRegistry.load_skill(file_name)
-    end
-  end
-
-  @doc "Unload a dynamic skill by name."
-  @spec unload_skill(skill_mod(), String.t()) :: :ok | {:error, term()}
-  def unload_skill(skill_module, skill_name) do
-    with :ok <- check_permission(skill_module, :skill_manage) do
-      SkillRegistry.unload_skill(skill_name)
-    end
-  end
-
-  @doc "Reload a dynamic skill by name."
-  @spec reload_skill(skill_mod(), String.t()) :: {:ok, map()} | {:error, term()}
-  def reload_skill(skill_module, skill_name) do
-    with :ok <- check_permission(skill_module, :skill_manage) do
-      SkillRegistry.reload_skill(skill_name)
-    end
-  end
-
-  # --- Workflow Management ---
-
-  @doc "Create a new workflow."
-  @spec create_workflow(skill_mod(), map()) :: {:ok, map()} | {:error, term()}
-  def create_workflow(skill_module, attrs) do
-    with :ok <- check_permission(skill_module, :workflow_manage) do
-      AlexClaw.Workflows.create_workflow(attrs)
-    end
-  end
-
-  @doc "Add a step to a workflow."
-  @spec add_workflow_step(skill_mod(), integer(), map()) :: {:ok, map()} | {:error, term()}
-  def add_workflow_step(skill_module, workflow_id, step_attrs) do
-    with :ok <- check_permission(skill_module, :workflow_manage) do
-      case AlexClaw.Workflows.get_workflow(workflow_id) do
-        {:ok, workflow} -> AlexClaw.Workflows.add_step(workflow, step_attrs)
-        {:error, _} = err -> err
-      end
-    end
-  end
-
-  @doc "Run a workflow by ID."
-  @spec run_workflow(skill_mod(), integer()) :: {:ok, term()} | {:error, term()}
-  def run_workflow(skill_module, workflow_id) do
-    with :ok <- check_permission(skill_module, :workflow_manage) do
-      Executor.run(workflow_id)
-    end
-  end
+  # --- Workflow runs ---
 
   @doc "Get a workflow run result by run ID."
   @spec get_workflow_result(skill_mod(), integer()) :: {:ok, map()} | {:error, term()}
   def get_workflow_result(skill_module, run_id) do
-    with :ok <- check_permission(skill_module, :workflow_manage) do
+    with :ok <- check_permission(skill_module, :workflow_read) do
       AlexClaw.Workflows.get_run(run_id)
     end
   end

@@ -1,103 +1,57 @@
 defmodule AlexClaw.Dispatcher.AuthCommands do
-  @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
-  require Logger
+  @moduledoc """
+  Chat commands about the second factor and connections, and the one thing a
+  code typed into a chat approves: a protected workflow run.
 
-  alias AlexClaw.Auth.{Challenge, Elevation, Gate, RunApproval, TOTP}
-  alias AlexClaw.Database.Restore
+  A chat operates AlexClaw; it never authors it (0.4.0 S5b). Setting up,
+  confirming or turning off the second factor, and connecting or
+  disconnecting Google, are done in the admin UI; each command here answers
+  where. A code answered in a chat approves the protected run it was asked
+  for (`chat_approvable/0`), performed as `:run_protected_workflow` through
+  `AlexClaw.ControlPlane.perform/3`, which checks the code against that
+  chat's challenge.
+  """
+  alias AlexClaw.Auth.{Challenge, Gate, TOTP}
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway
-  alias AlexClaw.Google.OAuth
   alias AlexClaw.Message
-  alias AlexClaw.Skills.Shell
-  alias AlexClaw.Workflows.{Executor, SkillRegistry}
 
   @spec dispatch(Message.t()) :: :ok | term()
 
-  # --- 2FA Setup ---
-
   # A chat is not a place for the factor that guards everything else: its
-  # secret never travels over one. The reply says where set-up happens.
-  def dispatch(%Message{text: "/setup 2fa" <> _} = msg) do
-    Gateway.send_message(
-      "Two-factor authentication is set up in the admin UI (Services page), not over a chat.",
-      chat_id: msg.chat_id,
-      gateway: msg.gateway
-    )
-  end
+  # secret never travels over one, and it is neither confirmed nor turned off
+  # from one.
+  def dispatch(%Message{text: "/setup 2fa" <> _} = msg),
+    do:
+      answer(
+        "Two-factor authentication is set up in the admin UI (Services page), not over a chat.",
+        msg
+      )
 
-  def dispatch(%Message{text: "/confirm 2fa " <> code} = msg) do
-    case TOTP.confirm_setup(String.trim(code)) do
-      :ok ->
-        # The codes themselves never travel this way: a chat log is not where
-        # the way back in belongs. The operator is sent to the one place that
-        # shows them once.
-        Gateway.send_message(
-          "2FA enabled! Sensitive actions will now require a code from your authenticator app.\n\n" <>
-            "Generate your recovery codes in the admin UI: Services → Two-factor authentication.",
-          chat_id: msg.chat_id,
-          gateway: msg.gateway
-        )
+  def dispatch(%Message{text: "/confirm 2fa" <> _} = msg),
+    do:
+      answer(
+        "Two-factor authentication is confirmed in the admin UI (Services page), not over a chat.",
+        msg
+      )
 
-      {:error, :invalid_code} ->
-        Gateway.send_message("Invalid code. Try again: /confirm 2fa <code>",
-          chat_id: msg.chat_id,
-          gateway: msg.gateway
-        )
-
-      {:error, :no_pending_setup} ->
-        Gateway.send_message("No pending 2FA setup. Start it in the admin UI (Services page).",
-          chat_id: msg.chat_id,
-          gateway: msg.gateway
-        )
-    end
-  end
-
-  # A chat is not a place for the factor that guards everything else: turning
-  # it off is refused whatever the code, and the reply says where it is done.
   def dispatch(%Message{text: "/disable 2fa" <> _} = msg) do
-    Gateway.send_message(
+    answer(
       "Two-factor authentication is turned off in the admin UI (Services page), " <>
         "with an authenticator code or a recovery code — not over a chat.",
-      chat_id: msg.chat_id,
-      gateway: msg.gateway
+      msg
     )
   end
 
-  # --- OAuth ---
+  def dispatch(%Message{text: "/connect" <> _} = msg),
+    do: answer("Google is connected in the admin UI (Services page), not over a chat.", msg)
 
-  def dispatch(%Message{text: "/connect google" <> _} = msg) do
-    case OAuth.generate_auth_url(msg.chat_id) do
-      {:ok, url} ->
-        Gateway.send_html(
-          "<b>Connect Google Calendar</b>\n\nTap the link below to authorize:\n\n#{url}\n\n<i>This link expires in 10 minutes.</i>",
-          chat_id: msg.chat_id,
-          gateway: msg.gateway
-        )
+  def dispatch(%Message{text: "/disconnect" <> _} = msg),
+    do: answer("Google is disconnected in the admin UI (Services page), not over a chat.", msg)
 
-      {:error, :client_id_not_configured} ->
-        Gateway.send_message(
-          "Google OAuth not configured. Set google.oauth.client_id and google.oauth.client_secret in Admin > Config first.",
-          chat_id: msg.chat_id,
-          gateway: msg.gateway
-        )
-    end
-  end
-
-  def dispatch(%Message{text: "/disconnect google" <> _} = msg) do
-    OAuth.disconnect()
-
-    Gateway.send_message("Google disconnected. Refresh token removed.",
-      chat_id: msg.chat_id,
-      gateway: msg.gateway
-    )
-  end
-
-  def dispatch(%Message{text: "/connect" <> _} = msg) do
-    Gateway.send_message(
-      "Available services:\n/connect google — Google Calendar",
-      chat_id: msg.chat_id,
-      gateway: msg.gateway
-    )
-  end
+  defp answer(text, msg),
+    do: Gateway.send_message(text, chat_id: msg.chat_id, gateway: msg.gateway)
 
   # --- 2FA Helpers ---
 
@@ -138,117 +92,22 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     locked
   end
 
-  # Reached only after the code was verified (the gateway's answer_code, the
-  # web page's ActionCode), so this is where a person's approval is granted —
-  # for this workflow, this one run.
-  @spec execute_2fa_action(map(), Message.t()) :: term()
-  def execute_2fa_action(%{type: :run_workflow, workflow_id: id}, _msg) do
-    approval = RunApproval.grant(id)
+  @doc "The catalogue actions a code typed into a chat can approve."
+  @spec chat_approvable() :: [atom()]
+  def chat_approvable, do: [:run_protected_workflow]
 
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      Executor.run(id, approval: approval)
-    end)
-  end
-
-  def execute_2fa_action(%{type: :shell_command, command: command}, msg) do
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      case Shell.run(%{input: command}) do
-        {:ok, result, _branch} ->
-          Gateway.send_message(result, gateway: msg.gateway)
-
-        {:error, reason} ->
-          Gateway.send_message("Shell error: #{inspect(reason)}", gateway: msg.gateway)
-      end
-    end)
-  end
-
-  # The file waits in skills_dir/pending until the code is verified; only now does
-  # it become a file the loader will resolve. A generated skill that reached this
-  # point failed containment, so the verified code is what authorises it.
-  def execute_2fa_action(%{type: :skill_load, file_path: file_path} = action, _msg) do
-    case SkillRegistry.promote_pending(file_path) do
-      {:error, reason} ->
-        Gateway.send_message("Skill load failed: #{SkillRegistry.describe_error(reason)}")
-
-      _promoted ->
-        report_load(SkillRegistry.load_skill(file_path, load_opts(action)))
-    end
-  end
-
-  # The window starts when the code is accepted, not when it was requested.
-  def execute_2fa_action(%{type: :elevate, sid: sid}, _msg) do
-    {:ok, expires_at} = Elevation.grant(sid)
-    minutes = div(Elevation.window_seconds(), 60)
-
-    Gateway.send_message(
-      "Admin editing unlocked for #{minutes} minutes (until #{format_time(expires_at)} UTC)."
+  @doc """
+  Perform the action a chat's challenge is waiting for, with the code in
+  `msg` — only a protected workflow run. Anything else is refused.
+  """
+  @spec execute_2fa_action(term(), Message.t()) :: {:ok, term()} | {:error, term()}
+  def execute_2fa_action(%{type: :run_workflow, workflow_id: id}, %Message{} = msg) do
+    ControlPlane.perform(
+      :run_protected_workflow,
+      %{workflow_id: id},
+      Context.gateway(msg.chat_id, String.trim(msg.text || ""))
     )
   end
 
-  def execute_2fa_action(%{type: :skill_unload, name: name}, _msg) do
-    case SkillRegistry.unload_skill(name) do
-      :ok ->
-        Gateway.send_message("Skill *#{name}* unloaded.")
-
-      {:error, reason} ->
-        Gateway.send_message("Skill unload failed: #{SkillRegistry.describe_error(reason)}")
-    end
-  end
-
-  def execute_2fa_action(%{type: :skill_reload, name: name}, _msg) do
-    case SkillRegistry.reload_skill(name) do
-      {:ok, %{name: n}} ->
-        Gateway.send_message("Skill *#{n}* reloaded and recompiled.")
-
-      {:error, reason} ->
-        Gateway.send_message("Skill reload failed: #{SkillRegistry.describe_error(reason)}")
-    end
-  end
-
-  # Arbitrary SQL against the live database, so it is never covered by an
-  # elevation window — only by a code answered for this restore. The staged
-  # file is consumed either way: Restore.run/2 deletes it.
-  #
-  # A restore challenge raised before sessions were carried on the action has no
-  # :session, and is recorded as unidentified rather than refused on the spot.
-  def execute_2fa_action(
-        %{type: :database_restore, path: path, filename: filename} = action,
-        _msg
-      ) do
-    Gateway.send_message("Restoring the database from #{filename}...")
-
-    {status, message} =
-      Restore.run(path, %{filename: filename, session: Map.get(action, :session, "unidentified")})
-
-    Phoenix.PubSub.broadcast(
-      AlexClaw.PubSub,
-      "database:restore",
-      {:restore_finished, status, message}
-    )
-
-    Gateway.send_message(message)
-  end
-
-  def execute_2fa_action(action, msg) do
-    Logger.warning("Unknown 2FA action: #{inspect(action)}")
-    Gateway.send_message("Action completed.", chat_id: msg.chat_id, gateway: msg.gateway)
-  end
-
-  defp report_load({:ok, %{name: name, permissions: perms}}) do
-    perm_list = Enum.map_join(perms, ", ", &to_string/1)
-    Gateway.send_message("Skill *#{name}* loaded. Permissions: [#{perm_list}]")
-  end
-
-  defp report_load({:error, reason}) do
-    Gateway.send_message("Skill load failed: #{SkillRegistry.describe_error(reason)}")
-  end
-
-  defp load_opts(%{origin: :generated}), do: [origin: "generated", approval: "totp"]
-  defp load_opts(_action), do: [origin: "upload", approval: "totp"]
-
-  defp format_time(unix_seconds) do
-    unix_seconds
-    |> DateTime.from_unix!()
-    |> Calendar.strftime("%H:%M")
-  end
+  def execute_2fa_action(_action, _msg), do: {:error, :not_chat_approvable}
 end

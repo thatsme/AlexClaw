@@ -30,6 +30,8 @@ defmodule AlexClaw.Config.SecretUpgrade do
   alias AlexClaw.Config
   alias AlexClaw.Config.{Crypto, SecretSettings, Setting}
   alias AlexClaw.Config.SecretUpgrade.Records
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.MCP.Key
   alias AlexClaw.{Repo, Secrets, Vault}
 
@@ -48,7 +50,9 @@ defmodule AlexClaw.Config.SecretUpgrade do
   @doc false
   @spec start_link() :: :ignore
   def start_link do
-    {:ok, result} = run()
+    {:ok, result} =
+      ControlPlane.perform(:upgrade_secrets, %{}, Context.system("secret upgrade at boot"))
+
     report(result)
     :ignore
   end

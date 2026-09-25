@@ -440,10 +440,6 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     ActionCode.cancel(socket)
   end
 
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
-  end
-
   # The requires_2fa rule lives in Workflows.Launch, because the Scheduler page
   # starts the same runs and used to do it without asking.
   defp run_workflow(socket, wf_id) do
@@ -469,7 +465,8 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     {:noreply, socket} =
       ActionCode.request(
         socket,
-        %{type: :run_workflow, workflow_id: workflow.id},
+        :run_protected_workflow,
+        %{workflow_id: workflow.id},
         "Run workflow: #{workflow.name}"
       )
 

@@ -37,10 +37,8 @@ defmodule AlexClawWeb.CoreComponents do
   @doc """
   The elevation state of the page: unconfigured, locked, unlocked, or asking.
 
-  The code field is the ordinary way in — the authenticator is the second
-  factor, and typing the code where you already are is what people expect. The
-  gateway challenge sits beside it for operators who would rather have the
-  prompt arrive on another device.
+  The code field is the way in: the authenticator is the second factor, and
+  its code is typed where you already are. A chat cannot unlock editing.
   """
   @spec elevation_bar(map()) :: Phoenix.LiveView.Rendered.t()
   def elevation_bar(%{elevation: %{configured?: false}} = assigns) do
@@ -109,13 +107,6 @@ defmodule AlexClawWeb.CoreComponents do
         >
           Cancel
         </button>
-        <button
-          type="button"
-          phx-click="request_gateway_code"
-          class="text-xs text-gray-400 hover:text-gray-200 underline bg-transparent border-none cursor-pointer"
-        >
-          Send the prompt to my gateway instead
-        </button>
       </form>
       <p :if={@elevation.message} class="text-red-300 text-xs">{@elevation.message}</p>
     </div>
@@ -181,7 +172,6 @@ defmodule AlexClawWeb.CoreComponents do
         >
           Cancel
         </button>
-        <span class="text-xs text-gray-500">or answer the prompt on your gateway</span>
       </form>
       <p :if={@action_code.message} class="text-red-300 text-xs">{@action_code.message}</p>
     </div>

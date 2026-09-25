@@ -181,10 +181,6 @@ defmodule AlexClawWeb.AdminLive.Policies do
     Elevation.close_entry(socket)
   end
 
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
-  end
-
   # --- Helpers ---
 
   defp tip(assigns) do

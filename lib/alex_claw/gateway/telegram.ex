@@ -265,7 +265,6 @@ defmodule AlexClaw.Gateway.Telegram do
 
   defp dispatch_message(message, true, dispatch) do
     Logger.info("Received: #{message.text}", [])
-    maybe_save_chat_id(message.chat_id)
     dispatch.(message)
   end
 
@@ -282,25 +281,13 @@ defmodule AlexClaw.Gateway.Telegram do
     }
   end
 
-  defp authorized_chat?(chat_id) do
-    configured = get_chat_id()
-    # Allow if no chat_id configured yet (first-message auto-detect)
-    configured == nil or configured == "" or to_string(chat_id) == to_string(configured)
-  end
+  # Only the owner chat, set in the admin UI (:set_gateway_owner), is
+  # answered. With none set nothing is, and no message makes its chat the
+  # owner.
+  defp authorized_chat?(chat_id), do: owner?(get_chat_id(), chat_id)
 
-  defp maybe_save_chat_id(nil), do: :ok
-
-  defp maybe_save_chat_id(chat_id) do
-    current = Config.get("telegram.chat_id")
-
-    if current == nil or current == "" do
-      Config.set("telegram.chat_id", to_string(chat_id), type: "string", category: "telegram")
-
-      Logger.warning(
-        "Auto-saved Telegram chat_id: #{chat_id} — verify this is your chat. Set telegram.chat_id in config to disable auto-detect."
-      )
-    end
-  end
+  defp owner?(configured, _chat_id) when configured in [nil, ""], do: false
+  defp owner?(configured, chat_id), do: to_string(chat_id) == to_string(configured)
 
   # Telegram refuses a message over 4096 characters outright, so an overlong
   # one arrived as nothing at all. It is cut, and says so.

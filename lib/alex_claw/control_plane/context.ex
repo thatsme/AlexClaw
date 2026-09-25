@@ -4,8 +4,8 @@ defmodule AlexClaw.ControlPlane.Context do
   point, and with what proof.
 
   A context is built from facts, not claims. `admin_ui/1` reads the session's
-  elevation; `admin_ui/2` carries a code that the control plane itself
-  verifies; the other constructors name an entry point that brings no second
+  elevation; `admin_ui/2` and `gateway/2` carry a code that the control plane
+  itself verifies; the other constructors name an entry point that brings no second
   factor. `perform/3` refuses any context not built by one of them, and reads
   the elevation again when the action is performed.
 
@@ -23,13 +23,14 @@ defmodule AlexClaw.ControlPlane.Context do
 
   @derive {Inspect, except: [:sid, :code]}
   @enforce_keys [:entry_point, :identity]
-  defstruct [:entry_point, :identity, :proof, :sid, :code, verified: false]
+  defstruct [:entry_point, :identity, :proof, :sid, :chat_id, :code, verified: false]
 
   @type t :: %__MODULE__{
           entry_point: entry_point(),
           identity: String.t(),
           proof: proof(),
           sid: String.t() | nil,
+          chat_id: String.t() | nil,
           code: String.t() | nil,
           verified: boolean()
         }
@@ -62,7 +63,15 @@ defmodule AlexClaw.ControlPlane.Context do
 
   @doc "A gateway chat."
   @spec gateway(String.t() | integer()) :: t()
-  def gateway(chat_id), do: bare(:gateway, "chat:#{chat_id}")
+  def gateway(chat_id), do: %{bare(:gateway, "chat:#{chat_id}") | chat_id: to_string(chat_id)}
+
+  @doc """
+  A gateway chat answering the challenge it was sent with `code`. The control
+  plane checks the code against that chat's challenge; until then the
+  context proves nothing.
+  """
+  @spec gateway(String.t() | integer(), String.t()) :: t()
+  def gateway(chat_id, code) when is_binary(code), do: %{gateway(chat_id) | code: code}
 
   @doc "An MCP client."
   @spec mcp(String.t()) :: t()

@@ -116,10 +116,6 @@ defmodule AlexClawWeb.AdminLive.LLM do
     Elevation.close_entry(socket)
   end
 
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
-  end
-
   defp delete_provider(:error, socket), do: {:noreply, socket}
 
   defp delete_provider({:ok, id}, socket) do

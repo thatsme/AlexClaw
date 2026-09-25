@@ -1,50 +1,30 @@
 defmodule AlexClawWeb.OAuthCallbackController do
-  @moduledoc "Handles OAuth2 redirect callbacks for Google Calendar integration."
+  @moduledoc """
+  The Google OAuth redirect. It needs the signed-in session that asked for
+  the connection, holding the elevation: the state must have been issued to
+  that session, and the exchange is performed as `:connect_google` through
+  `AlexClaw.ControlPlane.perform/3`.
+  """
 
   use Phoenix.Controller, formats: [:html]
   import Plug.Conn
 
-  alias AlexClaw.Gateway
-  alias AlexClaw.Google.OAuth
+  alias AlexClaw.Auth.Elevation
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
+
+  @again "Connect Google again from the admin UI (Services page)."
 
   @spec google(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def google(conn, %{"code" => code, "state" => state}) do
-    case OAuth.handle_callback(code, state) do
-      {:ok, chat_id} ->
-        Gateway.send_html(
-          "<b>Google Calendar connected!</b>\n\nYour calendar events are now available in workflows.\nUse the <code>google_calendar</code> skill in a workflow step.",
-          chat_id: parse_chat_id(chat_id)
-        )
+    sid = get_session(conn, :elevation_sid)
 
-        conn
-        |> put_resp_content_type("text/html")
-        |> send_resp(200, success_html())
-
-      {:error, :state_expired} ->
-        conn
-        |> put_resp_content_type("text/html")
-        |> send_resp(400, error_html("Link expired. Send /connect google again."))
-
-      {:error, :invalid_state} ->
-        conn
-        |> put_resp_content_type("text/html")
-        |> send_resp(400, error_html("Invalid or already used link. Send /connect google again."))
-
-      {:error, :no_refresh_token} ->
-        conn
-        |> put_resp_content_type("text/html")
-        |> send_resp(
-          400,
-          error_html(
-            "Google did not return a refresh token. Try /connect google again — Google needs to show the consent screen."
-          )
-        )
-
-      {:error, reason} ->
-        conn
-        |> put_resp_content_type("text/html")
-        |> send_resp(500, error_html("Connection failed: #{inspect(reason)}"))
-    end
+    :connect_google
+    |> ControlPlane.perform(
+      %{step: :finish, code: code, state: state, owner: owner(sid)},
+      Context.admin_ui(sid)
+    )
+    |> answered(conn)
   end
 
   def google(conn, %{"error" => error}) do
@@ -53,16 +33,39 @@ defmodule AlexClawWeb.OAuthCallbackController do
     |> send_resp(400, error_html("Authorization denied: #{error}"))
   end
 
-  defp parse_chat_id(id) when is_integer(id), do: id
+  defp owner(sid) when is_binary(sid), do: Elevation.fingerprint(sid)
+  defp owner(_sid), do: "unidentified"
 
-  defp parse_chat_id(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {int, _} -> int
-      :error -> id
-    end
+  defp answered({:ok, _owner}, conn), do: page(conn, 200, success_html())
+
+  defp answered({:error, :second_factor_required}, conn),
+    do: page(conn, 403, error_html("Unlock editing in the admin UI first, then " <> @again))
+
+  defp answered({:error, :state_expired}, conn),
+    do: page(conn, 400, error_html("Link expired. " <> @again))
+
+  defp answered({:error, :invalid_state}, conn),
+    do: page(conn, 400, error_html("Invalid or already used link. " <> @again))
+
+  defp answered({:error, :no_refresh_token}, conn) do
+    page(
+      conn,
+      400,
+      error_html(
+        "Google did not return a refresh token — Google needs to show the consent screen. " <>
+          @again
+      )
+    )
   end
 
-  defp parse_chat_id(id), do: id
+  defp answered({:error, reason}, conn),
+    do: page(conn, 500, error_html("Connection failed: #{inspect(reason)}"))
+
+  defp page(conn, status, html) do
+    conn
+    |> put_resp_content_type("text/html")
+    |> send_resp(status, html)
+  end
 
   defp success_html do
     """

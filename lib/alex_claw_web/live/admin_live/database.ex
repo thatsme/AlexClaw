@@ -109,8 +109,8 @@ defmodule AlexClawWeb.AdminLive.Database do
   defp challenge(true, path, filename, socket) do
     ActionCode.request(
       socket,
+      :restore_data,
       %{
-        type: :database_restore,
         path: path,
         filename: filename,
         session: session_print(socket.assigns.elevation_sid)

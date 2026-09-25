@@ -160,24 +160,15 @@ of the caller's permissions, never more. Chains are limited to depth 3.
 {:ok, stats} = SkillAPI.skill_outcome_stats(MySkill, "web_fetch")
 ```
 
-## Skill and Workflow Management
+## Workflow Results
 
-These are administrative and rarely belong in an ordinary skill.
+A skill operates AlexClaw; it does not author it. SkillAPI has no function that
+writes, reads, loads or unloads a skill file, or that creates, changes or starts
+a workflow, and no permission grants one. Skills are loaded and workflows built
+and started in the admin UI. A skill may read the result of a workflow run:
 
 ```elixir
-# Skill files (requires :skill_write)
-:ok = SkillAPI.write_skill(MySkill, "generated.ex", source)
-{:ok, source} = SkillAPI.read_skill(MySkill, "generated.ex")
-
-# Registry (requires :skill_manage)
-{:ok, info} = SkillAPI.load_skill(MySkill, "generated.ex")
-:ok = SkillAPI.unload_skill(MySkill, "generated")
-{:ok, info} = SkillAPI.reload_skill(MySkill, "generated")
-
-# Workflows (requires :workflow_manage)
-{:ok, workflow} = SkillAPI.create_workflow(MySkill, attrs)
-{:ok, step} = SkillAPI.add_workflow_step(MySkill, workflow.id, step_attrs)
-{:ok, result} = SkillAPI.run_workflow(MySkill, workflow.id)
+# Requires :workflow_read
 {:ok, run} = SkillAPI.get_workflow_result(MySkill, run_id)
 ```
 
@@ -199,9 +190,7 @@ else is rejected at load with `unknown_permissions`.
 | `:config_read` | `config_get` — sensitive keys are refused |
 | `:resources_read` | `list_resources`, `get_resource` — credentials are redacted |
 | `:skill_invoke` | `run_skill` — excluding the four privileged core skills |
-| `:skill_write` | `write_skill`, `read_skill` |
-| `:skill_manage` | `load_skill`, `unload_skill`, `reload_skill` |
-| `:workflow_manage` | `create_workflow`, `add_workflow_step`, `run_workflow`, `get_workflow_result` |
+| `:workflow_read` | `get_workflow_result` |
 
 ### Permissions and unattended loading
 

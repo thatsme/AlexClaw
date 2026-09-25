@@ -79,16 +79,16 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   @impl true
   def handle_event("unload_skill", %{"name" => name}, socket) do
-    socket
-    |> assign(pending_2fa: name)
-    |> ActionCode.request(%{type: :skill_unload, name: name}, "Unload skill: #{name}")
+    Elevation.perform(socket, :unload_skill, %{name: name},
+      ok: fn socket, _name -> assign(socket, skills: build_skill_list()) end
+    )
   end
 
   @impl true
   def handle_event("reload_skill", %{"name" => name}, socket) do
     socket
     |> assign(pending_2fa: name)
-    |> ActionCode.request(%{type: :skill_reload, name: name}, "Reload skill: #{name}")
+    |> ActionCode.request(:load_skill, %{name: name, reload: true}, "Reload skill: #{name}")
   end
 
   def handle_event("submit_action_code", %{"code" => code}, socket) do
@@ -102,7 +102,11 @@ defmodule AlexClawWeb.AdminLive.Skills do
   defp upload_skill(socket, filename) do
     socket
     |> assign(uploading: false, pending_2fa: filename)
-    |> ActionCode.request(%{type: :skill_load, file_path: filename}, "Load skill: #{filename}")
+    |> ActionCode.request(
+      :load_skill,
+      %{file_path: filename, origin: :upload},
+      "Load skill: #{filename}"
+    )
   end
 
   # Staged under skills_dir/pending, never the live directory: until the 2FA code

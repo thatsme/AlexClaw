@@ -57,8 +57,8 @@ If any are detected without `external/0`, the skill is **rejected** (fail-closed
 |---|---|
 | Access the database directly | No `Repo` access through SkillAPI |
 | Call arbitrary Elixir modules | Convention, not enforcement (BEAM limitation) |
-| Modify other skills | Requires `:skill_manage` permission |
-| Modify workflows | Requires `:workflow_manage` permission |
+| Modify other skills | SkillAPI has no function that writes or loads a skill |
+| Modify or start workflows | SkillAPI has no function that creates, changes or starts a workflow |
 | Execute shell commands | Requires `:shell` permission + 2FA |
 | Escalate permissions | Capability token is scoped at mint time |
 

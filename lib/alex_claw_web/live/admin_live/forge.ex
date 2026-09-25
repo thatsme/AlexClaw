@@ -3,6 +3,8 @@ defmodule AlexClawWeb.AdminLive.Forge do
 
   use Phoenix.LiveView
 
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.LLM
   alias AlexClaw.Memory
   alias AlexClaw.Skills.{CodeGenerator, ForgeGuard}
@@ -159,6 +161,18 @@ defmodule AlexClawWeb.AdminLive.Forge do
   # Retries are spent. Code that merely failed has nothing more to offer, but code
   # that only failed containment is still staged — it can load if a person approves it.
 
+  def handle_async(:forge_step, {:ok, {:error, refusal}}, socket) do
+    ForgeGuard.release()
+
+    socket =
+      socket
+      |> Elevation.refresh()
+      |> assign(status: :failed, loading: false, error: "Not generated: #{inspect(refusal)}")
+      |> add_system_msg("Not generated: unlock editing first (#{inspect(refusal)}).")
+
+    {:noreply, socket}
+  end
+
   def handle_async(:forge_step, {:exit, reason}, socket) do
     ForgeGuard.release()
 
@@ -173,12 +187,12 @@ defmodule AlexClawWeb.AdminLive.Forge do
   defp exhausted(socket, {:not_contained, violations}, retries_left) do
     listed = Enum.join(violations, ", ")
 
-    %{
-      type: :skill_load,
-      file_path: "#{socket.assigns.current_skill_name}.ex",
-      origin: :generated
-    }
-    |> then(&ActionCode.request(socket, &1, "Approve generated skill: #{listed}"))
+    socket
+    |> ActionCode.request(
+      :load_skill,
+      %{file_path: "#{socket.assigns.current_skill_name}.ex", origin: :generated},
+      "Approve generated skill: #{listed}"
+    )
     |> approval_pending(socket, listed, retries_left)
   end
 
@@ -190,7 +204,7 @@ defmodule AlexClawWeb.AdminLive.Forge do
     socket
     |> add_system_msg(
       "Left staged in pending/. It calls outside the contained set (#{listed}), " <>
-        "so it needs a 2FA code — enter it above, or approve it on a gateway."
+        "so it needs a 2FA code — enter it above."
     )
     |> assign(status: :failed, loading: false, retries_left: retries_left)
   end
@@ -274,21 +288,23 @@ defmodule AlexClawWeb.AdminLive.Forge do
           String.t(),
           {term(), String.t() | nil} | nil
         ) :: Phoenix.LiveView.Socket.t()
+  # Each attempt is performed as :generate_skill through the control plane:
+  # the elevation is read, and the attempt audited, every time.
   defp start_forge_step(socket, goal, skill_name, last_failure) do
-    provider = socket.assigns.provider
-    context_source = socket.assigns.context_source
+    params = %{
+      goal: goal,
+      skill_name: skill_name,
+      context: socket.assigns.context_source,
+      provider: socket.assigns.provider,
+      last: last_failure
+    }
+
+    context = Context.admin_ui(socket.assigns.elevation_sid)
 
     start_async(socket, :forge_step, fn ->
-      forge_step(goal, skill_name, context_source, provider, last_failure)
+      ControlPlane.perform(:generate_skill, params, context)
     end)
   end
-
-  # The first attempt generates; the ones after repair what the last one wrote.
-  defp forge_step(goal, skill_name, context_source, provider, nil),
-    do: CodeGenerator.generate_step(goal, skill_name, context_source, provider, nil)
-
-  defp forge_step(goal, skill_name, context_source, provider, last_failure),
-    do: CodeGenerator.retry_step(goal, skill_name, context_source, provider, last_failure)
 
   @spec add_system_msg(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
   defp add_system_msg(socket, content) do

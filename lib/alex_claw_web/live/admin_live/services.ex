@@ -124,6 +124,25 @@ defmodule AlexClawWeb.AdminLive.Services do
     {:noreply, regenerated(performed, socket)}
   end
 
+  # Google is connected from here, not from a chat: the authorisation is
+  # issued to this session, and only this session redeems it at the callback.
+  def handle_event("connect_google", _params, socket) do
+    Elevation.perform(socket, :connect_google, %{step: :start, owner: owner(socket)},
+      ok: fn socket, url -> redirect(socket, external: url) end,
+      error: &not_connected/2
+    )
+  end
+
+  def handle_event("disconnect_google", _params, socket) do
+    Elevation.perform(socket, :disconnect_google, %{},
+      ok: fn socket, _disconnected ->
+        socket
+        |> assign(services: build_services())
+        |> put_flash(:info, "Google disconnected. Its refresh token was removed.")
+      end
+    )
+  end
+
   # Ends every admin login, this one included, on every node. A change like any
   # other: behind an elevation, and audited with the delete.
   def handle_event("sign_out_everywhere", _params, socket) do
@@ -138,7 +157,6 @@ defmodule AlexClawWeb.AdminLive.Services do
     do: Elevation.submit_code(socket, code)
 
   def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
-  def handle_event("request_gateway_code", _params, socket), do: Elevation.unlock(socket)
 
   defp reembed_detail(0), do: "Nothing to re-embed"
   defp reembed_detail(total), do: "Re-embedding #{total} entries in background..."
@@ -307,6 +325,22 @@ defmodule AlexClawWeb.AdminLive.Services do
     |> URI.decode_query()
     |> Map.get("secret", "")
   end
+
+  defp owner(socket), do: socket |> sid() |> fingerprint()
+
+  defp fingerprint(sid) when is_binary(sid), do: AlexClaw.Auth.Elevation.fingerprint(sid)
+  defp fingerprint(_sid), do: "unidentified"
+
+  defp not_connected(socket, :client_id_not_configured),
+    do:
+      put_flash(
+        socket,
+        :error,
+        "Set google.oauth.client_id and client_secret on the Config page first."
+      )
+
+  defp not_connected(socket, reason),
+    do: put_flash(socket, :error, "Google not connected: #{inspect(reason)}")
 
   defp sid(%{assigns: %{elevation_sid: sid}}), do: sid
   defp sid(_socket), do: nil

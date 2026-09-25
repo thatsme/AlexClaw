@@ -13,14 +13,15 @@ defmodule AlexClawWeb.Live.Elevation do
   state in which a write proceeds on the password alone.
 
   Pages take the session identifier at mount, subscribe to their own elevation
-  topic, and re-render when it changes — so a code answered on Telegram unlocks
-  the tab that asked, without a refresh.
+  topic, and re-render when it changes — so a code typed in one tab unlocks the
+  others of the same session, without a refresh. A chat cannot unlock editing:
+  a code typed into a chat approves a protected workflow run and nothing else.
   """
 
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1, put_flash: 3]
 
-  alias AlexClaw.Auth.{AuditLog, CodeAttempts, CodeEntry, Elevation, Gate}
+  alias AlexClaw.Auth.{AuditLog, CodeAttempts, CodeEntry, Elevation}
   alias AlexClaw.ControlPlane
   alias AlexClaw.ControlPlane.Context
   alias Phoenix.LiveView.Socket
@@ -114,9 +115,7 @@ defmodule AlexClawWeb.Live.Elevation do
   @doc """
   Open the code field.
 
-  The authenticator is the second factor, so the default way to give a code is
-  to type it where you are. The gateway challenge stays available beside it for
-  operators who would rather answer on another device.
+  The authenticator is the second factor; its code is typed where you are.
   """
   @spec open_entry(Socket.t()) :: {:noreply, Socket.t()}
   def open_entry(socket), do: {:noreply, refresh(socket, true, nil)}
@@ -137,10 +136,6 @@ defmodule AlexClawWeb.Live.Elevation do
     sid = sid(socket)
     granted(CodeEntry.verify(sid, code, :web), sid, socket)
   end
-
-  @doc "Raise a 2FA challenge that will unlock this session when answered."
-  @spec unlock(Socket.t()) :: {:noreply, Socket.t()}
-  def unlock(socket), do: request_unlock(sid(socket), socket)
 
   @doc "Apply an elevation broadcast to a page that is following one."
   @spec handle_broadcast(Socket.t(), tuple()) :: Socket.t()
@@ -212,38 +207,6 @@ defmodule AlexClawWeb.Live.Elevation do
 
   defp refusal_message(:not_configured),
     do: "No second factor is configured yet."
-
-  defp request_unlock(sid, socket) when is_binary(sid) do
-    %{type: :elevate, sid: sid}
-    |> Gate.request("Unlock admin editing for #{minutes()} minutes")
-    |> unlocking(socket)
-  end
-
-  defp request_unlock(_sid, socket) do
-    {:noreply, put_flash(socket, :error, "This session has no identifier — sign in again")}
-  end
-
-  defp unlocking(:challenged, socket) do
-    {:noreply, put_flash(socket, :info, "2FA code requested — check Telegram/Discord")}
-  end
-
-  # Every chat that could receive the prompt is locked after wrong codes; a
-  # prompt it cannot answer is not sent, and the page says why.
-  defp unlocking({:locked, minutes}, socket) do
-    {:noreply,
-     put_flash(
-       socket,
-       :error,
-       "Code entry on your gateway is locked after too many wrong codes — try again in #{minutes} min"
-     )}
-  end
-
-  # Enabled 2FA with nowhere to send the prompt is not a second factor, and
-  # pretending otherwise would lock the operator out of their own settings.
-  defp unlocking(:no_2fa, socket) do
-    {:noreply,
-     put_flash(socket, :error, "No gateway is configured to receive the code — cannot unlock")}
-  end
 
   defp state(sid), do: state(sid, false, nil)
 

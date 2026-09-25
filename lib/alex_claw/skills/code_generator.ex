@@ -193,7 +193,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
   defp runtime_verdict(%{module: module}, _vetted), do: validate_runtime(module)
 
   defp revert_load(skill_name, reason, code) do
-    SkillAPI.unload_skill(AlexClaw.Skills.Coder, skill_name)
+    SkillRegistry.unload_skill(skill_name)
     {:error, {:runtime_validation, reason}, code}
   end
 

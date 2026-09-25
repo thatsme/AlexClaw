@@ -34,7 +34,7 @@ defmodule AlexClaw.ControlPlane do
   `gated/4`; an effect — a run, a download — starts once its row is written.
   """
 
-  alias AlexClaw.Auth.{AuditLog, CodeEntry, Elevation, Principal}
+  alias AlexClaw.Auth.{AuditLog, Challenge, CodeEntry, Elevation, Principal}
   alias AlexClaw.ControlPlane.{Actions, Context}
   alias AlexClaw.Repo
 
@@ -252,8 +252,8 @@ defmodule AlexClaw.ControlPlane do
 
     committed =
       Repo.transaction(fn ->
-        context.sid
-        |> CodeEntry.verify_with(:web, Actions.verifier(action, code))
+        action
+        |> verify_code(params, context, code)
         |> checked(action, params, context, reason)
       end)
 
@@ -273,6 +273,15 @@ defmodule AlexClaw.ControlPlane do
     end
   end
 
+  # An effect for a code: the code is checked first, then the row, then the
+  # effect starts.
+  defp run(:effect, action, params, %Context{code: code} = context) when is_binary(code) do
+    case verify_code(action, params, context, code) do
+      :ok -> run(:effect, action, params, %{context | code: nil})
+      {:error, why} -> deny(action, params, context, why)
+    end
+  end
+
   defp run(:effect, action, params, context) do
     reason = reason(action, params, context)
 
@@ -281,6 +290,26 @@ defmodule AlexClaw.ControlPlane do
       {:error, _reason} -> {:error, :audit_failed}
     end
   end
+
+  # The admin UI's code is the session's authenticator code (or, where the
+  # action says so, the action's own check). A gateway's is the answer to the
+  # challenge that chat was sent, and holds only for the action it was sent for.
+  defp verify_code(action, _params, %Context{entry_point: :admin_ui, sid: sid}, code),
+    do: CodeEntry.verify_with(sid, :web, Actions.verifier(action, code))
+
+  defp verify_code(action, params, %Context{entry_point: :gateway, chat_id: chat_id}, code) do
+    chat_id
+    |> Challenge.resolve(code)
+    |> challenged(Actions.challenged?(action, params))
+  end
+
+  defp challenged({:ok, challenged_action}, matches?),
+    do: challenge_matched(matches?.(challenged_action))
+
+  defp challenged({:error, _reason} = refused, _matches?), do: refused
+
+  defp challenge_matched(true), do: :ok
+  defp challenge_matched(false), do: {:error, :not_the_challenged_action}
 
   defp checked(:ok, action, params, context, reason) do
     with {:audit, :ok} <- {:audit, audit(context, action, "write", reason)},

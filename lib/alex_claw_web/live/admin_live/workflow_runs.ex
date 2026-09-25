@@ -87,7 +87,6 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
     do: Elevation.submit_code(socket, code)
 
   def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
-  def handle_event("request_gateway_code", _params, socket), do: Elevation.unlock(socket)
 
   @impl true
   def handle_info({event, %{workflow_id: wf_id}}, socket)

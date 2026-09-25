@@ -17,6 +17,19 @@
     </div>
   </div>
 
+  <div class="bg-gray-900 rounded-lg border border-gray-800 p-4 space-y-2">
+    <form :if={!@recording_session} phx-submit="record" class="flex items-center gap-2">
+      <label class="text-sm text-gray-400 whitespace-nowrap">Record a page</label>
+      <input type="url" name="url" placeholder="https://..." required
+        class="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-white text-sm" />
+      <button type="submit" class="px-3 py-1.5 bg-claw-700 hover:bg-claw-600 text-white text-xs rounded">Start recording</button>
+    </form>
+    <div :if={@recording_session} class="flex items-center gap-3">
+      <span class="text-sm text-gray-300">Recording session <code>{@recording_session}</code></span>
+      <button phx-click="stop_recording" class="px-3 py-1.5 bg-red-800 hover:bg-red-700 text-white text-xs rounded">Stop and save</button>
+    </div>
+  </div>
+
   <div :if={@show_form} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
     <h2 class="text-lg font-semibold text-white mb-4">{if @editing, do: "Edit Resource", else: "New Resource"}</h2>
     <form phx-submit="save" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -174,6 +187,9 @@
             <button :if={resource.type == "api" and is_binary(resource.url) and resource.url != ""}
               phx-click="discover" phx-value-id={resource.id}
               class="text-xs text-blue-500 hover:text-blue-400">Discover</button>
+            <button :if={resource.type == "automation"}
+              phx-click="replay" phx-value-id={resource.id}
+              class="text-xs text-blue-500 hover:text-blue-400">Replay</button>
             <button phx-click="edit" phx-value-id={resource.id}
               class="text-xs text-claw-500 hover:text-claw-400">Edit</button>
             <button phx-click="delete" phx-value-id={resource.id}

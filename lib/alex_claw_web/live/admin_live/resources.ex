@@ -28,7 +28,8 @@ defmodule AlexClawWeb.AdminLive.Resources do
        type_filter: type_filter,
        resource_types: @resource_types,
        show_form: false,
-       editing: nil
+       editing: nil,
+       recording_session: nil
      )}
   end
 
@@ -127,6 +128,32 @@ defmodule AlexClawWeb.AdminLive.Resources do
   @impl true
   def handle_event("discover", %{"id" => id}, socket), do: discover(parse_id(id), socket)
 
+  # Recording and replaying a page start a browser session, and a recording
+  # can later hold a login: admin UI only, with the elevation.
+  def handle_event("record", %{"url" => url}, socket) do
+    Elevation.perform(socket, :record, %{url: String.trim(url)},
+      ok: fn socket, text ->
+        socket
+        |> assign(recording_session: session_of(text))
+        |> put_flash(:info, text)
+      end,
+      error: &not_recorded/2
+    )
+  end
+
+  def handle_event("stop_recording", _params, socket) do
+    Elevation.perform(socket, :record, %{stop: socket.assigns.recording_session},
+      ok: fn socket, resource ->
+        socket
+        |> assign(recording_session: nil, resources: list_resources(socket.assigns.type_filter))
+        |> put_flash(:info, "Recording saved as resource #{resource.name} (id #{resource.id})")
+      end,
+      error: &not_recorded/2
+    )
+  end
+
+  def handle_event("replay", %{"id" => id}, socket), do: replay(parse_id(id), socket)
+
   def handle_event("unlock_editing", _params, socket) do
     Elevation.open_entry(socket)
   end
@@ -139,9 +166,32 @@ defmodule AlexClawWeb.AdminLive.Resources do
     Elevation.close_entry(socket)
   end
 
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
+  defp replay(:error, socket), do: {:noreply, socket}
+
+  defp replay({:ok, id}, socket) do
+    Elevation.perform(socket, :replay, %{resource_id: id},
+      ok: fn socket, text -> put_flash(socket, :info, text) end,
+      error: &not_recorded/2
+    )
   end
+
+  defp session_of(text) do
+    case Regex.run(~r/Session: `([^`]+)`/, text) do
+      [_, id] -> id
+      _ -> nil
+    end
+  end
+
+  # Field names only, never a recorded value: a recording may hold a password.
+  defp not_recorded(socket, reasons) when is_list(reasons),
+    do: put_flash(socket, :error, "Not saved: " <> Enum.join(reasons, "; "))
+
+  defp not_recorded(socket, %Ecto.Changeset{} = changeset) do
+    fields = changeset.errors |> Keyword.keys() |> Enum.map_join(", ", &to_string/1)
+    put_flash(socket, :error, "Not saved (#{fields})")
+  end
+
+  defp not_recorded(socket, reason), do: put_flash(socket, :error, "Not done: #{inspect(reason)}")
 
   defp resource_attrs(params) do
     %{

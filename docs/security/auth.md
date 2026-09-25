@@ -35,9 +35,14 @@ TOTP-based 2FA using authenticator apps (Google Authenticator, Authy, etc.).
 
 ### Setup
 
-1. Send `/setup 2fa` to your Telegram/Discord bot
-2. Scan the QR code with your authenticator app
-3. Confirm with `/confirm 2fa <code>`
+1. In the admin UI, open **Services → Two-factor authentication** and choose
+   *Set up*
+2. Scan the QR code with your authenticator app, or type the key shown
+3. Confirm with a code from the app
+
+Setting up is refused while 2FA is on: the active factor is replaced only by
+turning it off first, which takes a current code. The secret is never sent over
+a chat.
 
 ### Protected Operations
 
@@ -76,8 +81,8 @@ Admin UI actions that require 2FA are verified via Telegram or Discord — the T
 ### Management Commands
 
 ```
-/setup 2fa        → Generate secret and QR code
-/confirm 2fa CODE → Confirm 2FA setup
+/setup 2fa        → refused: answers that set-up is in the admin UI
+/disable 2fa      → refused: answers that turning it off is in the admin UI
 ```
 
 Two-factor authentication is turned off from the Services page only, with a

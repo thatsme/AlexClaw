@@ -395,12 +395,12 @@ All commands listed under `/help` work identically in Discord and Telegram.
 
 AlexClaw supports TOTP-based 2FA for sensitive operations (workflow 2FA checkboxes).
 
-### Setup via Telegram
+### Setup
 
-1. Send `/setup 2fa` to your bot
-2. You'll receive a QR code and a manual key
-3. Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)
-4. Send `/confirm 2fa <6-digit-code>` with a code from your authenticator
+1. In the admin UI, open **Services → Two-factor authentication** and choose *Set up*
+2. Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), or type the key shown
+3. Confirm with a 6-digit code from your authenticator
+4. Generate your recovery codes on the same page, and store them offline
 
 Once confirmed, workflows marked with "Require 2FA" will prompt for a code before execution.
 

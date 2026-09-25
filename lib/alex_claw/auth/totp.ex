@@ -51,10 +51,19 @@ defmodule AlexClaw.Auth.TOTP do
 
   # --- Setup ---
 
-  @doc "Generate a new TOTP secret and return it with a QR code PNG."
+  @doc """
+  Generate a new TOTP secret and return it with a QR code PNG. Refused while
+  2FA is on: the active factor is replaced only by turning it off first, which
+  takes a current code (`disable/1`).
+  """
   @spec setup() ::
-          {:ok, %{secret: binary(), uri: String.t(), qr_png: binary()}} | {:error, atom()}
-  def setup do
+          {:ok, %{secret: binary(), uri: String.t(), qr_png: binary()}}
+          | {:error, :already_enabled}
+  def setup, do: new_setup(enabled?())
+
+  defp new_setup(true), do: {:error, :already_enabled}
+
+  defp new_setup(false) do
     secret = NimbleTOTP.secret()
 
     uri =
@@ -75,9 +84,17 @@ defmodule AlexClaw.Auth.TOTP do
     {:ok, %{secret: secret, uri: uri, qr_png: qr_png}}
   end
 
-  @doc "Confirm 2FA setup by verifying the first code from the authenticator app."
+  @doc """
+  Confirm 2FA setup by verifying the first code from the authenticator app.
+  Never replaces an active secret: while 2FA is on, it is refused whatever is
+  pending.
+  """
   @spec confirm_setup(String.t()) :: :ok | {:error, atom()}
-  def confirm_setup(code) do
+  def confirm_setup(code), do: confirm_when(enabled?(), code)
+
+  defp confirm_when(true, _code), do: {:error, :already_enabled}
+
+  defp confirm_when(false, code) do
     pending = Config.get("auth.totp.pending_secret")
 
     if blank?(pending) do

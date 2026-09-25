@@ -49,7 +49,7 @@ Command families, rather than an exhaustive list — the
 | Shell | `/shell <command>` |
 | Automation | `/record`, `/replay`, `/automate` |
 | Google | `/tasks`, `/task add`, `/tasklists`, `/connect google`, `/disconnect google` |
-| 2FA | `/setup 2fa`, `/confirm 2fa`; `/disable 2fa` is refused (turning 2FA off is in the admin UI only) |
+| 2FA | `/confirm 2fa`; `/setup 2fa` and `/disable 2fa` are refused (2FA is set up and turned off in the admin UI only) |
 | Anything else | The conversational skill |
 
 Larger families live in their own modules — `Dispatcher.SkillCommands`,

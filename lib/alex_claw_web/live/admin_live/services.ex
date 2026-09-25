@@ -54,13 +54,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   # to break, and adding protection is not a privileged act.
   @impl true
   def handle_event("setup_2fa", _params, socket) do
-    {:ok, %{uri: uri, qr_png: qr_png}} = TOTP.setup()
-
-    {:noreply,
-     assign(socket,
-       totp_setup: %{uri: uri, qr: Base.encode64(qr_png), key: manual_key(uri)},
-       totp_message: nil
-     )}
+    {:noreply, set_up(TOTP.setup(), socket)}
   end
 
   def handle_event("confirm_2fa", %{"code" => code}, socket) do
@@ -355,6 +349,22 @@ defmodule AlexClawWeb.AdminLive.Services do
   # TOTP.disable_by/1 verified the code (authenticator or recovery), turned 2FA
   # off and wiped the recovery codes; CodeEntry counted the attempt and audited
   # which factor was used.
+  defp set_up({:ok, %{uri: uri, qr_png: qr_png}}, socket) do
+    assign(socket,
+      totp_setup: %{uri: uri, qr: Base.encode64(qr_png), key: manual_key(uri)},
+      totp_message: nil
+    )
+  end
+
+  # The button is hidden while 2FA is on; a crafted event still arrives here.
+  defp set_up({:error, :already_enabled}, socket) do
+    assign(socket,
+      totp_setup: nil,
+      totp_message:
+        "Two-factor authentication is already on. Turn it off first to set it up again."
+    )
+  end
+
   defp disabled(:ok, socket) do
     {:ok, _closed} = Sessions.close_others(sid(socket), "two-factor authentication disabled")
 

@@ -8,6 +8,8 @@ defmodule AlexClaw.MCP.ResourceProvider do
   """
 
   alias Anubis.MCP.Error
+
+  @redacted "[REDACTED]"
   alias Anubis.Server.Frame
   alias Anubis.Server.Response
 
@@ -90,7 +92,11 @@ defmodule AlexClaw.MCP.ResourceProvider do
     end
   end
 
-  defp serialize_resource(r) do
+  # Every read of a resource, single or listed, goes through the one rule
+  # (AlexClaw.Resources.redacted/1): no credential leaves through MCP.
+  defp serialize_resource(resource) do
+    r = AlexClaw.Resources.redacted(resource)
+
     %{
       id: r.id,
       name: r.name,
@@ -221,7 +227,7 @@ defmodule AlexClaw.MCP.ResourceProvider do
             name: s.name,
             skill: s.skill,
             llm_tier: s.llm_tier,
-            config: s.config,
+            config: AlexClaw.Workflows.redacted_config(s.config, @redacted),
             routes: s.routes
           }
         end)
@@ -278,11 +284,13 @@ defmodule AlexClaw.MCP.ResourceProvider do
 
     entries =
       Enum.map(settings, fn s ->
-        base = %{key: s.key, type: s.type, category: s.category, description: s.description}
-
-        if s.sensitive,
-          do: Map.put(base, :value, "[REDACTED]"),
-          else: Map.put(base, :value, s.value)
+        %{
+          key: s.key,
+          type: s.type,
+          category: s.category,
+          description: s.description,
+          value: setting_value(s.sensitive, s.value)
+        }
       end)
 
     json_reply(entries, frame)
@@ -290,10 +298,21 @@ defmodule AlexClaw.MCP.ResourceProvider do
 
   defp read_config(key, frame) do
     case AlexClaw.Config.get(key) do
-      nil -> not_found("config key", key, frame)
-      value -> json_reply(%{key: key, value: value}, frame)
+      nil ->
+        not_found("config key", key, frame)
+
+      value ->
+        json_reply(
+          %{key: key, value: setting_value(AlexClaw.Config.sensitive?(key), value)},
+          frame
+        )
     end
   end
+
+  # The one rule for a setting, listed or read alone: a sensitive value never
+  # leaves; that it exists can be seen.
+  defp setting_value(true, _value), do: @redacted
+  defp setting_value(_sensitive, value), do: value
 
   # --- Helpers ---
 

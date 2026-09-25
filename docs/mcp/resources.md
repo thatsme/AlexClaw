@@ -59,7 +59,18 @@ alexclaw://config/mcp.api_key    → returns [REDACTED] (sensitive)
 
 ## Sensitive Data
 
-Config settings marked `sensitive: true` (API keys, OAuth tokens, etc.) have their values replaced with `[REDACTED]` in MCP responses. The key, type, and category are still visible.
+No secret value leaves through MCP. One rule applies to every read, whether an
+entry is read alone or listed:
+
+| Data | What MCP returns |
+|---|---|
+| Settings marked sensitive (API keys, bot tokens, OAuth secrets, the webhook secret, the MCP key, 2FA secrets) | `[REDACTED]` as the value, in `config/list` and in `config/<key>` alike. The key, type and category are still visible |
+| A workflow step's secret config keys (a notify step's `bot_token`, an API step's `headers`) | `[REDACTED]`; the step's other config is returned as it is |
+| A resource's `auth` block (the header an API resource sends) | Not returned |
+| A password in a resource's URL (`user:password@host`) | Replaced: `https://REDACTED@host/…` |
+| Values a web-automation recording captured, and those steps' descriptions | `[REDACTED]` |
+
+Skills reading resources through the skill API get the same redaction.
 
 ## Response Format
 

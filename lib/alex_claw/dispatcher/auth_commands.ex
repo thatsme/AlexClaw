@@ -5,7 +5,6 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   alias AlexClaw.Auth.{Challenge, Elevation, Gate, RunApproval, TOTP}
   alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
-  alias AlexClaw.Gateway.Router
   alias AlexClaw.Google.OAuth
   alias AlexClaw.Message
   alias AlexClaw.Skills.Shell
@@ -15,24 +14,14 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
 
   # --- 2FA Setup ---
 
+  # A chat is not a place for the factor that guards everything else: its
+  # secret never travels over one. The reply says where set-up happens.
   def dispatch(%Message{text: "/setup 2fa" <> _} = msg) do
-    case TOTP.setup() do
-      {:ok, %{secret: secret, qr_png: qr_png}} ->
-        secret_b32 = Base.encode32(secret, padding: false)
-
-        Router.send_photo(
-          msg.chat_id,
-          qr_png,
-          "Scan from another device, or use the manual key below.",
-          gateway: msg.gateway
-        )
-
-        Gateway.send_message(
-          "Manual setup key (tap to copy):\n`#{secret_b32}`\n\nIn Google Authenticator: + > Enter setup key\nAccount: AlexClaw\nKey: paste the code above\nType: Time-based\n\nThen confirm with: /confirm 2fa <6-digit code>",
-          chat_id: msg.chat_id,
-          gateway: msg.gateway
-        )
-    end
+    Gateway.send_message(
+      "Two-factor authentication is set up in the admin UI (Services page), not over a chat.",
+      chat_id: msg.chat_id,
+      gateway: msg.gateway
+    )
   end
 
   def dispatch(%Message{text: "/confirm 2fa " <> code} = msg) do
@@ -55,7 +44,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
         )
 
       {:error, :no_pending_setup} ->
-        Gateway.send_message("No pending 2FA setup. Start with /setup 2fa",
+        Gateway.send_message("No pending 2FA setup. Start it in the admin UI (Services page).",
           chat_id: msg.chat_id,
           gateway: msg.gateway
         )

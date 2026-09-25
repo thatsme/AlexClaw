@@ -136,7 +136,7 @@ Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-co
 ### Security
 
 - **Session-based authentication** — all routes except `/login` and `/health` require an authenticated session
-- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Setup via Telegram or Discord (`/setup 2fa`, `/confirm 2fa`). Mandatory for: skill management (Admin UI and gateway), workflows marked `Requires 2FA`, and shell commands — these fail closed, refusing the action when 2FA is not configured rather than running unprotected. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
+- **Two-Factor Authentication (2FA)** — TOTP-based via authenticator apps. Set up and turned off in the admin UI (Services → Two-factor authentication); the secret never travels over a chat. Mandatory for: skill management (Admin UI and gateway), workflows marked `Requires 2FA`, and shell commands — these fail closed, refusing the action when 2FA is not configured rather than running unprotected. Cross-channel verification: Admin UI actions verified via Telegram/Discord.
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
 - **Encryption at rest** — API keys and tokens, in the settings, on LLM providers and in workflow steps, are AES-256-GCM encrypted in PostgreSQL, decrypted transparently at runtime; see [SECURITY.md](SECURITY.md#encryption-at-rest)
@@ -280,8 +280,7 @@ All providers live in the database and can be added, removed, or reconfigured fr
 | `/replay <id>` | Replay a saved automation headlessly |
 | `/automate <url>` | Headless scrape or screenshot of a URL |
 | `/automations` | List automation resources |
-| `/setup 2fa` | Set up two-factor authentication |
-| `/confirm 2fa <code>` | Confirm 2FA with authenticator code |
+| `/confirm 2fa <code>` | Confirm a 2FA set-up started in the admin UI |
 | `/google auth` | Start Google OAuth flow via Telegram |
 | `/help` | Show all commands |
 | _any text_ | Free-text conversation |

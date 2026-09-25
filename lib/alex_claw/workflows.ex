@@ -331,6 +331,15 @@ defmodule AlexClaw.Workflows do
 
   # Every value under a key some skill declares secret, string by string, is
   # replaced by `placeholder`: an export's, or a run definition's.
+  @doc """
+  `config` with the value of every secret step key (`c:AlexClaw.Skill.secret_config_keys/0`)
+  replaced by `placeholder`. The one rule for everything that shows a step's
+  config outside the executor: workflow export, a run's recorded definition,
+  MCP.
+  """
+  @spec redacted_config(map() | nil, String.t()) :: map() | nil
+  def redacted_config(config, placeholder), do: redacted(config, placeholder)
+
   defp redacted(nil, _placeholder), do: nil
 
   defp redacted(config, placeholder) do

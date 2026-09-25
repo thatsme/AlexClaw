@@ -537,7 +537,9 @@ defmodule AlexClaw.Dispatcher do
   defp shell_after_2fa({:locked, _minutes}, _command, _msg), do: :ok
 
   defp shell_after_2fa(:no_2fa, _command, msg) do
-    Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
+    Gateway.send_message("Enable 2FA first, in the admin UI (Services page).",
+      gateway: msg.gateway
+    )
   end
 
   def dispatch(%Message{text: "/shell" <> _} = msg) do
@@ -584,7 +586,6 @@ defmodule AlexClaw.Dispatcher do
       /automate <url> — scrape and screenshot a URL via web-automator
       /connect google — connect Google Calendar/Tasks via OAuth
       /disconnect google — remove Google connection
-      /setup 2fa — enable two-factor authentication
       /help — this message
       _Anything else → conversation_
       """,
@@ -782,7 +783,9 @@ defmodule AlexClaw.Dispatcher do
   defp resume_after_2fa({:locked, _minutes}, _workflow, _msg), do: :ok
 
   defp resume_after_2fa(:no_2fa, _workflow, msg) do
-    Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
+    Gateway.send_message("Enable 2FA first, in the admin UI (Services page).",
+      gateway: msg.gateway
+    )
   end
 
   defp start_workflow(workflow, msg) do

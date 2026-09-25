@@ -82,6 +82,47 @@ defmodule AlexClaw.Resources do
   end
 
   @spec list_by_tags([String.t()]) :: [Resource.t()]
+  @doc """
+  `resource` with its credentials taken out, for every reader outside core
+  code (SkillAPI, MCP): the `auth` block is dropped, a password in the URL is
+  replaced, and the values a recording captured — and the step descriptions
+  that could repeat them — are replaced.
+  """
+  @spec redacted(Resource.t()) :: Resource.t()
+  def redacted(%Resource{metadata: metadata, url: url} = resource) do
+    %{resource | metadata: redacted_metadata(metadata || %{}), url: redacted_url(url)}
+  end
+
+  defp redacted_metadata(metadata) do
+    metadata
+    |> Map.drop(["auth"])
+    |> redacted_steps()
+  end
+
+  defp redacted_steps(%{"steps" => steps} = metadata) when is_list(steps),
+    do: %{metadata | "steps" => Enum.map(steps, &redacted_step/1)}
+
+  defp redacted_steps(metadata), do: metadata
+
+  # A step that carries a value (fill, select) is a step whose value and
+  # description may hold what was typed.
+  defp redacted_step(%{"value" => value} = step) when value not in [nil, ""] do
+    step
+    |> Map.put("value", "[REDACTED]")
+    |> Map.replace("description", "[REDACTED]")
+  end
+
+  defp redacted_step(step), do: step
+
+  defp redacted_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{userinfo: nil} -> url
+      uri -> URI.to_string(%{uri | userinfo: "REDACTED"})
+    end
+  end
+
+  defp redacted_url(url), do: url
+
   def list_by_tags(tags) when is_list(tags) do
     Resource
     |> where([r], fragment("? && ?", r.tags, ^tags))

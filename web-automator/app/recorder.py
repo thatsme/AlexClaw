@@ -256,7 +256,8 @@ class Recorder:
                 selector: sel,
                 value: value,
                 checked: checked,
-                description: (isCheckbox ? (el.checked ? 'Check ' : 'Uncheck ') : (isSelect ? 'Select ' : 'Fill ')) + sel + ' = ' + value.substring(0, 50)
+                // The description names the field, never what was typed in it.
+                description: (isCheckbox ? (el.checked ? 'Check ' : 'Uncheck ') : (isSelect ? 'Select ' : 'Fill ')) + sel
             });
         }, true);
 

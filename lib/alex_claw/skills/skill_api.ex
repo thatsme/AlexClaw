@@ -301,24 +301,12 @@ defmodule AlexClaw.Skills.SkillAPI do
     end
   end
 
-  # A resource carries credentials in two places: metadata["auth"], which
-  # api_request/3 turns into an auth header, and userinfo embedded in the URL.
-  # Core skills read Resources directly and still see both; a skill reading
-  # through here does not.
-  defp redact_resource(%{metadata: metadata, url: url} = resource) do
-    %{resource | metadata: Map.drop(metadata || %{}, ["auth"]), url: redact_userinfo(url)}
-  end
+  # Core skills read Resources directly and still see the credentials; a skill
+  # reading through here gets AlexClaw.Resources.redacted/1, as MCP does.
+  defp redact_resource(%AlexClaw.Resources.Resource{} = resource),
+    do: AlexClaw.Resources.redacted(resource)
 
   defp redact_resource(resource), do: resource
-
-  defp redact_userinfo(url) when is_binary(url) do
-    case URI.parse(url) do
-      %URI{userinfo: nil} -> url
-      uri -> URI.to_string(%{uri | userinfo: "REDACTED"})
-    end
-  end
-
-  defp redact_userinfo(url), do: url
 
   # --- Cross-skill invocation ---
 

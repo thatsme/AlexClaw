@@ -99,9 +99,9 @@ told to do.
 
 The `auth.totp.*` settings are not editable from the Config page at any
 elevation, and deleting them is refused for the same reason as changing them.
-They are written only by two-factor setup: `/setup 2fa` on a gateway, and the
-Services page, which is also the only place 2FA is turned off (with a current
-authenticator code or a recovery code).
+They are written only by two-factor setup on the Services page, which is also
+the only place 2FA is turned off (with a current authenticator code or a
+recovery code).
 
 This is load-bearing rather than tidy. Whether elevation is enforced at all is
 decided by `auth.totp.enabled`; if that setting were editable from behind the
@@ -139,8 +139,8 @@ choice the deployment makes, not one the software makes for it.
 
 Ten one-time codes are generated when 2FA is enabled and shown **once**, in the
 browser. They are never sent over a gateway — a chat log is not where the way
-back in belongs — so enabling 2FA with `/setup 2fa` replies with where to
-generate them rather than with the codes themselves.
+back in belongs — so a set-up confirmed with `/confirm 2fa` replies with where
+to generate them rather than with the codes themselves.
 
 What is stored is a SHA-256 hash of each code, compared in constant time. The
 rows cannot be used to authenticate, so a database dump is not a set of keys.
@@ -180,16 +180,18 @@ alone, and no environment variable that disables the gate.
 Setting 2FA up is the one thing the admin password alone can do, because adding
 protection is not a privileged act and because requiring a second factor to
 configure the second factor would be a locked door with the key inside. It is
-configured under **Services → Two-factor authentication**, or with `/setup 2fa`
-on a gateway; both write the same settings.
+configured under **Services → Two-factor authentication**, and only there: the
+gateway's `/setup 2fa` is refused, so the secret never travels over a chat.
+While 2FA is on, setting it up again is refused: the active factor is replaced
+only by turning it off first, which takes a current code.
 
 ---
 
 ## Two-Factor Authentication
 
-TOTP-based 2FA protects all sensitive operations. Setup via `/setup 2fa`
-from Telegram or Discord — compatible with any TOTP authenticator
-(Google Authenticator, Authy, etc.).
+TOTP-based 2FA protects all sensitive operations. Set up in the admin UI
+(Services → Two-factor authentication) — compatible with any TOTP
+authenticator (Google Authenticator, Authy, etc.).
 
 **Operations requiring 2FA (mandatory, no bypass):**
 - **Skill load** — uploading and compiling a new dynamic skill (Admin UI)

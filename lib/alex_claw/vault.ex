@@ -44,14 +44,22 @@ defmodule AlexClaw.Vault do
   def child_spec(opts),
     do: %{id: Keyword.get(opts, :name, __MODULE__), start: {__MODULE__, :start_link, [opts]}}
 
-  @doc "The secret at `path` (relative to `secret/data/`)."
+  @doc """
+  The secret at `path` (relative to `secret/data/`). `version:` reads a given
+  version; kv keeps one per secret, so an older one is `{:error, :not_found}`.
+  """
   @spec read(String.t(), keyword()) :: {:ok, map()} | {:error, error()}
-  def read(path, opts \\ []) when is_binary(path), do: call(opts, {:read, path})
+  def read(path, opts \\ []) when is_binary(path),
+    do: call(opts, {:read, path, Keyword.get(opts, :version)})
 
   @doc "Write `data` as the secret at `path`."
   @spec write(String.t(), map(), keyword()) :: :ok | {:error, error()}
   def write(path, data, opts \\ []) when is_binary(path) and is_map(data),
     do: call(opts, {:write, path, data})
+
+  @doc "Delete the secret at `path` with every version and its metadata."
+  @spec delete(String.t(), keyword()) :: :ok | {:error, error()}
+  def delete(path, opts \\ []) when is_binary(path), do: call(opts, {:delete, path})
 
   @doc "Encrypt `plaintext` with OpenBao's transit key; AlexClaw never holds the key."
   @spec encrypt(binary(), keyword()) :: {:ok, String.t()} | {:error, error()}
@@ -205,10 +213,16 @@ defmodule AlexClaw.Vault do
   defp retry_after_login(%{token: nil} = s, _request), do: {{:error, :vault_unavailable}, s}
   defp retry_after_login(s, request), do: {perform(s, request), s}
 
-  defp perform(s, {:read, path}) do
+  defp perform(s, {:read, path, version}) do
     s.req
-    |> request(s.token, :get, kv_path(path), nil)
+    |> request(s.token, :get, kv_path(path) <> version_query(version), nil)
     |> outcome(:read, path, fn %{"data" => %{"data" => data}} -> {:ok, data} end)
+  end
+
+  defp perform(s, {:delete, path}) do
+    s.req
+    |> request(s.token, :delete, "/v1/secret/metadata/" <> path, nil)
+    |> outcome(:delete, path, fn _body -> :ok end)
   end
 
   defp perform(s, {:write, path, data}) do
@@ -234,6 +248,9 @@ defmodule AlexClaw.Vault do
   end
 
   defp kv_path(path), do: "/v1/secret/data/" <> path
+
+  defp version_query(nil), do: ""
+  defp version_query(version) when is_integer(version) and version > 0, do: "?version=#{version}"
 
   defp request(req, token, method, url, body) do
     req

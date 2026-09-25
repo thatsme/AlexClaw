@@ -71,7 +71,13 @@ Later starts find OpenBao initialised and change nothing.
 The `alexclaw` policy allows exactly:
 
 - create, read and update under `secret/data/alexclaw/*`;
+- delete under `secret/metadata/alexclaw/*` — deleting a secret destroys every
+  version and its metadata;
 - encrypt and decrypt with the transit key `alexclaw`.
+
+The key-value store keeps one version per secret (`max_versions=1` on the
+`secret/` mount, which holds nothing else): a rotated value leaves no readable
+old version behind.
 
 Anything else is refused by OpenBao. AlexClaw's token lives only in the memory
 of the `AlexClaw.Vault` process, lasts an hour, is renewed before it expires,

@@ -12,7 +12,8 @@
 #    service to be healthy).
 # 3. Initialisation, once. An initialised OpenBao is left as it is. Otherwise:
 #    initialise (static seal: recovery keys, no unseal keys), enable kv-v2 at
-#    secret/ and transit with key "alexclaw", write the policy, create the
+#    secret/ (one version per secret) and transit with key "alexclaw", write
+#    the policy, create the
 #    AppRole bound to AlexClaw's address, write role_id and secret_id to the
 #    bootstrap mount, print the recovery key once, and revoke the root token.
 #    Outside the test stack this needs an operator at a terminal, who confirms
@@ -93,12 +94,20 @@ confirm_saved() {
 
 configure() {
   bao secrets enable -path=secret kv-v2 >/dev/null
+  # One version per secret: a rotation leaves no readable old value. The mount
+  # holds AlexClaw's secrets and nothing else, so the setting is the mount's.
+  bao write secret/config max_versions=1 >/dev/null
   bao secrets enable transit >/dev/null
   bao write -f transit/keys/alexclaw >/dev/null
 
   bao policy write alexclaw - >/dev/null <<'POLICY'
 path "secret/data/alexclaw/*" {
   capabilities = ["create", "read", "update"]
+}
+
+# Deleting a secret destroys every version and its metadata.
+path "secret/metadata/alexclaw/*" {
+  capabilities = ["delete"]
 }
 
 path "transit/encrypt/alexclaw" {

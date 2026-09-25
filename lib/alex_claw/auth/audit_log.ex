@@ -232,6 +232,12 @@ defmodule AlexClaw.Auth.AuditLog do
     secret_entry("secret.set", outcome, "secret #{name}: value set")
   end
 
+  @doc "Record an attempt to delete a secret: its name and the outcome."
+  @spec log_secret_delete(String.t(), :ok | {:error, atom()}) :: :ok
+  def log_secret_delete(name, outcome) do
+    secret_entry("secret.delete", outcome, "secret #{name}: deleted")
+  end
+
   defp secret_entry(permission, :ok, what) do
     Logger.debug("#{what}: allowed", auth: :secrets)
     insert_entry(secret_row(permission, "allow", what))

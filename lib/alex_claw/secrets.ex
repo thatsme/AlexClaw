@@ -58,6 +58,25 @@ defmodule AlexClaw.Secrets do
   end
 
   @doc """
+  Delete the secret `name`: its value in OpenBao, with every version and its
+  metadata, then its catalogue entry.
+
+  Options: `vault:` — the `AlexClaw.Vault` server to use.
+  """
+  @spec delete(String.t(), keyword()) :: :ok | {:error, error()}
+  def delete(name, opts \\ []) when is_binary(name) do
+    result =
+      with {:ok, secret} <- fetch(name),
+           :ok <- Vault.delete(path(name), server: vault(opts)),
+           {:ok, _secret} <- Repo.delete(secret) do
+        :ok
+      end
+
+    AuditLog.log_secret_delete(name, outcome(result))
+    result
+  end
+
+  @doc """
   The value of the secret `name`, for `destination` — which must be one of the
   secret's bindings, exactly.
 

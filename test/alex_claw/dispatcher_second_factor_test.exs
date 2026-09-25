@@ -25,7 +25,9 @@ defmodule AlexClaw.DispatcherSecondFactorTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  import Ecto.Query
+  # Only from/2: the full import brings Ecto.Query's lock/2 macro, which
+  # shadows this file's own lock/2 helper.
+  import Ecto.Query, only: [from: 2]
 
   alias AlexClaw.Auth.{Challenge, CodeAttempts, TOTP}
   alias AlexClaw.{Dispatcher, Message, RecordingGateway, Workflows}

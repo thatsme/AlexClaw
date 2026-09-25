@@ -6,6 +6,7 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   alias AlexClaw.{ControlPlane, Resources}
   alias AlexClaw.Resources.ApiDiscovery
+  alias AlexClaw.WebAutomation.Recording
 
   @resource_types ~w(rss_feed website document api automation)
 
@@ -82,6 +83,31 @@ defmodule AlexClawWeb.AdminLive.Resources do
           show_form: false,
           editing: nil
         )
+      end,
+      error: &not_saved/2
+    )
+  end
+
+  # The login goes into the slot and the recording is saved through
+  # Resources, which stores it in OpenBao, bound to the recording's origin.
+  # The page never renders it back.
+  @impl true
+  def handle_event(
+        "attach_login",
+        %{"id" => id, "selector" => selector, "value" => value},
+        socket
+      ) do
+    Elevation.gated(socket, "recording login attached: id #{id}, #{selector}",
+      write: fn ->
+        with {:ok, resource} <- fetch_resource(id),
+             {:ok, metadata} <- Recording.filled(resource.metadata || %{}, selector, value) do
+          Resources.update_resource(resource, %{metadata: metadata}, skip_discovery: true)
+        end
+      end,
+      ok: fn socket, _resource ->
+        socket
+        |> put_flash(:info, "Login attached")
+        |> assign(resources: list_resources(socket.assigns.type_filter))
       end,
       error: &not_saved/2
     )
@@ -188,6 +214,12 @@ defmodule AlexClawWeb.AdminLive.Resources do
   defp persist_resource(resource, attrs),
     do: Resources.update_resource(resource, attrs, skip_discovery: true)
 
+  # The fields of a recording still waiting for a login.
+  defp login_slots(%{metadata: metadata}) when is_map(metadata),
+    do: Recording.login_slots(metadata)
+
+  defp login_slots(_resource), do: []
+
   defp fetch_resource(id), do: id |> parse_id() |> fetched_resource()
 
   defp fetched_resource({:ok, rid}), do: Resources.get_resource(rid)
@@ -195,6 +227,8 @@ defmodule AlexClawWeb.AdminLive.Resources do
 
   defp not_saved(socket, :invalid_id), do: socket
   defp not_saved(socket, :not_found), do: put_flash(socket, :error, "Resource not found")
+  defp not_saved(socket, :no_login_slot), do: put_flash(socket, :error, "No login needed there")
+  defp not_saved(socket, :empty_login), do: put_flash(socket, :error, "Enter the login")
 
   defp not_saved(socket, %Ecto.Changeset{} = changeset),
     do: put_flash(socket, :error, "Error: #{inspect(changeset.errors)}")

@@ -148,6 +148,18 @@
                 <% _ -> %>
               <% end %>
             <% end %>
+            <% slots = login_slots(resource) %>
+            <div :if={slots != []} class="mt-2 whitespace-normal">
+              <span class="text-xs px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300">login needed for {Enum.join(slots, ", ")}</span>
+              <form :for={selector <- slots} phx-submit="attach_login"
+                phx-value-id={resource.id} phx-value-selector={selector}
+                class="flex items-center gap-2 mt-1">
+                <label class="text-xs text-gray-400 font-mono">{selector}</label>
+                <input type="password" name="value" autocomplete="new-password"
+                  class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white text-xs" />
+                <button type="submit" class="text-xs px-2 py-1 rounded bg-claw-700 hover:bg-claw-600 text-white">Attach</button>
+              </form>
+            </div>
           </td>
           <td class="px-4 py-3">
             <span :for={tag <- resource.tags} class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 mr-1">{tag}</span>

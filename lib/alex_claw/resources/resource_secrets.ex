@@ -1,8 +1,10 @@
 defmodule AlexClaw.Resources.ResourceSecrets do
   @moduledoc """
-  A resource's credential, `metadata["auth"]["value"]`, kept in OpenBao as a
-  secret the resource owns (`AlexClaw.Secrets.Owned`); the stored metadata
-  holds a reference.
+  A resource's credential, `metadata["auth"]["value"]`, and a recording's fill
+  values (`AlexClaw.WebAutomation.Recording.fields/1`), kept in OpenBao as
+  secrets the resource owns (`AlexClaw.Secrets.Owned`); the stored metadata
+  holds references. A recording's logins are bound to its origin, as a
+  web_automation step's are; the rest of this note is about the credential.
 
   It is bound to the host a request to the resource goes to, as it was when
   the value was entered: the discovered API base (`metadata["discovery"]
@@ -36,23 +38,40 @@ defmodule AlexClaw.Resources.ResourceSecrets do
           {:ok, Ecto.Changeset.t(), Owned.secrets()} | {:error, Ecto.Changeset.t()}
   def plan(%Ecto.Changeset{valid?: false} = changeset, _old_metadata), do: {:error, changeset}
 
+  # Two parts, one save: the credential, bound to the resource's host; a
+  # recording's fill values, bound to its origin, like a web_automation step's.
   def plan(changeset, old_metadata) do
     metadata = Ecto.Changeset.get_field(changeset, :metadata) || %{}
-    destination = destination(Ecto.Changeset.get_field(changeset, :url), metadata)
+    url = Ecto.Changeset.get_field(changeset, :url)
+    host = destination(url, metadata)
+    origin = Recording.destination(metadata, url)
 
-    metadata
-    |> fields()
-    |> Owned.plan(references(old_metadata), destination, &Owned.name("resource", &1))
-    |> planned(changeset, metadata, destination)
+    with {:ok, auth, auth_dropped} <-
+           Owned.plan(
+             fields(metadata),
+             references(old_metadata),
+             host,
+             &Owned.name("resource", &1)
+           ),
+         {:ok, logins, logins_dropped} <-
+           Owned.plan(
+             Recording.fields(metadata),
+             Recording.references(old_metadata),
+             origin,
+             &Owned.name("recording", &1)
+           ) do
+      plan = Map.merge(auth, logins)
+      metadata = Owned.referenced(metadata, plan)
+
+      {:ok, Ecto.Changeset.put_change(changeset, :metadata, metadata),
+       {plan, &part_destination(&1, host, origin), auth_dropped ++ logins_dropped}}
+    else
+      {:error, reason} -> {:error, Ecto.Changeset.add_error(changeset, :metadata, reason)}
+    end
   end
 
-  defp planned({:ok, plan, dropped}, changeset, metadata, destination) do
-    changeset = Ecto.Changeset.put_change(changeset, :metadata, Owned.referenced(metadata, plan))
-    {:ok, changeset, {plan, destination, dropped}}
-  end
-
-  defp planned({:error, reason}, changeset, _metadata, _destination),
-    do: {:error, Ecto.Changeset.add_error(changeset, :metadata, reason)}
+  defp part_destination(["auth" | _], host, _origin), do: host
+  defp part_destination(_recording_path, _host, origin), do: origin
 
   @doc "The destination a resource's credential is bound to: its API base's host, else its URL's."
   @spec destination(String.t() | nil, map() | nil) :: String.t() | nil
@@ -62,9 +81,10 @@ defmodule AlexClaw.Resources.ResourceSecrets do
 
   def destination(url, _metadata), do: Owned.url_binding(url)
 
-  @doc "The kind of secret a resource credential is."
+  @doc "The kind of secret at `path`: the credential, or a recording's login."
   @spec kind(Owned.path()) :: String.t()
-  def kind(_path), do: "api_token"
+  def kind(["auth" | _]), do: "api_token"
+  def kind(_recording_path), do: "login"
 
   @doc "Delete the secrets the resource references: its credential, and a recording's logins."
   @spec delete(%{metadata: map() | nil}) :: :ok

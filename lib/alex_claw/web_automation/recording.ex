@@ -117,6 +117,20 @@ defmodule AlexClaw.WebAutomation.Recording do
     end
   end
 
+  @doc """
+  `recipe` with `value` in the slot at `selector`, not yet stored: for a
+  record saved through its one write point (`AlexClaw.Resources`), which
+  stores the value in OpenBao, bound to the recipe's origin, and keeps the
+  reference.
+  """
+  @spec filled(map(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, :no_login_slot | :empty_login}
+  def filled(_recipe, _selector, value) when value in [nil, ""], do: {:error, :empty_login}
+
+  def filled(recipe, selector, value) when is_binary(value) do
+    with {:ok, path} <- slot_path(recipe, selector), do: {:ok, Owned.put(recipe, path, value)}
+  end
+
   defp slot_path(recipe, selector) do
     case Enum.find(slots(recipe), &(elem(&1, 1) == selector)) do
       {path, _selector} -> {:ok, path}

@@ -26,8 +26,14 @@ defmodule AlexClaw.Secrets.Owned do
   @type action :: {:keep, String.t()} | {:store, String.t(), String.t()}
   @type plan :: %{path() => action()}
   @type namer :: (path() -> String.t())
+  @typedoc """
+  Where a plan's values are bound: one destination, or one per path (a
+  resource's credential is bound to a host, its recording's logins to an
+  origin).
+  """
+  @type destination :: String.t() | nil | (path() -> String.t() | nil)
   @typedoc "A planned save: the plan, the destination, the names no longer referenced."
-  @type secrets :: {plan(), String.t() | nil, [String.t()]}
+  @type secrets :: {plan(), destination(), [String.t()]}
 
   @doc "A reference to the secret `name`, as a record stores it."
   @spec reference(String.t()) :: map()
@@ -129,14 +135,20 @@ defmodule AlexClaw.Secrets.Owned do
   secret is catalogued on first use, and bound again when it was bound
   elsewhere. `kind` gives each path's kind of secret.
   """
-  @spec store_all(plan(), String.t() | nil, namer()) :: :ok | {:error, term()}
+  @spec store_all(plan(), destination(), namer()) :: :ok | {:error, term()}
   def store_all(plan, destination, kind) do
     Enum.reduce_while(plan, :ok, fn
-      {path, {:store, name, value}}, :ok -> {:cont, stored(name, value, destination, kind.(path))}
-      {_path, {:keep, _name}}, :ok -> {:cont, :ok}
+      {path, {:store, name, value}}, :ok ->
+        {:cont, stored(name, value, destination_of(destination, path), kind.(path))}
+
+      {_path, {:keep, _name}}, :ok ->
+        {:cont, :ok}
     end)
     |> halted()
   end
+
+  defp destination_of(destination, path) when is_function(destination, 1), do: destination.(path)
+  defp destination_of(destination, _path), do: destination
 
   defp halted(:ok), do: :ok
   defp halted(error), do: error

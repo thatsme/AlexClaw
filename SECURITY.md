@@ -388,11 +388,16 @@ reviewed before they are assigned to scheduled workflows.
   stopped by its id, so a stop cannot end a different play.
 - **Logs.** The player and the recorder write selectors and action names to the
   sidecar's log, never the values typed into a page, and a recording that fails
-  to save is reported without its steps. This is about the log only: the
-  recording itself keeps those values (next point).
-- **Recordings.** A recording stores what was typed into the page — passwords
-  included — in plain `resources.metadata` until the credential store exists, so
-  do not record logins to accounts that matter.
+  to save is reported without its steps.
+- **Recordings.** A credential field, `type="password"` or an `autocomplete`
+  of `current-password`, `new-password` or `one-time-code`, is recorded as a
+  login slot, without its value. The page's listener leaves the value out, and
+  the recorder drops it if one arrives.
+  - A recording with an empty slot cannot be played. The Resources page names
+    the fields that need a login and takes one for each, behind the admin
+    second factor.
+  - Every fill value a recording keeps is stored in OpenBao, bound to the
+    recording's origin (see [Secrets in OpenBao](#secrets-in-openbao)).
 
 ---
 
@@ -468,13 +473,17 @@ The MCP key is not stored at all: see
 
 **Credentials in steps and resources:** a Telegram Notify step's own
 `bot_token`; an API Request step's credential headers; a resource's
-`metadata["auth"]["value"]`.
+`metadata["auth"]["value"]`; and every fill value of a recording, or of a Web
+Automation step's inline recipe, including logins attached to a recording.
+- Fill values are bound to the recipe's **origin** (`scheme://host[:port]`),
+  and a play resolves them for that origin only.
 - The credential headers are Authorization, Proxy-Authorization, Cookie and
   X-API-Key, and any header whose name contains `token`, `key`, `secret` or
   `auth`. Other headers stay as they are.
 - Each is a secret the step or resource owns, and its row keeps a reference.
 - It is bound to the host it is sent to **when it is entered**: the step's URL,
-  the Telegram API, or the resource's API base (else its URL).
+  the Telegram API, the resource's API base (else its URL), or, for fill
+  values, the recipe's origin.
 - Moving a step or resource to another host while keeping the credential is
   refused. The credential has to be entered again for the new host.
 - The executor resolves it for that host when the step runs, and hands the

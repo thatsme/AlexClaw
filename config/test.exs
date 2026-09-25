@@ -26,6 +26,11 @@ config :alex_claw, AlexClawWeb.Endpoint,
     "test_only_secret_key_base_that_is_at_least_64_bytes_long_for_alexclaw_test_only!!"
 
 config :alex_claw, skip_provider_seed: true
+
+# The admin password the login tests sign in with. In production it comes
+# from ADMIN_PASSWORD (config/runtime.exs, prod only); without it here every
+# login in a test would take the "not set" branch.
+config :alex_claw, admin_password: "test-admin-password"
 config :alex_claw, start_background_workers: false
 config :alex_claw, :skills_dir, Path.expand("../tmp/test_skills", __DIR__)
 

@@ -181,10 +181,12 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
     end
   end
 
-  describe "the gateway path" do
-    # /setup 2fa on a gateway is unchanged, and the two paths write the same
-    # settings — an operator can start on one and finish on the other.
-    test "still enables 2FA the same way", ctx do
+  describe "the context path" do
+    # The context is what both the admin UI and any other caller use. Since
+    # 0.3.56 set-up happens only in the admin UI — the gateway's /setup 2fa
+    # sent the secret over the chat (totp_takeover_test.exs) — but the context
+    # still enables 2FA the same way when it is off.
+    test "enables 2FA when it is off", ctx do
       {:ok, %{secret: secret}} = TOTP.setup()
 
       assert :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))

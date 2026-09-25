@@ -142,20 +142,19 @@ defmodule AlexClaw.MCP.ResourceProviderTest do
       end
     end
 
+    # It asserted inside `if workflows not empty`: on an empty database it
+    # passed without checking anything. It creates its own workflow now.
     test "get by ID returns workflow with steps" do
-      workflows = AlexClaw.Workflows.list_workflows()
+      {:ok, wf} =
+        AlexClaw.Workflows.create_workflow(%{name: "MCP read #{System.unique_integer([:positive])}"})
 
-      if not Enum.empty?(workflows) do
-        wf = hd(workflows)
+      {:reply, %Response{} = resp, _frame} =
+        ResourceProvider.read("alexclaw://workflows/#{wf.id}", new_frame())
 
-        {:reply, %Response{} = resp, _frame} =
-          ResourceProvider.read("alexclaw://workflows/#{wf.id}", new_frame())
-
-        data = decode_response(resp)
-        assert data["id"] == wf.id
-        assert Map.has_key?(data, "steps")
-        assert is_list(data["steps"])
-      end
+      data = decode_response(resp)
+      assert data["id"] == wf.id
+      assert Map.has_key?(data, "steps")
+      assert is_list(data["steps"])
     end
 
     test "returns error for non-existent workflow" do
@@ -193,6 +192,8 @@ defmodule AlexClaw.MCP.ResourceProviderTest do
       end
     end
 
+    # It asserted inside `if secret do`: if the setting was missing from the
+    # list, it passed without checking anything (SECRETS_INVENTORY.md #15).
     test "sensitive values are redacted" do
       AlexClaw.Config.set("test.secret", "super_secret",
         type: "string",
@@ -206,9 +207,9 @@ defmodule AlexClaw.MCP.ResourceProviderTest do
       data = decode_response(resp)
       secret = Enum.find(data, &(&1["key"] == "test.secret"))
 
-      if secret do
-        assert secret["value"] == "[REDACTED]"
-      end
+      assert secret, "the sensitive setting is missing from the list"
+      assert secret["value"] == "[REDACTED]"
+      refute Jason.encode!(data) =~ "super_secret"
     end
 
     test "get by key returns specific setting" do

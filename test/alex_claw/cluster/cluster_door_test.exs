@@ -54,7 +54,8 @@ defmodule AlexClaw.Cluster.ClusterDoorTest do
     test "a node that connects is not registered by connecting, and it is audited" do
       before = Cluster.list_nodes() |> length()
 
-      send(AlexClaw.Cluster.Manager, {:nodeup, @stranger, %{}})
+      # :net_kernel.monitor_nodes(true) delivers {:nodeup, node}, a 2-tuple.
+      send(AlexClaw.Cluster.Manager, {:nodeup, @stranger})
       # Let the manager handle it.
       :sys.get_state(AlexClaw.Cluster.Manager)
 

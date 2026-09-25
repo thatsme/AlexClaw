@@ -89,7 +89,11 @@ defmodule AlexClaw.S5LeftoversTest do
 
       assert {:error, run} = AlexClaw.Workflows.Executor.run(wf.id)
       assert run.status == "failed"
-      assert inspect(run) =~ ~r/record/i
+
+      # The REFUSAL's reason — not a sidecar failure, whose message happened to
+      # contain "record" too (this test once passed on that).
+      assert inspect(run) =~ ~r/admin UI|authoring/i, "not refused as authoring: #{inspect(run)}"
+      refute inspect(run) =~ ~r/web_automator|sidecar|disabled|token/i
     end
   end
 end

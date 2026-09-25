@@ -96,6 +96,8 @@ defmodule AlexClaw.WebAutomation.RecordingSecretsTest do
 
   describe "a web_automation step's inline recipe" do
     test "stores its fill values as references bound to the recipe's origin" do
+      # Since 0.3.54 a step saves only when its skill is available.
+      insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
       {:ok, wf} = Workflows.create_workflow(%{name: "S4b #{System.unique_integer([:positive])}"})
 
       {:ok, step} =
@@ -117,6 +119,57 @@ defmodule AlexClaw.WebAutomation.RecordingSecretsTest do
       refute raw =~ @password
       [name] = Regex.run(~r/"secret":\s*"([^"]+)"/, raw, capture: :all_but_first)
       assert Secrets.get(name).binding == [@origin]
+    end
+  end
+
+  # What actually crosses to the sidecar: the resolved value, in the play
+  # request, and nowhere else. (Reaching the sidecar from a test, as reported:
+  # web_automator.host at a Bypass, web_automator.enabled, and a
+  # :web_automator_token in the app env; POST /play receives
+  # {play_id, deadline_ms, config}.)
+  describe "playing a recipe with an attached login" do
+    setup do
+      bypass = Bypass.open()
+      test_pid = self()
+
+      Bypass.stub(bypass, "POST", "/play", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:played, Jason.decode!(body)})
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "success", "results" => []}))
+      end)
+
+      insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
+
+      insert_setting("web_automator.host", "http://localhost:#{bypass.port}",
+        type: "string",
+        category: "web_automator"
+      )
+
+      previous = Application.get_env(:alex_claw, :web_automator_token)
+      Application.put_env(:alex_claw, :web_automator_token, "test-sidecar-token")
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:alex_claw, :web_automator_token, previous),
+          else: Application.delete_env(:alex_claw, :web_automator_token)
+      end)
+
+      :ok
+    end
+
+    test "the sidecar receives the login's value, resolved for the recipe's origin" do
+      {:ok, recipe} = Recording.to_recipe(@url, captured())
+      {:ok, recipe} = Recording.attach_login(recipe, "#pw", @password)
+
+      assert {:ok, _, :on_success} =
+               AlexClaw.Skills.WebAutomation.play(recipe, [], deadline_ms: 5_000)
+
+      assert_receive {:played, %{"config" => config}}
+      assert Enum.at(config["steps"], 1)["value"] == @password
+      refute inspect(config) =~ ~s("secret"), "a reference reached the sidecar"
     end
   end
 

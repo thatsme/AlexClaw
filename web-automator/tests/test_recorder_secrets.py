@@ -19,7 +19,6 @@ import json
 
 import pytest
 
-from app import recorder as recorder_module
 from app.recorder import Recorder
 
 SECRET = "s3cr3t-typed-9913"
@@ -32,16 +31,9 @@ def _payload(**fields):
 
 
 def _returned(recorder):
-    """What the recorder hands back on stop, as data."""
-    out = []
-    for action in recorder.actions:
-        if hasattr(action, "model_dump"):
-            out.append(action.model_dump())
-        elif hasattr(action, "__dict__"):
-            out.append(dict(vars(action)))
-        else:
-            out.append(action)
-    return out
+    """What the recorder hands back on stop — _build_results()'s actions,
+    exactly what reaches AlexClaw."""
+    return recorder._build_results()["actions"]
 
 
 class TestCredentialFields:
@@ -83,16 +75,17 @@ class TestOrdinaryFields:
 
 class TestThePageReportsTheFieldKind:
     # The decision needs the page to say what kind of field it is. Checked on
-    # the injected script: it must send input_type and autocomplete with every
-    # fill, or every credential field would look ordinary.
+    # the injected script (a class attribute of Recorder): it must send
+    # input_type and autocomplete with every fill, or every credential field
+    # would look ordinary.
     def test_the_injected_listener_sends_input_type_and_autocomplete(self):
-        script = recorder_module._DOM_RECORDER_JS
+        script = Recorder._DOM_RECORDER_JS
         assert "input_type" in script
         assert "autocomplete" in script
 
     def test_it_no_longer_sends_a_password_fields_value(self):
         # The listener itself leaves the value out for a credential field, so
         # it never crosses into Python at all.
-        script = recorder_module._DOM_RECORDER_JS
+        script = Recorder._DOM_RECORDER_JS
         assert "password" in script
         assert "current-password" in script

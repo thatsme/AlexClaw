@@ -1,4 +1,10 @@
-"""Tests for the Recorder class — action parsing, classification, filtering."""
+"""Tests for the Recorder class — action parsing and results.
+
+The network-request classifiers (_is_interesting, _classify_action) and their
+tests were removed in 0.4.0 S4b: dead code — recordings are built from the
+page's DOM actions, and _classify_action put request bodies into action
+descriptions.
+"""
 
 import json
 import pytest
@@ -29,129 +35,6 @@ class TestRecorderInit:
     def test_custom_patterns(self):
         r = Recorder("s1", "https://x.com", patterns=["custom", "pattern"])
         assert r.interesting_patterns == ["custom", "pattern"]
-
-
-class TestIsInteresting:
-    def _mock_request(self, url, method="GET", post_data=None, resource_type="xhr", headers=None):
-        req = MagicMock()
-        req.url = url
-        req.method = method
-        req.post_data = post_data
-        req.resource_type = resource_type
-        req.headers = headers or {}
-        return req
-
-    def test_ignores_static_assets(self, recorder):
-        for ext in [".css", ".js", ".png", ".jpg", ".svg", ".woff2", ".ico"]:
-            req = self._mock_request(f"https://example.com/asset{ext}")
-            assert not recorder._is_interesting(req)
-
-    def test_ignores_heartbeat_endpoints(self, recorder):
-        for path in ["/pong", "/heartbeat", "/health", "/ping"]:
-            req = self._mock_request(f"https://example.com{path}")
-            assert not recorder._is_interesting(req)
-
-    def test_post_with_interesting_pattern(self, recorder):
-        req = self._mock_request(
-            "https://example.com/api/download",
-            method="POST",
-            post_data="data"
-        )
-        assert recorder._is_interesting(req)
-
-    def test_post_with_body_is_interesting(self, recorder):
-        req = self._mock_request(
-            "https://example.com/api/action",
-            method="POST",
-            post_data='{"key": "value"}'
-        )
-        assert recorder._is_interesting(req)
-
-    def test_post_with_empty_body_ignored(self, recorder):
-        req = self._mock_request(
-            "https://example.com/api/noop",
-            method="POST",
-            post_data=""
-        )
-        assert not recorder._is_interesting(req)
-
-    def test_get_api_path_is_interesting(self, recorder):
-        req = self._mock_request("https://example.com/api/data")
-        assert recorder._is_interesting(req)
-
-    def test_get_v1_path_is_interesting(self, recorder):
-        req = self._mock_request("https://example.com/v1/users")
-        assert recorder._is_interesting(req)
-
-    def test_document_is_interesting(self, recorder):
-        req = self._mock_request(
-            "https://example.com/page",
-            resource_type="document"
-        )
-        assert recorder._is_interesting(req)
-
-    def test_fetch_is_interesting(self, recorder):
-        req = self._mock_request(
-            "https://example.com/data",
-            resource_type="fetch"
-        )
-        assert recorder._is_interesting(req)
-
-    def test_random_get_ignored(self, recorder):
-        req = self._mock_request(
-            "https://example.com/something",
-            resource_type="other"
-        )
-        assert not recorder._is_interesting(req)
-
-
-class TestClassifyAction:
-    def _mock_request(self, url, method="POST", post_data=None, resource_type="xhr", headers=None):
-        req = MagicMock()
-        req.url = url
-        req.method = method
-        req.post_data = post_data
-        req.resource_type = resource_type
-        req.headers = headers or {}
-        return req
-
-    def test_classifies_login(self, recorder):
-        req = self._mock_request("https://example.com/auth/login", post_data="user=admin")
-        action = recorder._classify_action(req)
-        assert action.action_type == "login"
-
-    def test_classifies_download(self, recorder):
-        req = self._mock_request("https://example.com/api/export/excel")
-        action = recorder._classify_action(req)
-        assert action.action_type == "download_click"
-        assert "excel" in action.description
-
-    def test_classifies_filter(self, recorder):
-        req = self._mock_request("https://example.com/api/search", post_data="q=test")
-        action = recorder._classify_action(req)
-        assert action.action_type == "filter"
-
-    def test_classifies_navigation(self, recorder):
-        req = self._mock_request(
-            "https://example.com/page",
-            method="GET",
-            resource_type="document"
-        )
-        action = recorder._classify_action(req)
-        assert action.action_type == "navigate"
-
-    def test_classifies_form_submit(self, recorder):
-        req = self._mock_request(
-            "https://example.com/api/data",
-            post_data='{"name": "test"}'
-        )
-        action = recorder._classify_action(req)
-        assert action.action_type == "submit"
-
-    def test_action_has_timestamp(self, recorder):
-        req = self._mock_request("https://example.com/auth")
-        action = recorder._classify_action(req)
-        assert action.timestamp is not None
 
 
 class TestDomActionCallback:

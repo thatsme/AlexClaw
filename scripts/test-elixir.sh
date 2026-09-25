@@ -124,7 +124,8 @@ else
   set -- sh -c "$TARGETED_RUN" targeted "$@"
 fi
 
-$COMPOSE build --quiet test-elixir >>"$LOG" 2>&1 &
+# openbao-test-init too: its image holds init.sh, and so the policy.
+$COMPOSE build --quiet test-elixir openbao-test-init >>"$LOG" 2>&1 &
 build=$!
 supervise "$build"
 status=$?

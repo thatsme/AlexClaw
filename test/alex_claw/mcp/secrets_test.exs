@@ -35,10 +35,12 @@ defmodule AlexClaw.MCP.SecretsTest do
   end
 
   describe "settings" do
+    # mcp.api_key is not in this list: since 0.4.0 it is not a stored value at
+    # all (only an OpenBao HMAC of it is kept, mcp/key_test.exs), so writing
+    # one is refused. Its own case is below.
     for key <- [
           "test.sensitive.single",
           "telegram.bot_token",
-          "mcp.api_key",
           "auth.totp.pending_secret"
         ] do
       test "a single-key read of #{key} does not return its value" do
@@ -53,6 +55,16 @@ defmodule AlexClaw.MCP.SecretsTest do
         refute_leak(text, "config/#{unquote(key)}")
         assert Jason.decode!(text)["value"] == "[REDACTED]"
       end
+    end
+
+    # The MCP key is generated, never stored: a read of its setting cannot
+    # return it, because nothing holds it.
+    test "a single-key read of mcp.api_key never returns the key" do
+      {:ok, key} = AlexClaw.MCP.Key.generate()
+      on_exit(fn -> AlexClaw.MCP.Key.revoke() end)
+
+      text = read("alexclaw://config/mcp.api_key")
+      refute text =~ key, "config/mcp.api_key returned the MCP key"
     end
 
     # The single read and the list use one rule: a setting that is redacted

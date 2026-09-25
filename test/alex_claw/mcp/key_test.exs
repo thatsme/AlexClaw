@@ -97,7 +97,7 @@ defmodule AlexClaw.MCP.KeyTest do
     defp call(token) do
       conn = conn(:post, "/mcp", "{}")
       conn = if token, do: put_req_header(conn, "authorization", "Bearer " <> token), else: conn
-      AlexClawWeb.Plugs.MCPAuth.call(conn, AlexClawWeb.Plugs.MCPAuth.init([]))
+      AlexClawWeb.Plugs.McpAuth.call(conn, AlexClawWeb.Plugs.McpAuth.init([]))
     end
 
     test "admits the current key, refuses anything else" do

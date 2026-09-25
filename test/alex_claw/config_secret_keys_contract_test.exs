@@ -87,6 +87,20 @@ defmodule AlexClaw.ConfigSecretKeysContractTest do
     end
   end
 
+  # Bindings are derived from the declaration each time a secret is resolved,
+  # never frozen at the first save: moving a configurable base moves the host
+  # the secret may be sent to, with it.
+  test "a binding follows its configuration: the Gemini key and :embedding_base_url" do
+    {:ok, _} = Config.set("llm.gemini_api_key", @value, type: "string", category: "test")
+    assert {:error, :not_bound} = Config.secret("llm.gemini_api_key", for: "host:embed.example")
+
+    Application.put_env(:alex_claw, :embedding_base_url, "https://embed.example")
+    on_exit(fn -> Application.delete_env(:alex_claw, :embedding_base_url) end)
+
+    assert "host:embed.example" in Config.secret_bindings("llm.gemini_api_key")
+    assert {:ok, @value} = Config.secret("llm.gemini_api_key", for: "host:embed.example")
+  end
+
   # One home per value: no declared secret key may be seeded from the
   # environment. Checked on the seeder's own mapping, so a secret key that is
   # still mapped fails here even if no variable is set.

@@ -61,7 +61,7 @@ defmodule AlexClaw.MCP.SecretsTest do
     # return it, because nothing holds it.
     test "a single-key read of mcp.api_key never returns the key" do
       {:ok, key} = AlexClaw.MCP.Key.generate()
-      on_exit(fn -> AlexClaw.MCP.Key.revoke() end)
+      on_exit(fn -> AlexClaw.SandboxCleanup.run(fn -> AlexClaw.MCP.Key.revoke() end) end)
 
       text = read("alexclaw://config/mcp.api_key")
       refute text =~ key, "config/mcp.api_key returned the MCP key"

@@ -22,7 +22,9 @@ defmodule AlexClaw.MCP.KeyTest do
   alias AlexClaw.MCP.Key
 
   setup do
-    on_exit(fn -> Key.revoke() end)
+    # Inside the cleanup: on_exit runs after the test's connection is checked
+    # in, and Key.revoke/0 writes to the database.
+    on_exit(fn -> AlexClaw.SandboxCleanup.run(fn -> Key.revoke() end) end)
     :ok
   end
 

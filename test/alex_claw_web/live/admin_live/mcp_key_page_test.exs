@@ -26,8 +26,12 @@ defmodule AlexClawWeb.AdminLive.McpKeyPageTest do
     sid = Elevation.new_sid()
 
     on_exit(fn ->
-      AlexClaw.SandboxCleanup.run(fn -> Elevation.revoke(sid) end)
-      Key.revoke()
+      # Both inside the cleanup: on_exit runs after the test's connection is
+      # checked in, and Key.revoke/0 writes to the database.
+      AlexClaw.SandboxCleanup.run(fn ->
+        Elevation.revoke(sid)
+        Key.revoke()
+      end)
     end)
 
     {:ok, conn: authenticate(conn, sid), sid: sid}

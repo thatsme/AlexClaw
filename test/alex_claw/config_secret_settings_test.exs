@@ -30,6 +30,8 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
   @moduletag :integration
   @moduletag :vault
 
+  import Ecto.Query
+
   alias AlexClaw.{Config, Secrets}
   alias AlexClaw.Gateway.Telegram
 
@@ -156,6 +158,22 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
     end
   end
 
+  # Empty means "keep", so removing a secret setting is its own action.
+  describe "clearing" do
+    test "Config.clear/1 removes the secret from OpenBao and its date" do
+      set_token(@token)
+
+      :ok = Config.clear("telegram.bot_token")
+
+      assert {:error, :not_found} =
+               AlexClaw.Vault.read("alexclaw/secrets/setting_telegram_bot_token")
+
+      assert is_nil(Config.secret_set_at("telegram.bot_token"))
+      assert {:error, reason} = Config.secret("telegram.bot_token", for: "host:localhost")
+      assert reason in [:unknown_secret, :no_value]
+    end
+  end
+
   describe "the gateway" do
     test "sends with the token from OpenBao", %{bypass: bypass} do
       set_token(@token)
@@ -164,8 +182,10 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
 
       test_pid = self()
 
-      Bypass.expect_once(bypass, "POST", "/bot#{@token}/sendMessage", fn conn ->
-        send(test_pid, :sent_with_vault_token)
+      # A real token contains ":", which Bypass would read as a route
+      # parameter; match any bot path and check the token in it instead.
+      Bypass.stub(bypass, "POST", "/:bot/sendMessage", fn conn ->
+        send(test_pid, {:sent_on, conn.request_path})
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
@@ -173,7 +193,45 @@ defmodule AlexClaw.ConfigSecretSettingsTest do
       end)
 
       assert :ok = Telegram.deliver("4242", "hello", [])
-      assert_received :sent_with_vault_token
+      assert_received {:sent_on, path}
+      assert path == "/bot#{@token}/sendMessage"
+    end
+
+    # A long-lived consumer resolves once, keeps the value in its own
+    # process, and resolves again only when the secret is rotated or the
+    # remote says it is no longer valid — not on every poll.
+    test "resolves once, not on every send; picks up a rotation", %{bypass: bypass} do
+      set_token(@token)
+      Config.set("telegram.chat_id", "4242", type: "string", category: "telegram")
+      Config.set("telegram.enabled", "true", type: "boolean", category: "telegram")
+      test_pid = self()
+
+      Bypass.stub(bypass, "POST", "/:bot/sendMessage", fn conn ->
+        send(test_pid, {:sent_on, conn.request_path})
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, ~s({"ok":true,"result":{"message_id":1}}))
+      end)
+
+      resolves = fn ->
+        Repo.aggregate(
+          from(e in AlexClaw.Auth.AuditEntry,
+            where: e.decision == "allow" and like(e.reason, "%setting_telegram_bot_token%")
+          ),
+          :count
+        )
+      end
+
+      before = resolves.()
+      for _ <- 1..5, do: :ok = Telegram.deliver("4242", "hello", [])
+      assert resolves.() - before <= 1, "the token was resolved on every send"
+
+      set_token("999:rotated")
+      :ok = Telegram.deliver("4242", "after rotation", [])
+
+      paths = for _ <- 1..6, do: receive(do: ({:sent_on, p} -> p), after: (1_000 -> nil))
+      assert List.last(paths) == "/bot999:rotated/sendMessage", "the rotation was not picked up"
     end
   end
 end

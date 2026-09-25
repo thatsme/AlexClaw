@@ -102,6 +102,20 @@ defmodule AlexClawWeb.GateAuditsTest do
                any_row("run_workflow"),
                &(&1.reason =~ wf.name and &1.reason =~ "admin_ui")
              )
+
+      # Wait for the run to finish before the test ends: a run still working
+      # when the sandbox closes is what logged "checked in the connection owned
+      # by Task.Supervised".
+      finished? = fn ->
+        Repo.exists?(
+          from(r in AlexClaw.Workflows.WorkflowRun,
+            where: r.workflow_id == ^wf.id and r.status != "running"
+          )
+        )
+      end
+
+      assert Enum.any?(1..100, fn _ -> finished?.() or (Process.sleep(50) && false) end),
+             "the run did not finish"
     end
   end
 

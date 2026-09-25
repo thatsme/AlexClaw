@@ -14,8 +14,18 @@ defmodule AlexClawWeb.SessionRevocationTest do
   alias AlexClaw.Auth.{Elevation, Sessions}
 
   setup do
+    # Put back what was there: since 0.4.0 config/test.exs sets an admin
+    # password, and deleting it would leave later tests with none.
+    previous = Application.fetch_env(:alex_claw, :admin_password)
     Application.put_env(:alex_claw, :admin_password, "revocation-password")
-    on_exit(fn -> Application.delete_env(:alex_claw, :admin_password) end)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, v} -> Application.put_env(:alex_claw, :admin_password, v)
+        :error -> Application.delete_env(:alex_claw, :admin_password)
+      end
+    end)
+
     :ok
   end
 

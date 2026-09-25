@@ -1,11 +1,14 @@
 defmodule AlexClawWeb.AdminLive.ElevationInvariantTest do
   @moduledoc """
-  No LiveView makes a control-plane write outside gated/3.
+  No LiveView makes a control-plane write outside the one door.
 
   The enforcement tests check the events that exist today. This one checks the
   events that will exist tomorrow: it reads every LiveView's source and fails
   when a write sits anywhere but inside a gated change — see
-  `AlexClaw.ControlPlaneInvariant` for exactly where that is.
+  `AlexClaw.ControlPlaneInvariant` for exactly where that is. Since 0.4.0 (S5a)
+  the pages hand their changes to `ControlPlane.perform/3` through
+  `Elevation.perform/4`, so a page normally makes no write at all;
+  gate_boundary_test.exs pins the same rule from the other side.
   """
   use ExUnit.Case, async: true
   @moduletag :docs
@@ -15,15 +18,15 @@ defmodule AlexClawWeb.AdminLive.ElevationInvariantTest do
   @live_views Path.wildcard("lib/alex_claw_web/live/**/*.ex")
 
   # The pages whose changes are control-plane changes, each of which must still
-  # make them through gated/3.
+  # make them through the one door (Elevation.perform/4, or the older
+  # Elevation.gated for what S5 has not moved yet).
   @control_plane ~w(config policies llm resources cluster workflows memory)
 
-  # A write outside gated/3, deliberately: {file, function, write} => why.
+  # A write outside the door, deliberately: {file, function, write} => why.
   # Each entry has to say why — "operational" is not a reason, it is a category.
+  # (The 2FA-enrolment discard in services.ex left this list in S5a: it goes
+  # through the door now, as set_up_second_factor.)
   @allowed %{
-    {"services.ex", :handle_event, {:Config, :delete}} =>
-      "Discards a 2FA enrolment that was never confirmed. No second factor exists " <>
-        "yet to elevate with, and the secret it removes grants nothing.",
     {"cluster.ex", :handle_event, {:Cluster, :refresh_statuses}} =>
       "Records which nodes answered a ping. It observes the cluster; it changes " <>
         "nothing about which nodes belong to it or what they run.",
@@ -53,12 +56,14 @@ defmodule AlexClawWeb.AdminLive.ElevationInvariantTest do
            """
   end
 
-  test "the control-plane pages still make their changes through gated/3" do
+  test "the control-plane pages still make their changes through the door" do
     # A page that stopped gating anything would pass the test above by having
     # nothing left to find, which is the failure mode this catches.
     for page <- @control_plane do
       source = File.read!("lib/alex_claw_web/live/admin_live/#{page}.ex")
-      assert source =~ "Elevation.gated(", "#{page}.ex no longer changes anything through gated/3"
+
+      assert source =~ "Elevation.perform(" or source =~ "Elevation.gated(",
+             "#{page}.ex no longer changes anything through the door"
     end
   end
 

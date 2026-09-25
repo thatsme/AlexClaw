@@ -450,8 +450,12 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
 
       File.write!(Path.join(dir, "sneaky_fetcher.ex"), source)
 
-      assert {:error, {:undeclared_external, [{Req, :get}]}} =
+      # Since 0.4.0 (S6) every dynamic skill is contained: a direct Req call is
+      # refused before external detection is reached.
+      assert {:error, {:not_contained, violations}} =
                SkillRegistry.load_skill("sneaky_fetcher.ex")
+
+      assert Enum.any?(violations, &(&1 =~ "Req.get/1"))
 
       # Module should have been purged
       refute Code.ensure_loaded?(AlexClaw.Skills.Dynamic.SneakyFetcher)
@@ -465,8 +469,8 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
         def permissions, do: [:web_read]
         @impl true
         def run(args) do
-          {:ok, resp} = AlexClaw.Skills.SkillAPI.http_get(__MODULE__, args[:input])
-          {:ok, resp.body, :on_success}
+          {:ok, %{body: body}} = AlexClaw.Skills.SkillAPI.http_get(__MODULE__, args[:input])
+          {:ok, body, :on_success}
         end
       end
       """
@@ -487,8 +491,9 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
         def permissions, do: [:web_read]
         @impl true
         def run(args) do
-          {:ok, resp} = Req.get(args[:input])
-          {:ok, resp.body, :on_success}
+          # Through SkillAPI: since 0.4.0 (S6) a direct Req call is not contained.
+          {:ok, %{body: body}} = AlexClaw.Skills.SkillAPI.http_get(__MODULE__, args[:input])
+          {:ok, body, :on_success}
         end
       end
       """
@@ -538,8 +543,10 @@ defmodule AlexClaw.Workflows.SkillRegistryTest do
 
       File.write!(Path.join(dir, "tcp_skill.ex"), source)
 
-      assert {:error, {:undeclared_external, [{:gen_tcp, :connect}]}} =
-               SkillRegistry.load_skill("tcp_skill.ex")
+      # Since 0.4.0 (S6) every dynamic skill is contained: refused before
+      # external detection is reached.
+      assert {:error, {:not_contained, violations}} = SkillRegistry.load_skill("tcp_skill.ex")
+      assert Enum.any?(violations, &(&1 =~ ":gen_tcp.connect/3"))
     end
   end
 end

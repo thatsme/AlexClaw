@@ -40,7 +40,10 @@ defmodule AlexClaw.DispatcherSecondFactorTest do
     RecordingGateway.install()
 
     {:ok, %{secret: secret}} = TOTP.setup()
-    :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+    :ok =
+      TOTP.confirm_setup(NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30))
+
     # The confirming code cannot be replayed; let a fresh one through.
     AlexClaw.Config.delete("auth.totp.last_used_at")
 

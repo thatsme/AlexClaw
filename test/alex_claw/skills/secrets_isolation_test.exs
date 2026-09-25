@@ -79,8 +79,10 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
       end
     end
 
+    # Since 0.4.0 (S6) TOTP reads it only to carry it into OpenBao's TOTP
+    # engine, which keeps the key from then on.
     test "TOTP's own accessor can" do
-      assert TOTP.secret() == "JBSWY3DPEHPK3PXP"
+      assert :imported = TOTP.import_legacy()
     end
 
     test "verification still works through the accessor" do
@@ -94,7 +96,6 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
     test "an absent secret verifies nothing" do
       Config.delete("auth.totp.secret")
 
-      refute TOTP.secret()
       refute TOTP.verify("123456")
     end
   end

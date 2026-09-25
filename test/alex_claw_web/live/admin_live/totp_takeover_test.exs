@@ -37,9 +37,13 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
     AlexClaw.Config.delete("auth.totp.last_used_at")
 
     # 2FA on, with a known secret. TOTP.setup/0 returns the raw secret bytes;
-    # what is stored, and what TOTP.secret/0 returns, is its Base32 text.
+    # since 0.4.0 (S6) OpenBao keeps the key, so "the active factor is
+    # untouched" is checked by the enrolled key still answering.
     {:ok, %{secret: secret}} = TOTP.setup()
-    :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+    :ok =
+      TOTP.confirm_setup(NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30))
+
     AlexClaw.Config.delete("auth.totp.last_used_at")
 
     on_exit(fn ->
@@ -49,6 +53,8 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
 
     {:ok, sid: sid, secret: secret, active: Base.encode32(secret, padding: false)}
   end
+
+  defp still_active?(secret), do: TOTP.verify(NimbleTOTP.verification_code(secret))
 
   defp open(conn, sid) do
     {:ok, view, html} =
@@ -73,13 +79,13 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
   end
 
   describe "the context" do
-    test "a new setup is refused while 2FA is on", %{active: active} do
+    test "a new setup is refused while 2FA is on", %{secret: secret} do
       assert {:error, :already_enabled} = TOTP.setup()
-      assert TOTP.secret() == active
+      assert still_active?(secret)
       refute AlexClaw.Config.get("auth.totp.pending_secret")
     end
 
-    test "a confirm cannot replace the active secret", %{active: active} do
+    test "a confirm cannot replace the active secret", %{secret: secret} do
       # Even with a pending secret planted by some other path.
       planted = NimbleTOTP.secret()
 
@@ -90,7 +96,7 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
       )
 
       assert {:error, _} = TOTP.confirm_setup(NimbleTOTP.verification_code(planted))
-      assert TOTP.secret() == active
+      assert still_active?(secret)
     end
 
     test "after turning it off with a code, a new setup is allowed", %{secret: secret} do
@@ -115,7 +121,7 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
 
       html = render_click(view, "setup_2fa", %{})
 
-      assert TOTP.secret() == ctx.active
+      assert still_active?(ctx.secret)
       refute AlexClaw.Config.get("auth.totp.pending_secret")
       refute html =~ "data:image/png;base64,"
       assert html =~ ~r/already/i
@@ -144,9 +150,9 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
       refute AlexClaw.Config.get("auth.totp.pending_secret")
     end
 
-    test "/setup 2fa leaves the active factor as it was", %{active: active} do
+    test "/setup 2fa leaves the active factor as it was", %{secret: secret} do
       send_command("/setup 2fa")
-      assert TOTP.secret() == active
+      assert still_active?(secret)
     end
   end
 end

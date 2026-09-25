@@ -41,17 +41,17 @@ defmodule AlexClawWeb.AdminLive.RecoveryCodesWebTest do
     {view, html}
   end
 
-  defp pending_code do
-    "auth.totp.pending_secret"
-    |> AlexClaw.Config.get()
-    |> Base.decode32!(padding: false)
-    |> NimbleTOTP.verification_code()
+  # Since 0.4.0 (S6) OpenBao keeps the key and AlexClaw stores none of it: the
+  # test reads it where the person enrolling does, the key shown by hand.
+  defp pending_code(html) do
+    [_, key] = Regex.run(~r/Or enter the key by hand: <code[^>]*>([A-Z2-7]+)<\/code>/, html)
+    NimbleTOTP.verification_code(Base.decode32!(key, padding: false))
   end
 
   defp enable_2fa_in_ui(conn, sid) do
     {view, _html} = open(conn, sid)
-    render_click(view, "setup_2fa", %{})
-    html = render_submit(view, "confirm_2fa", %{"code" => pending_code()})
+    setup_html = render_click(view, "setup_2fa", %{})
+    html = render_submit(view, "confirm_2fa", %{"code" => pending_code(setup_html)})
     AlexClaw.Config.delete("auth.totp.last_used_at")
 
     {view, html}
@@ -103,7 +103,12 @@ defmodule AlexClawWeb.AdminLive.RecoveryCodesWebTest do
   describe "a recovery code in a code field" do
     setup ctx do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
+
       AlexClaw.Config.delete("auth.totp.last_used_at")
 
       {:ok, codes: RecoveryCodes.generate()}
@@ -171,7 +176,12 @@ defmodule AlexClawWeb.AdminLive.RecoveryCodesWebTest do
   describe "regenerating" do
     setup ctx do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
+
       AlexClaw.Config.delete("auth.totp.last_used_at")
 
       {:ok, codes: RecoveryCodes.generate(), secret: secret}
@@ -213,7 +223,12 @@ defmodule AlexClawWeb.AdminLive.RecoveryCodesWebTest do
   describe "turning 2FA off" do
     test "discards the codes, because they unlock nothing now", ctx do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
+
       AlexClaw.Config.delete("auth.totp.last_used_at")
       codes = RecoveryCodes.generate()
 

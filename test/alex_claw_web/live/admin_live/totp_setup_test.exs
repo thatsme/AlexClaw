@@ -39,20 +39,19 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
     {view, html}
   end
 
-  defp pending_code do
-    "auth.totp.pending_secret"
-    |> AlexClaw.Config.get()
-    |> Base.decode32!(padding: false)
-    |> NimbleTOTP.verification_code()
+  # Since 0.4.0 (S6) OpenBao keeps the key and AlexClaw stores none of it: the
+  # test reads it where the person enrolling does, the key shown by hand.
+  defp pending_secret(html) do
+    [_, key] = Regex.run(~r/Or enter the key by hand: <code[^>]*>([A-Z2-7]+)<\/code>/, html)
+    Base.decode32!(key, padding: false)
   end
 
-  # Config.get/2 cannot serve this one — it is excluded from the cache so a
-  # skill cannot read it — so the test reads it the way verification does.
-  defp active_code do
-    TOTP.secret()
-    |> Base.decode32!(padding: false)
-    |> NimbleTOTP.verification_code()
-  end
+  # The previous period's code confirms the setup, so the current one is still
+  # unused afterwards: OpenBao accepts a code once.
+  defp pending_code(html),
+    do: NimbleTOTP.verification_code(pending_secret(html), time: System.os_time(:second) - 30)
+
+  defp active_code(secret), do: NimbleTOTP.verification_code(secret)
 
   describe "before 2FA exists" do
     test "the page offers to set it up", ctx do
@@ -79,9 +78,8 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
       {view, _html} = open(ctx.conn, ctx.sid)
 
       html = render_click(view, "setup_2fa", %{})
-      secret = AlexClaw.Config.get("auth.totp.pending_secret")
 
-      assert html =~ secret
+      assert pending_secret(html)
     end
 
     test "the secret is pending, not active, until a code confirms it", ctx do
@@ -90,17 +88,17 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
       render_click(view, "setup_2fa", %{})
 
       refute TOTP.enabled?()
-      assert AlexClaw.Config.get("auth.totp.pending_secret")
-      refute TOTP.secret()
+      assert AlexClaw.Config.get("auth.totp.pending")
+      refute TOTP.configured?()
     end
   end
 
   describe "confirming the setup" do
     test "a correct code turns 2FA on", ctx do
       {view, _html} = open(ctx.conn, ctx.sid)
-      render_click(view, "setup_2fa", %{})
+      html = render_click(view, "setup_2fa", %{})
 
-      render_submit(view, "confirm_2fa", %{"code" => pending_code()})
+      render_submit(view, "confirm_2fa", %{"code" => pending_code(html)})
 
       assert TOTP.enabled?()
     end
@@ -130,7 +128,7 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
 
       render_click(view, "cancel_2fa_setup", %{})
 
-      refute AlexClaw.Config.get("auth.totp.pending_secret")
+      refute AlexClaw.Config.get("auth.totp.pending")
       refute TOTP.enabled?()
     end
   end
@@ -138,17 +136,17 @@ defmodule AlexClawWeb.AdminLive.TotpSetupTest do
   describe "turning 2FA off" do
     setup ctx do
       {view, _html} = open(ctx.conn, ctx.sid)
-      render_click(view, "setup_2fa", %{})
-      render_submit(view, "confirm_2fa", %{"code" => pending_code()})
+      html = render_click(view, "setup_2fa", %{})
+      render_submit(view, "confirm_2fa", %{"code" => pending_code(html)})
       AlexClaw.Config.delete("auth.totp.last_used_at")
 
-      {:ok, view: view}
+      {:ok, view: view, secret: pending_secret(html)}
     end
 
-    test "needs a current code", %{view: view} do
+    test "needs a current code", %{view: view, secret: secret} do
       assert TOTP.enabled?()
 
-      render_submit(view, "disable_2fa", %{"code" => active_code()})
+      render_submit(view, "disable_2fa", %{"code" => active_code(secret)})
 
       refute TOTP.enabled?()
     end

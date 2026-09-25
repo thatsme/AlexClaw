@@ -85,8 +85,10 @@ defmodule AlexClaw.Skills.ContainmentRecheckTest do
       refute File.exists?("/tmp/recheck_escaped")
     end
 
-    test "a TOTP-approved skill is not re-judged", %{skills_dir: dir} do
-      # Calls File, so it would fail containment — but a person approved it.
+    # Since 0.4.0 (S6, THREAT_MODEL.md P9) a code approves a skill's
+    # permissions, not calls outside the allowlist: a TOTP-approved skill is
+    # re-judged like any other.
+    test "a TOTP-approved skill is re-judged too", %{skills_dir: dir} do
       :ok =
         persist_unregistered(
           dir,
@@ -96,7 +98,7 @@ defmodule AlexClaw.Skills.ContainmentRecheckTest do
 
       :ok = SkillRegistry.reload_persisted()
 
-      assert {:ok, AlexClaw.Skills.Dynamic.Recheck} = SkillRegistry.resolve("recheck")
+      assert {:error, :unknown_skill} = SkillRegistry.resolve("recheck")
     end
   end
 end

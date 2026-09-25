@@ -31,7 +31,9 @@ defmodule AlexClaw.Auth.GatePromptTest do
     on_exit(&CodeAttempts.reset/0)
 
     {:ok, %{secret: secret}} = TOTP.setup()
-    :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+    :ok =
+      TOTP.confirm_setup(NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30))
 
     chat = "gate_#{System.unique_integer([:positive])}"
     insert_setting("telegram.chat_id", chat, type: "string", category: "telegram")
@@ -83,7 +85,12 @@ defmodule AlexClaw.Auth.GatePromptTest do
       :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
       System.put_env("TOTP_ISSUER", "Terminal-Ops")
       {:ok, %{secret: new_secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(new_secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(new_secret, time: System.os_time(:second) - 30)
+        )
+
       System.put_env("TOTP_ISSUER", "Something-Else")
 
       assert :challenged = Gate.request(%{type: :test}, "Unlock admin editing for 15 minutes")

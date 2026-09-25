@@ -7,9 +7,10 @@ defmodule AlexClaw.GateBoundaryTest do
   An entry point that calls one directly bypasses the catalogue, the second
   factor and the audit — exactly how the holes in the inventory came about.
 
-  S5a scans the admin UI (LiveViews and their components) and the web
-  controllers. S5b adds the gateway dispatcher, MCP and SkillAPI, as their
-  surfaces are cut down.
+  S5a scanned the admin UI (LiveViews and their components) and the web
+  controllers. S5b adds the gateway dispatcher, the gateways, MCP and SkillAPI:
+  they may still RUN things, but only by asking ControlPlane (run_workflow,
+  run_protected_workflow, run_skill).
   """
   use ExUnit.Case, async: true
   @moduletag :unit
@@ -40,7 +41,16 @@ defmodule AlexClaw.GateBoundaryTest do
     "Recording" => ~w(attach_login)
   }
 
-  @entry_points ["lib/alex_claw_web/live/**/*.ex", "lib/alex_claw_web/controllers/**/*.ex"]
+  @entry_points [
+    "lib/alex_claw_web/live/**/*.ex",
+    "lib/alex_claw_web/controllers/**/*.ex",
+    # S5b
+    "lib/alex_claw/dispatcher.ex",
+    "lib/alex_claw/dispatcher/**/*.ex",
+    "lib/alex_claw/gateway/**/*.ex",
+    "lib/alex_claw/mcp/**/*.ex",
+    "lib/alex_claw/skills/skill_api.ex"
+  ]
 
   defp pattern do
     alternatives =
@@ -54,11 +64,20 @@ defmodule AlexClaw.GateBoundaryTest do
 
   defp files, do: Enum.flat_map(@entry_points, &Path.wildcard/1)
 
-  test "the scan covers the admin UI and the controllers (no vacuous pass)" do
+  test "the scan covers every entry point (no vacuous pass)" do
     found = files()
     assert length(found) > 10, "the scan found almost no files: #{inspect(found)}"
-    assert Enum.any?(found, &String.ends_with?(&1, "live/admin_live/workflows.ex"))
-    assert Enum.any?(found, &String.ends_with?(&1, "controllers/database_controller.ex"))
+
+    for expected <- [
+          "live/admin_live/workflows.ex",
+          "controllers/database_controller.ex",
+          "lib/alex_claw/dispatcher.ex",
+          "dispatcher/auth_commands.ex",
+          "mcp/server.ex",
+          "skills/skill_api.ex"
+        ] do
+      assert Enum.any?(found, &String.ends_with?(&1, expected)), "the scan misses #{expected}"
+    end
   end
 
   test "the pattern recognises what it is for" do

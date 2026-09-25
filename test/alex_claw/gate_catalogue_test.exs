@@ -150,6 +150,15 @@ defmodule AlexClaw.GateCatalogueTest do
     end
   end
 
+  # S5 closes only when the catalogue is fully real: an action that is only
+  # declared is a promise, not a door (S5a returned :not_wired for 13 of them).
+  describe "every catalogued action is wired" do
+    test "Actions.wired?/1 is true for every action in the catalogue" do
+      unwired = Enum.reject(Map.keys(Gate.catalogue()), &AlexClaw.ControlPlane.Actions.wired?/1)
+      assert unwired == [], "catalogued but not wired: #{inspect(Enum.sort(unwired))}"
+    end
+  end
+
   # perform/3 takes a VERIFIED context: Context.admin_ui(sid) reads that
   # session's elevation itself. A caller cannot claim a proof it does not
   # have (Context.new/3, with a proof atom, is for authorize/2's pure

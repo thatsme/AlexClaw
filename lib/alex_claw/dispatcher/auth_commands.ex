@@ -2,7 +2,7 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   @moduledoc "Handles 2FA setup/confirm/disable, OAuth connect/disconnect, and 2FA challenge flow."
   require Logger
 
-  alias AlexClaw.Auth.{Challenge, Elevation, Gate, RunApproval, Sessions, TOTP}
+  alias AlexClaw.Auth.{Challenge, Elevation, Gate, RunApproval, TOTP}
   alias AlexClaw.Database.Restore
   alias AlexClaw.Gateway
   alias AlexClaw.Gateway.Router
@@ -62,14 +62,6 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
     end
   end
 
-  def dispatch(%Message{text: "/disable 2fa " <> code} = msg) do
-    disable_2fa(msg, TOTP.enabled?(), String.trim(code))
-  end
-
-  def dispatch(%Message{text: "/disable 2fa" <> _} = msg) do
-    disable_2fa(msg, TOTP.enabled?(), "")
-  end
-
   # --- OAuth ---
 
   def dispatch(%Message{text: "/connect google" <> _} = msg) do
@@ -102,45 +94,6 @@ defmodule AlexClaw.Dispatcher.AuthCommands do
   def dispatch(%Message{text: "/connect" <> _} = msg) do
     Gateway.send_message(
       "Available services:\n/connect google — Google Calendar",
-      chat_id: msg.chat_id,
-      gateway: msg.gateway
-    )
-  end
-
-  # Disabling 2FA is itself a sensitive action: without a current code, anyone who
-  # can reach the gateway could turn the second factor off and then act freely.
-  defp disable_2fa(msg, false, _code) do
-    Gateway.send_message("2FA is not enabled.", chat_id: msg.chat_id, gateway: msg.gateway)
-  end
-
-  defp disable_2fa(msg, true, "") do
-    Gateway.send_message(
-      "Disabling 2FA requires your current code:\n/disable 2fa <6-digit code>",
-      chat_id: msg.chat_id,
-      gateway: msg.gateway
-    )
-  end
-
-  defp disable_2fa(msg, true, code) do
-    disable_verified(msg, TOTP.verify(code))
-  end
-
-  # From a gateway there is no web login to keep: every one of them was made
-  # under a second factor that no longer exists, so all of them are ended.
-  defp disable_verified(msg, true) do
-    TOTP.disable()
-
-    {:ok, _closed} =
-      Sessions.close_others(nil, "two-factor authentication disabled from a gateway")
-
-    Gateway.send_message("2FA disabled.", chat_id: msg.chat_id, gateway: msg.gateway)
-  end
-
-  defp disable_verified(msg, false) do
-    Logger.warning("Rejected /disable 2fa: invalid code", auth: :denied)
-
-    Gateway.send_message(
-      "Invalid code. 2FA is still enabled.",
       chat_id: msg.chat_id,
       gateway: msg.gateway
     )

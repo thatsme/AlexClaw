@@ -195,7 +195,6 @@ defmodule AlexClaw.Dispatcher do
 
   def dispatch(%Message{text: "/setup 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
   def dispatch(%Message{text: "/confirm 2fa " <> _} = msg), do: AuthCommands.dispatch(msg)
-  def dispatch(%Message{text: "/disable 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
   def dispatch(%Message{text: "/connect" <> _} = msg), do: AuthCommands.dispatch(msg)
   def dispatch(%Message{text: "/disconnect" <> _} = msg), do: AuthCommands.dispatch(msg)
 
@@ -585,7 +584,6 @@ defmodule AlexClaw.Dispatcher do
       /connect google — connect Google Calendar/Tasks via OAuth
       /disconnect google — remove Google connection
       /setup 2fa — enable two-factor authentication
-      /disable 2fa <code> — disable two-factor authentication (requires a current code)
       /help — this message
       _Anything else → conversation_
       """,

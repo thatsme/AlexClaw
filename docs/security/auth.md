@@ -48,7 +48,7 @@ When 2FA is enabled, these operations require TOTP verification:
 | Skill load/unload/reload | Admin UI only (the code can be answered from Telegram/Discord) |
 | Shell command execution | `/shell` from Telegram/Discord |
 | Workflows marked "Requires 2FA" | Telegram/Discord **and** the Run button in the Admin UI |
-| Disabling 2FA | `/disable 2fa <code>` |
+| Disabling 2FA | Admin UI only, Services page, with a current authenticator code |
 
 These **fail closed**: when TOTP is not configured they are refused outright,
 not allowed through. Set 2FA up before relying on any of them.
@@ -78,5 +78,7 @@ Admin UI actions that require 2FA are verified via Telegram or Discord — the T
 ```
 /setup 2fa        → Generate secret and QR code
 /confirm 2fa CODE → Confirm 2FA setup
-/disable 2fa      → Disable 2FA
 ```
+
+Two-factor authentication is turned off from the Services page only, with a
+current authenticator code.

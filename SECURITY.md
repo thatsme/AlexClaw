@@ -99,8 +99,9 @@ told to do.
 
 The `auth.totp.*` settings are not editable from the Config page at any
 elevation, and deleting them is refused for the same reason as changing them.
-They are written by `/setup 2fa` and `/disable 2fa` on a gateway, and nowhere
-else.
+They are written only by two-factor setup: `/setup 2fa` on a gateway, and the
+Services page, which is also the only place 2FA is turned off (with a current
+authenticator code).
 
 This is load-bearing rather than tidy. Whether elevation is enforced at all is
 decided by `auth.totp.enabled`; if that setting were editable from behind the

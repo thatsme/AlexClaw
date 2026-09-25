@@ -91,7 +91,9 @@ All commands work identically on both Telegram and Discord. Responses route back
 |---|---|
 | `/setup 2fa` | Generate TOTP secret and QR code |
 | `/confirm 2fa <code>` | Confirm 2FA setup |
-| `/disable 2fa` | Disable 2FA |
+
+2FA is turned off from the Services page of the admin UI, with a current
+authenticator code. There is no gateway command for it.
 
 ## Free Text
 

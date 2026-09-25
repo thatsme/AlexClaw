@@ -113,9 +113,24 @@ defmodule AlexClaw.Auth.TOTP do
     end
   end
 
-  @doc "Disable 2FA."
-  @spec disable() :: :ok
-  def disable do
+  @doc """
+  Disable 2FA, when `code` is a current code for the active secret.
+
+  The code is verified here, replay protection included, so no caller can turn
+  the second factor off by forgetting to check it. A recovery code does not
+  qualify: only the factor itself can remove the factor.
+  """
+  @spec disable(String.t()) :: :ok | {:error, :invalid_code}
+  def disable(code) when is_binary(code) do
+    code
+    |> String.replace(~r/\s/, "")
+    |> verify()
+    |> disabled()
+  end
+
+  defp disabled(false), do: {:error, :invalid_code}
+
+  defp disabled(true) do
     Config.set("auth.totp.enabled", "false",
       type: "boolean",
       category: "auth",

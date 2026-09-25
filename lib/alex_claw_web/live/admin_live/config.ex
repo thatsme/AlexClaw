@@ -98,8 +98,8 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   @sensitive_patterns ~w(api_key token password secret)
 
-  # auth.totp.* is written by /setup 2fa and /disable 2fa on a gateway and
-  # nowhere else. Elevation does not open it: the setting that decides whether
+  # auth.totp.* is written only by the second-factor setup (Services, and
+  # /setup 2fa on a gateway until 0.4.0 removes it). Elevation does not open it: the setting that decides whether
   # elevation is required at all must not be editable from behind that gate,
   # or the gate can be switched off through the page it protects.
   defp save_setting(true, params, socket) do
@@ -167,7 +167,7 @@ defmodule AlexClawWeb.AdminLive.Config do
   defp gateway_managed?(_key), do: false
 
   defp managed_message(key) do
-    "#{key} is managed from a gateway — use /setup 2fa or /disable 2fa"
+    "#{key} is managed by two-factor setup — use the Services page"
   end
 
   defp setting_change(params) do

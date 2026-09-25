@@ -39,22 +39,17 @@ defmodule AlexClaw.Workflows.UnavailableStepAtRunTest do
     %{wf: wf}
   end
 
-  test "the step fails with the skill's reason, and the run says so", %{wf: wf} do
-    assert {:ok, run} = Executor.run(wf.id)
+  # A failed run returns {:error, %WorkflowRun{}} (executor.ex:30-32). The
+  # error being {:unavailable, reason} — and not a failure from Coder itself —
+  # is what shows the skill never ran: had it run, the error would be Coder's
+  # own (in the test stack, its missing model).
+  test "the step fails as unavailable, with the skill's reason; the skill never runs", %{wf: wf} do
+    assert {:error, run} = Executor.run(wf.id)
 
     assert run.status == "failed"
+    assert inspect(run) =~ ":unavailable", "the step did not fail as unavailable: #{inspect(run)}"
 
     assert inspect(run) =~ ~r/not a workflow step|Forge/i,
            "the reason is not reported: #{inspect(run)}"
-  end
-
-  test "Coder itself never runs: no skill is generated", %{wf: wf} do
-    skills_dir = Application.get_env(:alex_claw, :skills_dir)
-    before = if File.dir?(skills_dir), do: File.ls!(skills_dir), else: []
-
-    Executor.run(wf.id)
-
-    after_run = if File.dir?(skills_dir), do: File.ls!(skills_dir), else: []
-    assert Enum.sort(after_run) == Enum.sort(before)
   end
 end

@@ -119,7 +119,7 @@ defmodule AlexClaw.Auth.Elevation do
   def revoke_all do
     __MODULE__
     |> GenServer.call(:revoke_all)
-    |> Enum.each(&AuditLog.log_elevation(:revoked, fingerprint(&1), nil))
+    |> Enum.each(&audit_revoked(:dropped, &1))
   end
 
   @doc "When `sid`'s elevation ends, or nil when it holds none."

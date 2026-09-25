@@ -84,24 +84,42 @@ defmodule AlexClaw.Skills.SkillInvocationBoundaryTest do
   end
 
   describe "no entry point calls a skill module" do
-    # Every skill module's short name, from the COMPILED modules — not guessed
-    # from file names (Macro.camelize gave GithubSecurityReview and
-    # RssCollector; the modules are GitHubSecurityReview and RSSCollector).
+    # Every SKILL's short name: the compiled modules that implement the
+    # AlexClaw.Skill behaviour — not every module under AlexClaw.Skills
+    # (ForgeGuard and CodeGenerator live there and are the Forge's helpers),
+    # and not guessed from file names (Macro.camelize gave
+    # GithubSecurityReview; the module is GitHubSecurityReview).
     defp skill_names do
       {:ok, modules} = :application.get_key(:alex_claw, :modules)
 
       modules
-      |> Enum.map(&Module.split/1)
-      |> Enum.filter(&match?(["AlexClaw", "Skills", _], &1))
-      |> Enum.map(&List.last/1)
-      |> Enum.reject(&(&1 in ~w(SkillAPI Invoke)))
+      |> Enum.filter(&skill?/1)
+      |> Enum.map(&(&1 |> Module.split() |> List.last()))
     end
+
+    defp skill?(module) do
+      Code.ensure_loaded?(module) and
+        AlexClaw.Skill in (module.module_info(:attributes)
+                           |> Keyword.get_values(:behaviour)
+                           |> List.flatten())
+    end
+
+    # Named, deliberate exceptions: a function on a skill module that is not a
+    # skill run. Each says why; a stale entry fails below.
+    @not_a_run %{
+      {"WebAutomation", "status"} =>
+        "The Services page's health read of the sidecar: it runs no skill and changes nothing."
+    }
 
     test "the list of skill modules is real (no vacuous pass)" do
       names = skill_names()
 
       for expected <- ~w(Research WebSearch GoogleTasks GitHubSecurityReview RSSCollector) do
         assert expected in names, "#{expected} is missing from the list"
+      end
+
+      for helper <- ~w(ForgeGuard CodeGenerator) do
+        refute helper in names, "#{helper} is a Forge helper, not a skill"
       end
     end
 
@@ -118,6 +136,19 @@ defmodule AlexClaw.Skills.SkillInvocationBoundaryTest do
       assert Regex.match?(re, "GitHubSecurityReview.review_pr(pr)")
     end
 
+    defp allowed?(line) do
+      Enum.any?(Map.keys(@not_a_run), fn {mod, fun} -> line =~ "#{mod}.#{fun}(" end)
+    end
+
+    test "every named exception still exists (no stale exception)" do
+      sources = @entry_points |> Enum.flat_map(&Path.wildcard/1) |> Enum.map(&File.read!/1)
+
+      for {{mod, fun}, reason} <- @not_a_run do
+        assert Enum.any?(sources, &(&1 =~ "#{mod}.#{fun}(")),
+               "#{mod}.#{fun} is excepted but no entry point calls it — drop it (#{reason})"
+      end
+    end
+
     test "chat, gateways, MCP, admin pages and controllers never call one" do
       pattern = reference_pattern()
 
@@ -125,6 +156,7 @@ defmodule AlexClaw.Skills.SkillInvocationBoundaryTest do
         for path <- Enum.flat_map(@entry_points, &Path.wildcard/1),
             {line, n} <- code_lines(path),
             Regex.match?(pattern, line),
+            not allowed?(line),
             do: "#{path}:#{n}: #{String.trim(line)}"
 
       assert offenders == [],

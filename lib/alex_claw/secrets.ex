@@ -22,6 +22,16 @@ defmodule AlexClaw.Secrets do
 
   @type error :: :unknown_secret | :not_bound | :no_value | :empty_value | Vault.error()
 
+  @topic "secrets"
+
+  @doc """
+  The PubSub topic on which a secret's rotation or removal is announced, as
+  `{:secret_rotated, name}` — the name, never the value — so a consumer that
+  holds a value knows to resolve it again.
+  """
+  @spec topic() :: String.t()
+  def topic, do: @topic
+
   @doc "Define a secret: name, description, kind, binding. Never a value."
   @spec define(map()) :: {:ok, Secret.t()} | {:error, Ecto.Changeset.t()}
   def define(attrs) do
@@ -54,6 +64,7 @@ defmodule AlexClaw.Secrets do
       end
 
     AuditLog.log_secret_set(name, outcome(result))
+    announce(result, name)
     result
   end
 
@@ -73,6 +84,7 @@ defmodule AlexClaw.Secrets do
       end
 
     AuditLog.log_secret_delete(name, outcome(result))
+    announce(result, name)
     result
   end
 
@@ -111,6 +123,11 @@ defmodule AlexClaw.Secrets do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp announce(:ok, name),
+    do: Phoenix.PubSub.broadcast(AlexClaw.PubSub, @topic, {:secret_rotated, name})
+
+  defp announce(_error, _name), do: :ok
 
   defp fetch(name) do
     case get(name) do

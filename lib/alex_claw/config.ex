@@ -153,6 +153,26 @@ defmodule AlexClaw.Config do
   @spec secret(String.t(), keyword()) :: {:ok, String.t()} | {:error, Secrets.error()}
   def secret(key, opts), do: Secrets.resolve(SecretSettings.secret_name(key), opts)
 
+  @doc """
+  Clear the setting `key`. An empty value means "keep" for a secret setting, so
+  removing one is this: its value is deleted from OpenBao, with every version,
+  and it no longer has a date. Any other setting is set to "".
+  """
+  @spec clear(String.t()) :: :ok | {:error, term()}
+  def clear(key), do: cleared(SecretSettings.secret?(key), key)
+
+  defp cleared(true, key) do
+    case Secrets.delete(SecretSettings.secret_name(key)) do
+      :ok -> publish(key)
+      {:error, :unknown_secret} -> :ok
+      error -> error
+    end
+  end
+
+  defp cleared(false, key) do
+    with {:ok, _setting} <- set(key, ""), do: :ok
+  end
+
   @doc "When the secret setting `key` was last set, or nil if it never was."
   @spec secret_set_at(String.t()) :: DateTime.t() | nil
   def secret_set_at(key) do

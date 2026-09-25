@@ -108,6 +108,35 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   defp save_setting(false, params, socket) do
     params
+    |> clearing_secret?()
+    |> clear_or_save(params, socket)
+  end
+
+  # Empty keeps a secret setting's value, so its Clear button is its own
+  # action: Config.clear/1 deletes the value from OpenBao.
+  defp clearing_secret?(params),
+    do: params["_clear"] == "true" and AlexClaw.Config.secret?(params["key"] || "")
+
+  defp clear_or_save(true, %{"key" => key}, socket) do
+    Elevation.gated(socket, "#{key}: cleared",
+      write: fn -> with :ok <- AlexClaw.Config.clear(key), do: {:ok, key} end,
+      ok: fn socket, _key ->
+        settings = AlexClaw.Config.list()
+
+        socket
+        |> put_flash(:info, "Setting '#{key}' cleared")
+        |> assign(
+          settings: settings,
+          grouped: group_by_category(settings),
+          show_form: false,
+          editing: nil
+        )
+      end
+    )
+  end
+
+  defp clear_or_save(false, params, socket) do
+    params
     |> keeps_secret?(socket)
     |> save_value(params, socket)
   end
@@ -215,7 +244,26 @@ defmodule AlexClawWeb.AdminLive.Config do
     String.slice(value, 0, 4) <> "********" <> String.slice(value, -4, 4)
   end
 
-  defp display_value(setting) do
+  # A secret setting's value is in OpenBao: the page says whether and when it
+  # was set, never any part of the value.
+  defp secret_state(key) do
+    case AlexClaw.Config.secret_set_at(key) do
+      nil -> "not set"
+      set_at -> "set on " <> Calendar.strftime(set_at, "%Y-%m-%d %H:%M UTC")
+    end
+  end
+
+  defp value_hint(setting) do
+    if AlexClaw.Config.secret?(setting.key),
+      do: secret_state(setting.key),
+      else: mask_value(setting.value)
+  end
+
+  defp display_value(%{key: key} = setting) do
+    if AlexClaw.Config.secret?(key), do: secret_state(key), else: shown_value(setting)
+  end
+
+  defp shown_value(setting) do
     if setting.sensitive || sensitive_key?(setting.key) do
       mask_value(setting.value)
     else

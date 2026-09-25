@@ -11,6 +11,7 @@ defmodule AlexClaw.Gateway.Telegram do
   @token_key "telegram.bot_token"
 
   alias AlexClaw.{Config, Message}
+  alias AlexClaw.Gateway.Telegram.Token
 
   # --- Behaviour callbacks ---
 
@@ -24,26 +25,12 @@ defmodule AlexClaw.Gateway.Telegram do
   end
 
   @doc """
-  The bot token, resolved from OpenBao for the Telegram API host in use
-  (`Config.secret/2`: binding checked, use audited), or nil when none is set or
-  it cannot be resolved. Not resolved at all while none has been set, so an
-  unconfigured gateway writes no audit rows.
+  The bot token, or nil when none is set. Resolved once and held by
+  `AlexClaw.Gateway.Telegram.Token`, which resolves again only on a rotation or
+  when Telegram refuses it.
   """
   @spec bot_token() :: String.t() | nil
-  def bot_token, do: bot_token(Config.secret_set_at(@token_key))
-
-  defp bot_token(nil), do: nil
-
-  defp bot_token(_set_at) do
-    case Config.secret(@token_key, for: Config.secret_binding(@token_key)) do
-      {:ok, token} ->
-        token
-
-      {:error, reason} ->
-        Logger.warning("Telegram bot token unavailable (#{reason})")
-        nil
-    end
-  end
+  def bot_token, do: Token.get()
 
   # --- Client API ---
 
@@ -225,6 +212,11 @@ defmodule AlexClaw.Gateway.Telegram do
       {:ok, %{status: 200, body: %{"ok" => true, "result" => updates}}} ->
         %{state | offset: process_updates(updates, state.offset, &AlexClaw.Dispatcher.dispatch/1)}
 
+      {:ok, %{status: 401, body: body}} ->
+        Token.invalidate()
+        Logger.warning("Telegram API error: 401 - #{inspect(body)}")
+        state
+
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Telegram API error: #{status} - #{inspect(body)}")
         state
@@ -345,6 +337,12 @@ defmodule AlexClaw.Gateway.Telegram do
         Logger.warning("#{parse_mode} parse failed, retrying as plain text: #{inspect(body)}")
         plain_text = if parse_mode == "HTML", do: strip_tags(text), else: text
         send_plain(url, Map.merge(%{chat_id: chat_id, text: plain_text}, send_options))
+
+      {:ok, %{status: 401, body: body}} ->
+        # The held token is no longer valid: resolved again on next use.
+        Token.invalidate()
+        Logger.warning("Send failed: 401 - #{inspect(body)}")
+        {:error, {:telegram, 401, body}}
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Send failed: #{status} - #{inspect(body)}")

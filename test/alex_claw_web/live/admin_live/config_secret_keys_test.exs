@@ -18,6 +18,8 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
 
   Event names and params are the page's own (reported 2026-09-25): `save`
   with key, value, type, description, category, and `_clear` for Clear.
+  The page starts with every category collapsed; like a user, each test
+  opens "telegram" first (`toggle_group`).
   """
   use AlexClawWeb.ConnCase, async: false
   @moduletag :integration
@@ -26,7 +28,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
   import Ecto.Query
 
   alias AlexClaw.Auth.{AuditEntry, Elevation}
-  alias AlexClaw.Config
+  alias AlexClaw.{Config, Repo}
 
   @token "777-page-token-#{System.unique_integer([:positive])}"
   @key "telegram.bot_token"
@@ -38,6 +40,12 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
   end
 
   defp elevate(sid), do: {:ok, _} = Elevation.grant(sid)
+
+  defp open_telegram(conn) do
+    {:ok, view, _html} = live(conn, "/config")
+    html = render_click(view, "toggle_group", %{"group" => "telegram"})
+    {view, html}
+  end
 
   defp save(view, value, extra \\ %{}) do
     render_submit(
@@ -66,7 +74,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
     test "set: the date, never the value or any part of it", %{conn: conn} do
       {:ok, _} = Config.set(@key, @token, type: "string", category: "telegram")
 
-      {:ok, _view, html} = live(conn, "/config")
+      {_view, html} = open_telegram(conn)
 
       assert html =~ ~r/set on/i
       refute html =~ @token
@@ -75,7 +83,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
     end
 
     test "not set: says so", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/config")
+      {_view, html} = open_telegram(conn)
       assert html =~ ~r/not set/i
     end
   end
@@ -84,7 +92,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
     test "with the elevation: stored in OpenBao, never rendered back, audited without the value",
          %{conn: conn, sid: sid} do
       elevate(sid)
-      {:ok, view, _html} = live(conn, "/config")
+      {view, _html} = open_telegram(conn)
 
       html = save(view, @token)
 
@@ -95,7 +103,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
     end
 
     test "without it: refused, audited, nothing stored", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/config")
+      {view, _html} = open_telegram(conn)
 
       save(view, @token)
 
@@ -107,7 +115,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
     test "empty keeps the current value", %{conn: conn, sid: sid} do
       {:ok, _} = Config.set(@key, @token, type: "string", category: "telegram")
       elevate(sid)
-      {:ok, view, _html} = live(conn, "/config")
+      {view, _html} = open_telegram(conn)
 
       save(view, "")
 
@@ -122,7 +130,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
     } do
       {:ok, _} = Config.set(@key, @token, type: "string", category: "telegram")
       elevate(sid)
-      {:ok, view, _html} = live(conn, "/config")
+      {view, _html} = open_telegram(conn)
 
       html = save(view, "", %{"_clear" => "true"})
 
@@ -133,7 +141,7 @@ defmodule AlexClawWeb.AdminLive.ConfigSecretKeysTest do
 
     test "without it: refused, the value stays", %{conn: conn} do
       {:ok, _} = Config.set(@key, @token, type: "string", category: "telegram")
-      {:ok, view, _html} = live(conn, "/config")
+      {view, _html} = open_telegram(conn)
 
       save(view, "", %{"_clear" => "true"})
 

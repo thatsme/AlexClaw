@@ -15,12 +15,21 @@ defmodule AlexClaw.ControlPlane.Actions do
   page describes it.
   """
 
-  alias AlexClaw.Auth.{Policies, PolicyEngine, RecoveryCodes, SecondFactor, Sessions, TOTP}
+  alias AlexClaw.Auth.{
+    Elevation,
+    Policies,
+    PolicyEngine,
+    RecoveryCodes,
+    SecondFactor,
+    Sessions,
+    TOTP
+  }
+
   alias AlexClaw.{Cluster, Config, ControlPlane, LLM, Memory, Repo, Resources, Workflows}
   alias AlexClaw.ControlPlane.{Context, Effects}
   alias AlexClaw.MCP.Key
   alias AlexClaw.WebAutomation.Recording
-  alias AlexClaw.Workflows.{SchedulerSync, WorkflowStep}
+  alias AlexClaw.Workflows.{SchedulerSync, Workflow, WorkflowStep}
 
   @pending_secret "auth.totp.pending_secret"
 
@@ -59,6 +68,45 @@ defmodule AlexClaw.ControlPlane.Actions do
   @doc "Whether `action` has an implementation here: every catalogued action does."
   @spec wired?(atom()) :: boolean()
   def wired?(action), do: action in @changes or action in Effects.actions()
+
+  @doc """
+  Whether this request may be performed at all, beyond the catalogue: checked
+  before anything is written or started, so a refusal leaves no run behind.
+  Another node (`:cluster`) may run a workflow only when it is registered,
+  the workflow's first step is the `receive_from_workflow` gate, that gate's
+  `allowed_nodes` (when set) names it, and the workflow is not protected.
+  """
+  @spec admissible(atom(), map(), Context.t()) :: :ok | {:error, atom()}
+  def admissible(:run_workflow, %{workflow_id: id}, %Context{entry_point: :cluster, node: node}) do
+    with :ok <- registered(Cluster.get_by_name(node)),
+         {:ok, workflow} <- Workflows.get_workflow(id),
+         :ok <- gate_allows(first_step(workflow.steps), node),
+         do: unprotected(Workflow.protected?(workflow))
+  end
+
+  def admissible(_action, _params, _context), do: :ok
+
+  defp registered(nil), do: {:error, :node_not_registered}
+  defp registered(_node), do: :ok
+
+  defp first_step([]), do: nil
+  defp first_step(steps), do: Enum.min_by(steps, & &1.position)
+
+  defp gate_allows(%{skill: "receive_from_workflow", config: config}, node),
+    do: listed((config || %{})["allowed_nodes"], node)
+
+  defp gate_allows(_first_step, _node), do: {:error, :no_receive_gate}
+
+  defp listed(allowed, node) when is_list(allowed) and allowed != [],
+    do: allowed_node(node in allowed)
+
+  defp listed(_any_registered, _node), do: :ok
+
+  defp allowed_node(true), do: :ok
+  defp allowed_node(false), do: {:error, :node_not_allowed}
+
+  defp unprotected(true), do: {:error, :protected_workflow}
+  defp unprotected(false), do: :ok
 
   @doc "Whether `action` is a `:change` (transactional) or an `:effect` (`AlexClaw.ControlPlane.Effects`)."
   @spec kind(atom()) :: :change | :effect
@@ -137,7 +185,7 @@ defmodule AlexClaw.ControlPlane.Actions do
   end
 
   def run(:clear_secret, %{key: key}) do
-    with :ok <- Config.clear(key), do: {:ok, key}
+    with :ok <- Config.erase(key), do: {:ok, key}
   end
 
   def run(:generate_mcp_key, _params), do: Key.generate()
@@ -219,6 +267,10 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   def after_commit(:save_policy, _params, _policy, _context), do: PolicyEngine.reload_policies()
 
+  # Cleared or generated inside the transaction; announced once committed.
+  def after_commit(:clear_secret, %{key: key}, _key, _context), do: Config.publish(key)
+  def after_commit(:generate_mcp_key, _params, _key, _context), do: Config.publish("mcp.api_key")
+
   def after_commit(:set_up_second_factor, %{step: :cancel}, _removed, _context),
     do: Config.publish(@pending_secret)
 
@@ -234,8 +286,11 @@ defmodule AlexClaw.ControlPlane.Actions do
     )
   end
 
-  def after_commit(:sign_out_everywhere, _params, socket_ids, _context),
-    do: Sessions.disconnect(socket_ids)
+  # Every login is closed, so every elevation ends with it.
+  def after_commit(:sign_out_everywhere, _params, socket_ids, _context) do
+    Elevation.revoke_all()
+    Sessions.disconnect(socket_ids)
+  end
 
   def after_commit(_action, _params, _result, _context), do: :ok
 

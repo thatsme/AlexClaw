@@ -111,6 +111,17 @@ defmodule AlexClaw.Auth.Elevation do
 
   defp audit_revoked(:none, _sid), do: :ok
 
+  @doc """
+  End every elevation now: every session was signed out
+  (`:sign_out_everywhere`), so none may keep one. Each is audited as revoked.
+  """
+  @spec revoke_all() :: :ok
+  def revoke_all do
+    __MODULE__
+    |> GenServer.call(:revoke_all)
+    |> Enum.each(&AuditLog.log_elevation(:revoked, fingerprint(&1), nil))
+  end
+
   @doc "When `sid`'s elevation ends, or nil when it holds none."
   @spec expires_at(String.t() | nil) :: integer() | nil
   def expires_at(nil), do: nil
@@ -168,6 +179,11 @@ defmodule AlexClaw.Auth.Elevation do
 
   def handle_call({:revoke, sid}, _from, state) do
     {:reply, end_elevation(:revoked, sid), state}
+  end
+
+  def handle_call(:revoke_all, _from, state) do
+    sids = :ets.select(@table, [{{:"$1", :_}, [], [:"$1"]}])
+    {:reply, Enum.filter(sids, &(end_elevation(:revoked, &1) == :dropped)), state}
   end
 
   @impl true

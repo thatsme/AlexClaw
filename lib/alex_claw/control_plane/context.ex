@@ -18,12 +18,12 @@ defmodule AlexClaw.ControlPlane.Context do
 
   alias AlexClaw.Auth.Elevation
 
-  @type entry_point :: :admin_ui | :gateway | :mcp | :skill | :webhook | :system
+  @type entry_point :: :admin_ui | :gateway | :mcp | :skill | :webhook | :cluster | :system
   @type proof :: :elevation | :code | nil
 
   @derive {Inspect, except: [:sid, :code]}
   @enforce_keys [:entry_point, :identity]
-  defstruct [:entry_point, :identity, :proof, :sid, :chat_id, :code, verified: false]
+  defstruct [:entry_point, :identity, :proof, :sid, :chat_id, :node, :code, verified: false]
 
   @type t :: %__MODULE__{
           entry_point: entry_point(),
@@ -31,6 +31,7 @@ defmodule AlexClaw.ControlPlane.Context do
           proof: proof(),
           sid: String.t() | nil,
           chat_id: String.t() | nil,
+          node: String.t() | nil,
           code: String.t() | nil,
           verified: boolean()
         }
@@ -84,6 +85,15 @@ defmodule AlexClaw.ControlPlane.Context do
   @doc "A webhook."
   @spec webhook(String.t() | integer()) :: t()
   def webhook(id), do: bare(:webhook, "webhook:#{id}")
+
+  @doc """
+  Another AlexClaw node asking this one, named `node`. The control plane
+  checks that the node is registered and that the workflow allows it; the
+  name itself is the one the request carries (the call arrives over
+  `:rpc`, which does not say who sent it).
+  """
+  @spec cluster(node() | String.t()) :: t()
+  def cluster(node), do: %{bare(:cluster, "cluster:#{node}") | node: to_string(node)}
 
   @doc "AlexClaw itself: the scheduler, boot, a migration — named by `reason`."
   @spec system(String.t()) :: t()

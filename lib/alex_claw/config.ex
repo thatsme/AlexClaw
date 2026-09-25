@@ -224,22 +224,31 @@ defmodule AlexClaw.Config do
   and it no longer has a date. Any other setting is set to "".
   """
   @spec clear(String.t()) :: :ok | {:error, term()}
-  def clear(key), do: cleared(SecretSettings.secret?(key), key)
+  def clear(key) do
+    with :ok <- erase(key), do: publish(key)
+  end
 
-  defp cleared(true, key), do: cleared_secret(SecretSettings.recognised_only?(key), key)
+  @doc """
+  `clear/1` without the publish: safe inside a transaction; follow it with
+  `publish/1` once committed (as `persist/3` is to `set/3`).
+  """
+  @spec erase(String.t()) :: :ok | {:error, term()}
+  def erase(key), do: erased(SecretSettings.secret?(key), key)
 
-  defp cleared(false, key) do
-    with {:ok, _setting} <- set(key, ""), do: :ok
+  defp erased(true, key), do: erased_secret(SecretSettings.recognised_only?(key), key)
+
+  defp erased(false, key) do
+    with {:ok, _setting} <- persist(key, ""), do: :ok
   end
 
   # A recognised-only key is cleared by dropping its fingerprint.
-  defp cleared_secret(true, key) do
-    with {:ok, _setting} <- replace_row(Repo.get_by(Setting, key: key), ""), do: publish(key)
+  defp erased_secret(true, key) do
+    with {:ok, _setting} <- replace_row(Repo.get_by(Setting, key: key), ""), do: :ok
   end
 
-  defp cleared_secret(false, key) do
+  defp erased_secret(false, key) do
     case Secrets.delete(SecretSettings.secret_name(key)) do
-      :ok -> publish(key)
+      :ok -> :ok
       {:error, :unknown_secret} -> :ok
       error -> error
     end
@@ -437,7 +446,19 @@ defmodule AlexClaw.Config do
   transaction; follow it with `publish/1` once committed.
   """
   @spec remove(String.t()) :: {:ok, :removed | :absent} | {:error, Ecto.Changeset.t()}
-  def remove(key), do: removed(Repo.get_by(Setting, key: key))
+  def remove(key) do
+    with :ok <- forget_secret(SecretSettings.secret?(key), key),
+         do: removed(Repo.get_by(Setting, key: key))
+  end
+
+  # A secret setting's row points at its secret: removing the row removes the
+  # secret too — its value in OpenBao and its catalogue entry. A
+  # recognised-only key holds only a fingerprint, in the row itself.
+  defp forget_secret(true, key), do: forget(SecretSettings.recognised_only?(key), key)
+  defp forget_secret(false, _key), do: :ok
+
+  defp forget(true, _key), do: :ok
+  defp forget(false, key), do: erased_secret(false, key)
 
   defp removed(nil), do: {:ok, :absent}
 

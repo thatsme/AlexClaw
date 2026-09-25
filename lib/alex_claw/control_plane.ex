@@ -87,7 +87,16 @@ defmodule AlexClaw.ControlPlane do
     restore_data: %{admin_ui: :code},
     clear_run_history: @authoring,
     # runs
-    run_workflow: %{admin_ui: :none, gateway: :none, mcp: :none, webhook: :none, system: :none},
+    # :cluster is another node's request: unprotected runs only, from a
+    # registered node the workflow allows (Actions.admissible/3).
+    run_workflow: %{
+      admin_ui: :none,
+      gateway: :none,
+      mcp: :none,
+      webhook: :none,
+      cluster: :none,
+      system: :none
+    },
     run_protected_workflow: %{admin_ui: :code, gateway: :code},
     run_skill: %{admin_ui: :none, gateway: :none, skill: :none, system: :none},
     run_privileged_skill: @authoring,
@@ -206,19 +215,29 @@ defmodule AlexClaw.ControlPlane do
   """
   @spec perform(action(), map(), Context.t()) :: {:ok, term()} | {:error, term()}
   def perform(action, params, %Context{} = context) do
-    case admitted(action, context) do
+    params = scoped(params, context)
+
+    case admitted(action, params, context) do
       {:ok, proven} -> run(Actions.kind(action), action, params, proven)
       {:error, reason} -> deny(action, params, context, reason)
     end
   end
 
-  defp admitted(action, context) do
+  defp admitted(action, params, context) do
     with :ok <- verified(context),
          {:ok, proven} <- proven(context, action),
          :ok <- authorize(action, proven),
          :ok <- wired(Actions.wired?(action)),
+         :ok <- Actions.admissible(action, params, proven),
          do: {:ok, proven}
   end
+
+  # A cluster request runs as coming from the node the context names — the
+  # verified caller — whatever the params say.
+  defp scoped(params, %Context{entry_point: :cluster, node: node}),
+    do: Map.put(params, :from_node, node)
+
+  defp scoped(params, _context), do: params
 
   defp wired(true), do: :ok
   defp wired(false), do: {:error, :not_wired}

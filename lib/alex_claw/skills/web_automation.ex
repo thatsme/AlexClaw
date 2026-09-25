@@ -76,13 +76,24 @@ defmodule AlexClaw.Skills.WebAutomation do
   @spec available?() :: boolean()
   def available?, do: Config.enabled?("web_automator.enabled")
 
+  # Recording is authoring, done in the admin UI (Resources page), never by a
+  # workflow step (0.4.0 S5c). Checked at save, and at run time for a step
+  # saved before.
+  @impl true
+  @spec validate_config(map()) :: :ok | {:error, [String.t()]}
+  def validate_config(%{"action" => "record"}),
+    do:
+      {:error,
+       [
+         "action record: recording is authoring — done in the admin UI (Resources page), not by a workflow step"
+       ]}
+
+  def validate_config(_config), do: :ok
+
   @impl true
   @spec config_presets() :: %{String.t() => map()}
   def config_presets do
-    %{
-      "Play" => %{"action" => "play"},
-      "Record" => %{"action" => "record", "url" => "https://..."}
-    }
+    %{"Play" => %{"action" => "play"}}
   end
 
   @impl true

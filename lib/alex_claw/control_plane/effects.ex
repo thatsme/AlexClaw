@@ -171,6 +171,16 @@ defmodule AlexClaw.ControlPlane.Effects do
   # and a webhook start it and are told so. An input is the first step's.
   defp start(workflow, %{wait: true} = params), do: execute(workflow.id, params[:input])
 
+  # Another node's request: the run carries where it came from, which the
+  # receive_from_workflow gate checks again at step 1.
+  defp start(workflow, %{from_node: node} = params) do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      Executor.run_remote_trigger(workflow.id, params[:input], %{"_source_node" => node})
+    end)
+
+    {:ok, {:started, workflow}}
+  end
+
   defp start(workflow, params) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
       execute(workflow.id, params[:input])

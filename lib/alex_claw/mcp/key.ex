@@ -22,14 +22,19 @@ defmodule AlexClaw.MCP.Key do
   @key "mcp.api_key"
   @bytes 32
 
-  @doc "Make a new key, store its fingerprint, and return the key. It is shown once."
+  @doc """
+  Make a new key, store its fingerprint, and return the key. It is shown once.
+  The row is written, not published: performed as `:generate_mcp_key`, the
+  publish follows the commit (`AlexClaw.ControlPlane.Actions.after_commit/4`).
+  The fingerprint is read from the database, so the key is valid at once.
+  """
   @spec generate() :: {:ok, String.t()} | {:error, term()}
   def generate do
     key = @bytes |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
 
     with {:ok, fingerprint} <- fingerprint_of(key),
          {:ok, _setting} <-
-           Config.set(@key, fingerprint,
+           Config.persist(@key, fingerprint,
              category: "mcp",
              description: "MCP key fingerprint (the key itself is shown once, never stored)"
            ) do

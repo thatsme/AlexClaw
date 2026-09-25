@@ -72,7 +72,8 @@ defmodule AlexClaw.S4aFollowupsTest do
         ]
       }
 
-      assert {:ok, _} = Workflows.import_workflow(data)
+      # import_workflow/1 returns {:ok, workflow, warnings} (its @spec).
+      assert {:ok, _workflow, _warnings} = Workflows.import_workflow(data)
 
       %{rows: rows} = Repo.query!("SELECT metadata::text FROM resources")
 

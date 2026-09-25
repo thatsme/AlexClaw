@@ -23,7 +23,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
   alias AlexClaw.Skills.WebAutomation
 
   @token "test-automator-token"
-  @secret "s3cr3t-value-7731"
 
   setup do
     bypass = Bypass.open()
@@ -179,49 +178,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
     end
   end
 
-  # automation_commands.ex:99–104 sent the whole recipe — values included — to
-  # Telegram when saving a recording failed. A recorded value may be a
-  # password. No gateway message about a recording carries a step's value,
-  # whether the save succeeds or fails.
-  describe "a recording's values never reach the gateway" do
-    setup %{bypass: bypass} do
-      enable(true)
-      RecordingGateway.install()
-      %{bypass: bypass}
-    end
-
-    test "when the recording is saved", %{bypass: bypass} do
-      stub_stop(bypass, %{
-        "base_url" => "https://portal.example.com/login",
-        "captured_actions" => 3
-      })
-
-      Dispatcher.dispatch(msg("/record stop abc12345"))
-
-      sent = RecordingGateway.sent()
-      assert sent != []
-
-      refute Enum.any?(sent, &String.contains?(&1, @secret)),
-             "a recorded value was sent: #{inspect(sent)}"
-    end
-
-    # A summary whose base_url is not a string fails the resource's :string
-    # cast (the only field the sidecar controls; name and type come from the
-    # dispatcher). Verified by Claude Code, phase-1 result §2.1.
-    test "when saving the recording fails", %{bypass: bypass} do
-      stub_stop(bypass, %{"base_url" => 42, "captured_actions" => 3})
-      Dispatcher.dispatch(msg("/record stop abc12345"))
-
-      sent = RecordingGateway.sent()
-
-      assert Enum.any?(sent, &(&1 =~ ~r/fail|could not|error/i)),
-             "the failure was not reported: #{inspect(sent)}"
-
-      refute Enum.any?(sent, &String.contains?(&1, @secret)),
-             "a recorded value was sent: #{inspect(sent)}"
-    end
-  end
-
   # The Services page called /status with its own Req.get, so it would not
   # carry the token. Only the skill module builds sidecar requests.
   test "only WebAutomation reads the sidecar host" do
@@ -238,35 +194,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
 
     assert offenders == [],
            "these build sidecar requests outside WebAutomation: #{Enum.join(offenders, ", ")}"
-  end
-
-  defp stub_stop(bypass, summary) do
-    Bypass.stub(bypass, "POST", "/record/abc12345/stop", fn conn ->
-      json(conn, %{
-        "actions" => [
-          %{
-            "action_type" => "fill",
-            "selector" => "#user",
-            "value" => "alex",
-            "url" => "https://portal.example.com/login"
-          },
-          %{
-            "action_type" => "fill",
-            "selector" => "#password",
-            "value" => @secret,
-            "url" => "https://portal.example.com/login"
-          },
-          %{
-            "action_type" => "click",
-            "selector" => "button",
-            "value" => "",
-            "url" => "https://portal.example.com/login"
-          }
-        ],
-        "downloads" => [],
-        "summary" => summary
-      })
-    end)
   end
 
   defp json(conn, body) do

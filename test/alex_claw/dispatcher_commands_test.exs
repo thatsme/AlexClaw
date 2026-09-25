@@ -15,6 +15,13 @@ defmodule AlexClaw.DispatcherCommandsTest do
     }
   end
 
+  # The owner chat (0.4.0 S5b): a gateway answers only the chat set in the
+  # admin UI.
+  setup do
+    insert_setting("telegram.chat_id", "123", type: "string", category: "telegram")
+    :ok
+  end
+
   describe "web automation commands" do
     test "matches /record <url>" do
       # Will fail at HTTP level (no sidecar) but should not crash on pattern match

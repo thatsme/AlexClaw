@@ -16,6 +16,13 @@ defmodule AlexClaw.Dispatcher.AuthCommandsTest do
     }
   end
 
+  # The owner chat (0.4.0 S5b): a gateway answers only the chat set in the
+  # admin UI.
+  setup do
+    insert_setting("telegram.chat_id", "123", type: "string", category: "telegram")
+    :ok
+  end
+
   describe "2FA commands routing" do
     test "/setup 2fa dispatches without crash" do
       result = Dispatcher.dispatch(msg("/setup 2fa"))

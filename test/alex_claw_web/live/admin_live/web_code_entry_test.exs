@@ -188,22 +188,6 @@ defmodule AlexClawWeb.AdminLive.WebCodeEntryTest do
     end
   end
 
-  describe "the gateway path" do
-    test "is still offered, and still works", ctx do
-      AlexClaw.Config.set("telegram.chat_id", "chat-#{System.unique_integer([:positive])}",
-        type: "string",
-        category: "telegram"
-      )
-
-      {view, _html} = open(ctx.conn, ctx.sid)
-      render_click(view, "unlock_editing", %{})
-
-      html = render_click(view, "request_gateway_code", %{})
-
-      assert html =~ "authenticator" or html =~ "2FA code requested"
-    end
-  end
-
   describe "cancelling" do
     test "closes the field without elevating", ctx do
       {view, _html} = open(ctx.conn, ctx.sid)

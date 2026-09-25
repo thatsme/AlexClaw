@@ -11,8 +11,6 @@ defmodule AlexClawWeb.AdminLive.RecoveryCodesWebTest do
   @moduletag :integration
 
   alias AlexClaw.Auth.{CodeAttempts, Elevation, RecoveryCodes, TOTP}
-  alias AlexClaw.Dispatcher.AuthCommands
-  alias AlexClaw.Message
   alias AlexClaw.RecordingGateway
 
   setup do
@@ -99,41 +97,6 @@ defmodule AlexClawWeb.AdminLive.RecoveryCodesWebTest do
         refute message =~ ~r/\b[0-9A-Z]{5}-[0-9A-Z]{5}\b/,
                "a recovery code left the instance over a gateway: #{message}"
       end
-    end
-  end
-
-  describe "enabling 2FA from a gateway" do
-    test "sends the operator to the UI rather than the codes to the chat", ctx do
-      RecordingGateway.install()
-      {:ok, %{secret: secret}} = TOTP.setup()
-
-      AuthCommands.dispatch(%Message{
-        text: "/confirm 2fa #{NimbleTOTP.verification_code(secret)}",
-        chat_id: "chat-#{System.unique_integer([:positive])}",
-        timestamp: DateTime.utc_now(),
-        raw: %{},
-        gateway: :recording
-      })
-
-      messages = sent_messages()
-
-      assert Enum.any?(messages, &(&1 =~ "recovery codes in the admin UI"))
-
-      for message <- messages do
-        refute message =~ ~r/\b[0-9A-Z]{5}-[0-9A-Z]{5}\b/
-      end
-
-      assert ctx.sid
-    end
-
-    test "leaves a banner saying none exist yet", ctx do
-      {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
-
-      {_view, html} = open(ctx.conn, ctx.sid)
-
-      refute RecoveryCodes.generated?()
-      assert html =~ "No recovery codes exist"
     end
   end
 

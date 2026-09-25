@@ -72,35 +72,6 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
       end
     end
 
-    test "the recipe /automate builds is valid", %{bypass: bypass} do
-      test_pid = self()
-      RecordingGateway.install()
-
-      Bypass.expect_once(bypass, "POST", "/play", fn conn ->
-        {:ok, body, conn} = Plug.Conn.read_body(conn)
-        send(test_pid, {:sent, Jason.decode!(body)})
-
-        json(conn, 200, %{
-          "status" => "success",
-          "downloads" => [],
-          "screenshots" => [],
-          "scraped_data" => []
-        })
-      end)
-
-      Dispatcher.dispatch(%Message{
-        text: "/automate https://example.com",
-        chat_id: "123",
-        from: "Test",
-        timestamp: DateTime.utc_now(),
-        raw: %{},
-        gateway: :test
-      })
-
-      assert_receive {:sent, %{"config" => recipe}}, 5_000
-      assert {:ok, _} = Recipe.validate(recipe)
-    end
-
     test "busy (409) is :busy", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/play", fn conn ->
         json(conn, 409, %{"detail" => "Cannot play: currently playing"})

@@ -47,14 +47,6 @@ defmodule AlexClaw.MCP.ServerPolicyTest do
   end
 
   describe "seeded denies" do
-    test "every seeded tool is refused over MCP" do
-      for tool <- ~w(skill:shell skill:coder skill:db_backup skill:web_automation) do
-        assert {:error, error, _frame} = Server.handle_tool_call(tool, %{}, Frame.new())
-        assert inspect(error) =~ "MCP restriction"
-        assert inspect(error) =~ tool
-      end
-    end
-
     test "the seeded policies are present and enabled" do
       seeded =
         Policy

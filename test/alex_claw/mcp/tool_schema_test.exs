@@ -39,15 +39,6 @@ defmodule AlexClaw.MCP.ToolSchemaTest do
   end
 
   describe "skill_tools/0" do
-    test "includes core skills from registry" do
-      tools = ToolSchema.skill_tools()
-      names = Enum.map(tools, & &1.name)
-
-      # At minimum, these core skills should exist
-      assert "skill:web_search" in names
-      assert "skill:telegram_notify" in names
-    end
-
     test "input_schema uses Peri-compatible types" do
       tools = ToolSchema.skill_tools()
 

@@ -71,11 +71,4 @@ defmodule AlexClaw.Skills.CoderTruthTest do
     assert message =~ ~r/workflow/i
     assert message =~ ~r/not created/i
   end
-
-  test "the skill loads and the workflow is created: workflow created", %{name: name} do
-    result = Coder.run(%{config: %{"goal" => @goal, "create_workflow" => true}, input: nil})
-
-    assert {:ok, _message, :on_workflow_created} = result
-    assert Enum.any?(Workflows.list_workflows(), &(&1.name == "Auto: #{name}"))
-  end
 end

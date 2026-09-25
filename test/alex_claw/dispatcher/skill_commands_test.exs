@@ -15,6 +15,13 @@ defmodule AlexClaw.Dispatcher.SkillCommandsTest do
     }
   end
 
+  # The owner chat (0.4.0 S5b): a gateway answers only the chat set in the
+  # admin UI.
+  setup do
+    insert_setting("telegram.chat_id", "123", type: "string", category: "telegram")
+    :ok
+  end
+
   describe "skill commands routing" do
     test "/skill load dispatches without crash" do
       result = Dispatcher.dispatch(msg("/skill load nonexistent.ex"))

@@ -125,6 +125,13 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
   describe "gateways" do
     setup do
       RecordingGateway.install()
+      # The owner chat (0.4.0 S5b): a gateway answers only the chat set in the
+      # admin UI.
+      AlexClaw.Config.set("telegram.chat_id", "takeover-chat",
+        type: "string",
+        category: "telegram"
+      )
+
       :ok
     end
 

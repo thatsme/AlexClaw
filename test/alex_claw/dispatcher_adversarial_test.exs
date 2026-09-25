@@ -8,6 +8,9 @@ defmodule AlexClaw.DispatcherAdversarialTest do
 
   setup do
     Sandbox.mode(AlexClaw.Repo, {:shared, self()})
+    # The owner chat (0.4.0 S5b): a gateway answers only the chat set in the
+    # admin UI.
+    insert_setting("telegram.chat_id", "1", type: "string", category: "telegram")
     :ok
   end
 

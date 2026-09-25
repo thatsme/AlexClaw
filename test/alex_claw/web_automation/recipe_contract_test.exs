@@ -176,11 +176,15 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
       %{bypass: bypass}
     end
 
+    # Since 0.4.0 (S4b) a STORED recording holds its fill values as references
+    # to OpenBao, so it is checked by Recording.validate/1 (the contract with
+    # logins blank). Recipe.validate/1 is for what is SENT to the sidecar,
+    # where every value is text once resolved.
     test "a recording is stored as a recipe the contract accepts", %{bypass: bypass} do
       stop_with(bypass, %{"base_url" => "https://example.com/search", "captured_actions" => 3})
 
       assert [recipe] = stored_recipes()
-      assert {:ok, _} = Recipe.validate(recipe)
+      assert {:ok, _} = AlexClaw.WebAutomation.Recording.validate(recipe)
 
       assert Enum.any?(
                recipe["steps"],

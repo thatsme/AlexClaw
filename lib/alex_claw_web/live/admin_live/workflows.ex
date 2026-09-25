@@ -107,7 +107,11 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     Elevation.perform(
       socket,
       :save_workflow,
-      %{workflow: editing, attrs: workflow_attrs(params, editing)},
+      %{
+        workflow: editing,
+        attrs: workflow_attrs(params, editing),
+        detail: "workflow saved: #{params["name"]}"
+      },
       ok: fn socket, saved ->
         socket
         |> put_flash(:info, "Workflow saved")
@@ -374,7 +378,11 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     Elevation.perform(
       socket,
       :reorder_steps,
-      %{workflow: workflow, step_ids: reordered(workflow.steps, step_id, direction)},
+      %{
+        workflow: workflow,
+        step_ids: reordered(workflow.steps, step_id, direction),
+        detail: "workflow step moved #{direction}: id #{step_id}"
+      },
       ok: fn socket, _ -> assign(socket, editing: Workflows.get_workflow!(workflow.id)) end,
       error: &step_not_saved/2
     )
@@ -509,7 +517,7 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   end
 
   defp import_upload([data], socket) when is_map(data) do
-    Elevation.perform(socket, :import_workflow, %{data: data},
+    Elevation.perform(socket, :import_workflow, %{data: data, detail: "workflow imported"},
       ok: fn socket, {workflow, warnings} ->
         socket
         |> put_flash(:info, imported_message(workflow, warnings))
@@ -659,7 +667,11 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     Elevation.perform(
       socket,
       :save_step,
-      %{step_id: step.id, attrs: step_attrs(config, step, params)},
+      %{
+        step_id: step.id,
+        attrs: step_attrs(config, step, params),
+        detail: "workflow step saved: #{params["step_name"]}"
+      },
       ok: fn socket, updated_step ->
         workflow = Workflows.get_workflow!(socket.assigns.editing.id)
         fresh_step = Enum.find(workflow.steps, &(&1.id == updated_step.id))
@@ -679,7 +691,11 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     Elevation.perform(
       socket,
       :save_step,
-      %{workflow: workflow, attrs: new_step_attrs(config, params)},
+      %{
+        workflow: workflow,
+        attrs: new_step_attrs(config, params),
+        detail: "workflow step added: #{params["step_skill"]}"
+      },
       ok: fn socket, _step ->
         assign(socket, editing: Workflows.get_workflow!(workflow.id), adding_step: nil)
       end,
@@ -690,7 +706,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp remove_step(:error, socket), do: {:noreply, socket}
 
   defp remove_step({:ok, step_id}, socket) do
-    Elevation.perform(socket, :remove_step, %{step_id: step_id},
+    Elevation.perform(
+      socket,
+      :remove_step,
+      %{step_id: step_id, detail: "workflow step removed: id #{step_id}"},
       ok: fn socket, _step ->
         assign(socket,
           editing: Workflows.get_workflow!(socket.assigns.editing.id),
@@ -709,16 +728,27 @@ defmodule AlexClawWeb.AdminLive.Workflows do
     Elevation.perform(
       socket,
       :assign_resource,
-      %{workflow: workflow, resource_id: resource_id, assigned: assigned},
+      %{
+        workflow: workflow,
+        resource_id: resource_id,
+        assigned: assigned,
+        detail: "workflow resource #{assignment(assigned)}: id #{resource_id}"
+      },
       ok: fn socket, _assignment -> refresh_resources(socket, workflow) end,
       error: &workflow_not_saved/2
     )
   end
 
+  defp assignment(true), do: "assigned"
+  defp assignment(false), do: "unassigned"
+
   defp delete_workflow(:error, socket), do: {:noreply, socket}
 
   defp delete_workflow({:ok, id}, socket) do
-    Elevation.perform(socket, :delete_workflow, %{workflow_id: id},
+    Elevation.perform(
+      socket,
+      :delete_workflow,
+      %{workflow_id: id, detail: "workflow deleted: id #{id}"},
       ok: fn socket, _workflow ->
         socket
         |> put_flash(:info, "Workflow deleted")
@@ -731,7 +761,10 @@ defmodule AlexClawWeb.AdminLive.Workflows do
   defp duplicate_workflow(:error, socket), do: {:noreply, socket}
 
   defp duplicate_workflow({:ok, id}, socket) do
-    Elevation.perform(socket, :duplicate_workflow, %{workflow_id: id},
+    Elevation.perform(
+      socket,
+      :duplicate_workflow,
+      %{workflow_id: id, detail: "workflow duplicated: id #{id}"},
       ok: fn socket, _copy ->
         socket
         |> put_flash(:info, "Workflow duplicated")

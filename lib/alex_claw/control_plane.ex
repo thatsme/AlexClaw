@@ -312,11 +312,21 @@ defmodule AlexClaw.ControlPlane do
       identity,
       entry_point,
       action,
-      "#{why} — #{reason(action, params, context)}"
+      "#{refusal(why, entry_point)} — #{reason(action, params, context)}"
     )
 
     {:error, why}
   end
+
+  # With no second factor configured the admin UI cannot elevate at all: the
+  # row says so, since the way out differs.
+  defp refusal(:second_factor_required, :admin_ui),
+    do: refusal(:second_factor_required, :admin_ui, Elevation.configured?())
+
+  defp refusal(why, _entry_point), do: why
+
+  defp refusal(why, _entry_point, true), do: why
+  defp refusal(why, _entry_point, false), do: "#{why} (no_second_factor)"
 
   defp reason(action, params, %Context{entry_point: entry_point}),
     do: "#{action} from #{entry_point}: #{Actions.describe(action, params)}"

@@ -51,7 +51,10 @@ defmodule AlexClawWeb.AdminLive.Cluster do
     Elevation.perform(
       socket,
       :save_node,
-      %{attrs: %{name: String.trim(name), label: String.trim(label)}},
+      %{
+        attrs: %{name: String.trim(name), label: String.trim(label)},
+        detail: "cluster node added: #{name}"
+      },
       ok: fn socket, _node ->
         socket
         |> put_flash(:info, "Node added")
@@ -66,14 +69,28 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   # are audited once known.
   @impl true
   def handle_event("connect", %{"id" => id}, socket) do
-    Elevation.perform(socket, :save_node, %{node_id: String.to_integer(id), connect: true},
+    Elevation.perform(
+      socket,
+      :save_node,
+      %{
+        node_id: String.to_integer(id),
+        connect: true,
+        detail: "cluster node connect: id #{id}"
+      },
       ok: fn socket, _node -> assign(socket, nodes: remote_nodes(socket.assigns.self_node)) end
     )
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    Elevation.perform(socket, :save_node, %{node_id: String.to_integer(id), delete: true},
+    Elevation.perform(
+      socket,
+      :save_node,
+      %{
+        node_id: String.to_integer(id),
+        delete: true,
+        detail: "cluster node deleted: id #{id}"
+      },
       ok: fn socket, node ->
         socket
         |> put_flash(:info, "Node '#{node.name}' removed")

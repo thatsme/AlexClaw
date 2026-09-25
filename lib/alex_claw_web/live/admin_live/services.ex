@@ -127,7 +127,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   # Ends every admin login, this one included, on every node. A change like any
   # other: behind an elevation, and audited with the delete.
   def handle_event("sign_out_everywhere", _params, socket) do
-    Elevation.perform(socket, :sign_out_everywhere, %{},
+    Elevation.perform(socket, :sign_out_everywhere, %{detail: "all admin sessions signed out"},
       ok: fn socket, _socket_ids -> redirect(socket, to: "/login") end
     )
   end

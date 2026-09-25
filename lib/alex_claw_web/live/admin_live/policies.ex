@@ -81,7 +81,10 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("create_policy", %{"policy" => params}, socket) do
-    Elevation.perform(socket, :save_policy, %{attrs: policy_attrs(params)},
+    Elevation.perform(
+      socket,
+      :save_policy,
+      %{attrs: policy_attrs(params), detail: "policy created: #{params["name"]}"},
       ok: fn socket, _policy ->
         socket
         |> put_flash(:info, "Policy created")
@@ -115,7 +118,11 @@ defmodule AlexClawWeb.AdminLive.Policies do
     Elevation.perform(
       socket,
       :save_policy,
-      %{policy_id: params["id"], attrs: policy_attrs(params)},
+      %{
+        policy_id: params["id"],
+        attrs: policy_attrs(params),
+        detail: "policy updated: #{params["name"]}"
+      },
       ok: fn socket, _policy ->
         socket
         |> put_flash(:info, "Policy updated")
@@ -126,13 +133,19 @@ defmodule AlexClawWeb.AdminLive.Policies do
   end
 
   def handle_event("toggle_policy", %{"id" => id}, socket) do
-    Elevation.perform(socket, :save_policy, %{policy_id: id, toggle: true},
+    Elevation.perform(
+      socket,
+      :save_policy,
+      %{policy_id: id, toggle: true, detail: "policy toggled: id #{id}"},
       ok: fn socket, _policy -> assign(socket, policies: list_policies()) end
     )
   end
 
   def handle_event("delete_policy", %{"id" => id}, socket) do
-    Elevation.perform(socket, :save_policy, %{policy_id: id, delete: true},
+    Elevation.perform(
+      socket,
+      :save_policy,
+      %{policy_id: id, delete: true, detail: "policy deleted: id #{id}"},
       ok: fn socket, _policy ->
         socket
         |> put_flash(:info, "Policy deleted")

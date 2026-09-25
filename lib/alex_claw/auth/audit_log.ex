@@ -104,10 +104,14 @@ defmodule AlexClaw.Auth.AuditLog do
     insert_entry(action_row(caller, entry_point, action, "deny", reason))
   end
 
+  # The admin UI's rows keep the caller type they have always had.
+  defp caller_type(:admin_ui), do: "admin"
+  defp caller_type(entry_point), do: to_string(entry_point)
+
   defp action_row(caller, entry_point, action, decision, reason) do
     %{
       caller: caller,
-      caller_type: to_string(entry_point),
+      caller_type: caller_type(entry_point),
       permission: "control_plane.#{action}",
       decision: decision,
       reason: reason

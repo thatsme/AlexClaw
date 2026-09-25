@@ -66,7 +66,13 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
 
   @impl true
   def handle_event("clear_runs", _, socket) do
-    Elevation.perform(socket, :clear_run_history, %{workflow_id: socket.assigns.workflow.id},
+    Elevation.perform(
+      socket,
+      :clear_run_history,
+      %{
+        workflow_id: socket.assigns.workflow.id,
+        detail: "run history cleared: #{socket.assigns.workflow.name}"
+      },
       ok: fn socket, _cleared ->
         socket
         |> put_flash(:info, "Run history cleared")

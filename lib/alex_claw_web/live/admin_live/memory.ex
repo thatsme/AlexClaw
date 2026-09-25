@@ -65,7 +65,10 @@ defmodule AlexClawWeb.AdminLive.Memory do
   defp delete_entry({:error, reason}, socket), do: {:noreply, not_deleted(socket, reason)}
 
   defp delete_entry({:ok, id}, socket) do
-    Elevation.perform(socket, :delete_memory, %{entry_id: id},
+    Elevation.perform(
+      socket,
+      :delete_memory,
+      %{entry_id: id, detail: "memory entry deleted: id #{id}"},
       ok: fn socket, _entry ->
         socket
         |> put_flash(:info, "Memory entry deleted")

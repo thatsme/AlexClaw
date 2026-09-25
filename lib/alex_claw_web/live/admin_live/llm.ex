@@ -70,7 +70,11 @@ defmodule AlexClawWeb.AdminLive.LLM do
     Elevation.perform(
       socket,
       :save_provider,
-      %{provider: editing, attrs: saved_attrs(editing, provider_attrs(params))},
+      %{
+        provider: editing,
+        attrs: saved_attrs(editing, provider_attrs(params)),
+        detail: "llm provider saved: #{params["name"]}"
+      },
       ok: fn socket, _provider ->
         action = if editing, do: "updated", else: "added"
 
@@ -119,7 +123,14 @@ defmodule AlexClawWeb.AdminLive.LLM do
   defp delete_provider(:error, socket), do: {:noreply, socket}
 
   defp delete_provider({:ok, id}, socket) do
-    Elevation.perform(socket, :save_provider, %{provider_id: id, delete: true},
+    Elevation.perform(
+      socket,
+      :save_provider,
+      %{
+        provider_id: id,
+        delete: true,
+        detail: "llm provider deleted: id #{id}"
+      },
       ok: fn socket, _provider ->
         socket
         |> put_flash(:info, "Provider deleted")

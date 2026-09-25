@@ -70,7 +70,14 @@ defmodule AlexClawWeb.AdminLive.Resources do
   def handle_event("save", params, socket) do
     editing = socket.assigns.editing
 
-    Elevation.perform(socket, :save_resource, %{resource: editing, attrs: resource_attrs(params)},
+    Elevation.perform(
+      socket,
+      :save_resource,
+      %{
+        resource: editing,
+        attrs: resource_attrs(params),
+        detail: "resource saved: #{params["name"]}"
+      },
       ok: fn socket, _resource ->
         action = if editing, do: "updated", else: "created"
 
@@ -186,7 +193,12 @@ defmodule AlexClawWeb.AdminLive.Resources do
     Elevation.perform(
       socket,
       :attach_login,
-      %{resource_id: id, selector: selector, value: value},
+      %{
+        resource_id: id,
+        selector: selector,
+        value: value,
+        detail: "recording login attached: id #{id}, #{selector}"
+      },
       ok: fn socket, _resource ->
         socket
         |> put_flash(:info, "Login attached")
@@ -199,7 +211,10 @@ defmodule AlexClawWeb.AdminLive.Resources do
   defp delete_resource(:error, socket), do: {:noreply, socket}
 
   defp delete_resource({:ok, id}, socket) do
-    Elevation.perform(socket, :delete_resource, %{resource_id: id},
+    Elevation.perform(
+      socket,
+      :delete_resource,
+      %{resource_id: id, detail: "resource deleted: id #{id}"},
       ok: fn socket, _resource ->
         socket
         |> put_flash(:info, "Resource deleted")
@@ -215,7 +230,11 @@ defmodule AlexClawWeb.AdminLive.Resources do
     Elevation.perform(
       socket,
       :save_resource,
-      %{resource: resource, attrs: %{enabled: !resource.enabled}},
+      %{
+        resource: resource,
+        attrs: %{enabled: !resource.enabled},
+        detail: "resource enabled toggled: id #{resource.id}"
+      },
       ok: fn socket, _resource ->
         assign(socket, resources: list_resources(socket.assigns.type_filter))
       end,
@@ -226,7 +245,10 @@ defmodule AlexClawWeb.AdminLive.Resources do
   defp discover(:error, socket), do: {:noreply, socket}
 
   defp discover({:ok, id}, socket) do
-    Elevation.perform(socket, :discover_resource, %{resource_id: id},
+    Elevation.perform(
+      socket,
+      :discover_resource,
+      %{resource_id: id, detail: "resource discovery started: id #{id}"},
       ok: fn socket, resource ->
         put_flash(socket, :info, "API discovery started for #{resource.name}")
       end,

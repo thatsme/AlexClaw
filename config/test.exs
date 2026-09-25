@@ -19,8 +19,7 @@ config :alex_claw, AlexClaw.Vault,
 
 config :alex_claw, AlexClaw.Gateway,
   telegram_token: "test-token",
-  chat_id: "test-chat-id",
-  poll_interval: :infinity
+  chat_id: "test-chat-id"
 
 config :alex_claw, AlexClawWeb.Endpoint,
   secret_key_base:

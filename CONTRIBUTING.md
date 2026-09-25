@@ -86,6 +86,20 @@ before any test starts: if none has started within 120 seconds
 (`TEST_WATCHDOG_SECONDS`), the run is stopped the same way. In both cases it
 first has the BEAM write a crash dump to `local-docs/erl_crash-<timestamp>.dump`.
 
+Targeted runs go through the same script and the same limits:
+
+| Command | Runs |
+|---|---|
+| `make test-elixir` | the whole suite, on a freshly built test image |
+| `make test-elixir FILES="test/a_test.exs test/b_test.exs"` | only those files |
+| `make test-failed` | only the tests that failed in the previous run (`mix test --failed`) |
+| `make test-stale` | only the tests affected by modules changed since the last passing whole or stale run (`mix test --stale`) |
+
+`--failed` and `--stale` read records of the previous run, so the build
+directory is kept between runs in `.test-cache/elixir` (untracked). A whole-suite
+run replaces it with the image's build and its records. Targeted runs reuse it,
+so only changed modules compile again. `rm -rf .test-cache` resets it.
+
 ### Skill Contributions
 
 New skills must implement the `AlexClaw.Skill` behaviour:

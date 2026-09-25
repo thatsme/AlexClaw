@@ -84,3 +84,6 @@ __pycache__/
 # and the production unseal key's default directory.
 /.openbao-test/
 /openbao/unseal/
+
+# Build directory and test records kept between targeted test runs
+/.test-cache/

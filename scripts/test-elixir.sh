@@ -4,8 +4,16 @@
 # a log kept in TEST_LOG_DIR (default local-docs/test-logs) and a progress line
 # every 30 seconds.
 #
-# Arguments, when given, replace the test container's command (for example
-# `scripts/test-elixir.sh mix test test/some_test.exs`).
+# Without arguments it runs the whole suite on the freshly built test image.
+# The run records the failed tests and, when none failed, the baseline for
+# `mix test --stale`. It then keeps the image's build directory with those
+# records in .test-cache/elixir (untracked).
+#
+# With arguments it is a targeted run: the arguments go to `mix test` (test
+# files, `--failed`, `--stale`), and the build directory comes from
+# .test-cache/elixir, so only the modules changed since compile again and
+# `--failed` / `--stale` see the previous run's records. The cache starts from
+# the image's build when empty. `rm -rf .test-cache` resets it.
 #
 # A run that hangs before any test starts is caught earlier: the suite prints
 # "Running ExUnit with seed" once the first test is about to run, and if that
@@ -29,6 +37,21 @@ CONTAINER="alexclaw-test-run-$$"
 WATCHDOG="${TEST_WATCHDOG_SECONDS:-120}"
 DUMP_DIR="local-docs"
 DUMP_NAME="erl_crash-$(date +%Y%m%d-%H%M%S).dump"
+CACHE_DIR=".test-cache/elixir"
+
+# The whole suite. With no stale manifest in a fresh build, `--stale` runs
+# every test and, when none fails, writes the baseline. The cache is emptied on
+# the host before the run; the container only copies into it.
+FULL_RUN='mix ecto.create && mix ecto.migrate && mix test --stale; rc=$?
+cp -a _build/test /test-cache/test
+exit $rc'
+
+# A targeted run on the cached build directory.
+TARGETED_RUN='if [ ! -f /test-cache/test/lib/alex_claw/.mix/compile.elixir ]; then
+  mkdir -p /test-cache/test && cp -a _build/test/. /test-cache/test/
+fi
+rm -rf _build/test && ln -s /test-cache/test _build/test
+mix ecto.create && mix ecto.migrate && mix test "$@"'
 
 cleanup() {
   stop_tailer
@@ -86,7 +109,15 @@ stopped() {
 }
 
 open_log elixir
-mkdir -p "$DUMP_DIR"
+mkdir -p "$DUMP_DIR" "$CACHE_DIR"
+if [ "$#" -eq 0 ]; then
+  note "Whole suite on the fresh image; its build is kept in $CACHE_DIR."
+  rm -rf "${CACHE_DIR:?}/test"
+  set -- sh -c "$FULL_RUN"
+else
+  note "Targeted run on the build in $CACHE_DIR: mix test $*"
+  set -- sh -c "$TARGETED_RUN" targeted "$@"
+fi
 
 $COMPOSE build --quiet test-elixir >>"$LOG" 2>&1 &
 build=$!
@@ -106,6 +137,7 @@ fi
 
 $COMPOSE run --rm --name "$CONTAINER" \
   -v "$PWD/$DUMP_DIR:/dumps" -e "ERL_CRASH_DUMP=/dumps/$DUMP_NAME" \
+  -v "$PWD/$CACHE_DIR:/test-cache" \
   test-elixir "$@" >>"$LOG" 2>&1 &
 run=$!
 run_started=$(date +%s)

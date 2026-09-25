@@ -95,7 +95,8 @@ defmodule AlexClaw.Dispatcher do
     tiered_command(msg, raw, %{
       label: "Research",
       report_label: "Research",
-      prefix: "skill.research",
+      tier_key: "skill.research.tier",
+      provider_key: "skill.research.provider",
       default_tier: "medium",
       usage: "Usage: /research [--tier light|medium|heavy|local] [--provider name] <query>",
       skill: "research"
@@ -106,7 +107,8 @@ defmodule AlexClaw.Dispatcher do
     tiered_command(msg, raw, %{
       label: "Search",
       report_label: "Web Search",
-      prefix: "skill.web_search",
+      tier_key: "skill.web_search.tier",
+      provider_key: "skill.web_search.provider",
       default_tier: "medium",
       usage: "Usage: /search [--tier light|medium|heavy|local] [--provider name] <query>",
       skill: "web_search"
@@ -626,8 +628,8 @@ defmodule AlexClaw.Dispatcher do
   end
 
   defp tiered_command(msg, spec, _query, _flags, :query) do
-    tier = Config.get("#{spec.prefix}.tier") || spec.default_tier
-    provider = Config.get("#{spec.prefix}.provider") || "auto"
+    tier = Config.get(spec.tier_key) || spec.default_tier
+    provider = Config.get(spec.provider_key) || "auto"
 
     Gateway.send_message("#{spec.report_label}: tier=#{tier}, provider=#{provider}",
       gateway: msg.gateway
@@ -642,8 +644,8 @@ defmodule AlexClaw.Dispatcher do
   end
 
   defp tiered_command(msg, spec, query, flags, _tier) do
-    tier = CommandParser.resolve_tier(flags, "#{spec.prefix}.tier", spec.default_tier)
-    provider = CommandParser.resolve_provider(flags, "#{spec.prefix}.provider")
+    tier = CommandParser.resolve_tier(flags, spec.tier_key, spec.default_tier)
+    provider = CommandParser.resolve_provider(flags, spec.provider_key)
 
     Gateway.send_message("#{spec.label} (tier: #{tier}, provider: #{provider})",
       gateway: msg.gateway

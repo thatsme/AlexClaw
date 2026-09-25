@@ -54,12 +54,16 @@ defmodule AlexClaw.Skills.SkillInvocationBoundaryTest do
   end
 
   describe "nothing but the sink calls a skill's run/1" do
-    # A variable holding a skill module, then .run( — how the fallback did it.
-    @direct ~r/\b(mod|module|skill_module|skill_mod|skill)\.run\(/
+    # A variable holding a skill module, then .run( — how the fallback did it,
+    # and how Skills.Invoke did it (target_module). Any name ending in mod or
+    # module, and `skill`.
+    @direct ~r/\b(\w*mod|\w*module|skill)\.run\(/
 
     test "the pattern recognises what it is for (no vacuous pass)" do
       assert Regex.match?(@direct, "mod.run(args)")
       assert Regex.match?(@direct, "module.run(args)")
+      assert Regex.match?(@direct, "target_module.run(args)")
+      assert Regex.match?(@direct, "skill_mod.run(args)")
       refute Regex.match?(@direct, "SafeExecutor.run(module, args, :core, nil, [])")
 
       assert Enum.any?(code_lines(@sink), fn {line, _} -> Regex.match?(@direct, line) end),
@@ -80,25 +84,42 @@ defmodule AlexClaw.Skills.SkillInvocationBoundaryTest do
   end
 
   describe "no entry point calls a skill module" do
-    # Every module under lib/alex_claw/skills/, by its short name
-    # (research.ex -> Research, web_search.ex -> WebSearch).
+    # Every skill module's short name, from the COMPILED modules — not guessed
+    # from file names (Macro.camelize gave GithubSecurityReview and
+    # RssCollector; the modules are GitHubSecurityReview and RSSCollector).
     defp skill_names do
-      "lib/alex_claw/skills/*.ex"
-      |> Path.wildcard()
-      |> Enum.map(&(&1 |> Path.basename(".ex") |> Macro.camelize()))
-      |> Enum.reject(&(&1 in ~w(SkillApi SkillAPI Invoke SkillSupervisor)))
+      {:ok, modules} = :application.get_key(:alex_claw, :modules)
+
+      modules
+      |> Enum.map(&Module.split/1)
+      |> Enum.filter(&match?(["AlexClaw", "Skills", _], &1))
+      |> Enum.map(&List.last/1)
+      |> Enum.reject(&(&1 in ~w(SkillAPI Invoke)))
     end
 
     test "the list of skill modules is real (no vacuous pass)" do
       names = skill_names()
-      assert "Research" in names
-      assert "WebSearch" in names
-      assert "GoogleTasks" in names
+
+      for expected <- ~w(Research WebSearch GoogleTasks GitHubSecurityReview RSSCollector) do
+        assert expected in names, "#{expected} is missing from the list"
+      end
+    end
+
+    # ANY reference to a function on a skill module: a call (Research.run(),
+    # GitHubSecurityReview.review_pr() or a capture (&Research.handle/2).
+    defp reference_pattern do
+      Regex.compile!("\\b(" <> Enum.join(skill_names(), "|") <> ")\\.[a-z_]+[?!]?(\\(|/\\d)")
+    end
+
+    test "the reference pattern catches calls and captures" do
+      re = reference_pattern()
+      assert Regex.match?(re, "Research.run(args)")
+      assert Regex.match?(re, "&Research.handle/2")
+      assert Regex.match?(re, "GitHubSecurityReview.review_pr(pr)")
     end
 
     test "chat, gateways, MCP, admin pages and controllers never call one" do
-      pattern =
-        Regex.compile!("\\b(" <> Enum.join(skill_names(), "|") <> ")\\.(run|handle)\\(")
+      pattern = reference_pattern()
 
       offenders =
         for path <- Enum.flat_map(@entry_points, &Path.wildcard/1),
@@ -113,7 +134,7 @@ defmodule AlexClaw.Skills.SkillInvocationBoundaryTest do
   end
 
   test "the dead SkillSupervisor.run_skill/2 path is gone" do
-    Code.ensure_loaded(AlexClaw.Workflows.SkillSupervisor)
-    refute function_exported?(AlexClaw.Workflows.SkillSupervisor, :run_skill, 2)
+    Code.ensure_loaded(AlexClaw.SkillSupervisor)
+    refute function_exported?(AlexClaw.SkillSupervisor, :run_skill, 2)
   end
 end

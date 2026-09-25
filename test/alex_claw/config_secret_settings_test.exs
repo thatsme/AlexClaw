@@ -1,0 +1,155 @@
+defmodule AlexClaw.ConfigSecretSettingsTest do
+  @moduledoc """
+  Secret settings live in OpenBao, not in the settings table
+  (reports/V040_SECURITY_DESIGN.md §5, §6; THREAT_MODEL.md P1, P5; 0.4.0 S3).
+  The first one moved is the Telegram bot token; every other secret setting
+  follows the same pattern.
+
+  - The settings registry DECLARES which keys are secrets, each with its
+    binding. `telegram.bot_token` is bound to the host of the Telegram API
+    the gateway actually uses (`:telegram_api_base`), so a test pointing the
+    gateway at a local stub binds to that host, and production to
+    api.telegram.org.
+  - `Config.set/3` on a declared-secret key stores the value in OpenBao (as
+    the secret `setting_telegram_bot_token`, bound as declared) and leaves
+    no value in the settings table. Setting it to "" keeps the current value.
+  - `Config.get/1` on a declared-secret key is refused: code that needs the
+    token resolves it, with its destination (`Config.secret/2`, which goes
+    through `Secrets.resolve/2`: binding checked, use audited).
+  - `Config.secret_set_at/1` tells a form when it was last set — the only
+    thing about the value a form may show.
+  - The environment no longer seeds it: `TELEGRAM_BOT_TOKEN` in `.env` is
+    ignored (one home per value).
+  - The gateway sends with the token from OpenBao.
+  """
+  use AlexClaw.DataCase, async: false
+  @moduletag :integration
+  @moduletag :vault
+
+  alias AlexClaw.{Config, Secrets}
+  alias AlexClaw.Gateway.Telegram
+
+  @token "123456:test-token-#{System.unique_integer([:positive])}"
+
+  setup do
+    bypass = Bypass.open()
+    Application.put_env(:alex_claw, :telegram_api_base, "http://localhost:#{bypass.port}")
+    on_exit(fn -> Application.delete_env(:alex_claw, :telegram_api_base) end)
+    {:ok, bypass: bypass}
+  end
+
+  describe "the declaration" do
+    test "telegram.bot_token is declared secret, the chat id is not" do
+      assert Config.secret?("telegram.bot_token")
+      refute Config.secret?("telegram.chat_id")
+    end
+
+    test "its binding is the host of the Telegram API in use" do
+      assert Config.secret_binding("telegram.bot_token") == "host:localhost"
+
+      Application.put_env(:alex_claw, :telegram_api_base, "https://api.telegram.org")
+      assert Config.secret_binding("telegram.bot_token") == "host:api.telegram.org"
+    end
+  end
+
+  describe "saving" do
+    test "the value goes to OpenBao; the settings table holds none" do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+
+      assert {:ok, %{"value" => @token}} =
+               AlexClaw.Vault.read("alexclaw/secrets/setting_telegram_bot_token")
+
+      %{rows: rows} = Repo.query!("SELECT row_to_json(s)::text FROM settings s")
+
+      refute Enum.any?(rows, fn [json] -> json =~ @token end),
+             "the token is in the settings table"
+    end
+
+    test "it is catalogued, bound as declared" do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+
+      secret = Secrets.get("setting_telegram_bot_token")
+      assert secret
+      assert secret.binding == ["host:localhost"]
+    end
+
+    test "an empty value keeps the current one" do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+      :ok = Config.set("telegram.bot_token", "", type: "string", category: "telegram")
+
+      assert {:ok, @token} = Config.secret("telegram.bot_token", for: "host:localhost")
+    end
+
+    test "a new value rotates it, and the set date moves" do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+      first = Config.secret_set_at("telegram.bot_token")
+      assert %DateTime{} = first
+
+      Process.sleep(1_100)
+      :ok = Config.set("telegram.bot_token", "999:rotated", type: "string", category: "telegram")
+
+      assert {:ok, "999:rotated"} = Config.secret("telegram.bot_token", for: "host:localhost")
+      assert DateTime.compare(Config.secret_set_at("telegram.bot_token"), first) == :gt
+    end
+
+    test "never set: no date" do
+      assert is_nil(Config.secret_set_at("telegram.bot_token"))
+    end
+  end
+
+  describe "reading" do
+    test "Config.get/1 refuses a declared-secret key, saying how to get it" do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+
+      assert_raise ArgumentError, ~r/secret/i, fn -> Config.get("telegram.bot_token") end
+    end
+
+    test "the value is resolved for its bound destination only" do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+
+      assert {:ok, @token} = Config.secret("telegram.bot_token", for: "host:localhost")
+      assert {:error, :not_bound} = Config.secret("telegram.bot_token", for: "host:evil.example")
+    end
+
+    # The ETS cache is public (inventory #13): a secret must not be in it.
+    test "the value is not in the settings cache" do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+
+      cached = :ets.tab2list(:alexclaw_config)
+      refute inspect(cached) =~ @token
+    end
+  end
+
+  describe "the environment no longer seeds it" do
+    test "TELEGRAM_BOT_TOKEN in the environment is ignored" do
+      System.put_env("TELEGRAM_BOT_TOKEN", "555:from-env")
+      on_exit(fn -> System.delete_env("TELEGRAM_BOT_TOKEN") end)
+
+      AlexClaw.Config.Seeder.seed()
+
+      assert {:error, reason} = Config.secret("telegram.bot_token", for: "host:localhost")
+      assert reason in [:unknown_secret, :no_value]
+    end
+  end
+
+  describe "the gateway" do
+    test "sends with the token from OpenBao", %{bypass: bypass} do
+      :ok = Config.set("telegram.bot_token", @token, type: "string", category: "telegram")
+      Config.set("telegram.chat_id", "4242", type: "string", category: "telegram")
+      Config.set("telegram.enabled", "true", type: "boolean", category: "telegram")
+
+      test_pid = self()
+
+      Bypass.expect_once(bypass, "POST", "/bot#{@token}/sendMessage", fn conn ->
+        send(test_pid, :sent_with_vault_token)
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, ~s({"ok":true,"result":{"message_id":1}}))
+      end)
+
+      assert :ok = Telegram.deliver("4242", "hello", [])
+      assert_received :sent_with_vault_token
+    end
+  end
+end

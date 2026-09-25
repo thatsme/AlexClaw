@@ -8,6 +8,7 @@ defmodule AlexClawWeb.AdminLive.Forge do
   alias AlexClaw.LLM
   alias AlexClaw.Memory
   alias AlexClaw.Skills.{CodeGenerator, ForgeGuard}
+  alias AlexClaw.Workflows.SkillRegistry
   alias AlexClawWeb.Live.{ActionCode, Elevation}
 
   @default_max_retries 5
@@ -184,16 +185,29 @@ defmodule AlexClawWeb.AdminLive.Forge do
     {:noreply, socket}
   end
 
-  defp exhausted(socket, {:not_contained, violations}, retries_left) do
-    listed = Enum.join(violations, ", ")
+  # Contained code that declares more than an unattended load may hold is still
+  # staged — a person's code approves its permissions. Calls outside the
+  # allowlist are approved by no one (0.4.0 S6).
+  defp exhausted(socket, {:needs_permissions, reasons}, retries_left) do
+    listed = Enum.join(reasons, ", ")
+    file_path = "#{socket.assigns.current_skill_name}.ex"
 
     socket
     |> ActionCode.request(
       :load_skill,
-      %{file_path: "#{socket.assigns.current_skill_name}.ex", origin: :generated},
-      "Approve generated skill: #{listed}"
+      %{file_path: file_path, origin: :generated},
+      approval_description(SkillRegistry.describe_pending(file_path), listed)
     )
     |> approval_pending(socket, listed, retries_left)
+  end
+
+  defp exhausted(socket, {:not_contained, violations}, retries_left) do
+    socket
+    |> add_system_msg(
+      "Not loaded: it calls outside the contained set (#{Enum.join(violations, ", ")}), " <>
+        "which no approval allows."
+    )
+    |> assign(status: :failed, loading: false, retries_left: retries_left)
   end
 
   defp exhausted(socket, _reason, retries_left) do
@@ -203,11 +217,14 @@ defmodule AlexClawWeb.AdminLive.Forge do
   defp approval_pending({:noreply, socket}, _previous, listed, retries_left) do
     socket
     |> add_system_msg(
-      "Left staged in pending/. It calls outside the contained set (#{listed}), " <>
-        "so it needs a 2FA code — enter it above."
+      "Left staged in pending/. It declares permissions an unattended load may not hold " <>
+        "(#{listed}), so it needs a 2FA code — enter it above."
     )
     |> assign(status: :failed, loading: false, retries_left: retries_left)
   end
+
+  defp approval_description({:ok, text}, _listed), do: "Approve generated skill. #{text}"
+  defp approval_description({:error, _reason}, listed), do: "Approve generated skill: #{listed}"
 
   @busy "Another skill generation is running. Only one runs at a time — try again when it finishes."
 

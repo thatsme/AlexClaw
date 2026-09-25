@@ -99,15 +99,20 @@ defmodule AlexClawWeb.AdminLive.Skills do
     ActionCode.cancel(socket)
   end
 
+  # The code approves what the approval screen names: the permissions, and the
+  # risky ones (SkillRegistry.describe_pending/1).
   defp upload_skill(socket, filename) do
     socket
     |> assign(uploading: false, pending_2fa: filename)
     |> ActionCode.request(
       :load_skill,
       %{file_path: filename, origin: :upload},
-      "Load skill: #{filename}"
+      upload_description(filename, SkillRegistry.describe_pending(filename))
     )
   end
+
+  defp upload_description(filename, {:ok, text}), do: "Load skill: #{filename}. #{text}"
+  defp upload_description(filename, {:error, _reason}), do: "Load skill: #{filename}"
 
   # Staged under skills_dir/pending, never the live directory: until the 2FA code
   # is verified the upload cannot replace a skill that is already loaded.

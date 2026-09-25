@@ -154,10 +154,16 @@ defmodule AlexClaw.Skills.CodeGenerator do
     end
   end
 
+  # Calls outside the allowlist are refused whoever approves (0.4.0 S6): only
+  # a skill whose calls are contained but whose permissions exceed the
+  # unattended cap is left for a person's code.
   defp vet_and_load(file_name, skill_name, code) do
     case SkillRegistry.vet_pending(file_name) do
       {:ok, %{contained: :ok} = vetted} ->
         load_contained(file_name, skill_name, vetted, code)
+
+      {:ok, %{calls: :ok, contained: {:error, reasons}}} ->
+        {:error, {:needs_permissions, reasons}, code}
 
       {:ok, %{contained: {:error, violations}}} ->
         {:error, {:not_contained, violations}, code}
@@ -207,8 +213,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
     }
   end
 
-  # Not contained: the file stays in pending and the violations become the retry
-  # hint. If the model cannot get inside the envelope, the caller asks for a code.
+  # Not unattended: the file stays in pending and the reasons become the retry
+  # hint. Calls outside the allowlist end it there; permissions over the
+  # unattended cap are left for a code (:needs_permissions).
 
   @doc """
   The prompt for one provider's budget: the mandatory part — the goal, the
@@ -433,6 +440,18 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   def error_to_hint({:write_failed, reason}), do: "Failed to write skill file: #{inspect(reason)}"
   def error_to_hint({:llm_failed, reason}), do: "LLM call failed: #{inspect(reason)}"
+
+  def error_to_hint({:needs_permissions, reasons}) do
+    """
+    The code is contained, but it declares permissions a generated skill may not
+    hold without a person's approval:
+    #{Enum.map_join(reasons, "\n", &"  - #{&1}")}
+
+    Declare only the permissions the skill uses. If it needs these, it can be
+    approved with a code.
+    """
+  end
+
   def error_to_hint(other), do: "Error: #{inspect(other)}"
 
   defp fetch_by_source(source_prefixes) do

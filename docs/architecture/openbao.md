@@ -60,9 +60,9 @@ is not running.
     It prints the recovery key once and says where the unseal key file is,
     then waits until `SAVED` is typed, confirming that **both** the unseal key
     file and the recovery key are stored offline. It then
-    enables kv-v2 at `secret/` and transit (key `alexclaw`), writes AlexClaw's
-    policy, creates the AppRole bound to AlexClaw's address, writes the
-    bootstrap files, and revokes the root token.
+    enables kv-v2 at `secret/`, transit (key `alexclaw`) and the TOTP engine,
+    writes AlexClaw's policy, creates the AppRole bound to AlexClaw's address,
+    writes the bootstrap files, and revokes the root token.
 
 Later starts find OpenBao initialised and change nothing.
 
@@ -73,7 +73,13 @@ The `alexclaw` policy allows exactly:
 - create, read and update under `secret/data/alexclaw/*`;
 - delete under `secret/metadata/alexclaw/*` — deleting a secret destroys every
   version and its metadata;
-- encrypt and decrypt with the transit key `alexclaw`.
+- encrypt, decrypt, HMAC and verify HMACs with the transit key `alexclaw` —
+  the MCP key and the recovery codes are kept as HMACs under it;
+- create, describe and delete the admin's TOTP key (`totp/keys/admin`), and
+  validate a code against it (`totp/code/admin`, update only). Reading
+  `totp/code/admin` would generate a code, so it is not granted: AlexClaw can
+  check the admin's codes and never produce one. Describing the key returns
+  its settings, never the secret.
 
 The key-value store keeps one version per secret (`max_versions=1` on the
 `secret/` mount, which holds nothing else): a rotated value leaves no readable
@@ -84,6 +90,57 @@ of the `AlexClaw.Vault` process, lasts an hour, is renewed before it expires,
 and is replaced by a new login when renewal fails. The AppRole accepts a login,
 and its tokens are honoured, only from AlexClaw's address on the `vault`
 network.
+
+## Changing an engine or the policy after the first start
+
+`openbao-init` configures OpenBao once and then revokes the root token, so a
+release that needs another secrets engine or a wider policy cannot apply it by
+itself. A root token is generated for the change with the recovery key, used
+for it, and revoked. The token is printed to the terminal and stored nowhere.
+
+1. Open a shell in the OpenBao container and point the CLI at it:
+
+    ```bash
+    docker compose exec openbao sh
+    export BAO_ADDR=https://openbao:8200 BAO_CACERT=/openbao/tls/ca.pem
+    ```
+
+2. Generate a root token. The first command prints a nonce and a one-time
+   password; the second asks for the recovery key and prints an encoded
+   token; the third decodes it:
+
+    ```bash
+    bao operator generate-root -init
+    bao operator generate-root -nonce=<nonce>
+    bao operator generate-root -decode=<encoded token> -otp=<one-time password>
+    ```
+
+3. Apply the change with that token. The policy is replaced as a whole, so it
+   is written in full, as `configure()` in `openbao/init.sh` has it for the
+   release being installed:
+
+    ```bash
+    export BAO_TOKEN=<root token>
+    bao secrets enable totp            # for example: an engine the release adds
+    bao policy write alexclaw - <<'POLICY'
+    ...the policy from openbao/init.sh...
+    POLICY
+    ```
+
+4. Revoke the token and leave:
+
+    ```bash
+    bao token revoke -self
+    unset BAO_TOKEN
+    exit
+    ```
+
+An abandoned attempt is cancelled with `bao operator generate-root -cancel`.
+
+An upgrade whose release notes say it changes OpenBao's engines or policy
+needs this procedure once, after the new images are in place and before
+AlexClaw is started on them. The test stack's OpenBao is initialised afresh
+on every run, so it always has the current engines and policy.
 
 ## When OpenBao is unavailable
 

@@ -121,11 +121,11 @@ defmodule AlexClaw.Skills.Coder do
   # The file is already staged in pending/. It loads only with a code for
   # that file, typed on the admin UI's Forge page (:load_skill); a chat
   # cannot approve it.
-  defp request_approval(skill_name, violations) do
+  defp request_approval(skill_name, reasons) do
     {:error,
      {:needs_2fa,
-      "Generated skill #{skill_name} calls outside the contained set " <>
-        "(#{Enum.join(violations, ", ")}), so it was not loaded. It is staged in pending/; " <>
+      "Generated skill #{skill_name} declares permissions an unattended load may not hold " <>
+        "(#{Enum.join(reasons, ", ")}), so it was not loaded. It is staged in pending/; " <>
         "generate it on the admin UI's Forge page, where a code approves it."}}
   end
 
@@ -168,7 +168,9 @@ defmodule AlexClaw.Skills.Coder do
     generation_loop(job, attempts_left - 1, {reason, code})
   end
 
-  defp gave_up({{:not_contained, violations}, _code}, _why), do: {:needs_approval, violations}
+  # Only permissions over the unattended cap can be approved with a code; calls
+  # outside the allowlist are refused whoever approves (0.4.0 S6).
+  defp gave_up({{:needs_permissions, reasons}, _code}, _why), do: {:needs_approval, reasons}
   defp gave_up({reason, _code}, nil), do: {:error, {:generation_failed, reason}}
   defp gave_up(_last, why), do: {:error, {:generation_failed, why}}
 

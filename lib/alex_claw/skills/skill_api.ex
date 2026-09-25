@@ -22,6 +22,14 @@ defmodule AlexClaw.Skills.SkillAPI do
   # can bring that back (0.4.0 S5b).
   @known_permissions ~w(llm telegram_send gateway_send memory_read memory_write knowledge_read knowledge_write web_read config_read resources_read skill_invoke workflow_read)a
 
+  # parallel_map/4: a skill gets concurrency, bounded, instead of Task directly.
+  @default_concurrency 4
+  @max_concurrency 8
+  @element_timeout 30_000
+
+  # What a SkillAPI call made from a parallel_map/4 element is authorised by.
+  @auth_keys [:auth_token, :auth_chain_depth, :auth_workflow_run_id]
+
   @type permission_result :: :ok | {:error, :permission_denied}
   @type skill_mod :: module()
 
@@ -354,6 +362,68 @@ defmodule AlexClaw.Skills.SkillAPI do
       AlexClaw.Workflows.get_run(run_id)
     end
   end
+
+  # --- Computation ---
+
+  @doc """
+  Map `fun` over `enumerable` concurrently, in order, under
+  `AlexClaw.TaskSupervisor`. Opts: `:max_concurrency` (default
+  #{@default_concurrency}, at most #{@max_concurrency}), `:timeout` per element
+  in ms (default #{@element_timeout}). An element that crashes or times out
+  becomes `{:error, {:exit, reason}}` in its place; the others are kept.
+
+  Each element runs with the caller's authorisation (token, chain depth,
+  workflow run), so a SkillAPI call made inside `fun` is checked as the
+  skill's own.
+  """
+  @spec parallel_map(skill_mod(), Enumerable.t(), (term() -> term()), keyword()) ::
+          {:ok, [term()]} | {:error, :too_much_concurrency}
+  def parallel_map(_skill_module, enumerable, fun, opts \\ []) when is_function(fun, 1) do
+    opts
+    |> Keyword.get(:max_concurrency, @default_concurrency)
+    |> mapped(enumerable, fun, Keyword.get(opts, :timeout, @element_timeout))
+  end
+
+  defp mapped(concurrency, enumerable, fun, timeout)
+       when concurrency in 1..@max_concurrency//1 do
+    auth = Enum.map(@auth_keys, &{&1, Process.get(&1)})
+
+    results =
+      AlexClaw.TaskSupervisor
+      |> Task.Supervisor.async_stream_nolink(enumerable, &with_auth(auth, fun, &1),
+        max_concurrency: concurrency,
+        timeout: timeout,
+        on_timeout: :kill_task,
+        ordered: true
+      )
+      |> Enum.map(&element/1)
+
+    {:ok, results}
+  end
+
+  defp mapped(_concurrency, _enumerable, _fun, _timeout), do: {:error, :too_much_concurrency}
+
+  defp with_auth(auth, fun, value) do
+    Enum.each(auth, &restore_auth/1)
+    fun.(value)
+  end
+
+  defp restore_auth({_key, nil}), do: :ok
+  defp restore_auth({key, value}), do: Process.put(key, value)
+
+  defp element({:ok, value}), do: value
+  defp element({:exit, reason}), do: {:error, {:exit, reason}}
+
+  @doc """
+  A loaded module's documentation, as `Code.fetch_docs/1` returns it
+  (`{:docs_v1, ...}`), or `{:error, reason}`.
+  """
+  @spec module_docs(skill_mod(), module()) :: {:ok, tuple()} | {:error, term()}
+  def module_docs(_skill_module, module) when is_atom(module),
+    do: docs(Code.fetch_docs(module))
+
+  defp docs({:error, reason}), do: {:error, reason}
+  defp docs(docs), do: {:ok, docs}
 
   # --- Permission check ---
 

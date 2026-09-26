@@ -5,8 +5,7 @@ defmodule AlexClaw.Skills.Dynamic.WebSearchV2 do
   """
   @behaviour AlexClaw.Skill
 
-  import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
-  alias AlexClaw.Skills.SkillAPI
+  alias AlexClaw.Skills.{Helpers, SkillAPI}
 
   @max_results 3
   @max_page_length 3_000
@@ -124,9 +123,9 @@ defmodule AlexClaw.Skills.Dynamic.WebSearchV2 do
       {:ok, %{status: 200, body: body}} when is_binary(body) ->
         text =
           body
-          |> sanitize_utf8()
+          |> Helpers.sanitize_utf8()
           |> Floki.parse_document!()
-          |> strip_noise()
+          |> Helpers.strip_noise()
           |> Floki.text(sep: "\n")
           |> String.replace(~r/\n{3,}/, "\n\n")
           |> String.replace(~r/[ \t]+/, " ")

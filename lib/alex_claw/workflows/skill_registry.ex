@@ -1143,13 +1143,14 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     statement |> Macro.to_string() |> String.slice(0, 60)
   end
 
-  # import and require both bring a module's macros into scope, and a macro call
-  # expands at compile time wherever it appears — including inside a function body.
-  # So the target is checked across the whole file, not only the module body.
-  # SweetXml is not here: once imported, its functions are local calls the
-  # checker does not see, and its parse options decide entity handling. A
-  # skill reads XML through SkillAPI.parse_xml/2 (S9 fix review).
-  @allowed_compile_time_modules [Logger, AlexClaw.Skills.Helpers]
+  # No import at all (Kernel's defaults aside): after an import, the module's
+  # functions are local calls, which the containment check (remote calls) does
+  # not see — `import Logger` then `configure/1` passed the Logger rule. Every
+  # call to another module is written as a remote call, and checked.
+  # require brings macros into scope and no functions: Logger's level functions
+  # are macros, so `require Logger` is the one require allowed. Either is
+  # checked across the whole file, since a macro expands wherever it is called.
+  @allowed_requires [Logger]
 
   defp validate_compile_time_deps(ast) do
     {_ast, errors} = Macro.prewalk(ast, [], &collect_dep_error/2)
@@ -1170,8 +1171,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp collect_dep_error(node, errors), do: {node, errors}
 
-  defp dep_error(_directive, module, errors) when module in @allowed_compile_time_modules,
-    do: errors
+  defp dep_error(:require, module, errors) when module in @allowed_requires, do: errors
 
   defp dep_error(directive, nil, errors),
     do: [{:forbidden_construct, "#{directive} of an unresolvable module"} | errors]

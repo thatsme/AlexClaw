@@ -93,6 +93,11 @@ confirm_saved() {
 }
 
 configure() {
+  # The file audit device is declared in config.hcl; OpenBao must actually
+  # have it on before AlexClaw is given any access (S8).
+  bao audit list -format=json 2>/dev/null | grep -q '"alexclaw/"' ||
+    fail "the file audit device is not enabled: AlexClaw is not given access"
+
   bao secrets enable -path=secret kv-v2 >/dev/null
   # One version per secret: a rotation leaves no readable old value. The mount
   # holds AlexClaw's secrets and nothing else, so the setting is the mount's.

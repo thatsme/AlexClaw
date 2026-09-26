@@ -44,15 +44,26 @@ defmodule AlexClaw.Auth.SecondFactor.Totp do
 
   defp accepted(:ok, _secret, _method), do: {:ok, :totp}
 
-  # OpenBao cannot be asked: not a wrong code, and a recovery code cannot be
-  # checked either.
-  defp accepted({:error, :unavailable} = unavailable, _secret, _method), do: unavailable
+  # The authenticator cannot answer — OpenBao unreachable, or a key from
+  # before 0.4.0 not (or never) imported: a recovery code is exactly the way
+  # in for that, and is tried in the browser (S9 fix review). An authenticator
+  # code typed meanwhile is unavailable, not wrong: it is not counted (S8 M11).
+  defp accepted({:error, :unavailable}, secret, :web),
+    do: unavailable_or_recovery(authenticator_code?(secret), secret)
+
+  defp accepted({:error, :unavailable} = unavailable, _secret, :gateway), do: unavailable
 
   defp accepted({:error, :invalid_code}, secret, :web), do: spent(RecoveryCodes.redeem(secret))
 
   defp accepted({:error, :invalid_code}, _secret, :gateway), do: {:error, :invalid_code}
 
+  defp unavailable_or_recovery(true, _secret), do: {:error, :unavailable}
+  defp unavailable_or_recovery(false, secret), do: spent(RecoveryCodes.redeem(secret))
+
+  defp authenticator_code?(secret), do: normalize(secret) =~ ~r/\A\d{6}\z/
+
   defp spent({:ok, _remaining}), do: {:ok, :recovery_code}
+  defp spent({:error, :unavailable} = unavailable), do: unavailable
   defp spent({:error, _reason}), do: {:error, :invalid_code}
 
   # Operators paste codes with the space their authenticator shows. Recovery

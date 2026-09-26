@@ -62,8 +62,12 @@ defmodule AlexClaw.Auth.RecoveryCodes do
   Spend `code` if it is one of the unused ones.
 
   Returns how many remain, which is what the operator needs to know next.
+  `{:error, :unavailable}` when OpenBao, which holds the key the codes are
+  checked with, could not answer for a code that matched none: that is not a
+  wrong code.
   """
-  @spec redeem(String.t()) :: {:ok, non_neg_integer()} | {:error, :invalid_code}
+  @spec redeem(String.t()) ::
+          {:ok, non_neg_integer()} | {:error, :invalid_code | :unavailable}
   def redeem(code) do
     code
     |> normalize()
@@ -72,7 +76,7 @@ defmodule AlexClaw.Auth.RecoveryCodes do
 
   @doc "Whether `code` is one of the unused codes, without spending it."
   @spec valid?(String.t()) :: boolean()
-  def valid?(code), do: code |> normalize() |> digest() |> matching_row() != nil
+  def valid?(code), do: match?(%RecoveryCode{}, code |> normalize() |> digest() |> matching_row())
 
   @doc "How many codes are left to use."
   @spec remaining() :: non_neg_integer()
@@ -121,21 +125,32 @@ defmodule AlexClaw.Auth.RecoveryCodes do
     |> spend()
   end
 
-  # Every unused code is asked, until one matches: at most ten.
+  # Every unused code is asked, until one matches: at most ten. The matching
+  # row; else :unavailable when OpenBao could not answer for one; else nil.
   defp matching_row(digest) do
     from(c in RecoveryCode, where: is_nil(c.used_at))
     |> Repo.all()
-    |> Enum.find(&matches?(&1.hash, digest))
+    |> Enum.reduce_while(nil, fn row, unanswered ->
+      row.hash |> matches(digest) |> matched(row, unanswered)
+    end)
   end
+
+  defp matched(true, row, _unanswered), do: {:halt, row}
+  defp matched(false, _row, unanswered), do: {:cont, unanswered}
+  defp matched(:unavailable, _row, _unanswered), do: {:cont, :unavailable}
 
   # OpenBao checks a keyed one, in constant time; a digest from before 0.4.0
   # is compared here, in constant time too.
-  defp matches?("vault:" <> _ = stored, digest),
-    do: Vault.verify_hmac(digest, stored) == {:ok, true}
+  defp matches("vault:" <> _ = stored, digest),
+    do: digest |> Vault.verify_hmac(stored) |> answered()
 
-  defp matches?(legacy, digest), do: Plug.Crypto.secure_compare(legacy, digest)
+  defp matches(legacy, digest), do: Plug.Crypto.secure_compare(legacy, digest)
+
+  defp answered({:ok, matches?}), do: matches?
+  defp answered({:error, _reason}), do: :unavailable
 
   defp spend(nil), do: {:error, :invalid_code}
+  defp spend(:unavailable), do: {:error, :unavailable}
 
   defp spend(%RecoveryCode{} = row) do
     row

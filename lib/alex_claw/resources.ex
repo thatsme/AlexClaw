@@ -4,8 +4,8 @@ defmodule AlexClaw.Resources do
   """
   import Ecto.Query
   alias AlexClaw.Repo
-  alias AlexClaw.Resources.ApiDiscovery
-  alias AlexClaw.Resources.Resource
+  alias AlexClaw.Resources.{ApiDiscovery, Resource, ResourceSecrets}
+  alias AlexClaw.Secrets.Owned
 
   @spec list_resources(map()) :: [Resource.t()]
   def list_resources(filters \\ %{}) do
@@ -38,7 +38,7 @@ defmodule AlexClaw.Resources do
     result =
       %Resource{}
       |> Resource.changeset(attrs)
-      |> Repo.insert()
+      |> saved(%{}, &Repo.insert/1)
 
     unless opts[:skip_discovery] do
       with {:ok, resource} <- result, do: discover(resource)
@@ -53,7 +53,7 @@ defmodule AlexClaw.Resources do
     result =
       resource
       |> Resource.changeset(attrs)
-      |> Repo.update()
+      |> saved(resource.metadata, &Repo.update/1)
 
     unless opts[:skip_discovery] do
       with {:ok, updated} <- result, do: discover(updated)
@@ -78,10 +78,78 @@ defmodule AlexClaw.Resources do
 
   @spec delete_resource(Resource.t()) :: {:ok, Resource.t()} | {:error, Ecto.Changeset.t()}
   def delete_resource(%Resource{} = resource) do
-    Repo.delete(resource)
+    with {:ok, deleted} <- Repo.delete(resource) do
+      ResourceSecrets.delete(deleted)
+      {:ok, deleted}
+    end
+  end
+
+  # A resource is saved with its credential (ResourceSecrets): the row holds a
+  # reference, the value goes to OpenBao in the same transaction.
+  defp saved(changeset, old_metadata, persist) do
+    with {:ok, changeset, secrets} <- ResourceSecrets.plan(changeset, old_metadata),
+         do: Owned.saved(changeset, secrets, &ResourceSecrets.kind/1, persist)
   end
 
   @spec list_by_tags([String.t()]) :: [Resource.t()]
+  @doc """
+  `resource` with its credentials taken out, for every reader outside core
+  code (SkillAPI, MCP): the `auth` block is dropped, a password in the URL is
+  replaced, and the values a recording captured — and the step descriptions
+  that could repeat them — are replaced.
+  """
+  @spec redacted(Resource.t()) :: Resource.t()
+  def redacted(%Resource{metadata: metadata, url: url} = resource) do
+    %{resource | metadata: redacted_metadata(metadata || %{}), url: redacted_url(url)}
+  end
+
+  @doc """
+  `resource` as a workflow export writes it: its credential's value replaced by
+  `placeholder` (the header name stays, so an import shows what is needed),
+  and what a recording captured redacted as `redacted/1` redacts it.
+  """
+  @spec exported(Resource.t(), String.t()) :: Resource.t()
+  def exported(%Resource{metadata: metadata, url: url} = resource, placeholder) do
+    metadata = (metadata || %{}) |> exported_auth(placeholder) |> redacted_steps()
+    %{resource | metadata: metadata, url: redacted_url(url)}
+  end
+
+  defp exported_auth(%{"auth" => %{"value" => value} = auth} = metadata, placeholder)
+       when value not in [nil, ""],
+       do: %{metadata | "auth" => %{auth | "value" => placeholder}}
+
+  defp exported_auth(metadata, _placeholder), do: metadata
+
+  defp redacted_metadata(metadata) do
+    metadata
+    |> Map.drop(["auth"])
+    |> redacted_steps()
+  end
+
+  defp redacted_steps(%{"steps" => steps} = metadata) when is_list(steps),
+    do: %{metadata | "steps" => Enum.map(steps, &redacted_step/1)}
+
+  defp redacted_steps(metadata), do: metadata
+
+  # A step that carries a value (fill, select) is a step whose value and
+  # description may hold what was typed.
+  defp redacted_step(%{"value" => value} = step) when value not in [nil, ""] do
+    step
+    |> Map.put("value", "[REDACTED]")
+    |> Map.replace("description", "[REDACTED]")
+  end
+
+  defp redacted_step(step), do: step
+
+  defp redacted_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{userinfo: nil} -> url
+      uri -> URI.to_string(%{uri | userinfo: "REDACTED"})
+    end
+  end
+
+  defp redacted_url(url), do: url
+
   def list_by_tags(tags) when is_list(tags) do
     Resource
     |> where([r], fragment("? && ?", r.tags, ^tags))

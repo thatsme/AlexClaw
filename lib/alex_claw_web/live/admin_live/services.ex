@@ -4,8 +4,9 @@ defmodule AlexClawWeb.AdminLive.Services do
   use Phoenix.LiveView
   require Logger
 
-  alias AlexClaw.Auth.{Challenge, CodeEntry, RecoveryCodes, Sessions, TOTP}
-  alias AlexClaw.Config
+  alias AlexClaw.Auth.{Challenge, RecoveryCodes, Sessions, TOTP}
+  alias AlexClaw.{Config, ControlPlane}
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
   alias AlexClaw.Google.TokenManager
@@ -14,6 +15,8 @@ defmodule AlexClawWeb.AdminLive.Services do
   alias AlexClawWeb.Live.Elevation
   alias Ecto.Adapters.SQL
   alias Nostrum.Api.Message
+
+  @unavailable "The second factor cannot be reached right now (OpenBao is unavailable). Try again shortly."
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -54,29 +57,26 @@ defmodule AlexClawWeb.AdminLive.Services do
   # to break, and adding protection is not a privileged act.
   @impl true
   def handle_event("setup_2fa", _params, socket) do
-    {:ok, %{uri: uri, qr_png: qr_png}} = TOTP.setup()
-
-    {:noreply,
-     assign(socket,
-       totp_setup: %{uri: uri, qr: Base.encode64(qr_png), key: manual_key(uri)},
-       totp_message: nil
-     )}
+    {:noreply, set_up(set_up_step(socket, %{step: :setup}), socket)}
   end
 
   def handle_event("confirm_2fa", %{"code" => code}, socket) do
-    {:noreply, confirmed(TOTP.confirm_setup(String.trim(code)), socket)}
+    confirmation = set_up_step(socket, %{step: :confirm, code: String.trim(code)})
+    {:noreply, confirmed(confirmation, socket)}
   end
 
   def handle_event("cancel_2fa_setup", _params, socket) do
-    Config.delete("auth.totp.pending_secret")
-    {:noreply, assign(socket, totp_setup: nil, totp_message: nil)}
+    {:noreply, cancelled_setup(set_up_step(socket, %{step: :cancel}), socket)}
   end
 
   # Turning 2FA off is the one thing an elevation must never cover: a window
   # opened an hour of typing ago should not be able to remove the factor that
   # opened it.
   def handle_event("disable_2fa", %{"code" => code}, socket) do
-    {:noreply, disabled(CodeEntry.verify(sid(socket), code, :web), socket)}
+    performed =
+      ControlPlane.perform(:disable_second_factor, %{}, Context.admin_ui(sid(socket), code))
+
+    {:noreply, disabled(performed, socket)}
   end
 
   @impl true
@@ -119,15 +119,35 @@ defmodule AlexClawWeb.AdminLive.Services do
   # A fresh set invalidates the old one, so it answers to a code like any other
   # change to the second factor.
   def handle_event("regenerate_recovery_codes", %{"code" => code}, socket) do
-    {:noreply, regenerated(CodeEntry.verify(sid(socket), code, :web), socket)}
+    performed =
+      ControlPlane.perform(:regenerate_recovery_codes, %{}, Context.admin_ui(sid(socket), code))
+
+    {:noreply, regenerated(performed, socket)}
+  end
+
+  # Google is connected from here, not from a chat: the authorisation is
+  # issued to this session, and only this session redeems it at the callback.
+  def handle_event("connect_google", _params, socket) do
+    Elevation.perform(socket, :connect_google, %{step: :start, owner: owner(socket)},
+      ok: fn socket, url -> redirect(socket, external: url) end,
+      error: &not_connected/2
+    )
+  end
+
+  def handle_event("disconnect_google", _params, socket) do
+    Elevation.perform(socket, :disconnect_google, %{},
+      ok: fn socket, _disconnected ->
+        socket
+        |> assign(services: build_services())
+        |> put_flash(:info, "Google disconnected. Its refresh token was removed.")
+      end
+    )
   end
 
   # Ends every admin login, this one included, on every node. A change like any
   # other: behind an elevation, and audited with the delete.
   def handle_event("sign_out_everywhere", _params, socket) do
-    Elevation.gated(socket, "all admin sessions signed out",
-      write: &Sessions.remove_all/0,
-      after_commit: &Sessions.disconnect/1,
+    Elevation.perform(socket, :sign_out_everywhere, %{detail: "all admin sessions signed out"},
       ok: fn socket, _socket_ids -> redirect(socket, to: "/login") end
     )
   end
@@ -138,7 +158,6 @@ defmodule AlexClawWeb.AdminLive.Services do
     do: Elevation.submit_code(socket, code)
 
   def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
-  def handle_event("request_gateway_code", _params, socket), do: Elevation.unlock(socket)
 
   defp reembed_detail(0), do: "Nothing to re-embed"
   defp reembed_detail(total), do: "Re-embedding #{total} entries in background..."
@@ -282,8 +301,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   defp initial_status("github") do
-    token = Config.get("github.token")
-    if token && token != "", do: :configured, else: :not_configured
+    if Config.secret_set?("github.token"), do: :configured, else: :not_configured
   end
 
   defp initial_status("web_automator") do
@@ -309,17 +327,36 @@ defmodule AlexClawWeb.AdminLive.Services do
     |> Map.get("secret", "")
   end
 
+  defp owner(socket), do: socket |> sid() |> fingerprint()
+
+  defp fingerprint(sid) when is_binary(sid), do: AlexClaw.Auth.Elevation.fingerprint(sid)
+  defp fingerprint(_sid), do: "unidentified"
+
+  defp not_connected(socket, :client_id_not_configured),
+    do:
+      put_flash(
+        socket,
+        :error,
+        "Set google.oauth.client_id and client_secret on the Config page first."
+      )
+
+  defp not_connected(socket, reason),
+    do: put_flash(socket, :error, "Google not connected: #{inspect(reason)}")
+
   defp sid(%{assigns: %{elevation_sid: sid}}), do: sid
   defp sid(_socket), do: nil
 
   # The codes exist in readable form for exactly this render. They are shown
   # once, and the operator confirms they have them before the page lets go.
-  defp confirmed(:ok, socket) do
+  defp set_up_step(socket, params),
+    do: ControlPlane.perform(:set_up_second_factor, params, Context.admin_ui(sid(socket)))
+
+  defp confirmed({:ok, codes}, socket) do
     socket
     |> assign(
       totp_setup: nil,
       totp_message: nil,
-      recovery_codes: RecoveryCodes.generate(),
+      recovery_codes: codes,
       recovery: RecoveryCodes.status(),
       services: build_services(),
       # The badge and the setup button both read this. Without refreshing it the
@@ -337,9 +374,12 @@ defmodule AlexClawWeb.AdminLive.Services do
     assign(socket, totp_setup: nil, totp_message: "That setup expired. Start again.")
   end
 
-  defp regenerated(:ok, socket) do
+  defp confirmed({:error, :unavailable}, socket),
+    do: assign(socket, totp_message: @unavailable)
+
+  defp regenerated({:ok, codes}, socket) do
     socket
-    |> assign(recovery_codes: RecoveryCodes.generate(), totp_message: nil)
+    |> assign(recovery_codes: codes, totp_message: nil)
     |> assign(recovery: RecoveryCodes.status())
     |> put_flash(:info, "New recovery codes. The old ones no longer work.")
   end
@@ -351,9 +391,35 @@ defmodule AlexClawWeb.AdminLive.Services do
   # With the second factor gone, every other login was made under a guarantee
   # that no longer holds: they are ended, and this one — which just proved
   # itself with a code — is kept.
-  defp disabled(:ok, socket) do
-    TOTP.disable()
-    RecoveryCodes.discard()
+  # TOTP.disable_by/1 verified the code (authenticator or recovery), turned 2FA
+  # off and wiped the recovery codes; CodeEntry counted the attempt and audited
+  # which factor was used.
+  defp set_up({:ok, %{uri: uri, qr_png: qr_png}}, socket) do
+    assign(socket,
+      totp_setup: %{uri: uri, qr: Base.encode64(qr_png), key: manual_key(uri)},
+      totp_message: nil
+    )
+  end
+
+  # The button is hidden while 2FA is on; a crafted event still arrives here.
+  defp set_up({:error, :unavailable}, socket),
+    do: assign(socket, totp_setup: nil, totp_message: @unavailable)
+
+  defp set_up({:error, :already_enabled}, socket) do
+    assign(socket,
+      totp_setup: nil,
+      totp_message:
+        "Two-factor authentication is already on. Turn it off first to set it up again."
+    )
+  end
+
+  defp cancelled_setup({:ok, :cancelled}, socket),
+    do: assign(socket, totp_setup: nil, totp_message: nil)
+
+  # 2FA is on: there is no enrolment to cancel, and its key stays.
+  defp cancelled_setup({:error, :already_enabled} = refused, socket), do: set_up(refused, socket)
+
+  defp disabled({:ok, :disabled}, socket) do
     {:ok, _closed} = Sessions.close_others(sid(socket), "two-factor authentication disabled")
 
     socket
@@ -389,7 +455,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   defp live_check("telegram") do
     telegram_check(
       Config.enabled?("telegram.enabled"),
-      Config.get("telegram.bot_token"),
+      Telegram.bot_token(),
       Config.get("telegram.chat_id")
     )
   end
@@ -397,7 +463,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   defp live_check("discord") do
     discord_check(
       Config.enabled?("discord.enabled"),
-      Config.get("discord.bot_token"),
+      Config.secret_set?("discord.bot_token"),
       Config.get("discord.channel_id")
     )
   end
@@ -433,13 +499,15 @@ defmodule AlexClawWeb.AdminLive.Services do
     lmstudio_status(Config.enabled?("llm.lmstudio_enabled"), host)
   end
 
+  # The same API base and binding as the GitHub skill.
   defp live_check("github") do
-    token = Config.get("github.token")
+    base = Application.get_env(:alex_claw, :github_api_base, "https://api.github.com")
+    token = Config.secret_value("github.token")
 
-    if !token || token == "" do
+    if token in [nil, ""] do
       %{status: :not_configured, detail: "Token not set"}
     else
-      case Req.get("https://api.github.com/user",
+      case Req.get("#{base}/user",
              headers: [
                {"authorization", "Bearer #{token}"},
                {"accept", "application/vnd.github+json"}
@@ -498,7 +566,7 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   defp telegram_check(true, token, chat_id) do
     token
-    |> AlexClaw.Gateway.Telegram.api_url("sendMessage")
+    |> Telegram.api_url("sendMessage")
     |> Req.post(json: %{chat_id: chat_id, text: "🦇 AlexClaw connectivity check"})
     |> telegram_result()
   end
@@ -511,16 +579,16 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   defp telegram_result({:error, reason}), do: %{status: :error, detail: inspect(reason)}
 
-  defp discord_check(false, _token, _channel_id),
+  defp discord_check(false, _token_set, _channel_id),
     do: %{status: :not_configured, detail: "Gateway disabled"}
 
-  defp discord_check(true, token, _channel_id) when token in [nil, ""],
+  defp discord_check(true, false, _channel_id),
     do: %{status: :not_configured, detail: "Bot token not set"}
 
-  defp discord_check(true, _token, channel_id) when channel_id in [nil, ""],
+  defp discord_check(true, true, channel_id) when channel_id in [nil, ""],
     do: %{status: :not_configured, detail: "Channel ID not set"}
 
-  defp discord_check(true, _token, channel_id) do
+  defp discord_check(true, true, channel_id) do
     channel_id
     |> discord_channel_id()
     |> Message.create(content: "🦇 AlexClaw connectivity check")
@@ -576,7 +644,7 @@ defmodule AlexClawWeb.AdminLive.Services do
     do: %{status: :not_configured, detail: "Web Automator disabled"}
 
   defp web_automator_status({:error, :web_automator_token_missing}),
-    do: %{status: :error, detail: "WEB_AUTOMATOR_TOKEN is not set"}
+    do: %{status: :error, detail: "the shared token file is missing (automator-token-init)"}
 
   defp web_automator_status({:error, {:http, status, _body}}),
     do: %{status: :error, detail: "HTTP #{status}"}

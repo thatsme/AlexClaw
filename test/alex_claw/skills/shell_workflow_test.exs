@@ -27,7 +27,7 @@ defmodule AlexClaw.Skills.ShellWorkflowTest do
           config: %{"command" => "free -m"}
         })
 
-      {:ok, run} = Executor.run(workflow.id)
+      {:ok, run} = Executor.run(workflow.id, privileged: true)
 
       assert run.status == "completed"
       assert run.result["output"] =~ "Mem:"
@@ -50,7 +50,7 @@ defmodule AlexClaw.Skills.ShellWorkflowTest do
           config: %{"command" => "df -h"}
         })
 
-      {:ok, run} = Executor.run(workflow.id)
+      {:ok, run} = Executor.run(workflow.id, privileged: true)
 
       assert run.status == "completed"
       assert run.result["output"] =~ "Filesystem"
@@ -72,7 +72,7 @@ defmodule AlexClaw.Skills.ShellWorkflowTest do
           config: %{"command" => "rm -rf /"}
         })
 
-      {:error, run} = Executor.run(workflow.id)
+      {:error, run} = Executor.run(workflow.id, privileged: true)
 
       assert run.status == "failed"
     end

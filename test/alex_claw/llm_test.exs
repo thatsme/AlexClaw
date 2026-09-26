@@ -454,8 +454,10 @@ defmodule AlexClaw.LLMTest do
         "POST",
         "/v1beta/models/text-embedding-004:embedContent",
         fn conn ->
-          # Verify the key came from config (present in query string)
-          assert conn.query_string =~ "key=test-config-gemini-key"
+          # The key comes from config, in the x-goog-api-key header — never in
+          # the URL, where it would end up in logs (0.4.0).
+          assert Plug.Conn.get_req_header(conn, "x-goog-api-key") == ["test-config-gemini-key"]
+          refute conn.query_string =~ "key="
 
           conn
           |> Plug.Conn.put_resp_content_type("application/json")
@@ -480,7 +482,8 @@ defmodule AlexClaw.LLMTest do
       assert length(result) == 768
 
       Application.delete_env(:alex_claw, :embedding_base_url)
-      AlexClaw.Config.set("llm.gemini_api_key", "")
+      # "" means "keep" for a secret setting (0.4.0); removing it is clear/1.
+      :ok = AlexClaw.Config.clear("llm.gemini_api_key")
     end
 
     test "Gemini embed prefers provider api_key over config" do
@@ -492,7 +495,8 @@ defmodule AlexClaw.LLMTest do
         "POST",
         "/v1beta/models/text-embedding-004:embedContent",
         fn conn ->
-          assert conn.query_string =~ "key=provider-level-key"
+          assert Plug.Conn.get_req_header(conn, "x-goog-api-key") == ["provider-level-key"]
+          refute conn.query_string =~ "key="
 
           conn
           |> Plug.Conn.put_resp_content_type("application/json")
@@ -515,7 +519,7 @@ defmodule AlexClaw.LLMTest do
       assert length(result) == 768
 
       Application.delete_env(:alex_claw, :embedding_base_url)
-      AlexClaw.Config.set("llm.gemini_api_key", "")
+      :ok = AlexClaw.Config.clear("llm.gemini_api_key")
     end
   end
 end

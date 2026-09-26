@@ -53,7 +53,7 @@ end
 |---|---|---|
 | `description/0` | `"<name> skill"` | Human-readable description |
 | `permissions/0` | `[]` | Required permissions (see [Authorization](../security/authorization.md)) |
-| `routes/0` | `[]` | Possible outcome branches for conditional routing |
+| `routes/0` | `[:on_success, :on_error]` | Possible outcome branches for conditional routing |
 | `version/0` | `"1.0.0"` | Skill version string |
 | `external/0` | `false` | Whether the skill fetches data from external sources |
 
@@ -69,7 +69,7 @@ These callbacks control how the workflow step editor renders when your skill is 
 | `config_presets/0` | `%{}` | Named config templates shown as buttons (e.g. `%{"GET" => %{"method" => "GET"}}`) |
 | `prompt_presets/0` | `%{}` | Named prompt templates shown as buttons (e.g. `%{"Summarize" => "Summarize:\n\n{input}"}`) |
 | `config_help/0` | `"Skill-specific parameters as JSON."` | Help text shown as tooltip on the config field |
-| `secret_config_keys/0` | `[]` | Config keys holding credentials, stored encrypted (e.g. `["api_key"]`). Required for every key in `config_scaffold/0` or `config_presets/0` with a name one of whose underscore-separated parts is `token`, `key`, `apikey`, `password`, `secret`, `credential`, `auth`, `authorization` or `headers` (so `api_key` and `auth_header` count, `keyword_count` does not): a skill that leaves one out is refused at load |
+| `secret_config_keys/0` | `[]` | Config keys holding credentials, kept in OpenBao as secrets the step owns, bound to the host of the step's `url` (e.g. `["api_key"]`); the step's config holds a reference, and the skill receives a placeholder, `{{secret:NAME}}`, never the value. The value is attached only in a header named in `SkillAPI.http_request`'s `:secret_headers` option (header name => the placeholder, standing alone), as the request is sent, and only if its host is the one the secret is bound to; a placeholder anywhere else (URL, `:headers`, body) is sent as written. A skill is not given its workflow's resource credentials. A key whose value is a map (a set of headers, say) has every entry secret. Required for every key in `config_scaffold/0` or `config_presets/0` with a name one of whose underscore-separated parts is `token`, `key`, `apikey`, `password`, `secret`, `credential`, `auth`, `authorization` or `headers` (so `api_key` and `auth_header` count, `keyword_count` does not): a skill that leaves one out is refused at load |
 | `prompt_help/0` | `"Template sent to the LLM. Use {input} for previous step output."` | Help text shown as tooltip on the prompt field |
 
 ## The `args` Map
@@ -109,37 +109,33 @@ The full list of functions, their permissions and what they redact is in the
 
 ## External Skills
 
-If your skill fetches data from external sources (HTTP requests, APIs, RSS feeds), declare `external/0`:
+A skill that fetches data from outside (HTTP requests, APIs, RSS feeds) makes its requests through `SkillAPI.http_get/3`, `http_post/3` or `http_request/4` and declares `external/0`:
 
 ```elixir
 @impl true
 def external, do: true
 ```
 
-This enables automatic content sanitization when your skill's output flows through the workflow engine. The `ContentSanitizer` strips prompt injection payloads from external content before it reaches the LLM.
+This enables automatic content sanitization when the skill's output flows through the workflow engine: the `ContentSanitizer` strips prompt-injection payloads before the content reaches a model.
 
-**AST enforcement:** At load time, the registry scans your source for calls to HTTP/socket libraries (`Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`, `SkillAPI.http_*`). If detected without `external/0`, your skill is **rejected**. This is fail-closed — no exceptions.
+**Load-time checks.** A skill that calls `SkillAPI.http_*` without `external/0` is rejected. A skill that calls an HTTP or socket library directly (`Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`) is outside containment and is rejected whatever it declares.
 
 ```elixir
-# This will be REJECTED — uses Req.get but doesn't declare external/0
-defmodule AlexClaw.Skills.Dynamic.BadFetcher do
-  @behaviour AlexClaw.Skill
-  def permissions, do: [:web_read]
-  def run(args) do
-    {:ok, resp} = Req.get(args[:input])
-    {:ok, resp.body, :on_success}
-  end
-end
+# REJECTED — calls Req directly
+def run(args), do: Req.get(args[:input])
 
-# This will be ACCEPTED — declares external/0
+# ACCEPTED — through SkillAPI, declares external/0 and :web_read
 defmodule AlexClaw.Skills.Dynamic.GoodFetcher do
   @behaviour AlexClaw.Skill
+  alias AlexClaw.Skills.SkillAPI
   @impl true
   def external, do: true
+  @impl true
   def permissions, do: [:web_read]
+  @impl true
   def run(args) do
-    {:ok, resp} = Req.get(args[:input])
-    {:ok, resp.body, :on_success}
+    with {:ok, resp} <- SkillAPI.http_get(__MODULE__, args[:input]),
+         do: {:ok, resp.body, :on_success}
   end
 end
 ```
@@ -155,6 +151,10 @@ defmodule AlexClaw.Skills.Dynamic.MySkill do
 # Wrong — will be rejected
 defmodule MySkill do
 ```
+
+## Containment
+
+A dynamic skill's source is checked on its syntax tree before it compiles, at every load and at every boot: every remote call must be to `SkillAPI`, `AlexClaw.Skills.Helpers` or the allowlist in the [Skill API Reference](skill-api.md#what-a-skills-source-may-call). File, process, network, database and system access go through `SkillAPI` or are not available. A skill that fails the check does not load, and no 2FA approval changes that. Concurrency is `SkillAPI.parallel_map/4`, XML is `SkillAPI.parse_xml/2`, module documentation is `SkillAPI.module_docs/2`. A skill passes `__MODULE__` to SkillAPI; a call naming another module is refused.
 
 ## Returning Results
 
@@ -176,6 +176,7 @@ defmodule AlexClaw.Skills.Dynamic.UrlHealthCheck do
   @moduledoc "Check if a list of URLs are responding."
 
   @behaviour AlexClaw.Skill
+  alias AlexClaw.Skills.SkillAPI
 
   @impl true
   def external, do: true
@@ -186,7 +187,7 @@ defmodule AlexClaw.Skills.Dynamic.UrlHealthCheck do
 
     results =
       Enum.map(urls, fn url ->
-        case Req.get(url, receive_timeout: 5_000) do
+        case SkillAPI.http_get(__MODULE__, url, receive_timeout: 5_000) do
           {:ok, %{status: status}} -> %{url: url, status: status, ok: status < 400}
           {:error, reason} -> %{url: url, status: nil, ok: false, error: inspect(reason)}
         end

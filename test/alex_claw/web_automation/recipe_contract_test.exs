@@ -8,14 +8,15 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
   disagree on a recipe, the side that disagrees with the file is red.
 
   And AlexClaw uses it: play/2 validates before sending, so an invalid recipe
-  never reaches the sidecar; the recipes AlexClaw builds itself (/automate)
-  are valid; and every answer the sidecar can give maps to a typed result
-  instead of a CaseClauseError.
+  never reaches the sidecar; a recording is stored only as a valid recipe;
+  and every answer the sidecar can give maps to a typed result instead of a
+  CaseClauseError.
   """
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.{Dispatcher, Message, RecordingGateway, Repo}
+  alias AlexClaw.{ControlPlane, Repo}
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Skills.WebAutomation
   alias AlexClaw.WebAutomation.Recipe
 
@@ -70,35 +71,6 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
         assert {:error, {:invalid_recipe, reasons}} = WebAutomation.play(recipe, [])
         assert reasons != []
       end
-    end
-
-    test "the recipe /automate builds is valid", %{bypass: bypass} do
-      test_pid = self()
-      RecordingGateway.install()
-
-      Bypass.expect_once(bypass, "POST", "/play", fn conn ->
-        {:ok, body, conn} = Plug.Conn.read_body(conn)
-        send(test_pid, {:sent, Jason.decode!(body)})
-
-        json(conn, 200, %{
-          "status" => "success",
-          "downloads" => [],
-          "screenshots" => [],
-          "scraped_data" => []
-        })
-      end)
-
-      Dispatcher.dispatch(%Message{
-        text: "/automate https://example.com",
-        chat_id: "123",
-        from: "Test",
-        timestamp: DateTime.utc_now(),
-        raw: %{},
-        gateway: :test
-      })
-
-      assert_receive {:sent, %{"config" => recipe}}, 5_000
-      assert {:ok, _} = Recipe.validate(recipe)
     end
 
     test "busy (409) is :busy", %{bypass: bypass} do
@@ -158,7 +130,8 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
   # summary without base_url was saved with "url" => "unknown", which the
   # contract refuses at play time — a recipe that can never run. Now a
   # recording is validated before it is saved; one that is not a valid recipe
-  # is not saved, and the user is told.
+  # is not saved, and the caller is told. Since 0.4.0 (S5b) a recording is
+  # stopped from the admin UI, through the one door (record, elevation).
   describe "a recording is stored only as a valid recipe" do
     setup do
       bypass = Bypass.open()
@@ -171,16 +144,30 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")
       Application.put_env(:alex_claw, :web_automator_token, "test-automator-token")
       on_exit(fn -> Application.delete_env(:alex_claw, :web_automator_token) end)
-      RecordingGateway.install()
 
-      %{bypass: bypass}
+      sid = AlexClaw.Auth.Elevation.new_sid()
+      {:ok, _} = AlexClaw.Auth.Elevation.grant(sid)
+
+      on_exit(fn ->
+        AlexClaw.SandboxCleanup.run(fn -> AlexClaw.Auth.Elevation.revoke(sid) end)
+      end)
+
+      %{bypass: bypass, sid: sid}
     end
 
-    test "a recording is stored as a recipe the contract accepts", %{bypass: bypass} do
-      stop_with(bypass, %{"base_url" => "https://example.com/search", "captured_actions" => 3})
+    # Since 0.4.0 (S4b) a STORED recording holds its fill values as references
+    # to OpenBao, so it is checked by Recording.validate/1 (the contract with
+    # logins blank). Recipe.validate/1 is for what is SENT to the sidecar,
+    # where every value is text once resolved.
+    test "a recording is stored as a recipe the contract accepts", %{bypass: bypass, sid: sid} do
+      assert {:ok, _} =
+               stop_with(bypass, sid, %{
+                 "base_url" => "https://example.com/search",
+                 "captured_actions" => 3
+               })
 
       assert [recipe] = stored_recipes()
-      assert {:ok, _} = Recipe.validate(recipe)
+      assert {:ok, _} = AlexClaw.WebAutomation.Recording.validate(recipe)
 
       assert Enum.any?(
                recipe["steps"],
@@ -188,16 +175,18 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
              )
     end
 
-    test "a recording without a start url is not stored, and the user is told", %{bypass: bypass} do
-      stop_with(bypass, %{"captured_actions" => 3})
+    test "a recording without a start url is not stored, and the caller is told why", %{
+      bypass: bypass,
+      sid: sid
+    } do
+      assert {:error, reasons} = stop_with(bypass, sid, %{"captured_actions" => 3})
 
       assert stored_recipes() == []
-      sent = RecordingGateway.sent()
-      assert Enum.any?(sent, &(&1 =~ ~r/not saved|fail|could not/i)), inspect(sent)
+      assert reasons != [] and reasons != nil
     end
   end
 
-  defp stop_with(bypass, summary) do
+  defp stop_with(bypass, sid, summary) do
     Bypass.expect_once(bypass, "POST", "/record/abc12345/stop", fn conn ->
       json(conn, 200, %{
         "actions" => [
@@ -210,14 +199,7 @@ defmodule AlexClaw.WebAutomation.RecipeContractTest do
       })
     end)
 
-    Dispatcher.dispatch(%Message{
-      text: "/record stop abc12345",
-      chat_id: "123",
-      from: "Test",
-      timestamp: DateTime.utc_now(),
-      raw: %{},
-      gateway: :test
-    })
+    ControlPlane.perform(:record, %{stop: "abc12345"}, Context.admin_ui(sid))
   end
 
   defp stored_recipes do

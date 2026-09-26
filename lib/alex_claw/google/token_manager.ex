@@ -212,8 +212,8 @@ defmodule AlexClaw.Google.TokenManager do
 
   defp do_refresh do
     client_id = Config.get("google.oauth.client_id")
-    client_secret = Config.get("google.oauth.client_secret")
-    refresh_token = Config.get("google.oauth.refresh_token")
+    client_secret = Config.secret_value("google.oauth.client_secret")
+    refresh_token = Config.secret_value("google.oauth.refresh_token")
 
     if blank?(client_id) or blank?(client_secret) or blank?(refresh_token) do
       {:error, :not_configured}
@@ -251,7 +251,7 @@ defmodule AlexClaw.Google.TokenManager do
   @spec configured?() :: boolean()
   def configured? do
     not blank?(Config.get("google.oauth.client_id")) and
-      not blank?(Config.get("google.oauth.client_secret")) and
-      not blank?(Config.get("google.oauth.refresh_token"))
+      Config.secret_set?("google.oauth.client_secret") and
+      Config.secret_set?("google.oauth.refresh_token")
   end
 end

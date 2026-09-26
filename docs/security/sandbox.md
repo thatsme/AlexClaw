@@ -33,7 +33,9 @@ On load, a SHA256 checksum of the source code is computed and stored. On boot, f
 
 ### 6. 2FA Gate
 
-Every skill management operation (load, unload, reload) requires TOTP verification sent to Telegram/Discord. No exceptions.
+Loading or reloading an uploaded skill needs a code typed on the Skills page;
+unloading needs an elevation. A generated skill that stays within the contained
+set and the unattended permission ceiling loads without a code.
 
 ### 7. External Skill Detection (AST-Based)
 
@@ -56,14 +58,14 @@ If any are detected without `external/0`, the skill is **rejected** (fail-closed
 | Action | Blocked By |
 |---|---|
 | Access the database directly | No `Repo` access through SkillAPI |
-| Call arbitrary Elixir modules | Convention, not enforcement (BEAM limitation) |
-| Modify other skills | Requires `:skill_manage` permission |
-| Modify workflows | Requires `:workflow_manage` permission |
-| Execute shell commands | Requires `:shell` permission + 2FA |
+| Call arbitrary Elixir modules | Containment: every direct call must resolve to the allowlist, checked at load and on every boot |
+| Modify other skills | SkillAPI has no function that writes or loads a skill |
+| Modify or start workflows | SkillAPI has no function that creates, changes or starts a workflow |
+| Execute shell commands | `SkillAPI.run_skill/3` refuses `shell`, `coder`, `db_backup` and `web_automation` for every caller |
 | Escalate permissions | Capability token is scoped at mint time |
 
 !!! note "BEAM limitation"
-    The BEAM VM does not provide true sandboxing — a determined module could call any function. The permission system is a trust boundary, not a hard sandbox. This is acceptable for a single-user system where the operator controls what code is loaded.
+    The BEAM VM does not provide true sandboxing. Containment is a static check of the calls a skill's source names, and the permission system decides what `SkillAPI` does on a skill's behalf: together a trust boundary, not a hard sandbox. This is acceptable for a single-user system where the operator controls what code is loaded.
 
 ## Monitoring
 

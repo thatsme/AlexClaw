@@ -6,9 +6,11 @@ defmodule AlexClaw.Database.DataExport do
       {"format": "alexclaw-data", "version": 1, "schema": <migration>,
        "tables": {"settings": {"columns": [...], "rows": [[...], ...]}, ...}}
 
-  Encrypted values — sensitive settings and stored credentials — are written
-  as they are stored, encrypted: a file restores only under the
-  `SECRET_KEY_BASE` it was made with (`AlexClaw.Database.KeyCheck`).
+  Nor is the admin's identity — the password's hash, the second factor's
+  state, the recovery codes (`AlexClaw.Database.DataSet`). No credential is
+  in the file: since 0.4.0 settings, steps, resources and
+  LLM providers hold references to secrets in OpenBao, and the file carries
+  the secrets catalogue (names and bindings), never a value.
 
   Text form, because it is exact for every type the schema uses — timestamps,
   JSON, arrays, bytea, pgvector — and a restore casts it back to the column's
@@ -70,9 +72,10 @@ defmodule AlexClaw.Database.DataExport do
       ~s(,"rows":[)
     ]
 
-    table
-    |> select_as_text(names)
-    |> then(&SQL.stream(Repo, &1, [], max_rows: 500))
+    {sql, params} = select_as_text(table, names)
+
+    Repo
+    |> SQL.stream(sql, params, max_rows: 500)
     |> Stream.flat_map(& &1.rows)
     |> Stream.with_index()
     |> Enum.reduce(emit.(opening, acc), fn {row, i}, acc ->
@@ -84,8 +87,18 @@ defmodule AlexClaw.Database.DataExport do
   defp select_as_text(table, names) do
     fields = Enum.map_join(names, ", ", &(DataSet.quote_name(&1) <> "::text"))
     order = table |> DataSet.primary_key() |> Enum.map_join(", ", &DataSet.quote_name/1)
-    "SELECT #{fields} FROM #{DataSet.quote_name(table)}" <> order_by(order)
+    {where, params} = without_identity(table)
+    {"SELECT #{fields} FROM #{DataSet.quote_name(table)}" <> where <> order_by(order), params}
   end
+
+  # The rows that protect this installation are never exported: a restore
+  # would not use them (DataSet.kept_setting?/1).
+  defp without_identity("settings") do
+    {condition, params} = DataSet.kept_settings()
+    {" WHERE NOT " <> condition, params}
+  end
+
+  defp without_identity(_table), do: {"", []}
 
   defp order_by(""), do: ""
   defp order_by(columns), do: " ORDER BY " <> columns

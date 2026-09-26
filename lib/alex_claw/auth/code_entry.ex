@@ -15,7 +15,8 @@ defmodule AlexClaw.Auth.CodeEntry do
   alias AlexClaw.Auth.{AuditLog, CodeAttempts, Elevation, SecondFactor, Sessions}
 
   @type method :: :web | :gateway
-  @type failure :: :locked_session | :locked_instance | :invalid_code | :not_configured
+  @type failure ::
+          :locked_session | :locked_instance | :invalid_code | :not_configured | :unavailable
 
   @doc """
   Check `code` for `sid`, counting the attempt.
@@ -30,9 +31,27 @@ defmodule AlexClaw.Auth.CodeEntry do
   """
   @spec verify(String.t() | nil, String.t(), method()) :: :ok | {:error, failure()}
   def verify(sid, code, method \\ :web) do
+    verify_with(sid, method, fn -> SecondFactor.impl().verify(code, method) end)
+  end
+
+  @doc """
+  `verify/3` with the verification done by `verifier`, for an action that
+  checks the code itself (turning the second factor off): the same limits,
+  audit row and refusals, and the code verified exactly once. `verifier`
+  returns `{:ok, factor}`, `{:error, :invalid_code}`, or `{:error, :unavailable}`
+  when the second factor cannot be asked — refused, and not counted: an
+  outage is not a guess.
+  """
+  @spec verify_with(
+          String.t() | nil,
+          :web | :gateway,
+          (-> {:ok, atom()} | {:error, :invalid_code | :unavailable})
+        ) ::
+          :ok | {:error, atom()}
+  def verify_with(sid, method, verifier) do
     with :ok <- configured(SecondFactor.impl().configured?()),
          :ok <- allowed(CodeAttempts.status(sid)) do
-      check(code, sid, method)
+      judge(verifier.(), sid, method)
     end
   end
 
@@ -45,16 +64,12 @@ defmodule AlexClaw.Auth.CodeEntry do
   defp allowed({:locked, :session, _until}), do: {:error, :locked_session}
   defp allowed({:locked, :instance, _until}), do: {:error, :locked_instance}
 
-  # What "a good code" means belongs to the second-factor implementation. What
-  # belongs here is everything around it: the limits, the audit row, and the
-  # refusal an operator reads.
-  defp check(code, sid, method) do
-    SecondFactor.impl().verify(code, method)
-    |> judge(sid, method)
-  end
-
+  # What "a good code" means belongs to the second-factor implementation (or to
+  # the action that verifies it). What belongs here is everything around it: the
+  # limits, the audit row, and the refusal an operator reads.
   defp judge({:ok, factor}, sid, method), do: accept(sid, method, factor)
   defp judge({:error, :invalid_code}, sid, method), do: reject(sid, method)
+  defp judge({:error, :unavailable} = unavailable, _sid, _method), do: unavailable
 
   defp accept(sid, method, factor) do
     CodeAttempts.record_success(sid)

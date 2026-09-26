@@ -9,12 +9,16 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Repo                      # PostgreSQL connection pool (Ecto)
   ├── Phoenix.PubSub (AlexClaw.PubSub)   # Config changes, skill list, run events
   ├── Task.Supervisor (AlexClaw.TaskSupervisor)  # Supervised fire-and-forget work
+  ├── AlexClaw.Secrets.Mask             # Remembers resolved secret values, masked in results, messages, audit rows and logs
+  ├── AlexClaw.Vault.Supervisor          # The OpenBao client's branch (see below)
+  │   └── AlexClaw.Vault                 # Logs in to OpenBao; every secret call
   ├── AlexClaw.Auth.AuditLoss            # Announces audit rows that could not be written
   ├── AlexClaw.Knowledge.EmbedThrottle   # Paces embedding calls against provider limits
   ├── AlexClaw.LLM.UsageTracker          # ETS owner for per-provider call counters
   ├── AlexClaw.Config.Loader             # Seeds config, loads it into the ETS cache
   ├── AlexClaw.Workflows.SkillRegistry   # ETS owner for the skill catalogue
-  ├── AlexClaw.Database.EncryptCredentials  # Boot step: stops the boot on any value that does not decrypt; encrypts plain credentials
+  ├── AlexClaw.Config.SecretUpgrade     # Boot step: moves every credential 0.3.x left in the database into OpenBao (read back before the copy is emptied)
+  ├── AlexClaw.Webhooks.GitHubSecret   # The GitHub webhook secret, resolved once from OpenBao and again after a rotation
   ├── AlexClaw.Workflows.Registry        # Tracks in-flight workflow runs
   ├── AlexClaw.LogBuffer                 # In-memory ring buffer for recent logs
   ├── AlexClaw.Google.TokenManager       # OAuth2 token lifecycle (cache + refresh)
@@ -59,6 +63,13 @@ gateway crashing repeatedly uses up this supervisor's intensity; the root then
 restarts the gateway supervisor once, and no other child is touched. The
 Telegram gateway also handles each incoming update in isolation: an update whose
 handling fails is logged and acknowledged, never delivered again.
+
+**The OpenBao client under its own supervisor** — `AlexClaw.Vault.Supervisor`
+holds `AlexClaw.Vault`, which logs in to OpenBao and serves every secret read
+and write, every transit HMAC and every TOTP check. OpenBao unreachable or sealed is a value its
+callers receive (`{:error, :vault_unavailable}`), not a crash; a client that
+crashes repeatedly uses up this supervisor's restarts, and the root restarts
+the branch without touching any other child. See [OpenBao](openbao.md).
 
 **Task.Supervisor for async work** — workflow executions, background embeddings
 and notification sends run under `AlexClaw.TaskSupervisor`. A crash there is
@@ -106,7 +117,7 @@ event is logged at error level in the process that tried to write it.
 `AlexClaw.Auth.AuditLoss` then tells the operator over the gateways: the first
 loss at once, later ones counted and sent together at most once a minute, so a
 database outage produces one notice a minute rather than one per audited
-action. It starts right after `TaskSupervisor`, before anything that audits.
+action. It starts right after the OpenBao client, before anything that audits.
 
 **A login is decided on the server.** Every live admin login is a row in
 `admin_sessions`, which every node reads: opened when the password is

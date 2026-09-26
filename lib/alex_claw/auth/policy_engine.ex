@@ -10,6 +10,8 @@ defmodule AlexClaw.Auth.PolicyEngine do
   5. Flat permission list → deny if permission not declared
   """
 
+  require Logger
+
   alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken, Policy, SkillRateLimiter}
   alias AlexClaw.Repo
 
@@ -68,7 +70,7 @@ defmodule AlexClaw.Auth.PolicyEngine do
   end
 
   @doc "Reload cached policies from DB."
-  @spec reload_policies() :: [Policy.t()]
+  @spec reload_policies() :: [Policy.t()] | :unavailable
   def reload_policies do
     :persistent_term.erase(@policy_cache_key)
     load_policies()
@@ -116,9 +118,12 @@ defmodule AlexClaw.Auth.PolicyEngine do
 
   # --- Policy rule evaluation ---
 
-  defp check_policies(%AuthContext{} = ctx) do
-    policies = load_policies()
+  defp check_policies(%AuthContext{} = ctx), do: checked_against(load_policies(), ctx)
 
+  # Policies that cannot be read deny (S8 M15): "no policies" would allow.
+  defp checked_against(:unavailable, _ctx), do: {:deny, "policies unavailable"}
+
+  defp checked_against(policies, ctx) do
     Enum.reduce_while(policies, :ok, fn policy, :ok ->
       case evaluate_policy(policy, ctx) do
         :ok -> {:cont, :ok}
@@ -247,19 +252,19 @@ defmodule AlexClaw.Auth.PolicyEngine do
     end
   end
 
+  # A database that cannot answer is not "no policies": nothing is cached, and
+  # the caller denies.
   defp fetch_and_cache_policies do
-    policies =
-      try do
-        Repo.all(
-          from(p in Policy,
-            where: p.enabled == true,
-            order_by: [desc: p.priority]
-          )
-        )
-      rescue
-        _ -> []
-      end
+    from(p in Policy, where: p.enabled == true, order_by: [desc: p.priority])
+    |> Repo.all()
+    |> cached()
+  rescue
+    error ->
+      Logger.warning("Policies could not be read: #{Exception.message(error)}")
+      :unavailable
+  end
 
+  defp cached(policies) do
     :persistent_term.put(@policy_cache_key, {policies, System.monotonic_time(:millisecond)})
     policies
   end

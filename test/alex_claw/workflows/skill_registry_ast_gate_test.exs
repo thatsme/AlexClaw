@@ -364,13 +364,10 @@ defmodule AlexClaw.Workflows.SkillRegistryAstGateTest do
           @behaviour AlexClaw.Skill
 
           require Logger
-          import SweetXml
-          import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
 
           @impl true
           def run(_args) do
             Logger.debug("ok")
-            _ = {&sanitize_utf8/1, &strip_noise/1, &sigil_x/2}
             {:ok, "ok", :on_success}
           end
 

@@ -129,7 +129,7 @@ defmodule AlexClaw.LLM.ProviderSeeder do
       host: Map.get(default, :host),
       daily_limit: Map.get(default, :daily_limit),
       priority: default.priority,
-      enabled: AlexClaw.Config.get(config_key) not in [nil, ""]
+      enabled: AlexClaw.Config.secret_set_at(config_key) != nil
     }
   end
 

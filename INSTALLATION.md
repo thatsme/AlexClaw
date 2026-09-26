@@ -3,14 +3,17 @@
 ## System Requirements
 
 - **Docker** and **Docker Compose** (v2)
-- **2 GB RAM minimum** (PostgreSQL + pgvector + Elixir app)
+- **2 GB RAM minimum** (PostgreSQL + pgvector + Elixir app), plus OpenBao (limited to 512 MB)
 - ~1 GB disk for images + database
 - A **Telegram bot token** from [@BotFather](https://t.me/BotFather)
-- At least one **LLM provider** — the fastest free path is a [Gemini API key](https://ai.google.dev/) (no credit card, takes 2 minutes)
+- At least one **LLM provider** — the quickest free option is a [Gemini API key](https://ai.google.dev/) (no credit card)
+- An **authenticator app** (TOTP) for the second factor, without which the configuration cannot be changed
 
 ---
 
 ## Setup
+
+The steps below are in the order the first start needs them: the database and cluster variables before anything starts, OpenBao's unseal key before OpenBao starts, OpenBao's initialisation before a second factor can be set up, and the second factor before any setting or credential can be entered.
 
 ### 1. Clone and create your `.env`
 
@@ -33,12 +36,10 @@ ADMIN_PASSWORD=changeme
 CLUSTER_COOKIE=generate_with_openssl_rand_base64_32
 
 # === Telegram ===
-TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather
-TELEGRAM_CHAT_ID=              # optional — auto-detected on first message
+TELEGRAM_CHAT_ID=              # optional — or set telegram.chat_id on the Config page
 
 # === LLM Providers (at least one required) ===
-GEMINI_API_KEY=
-ANTHROPIC_API_KEY=
+# API keys are entered on the Config page after the first start (step 6).
 
 # === Local Models (optional) ===
 # OLLAMA_ENABLED=true
@@ -49,10 +50,11 @@ ANTHROPIC_API_KEY=
 # LMSTUDIO_HOST=http://host.docker.internal:1234
 # LMSTUDIO_MODEL=qwen2.5-14b-instruct
 
-# === Google OAuth (optional — for Calendar, Keep skills) ===
+# === Google OAuth (optional — for Calendar, Tasks skills) ===
 # GOOGLE_OAUTH_CLIENT_ID=
-# GOOGLE_OAUTH_CLIENT_SECRET=
-# GOOGLE_OAUTH_REFRESH_TOKEN=
+
+# === OpenBao (optional) ===
+# OPENBAO_UNSEAL_DIR=./openbao/unseal
 
 # === Clustering (optional — multi-node) ===
 # NODE_NAME=alexclaw@node1.local
@@ -63,19 +65,19 @@ ANTHROPIC_API_KEY=
 
 ### 2. Generate secrets
 
-Run these commands **in your terminal** and paste each output into `.env`:
+Run these commands **in a terminal** and paste each output into `.env`. Compose does not run commands written inside `.env`: the values must be pasted in.
 
 ```bash
-# Generate DATABASE_OWNER_PASSWORD — copy the output into .env
+# DATABASE_OWNER_PASSWORD
 openssl rand -hex 32
 
-# Generate DATABASE_PASSWORD — a second, different value
+# DATABASE_PASSWORD — a second, different value
 openssl rand -hex 32
 
-# Generate SECRET_KEY_BASE — copy the output into .env
+# SECRET_KEY_BASE
 openssl rand -base64 48
 
-# Generate CLUSTER_COOKIE — copy the output into .env
+# CLUSTER_COOKIE
 openssl rand -base64 32
 ```
 
@@ -83,28 +85,53 @@ Then fill in the remaining values:
 
 | Variable | What to do |
 |---|---|
-| `DATABASE_OWNER_PASSWORD` | Paste the output of the first `openssl` command. The database owner runs migrations only, in the one-shot `migrate` service |
+| `DATABASE_OWNER_PASSWORD` | Paste the output of the first `openssl` command. The database owner runs migrations only, in the one-shot `migrate` service. `migrate` refuses to start without it |
 | `DATABASE_PASSWORD` | Paste the output of the second `openssl` command. This is the application role, which AlexClaw connects as |
-| `SECRET_KEY_BASE` | Paste the output of the `openssl rand -base64 48` command |
-| `ADMIN_PASSWORD` | Choose a strong password for the web admin UI |
-| `CLUSTER_COOKIE` | Paste the output of the `openssl rand -base64 32` command. The container does not start without it, and every node of a cluster shares the same value |
+| `SECRET_KEY_BASE` | Paste the output of the `openssl rand -base64 48` command. It signs sessions; a value shorter than 64 bytes is refused |
+| `ADMIN_PASSWORD` | Choose a strong password for the web admin UI. The first login stores its hash; from then on the variable is ignored |
+| `CLUSTER_COOKIE` | Paste the output of the `openssl rand -base64 32` command. The containers do not start without it, and every node of a cluster shares the same value |
 | `DATABASE_OWNER_USERNAME`, `DATABASE_USERNAME` | Leave as `alexclaw` and `alexclaw_app`. They must be two different roles: AlexClaw refuses to start as the owner. The application role is created automatically on a fresh install; to upgrade an existing one, see [Upgrading to 0.3.34](docs/deployment/upgrade-0.3.34.md) |
-| `TELEGRAM_BOT_TOKEN` | From @BotFather (see [Getting Your Bot Token](#getting-your-telegram-bot-token) below) |
-| `TELEGRAM_CHAT_ID` | **Optional** — leave empty and AlexClaw will auto-detect it when you send the bot its first message. Or set it manually (see [Getting Your Chat ID](#getting-your-telegram-chat-id) below) |
-| `GEMINI_API_KEY` | Free key from [ai.google.dev](https://ai.google.dev/) — gives you `light` and `medium` LLM tiers with no credit card |
+| `TELEGRAM_CHAT_ID` | **Optional** — seeds `telegram.chat_id` at the first start only; it can be set on the Config page instead (see [Getting Your Telegram Chat ID and User ID](#getting-your-telegram-chat-id-and-user-id)) |
 
-### 3. Start
+### 3. Make OpenBao's unseal key
+
+AlexClaw keeps every credential in OpenBao, which runs beside it. OpenBao
+unseals itself from a key file on the host, made once before the first
+start:
+
+```bash
+mkdir -p openbao/unseal
+head -c 32 /dev/urandom > openbao/unseal/key
+chmod 0440 openbao/unseal/key
+```
+
+On Linux, also `sudo chown 100 openbao/unseal/key` (OpenBao's user). **Losing
+this file loses every secret in OpenBao**, with no recovery. Keep a copy
+offline. The directory can be moved with `OPENBAO_UNSEAL_DIR`.
+
+### 4. Start, and initialise OpenBao
 
 ```bash
 docker compose up -d
+docker compose run --rm openbao-init
 ```
 
-On first boot, AlexClaw will:
-1. Create the PostgreSQL database with pgvector
-2. Run all migrations
-3. Seed default configuration from your `.env` values
-4. Seed example workflows and RSS feeds (Tech News Digest, Web Research)
-5. Start the application
+The first command starts the stack. `openbao-init` makes OpenBao's TLS
+certificate, OpenBao starts, and `openbao-init` then exits saying OpenBao is
+not initialised — expected at this point. The second command initialises
+OpenBao, once, at the terminal: it prints the **recovery key** once, names the
+unseal key file, and waits until `SAVED` is typed, confirming that both are
+stored offline. It then sets up OpenBao's engines, AlexClaw's access and the
+backup's own access, and revokes the root token. AlexClaw, already running,
+logs in to OpenBao on its own within half a minute. Details:
+[OpenBao](docs/architecture/openbao.md#first-start).
+
+On first boot, AlexClaw also:
+1. Creates the PostgreSQL database with pgvector
+2. Runs all migrations (in the one-shot `migrate` service)
+3. Seeds default configuration from your `.env` values
+4. Seeds example workflows and RSS feeds (Tech News Digest, Web Research)
+5. Starts the application
 
 This takes 30–60 seconds on first run. You can watch progress with:
 
@@ -114,34 +141,69 @@ docker compose logs -f alexclaw-prod
 
 When you see `Running AlexClawWeb.Endpoint at 0.0.0.0:5001`, it's ready.
 
-### 4. Log in
+> **macOS users:** Port 5001 is used by AirPlay Receiver by default. If you get a port conflict, either disable AirPlay Receiver (System Settings > General > AirDrop & Handoff) or set `ADMIN_PORT=5002` in your `.env` and restart.
 
-Open [http://localhost:5001](http://localhost:5001) and log in with your `ADMIN_PASSWORD`.
+### 5. Log in and set up 2FA
+
+Open [http://localhost:5001](http://localhost:5001) and log in with
+`ADMIN_PASSWORD`. The first login stores the password's hash; from then on
+the variable is ignored.
 
 You should see the Dashboard with the version number and example workflows listed under Workflows.
 
-> **macOS users:** Port 5001 is used by AirPlay Receiver by default. If you get a port conflict, either disable AirPlay Receiver (System Settings > General > AirDrop & Handoff) or set `ADMIN_PORT=5002` in your `.env` and restart.
+Until a second factor exists, the configuration is read-only. Set it up
+first, under **Services → Two-factor authentication** (see
+[Two-Factor Authentication](#two-factor-authentication)), and store the
+recovery codes it shows.
 
-### 5. Verify Telegram
+### 6. Enter the bot token, the owner and an LLM key
 
-Send `/ping` to your Telegram bot. You should get `pong` back.
+Unlock editing with a code from the authenticator and, on the Config page,
+enter:
 
-If you left `TELEGRAM_CHAT_ID` empty, this first message also triggers auto-detection — AlexClaw saves your chat ID automatically. No further setup needed.
+- `telegram.bot_token` (see [Getting Your Telegram Bot Token](#getting-your-telegram-bot-token));
+- `telegram.chat_id` and `telegram.owner_user_id` — the chat the bot
+  answers in, and the one user in it whose messages count (see
+  [Getting Your Telegram Chat ID and User ID](#getting-your-telegram-chat-id-and-user-id)).
+  With either blank, the bot answers nothing;
+- at least one LLM API key: `llm.gemini_api_key` (a free key from
+  [ai.google.dev](https://ai.google.dev/) gives the `light` and `medium`
+  tiers with no credit card) or `llm.anthropic_api_key`.
+
+Keys and tokens are kept in OpenBao; the page shows when each was set,
+never the value.
+
+The Gemini and Claude providers were seeded at the first start, before any
+key was set, so they start disabled. On the **LLM** page, enable the
+providers that use the key just entered (Gemini Flash and Gemini Pro, or the
+Claude ones).
+
+### 7. Verify Telegram
+
+Send `/ping` to the bot. The answer is `pong`, provided `telegram.chat_id`
+and `telegram.owner_user_id` are set: messages from any other chat or user
+are ignored.
 
 If the bot doesn't respond, see [Troubleshooting > Bot not responding](#bot-not-responding).
 
 Send `/help` to see all available commands.
 
+### 8. Back up OpenBao
+
+Take a first OpenBao backup now, and one beside every database backup from
+here on: see [Backups](#backups).
+
 ---
 
 ## Container Networks
 
-`docker-compose.yml` gives its two networks fixed subnets:
+`docker-compose.yml` gives its three networks fixed subnets:
 
 | Network | Subnet | Who is on it |
 |---|---|---|
 | `default` | `10.213.61.0/24` | the database, `migrate` (`10.213.61.11`), AlexClaw (`10.213.61.10`) |
 | `automation` | `10.213.62.0/24` | AlexClaw and the web-automator sidecar |
+| `vault` | `10.213.63.0/24` | OpenBao (`10.213.63.2`), AlexClaw (`10.213.63.10`), the on-demand backup service (`10.213.63.11`) and `openbao-init`; internal, no route out |
 
 The database accepts network connections only from AlexClaw's and `migrate`'s
 pinned addresses, listed in `db-init/pg_hba.conf`; anything else is refused before
@@ -149,13 +211,20 @@ a password is asked for. Manual backups and restores therefore run inside the
 database container, over its own socket — `docker compose exec db-prod pg_dump …`,
 `docker compose exec db-prod psql …` — as every command in these guides does.
 
-If either subnet collides with a network you already use (a LAN, a VPN, another
+If a subnet collides with a network you already use (a LAN, a VPN, another
 Docker network), change it in `docker-compose.yml`, and change with it the pinned
 `ipv4_address` of `alexclaw-prod` and `migrate` and the two `host` lines of
 `db-init/pg_hba.conf`. They must match, or AlexClaw cannot reach its database.
 Changing a subnet needs `docker compose down` before `docker compose up -d`:
 Docker does not change an existing network in place. `down` without `-v` keeps
 the data.
+
+Changing the `vault` subnet, or AlexClaw's or the backup service's address on
+it, also changes the address OpenBao's AppRoles accept, which is stored in
+OpenBao at initialisation: `ALEXCLAW_ADDRESS` and `BACKUP_ADDRESS` of
+`openbao-init` must match, and an initialised OpenBao needs its AppRoles
+re-bound with the procedure in
+[OpenBao](docs/architecture/openbao.md#changing-an-engine-or-the-policy-after-the-first-start).
 
 ---
 
@@ -165,21 +234,20 @@ the data.
 2. Send `/newbot`
 3. Choose a name and username for your bot
 4. BotFather will give you a token like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
-5. Copy this token to `TELEGRAM_BOT_TOKEN` in your `.env`
+5. After the first start and 2FA set-up, enter it on the Config page (Telegram → `telegram.bot_token`), which keeps it in OpenBao. It is not set in `.env`
 
-## Getting Your Telegram Chat ID
+## Getting Your Telegram Chat ID and User ID
 
-**Easiest way:** Leave `TELEGRAM_CHAT_ID` empty in your `.env` and just start AlexClaw. Send any message to your bot — AlexClaw auto-detects your chat ID and saves it. Done.
-
-**Manual method** (if auto-detect doesn't work or you need a specific chat ID):
-
-1. **Send any message** to your bot first (required — the next step returns empty otherwise)
-2. Open this URL in your browser (replace `YOUR_TOKEN` with your actual bot token):
+1. **Send any message** to the bot first (the next step returns empty otherwise)
+2. Open this URL in a browser (replace `YOUR_TOKEN` with the bot token):
    ```
    https://api.telegram.org/botYOUR_TOKEN/getUpdates
    ```
-3. Look for `"chat":{"id":123456789}` in the JSON response
-4. Copy the numeric ID to `TELEGRAM_CHAT_ID` in your `.env` and restart
+3. `"chat":{"id":…}` is the chat ID; `"from":{"id":…}` is the user ID. In a
+   private chat with the bot they are the same number
+4. Enter them on the Config page as `telegram.chat_id` and
+   `telegram.owner_user_id`. `TELEGRAM_CHAT_ID` in `.env` is read only at
+   the first start
 
 > **If the response is empty** (`"result":[]`), make sure you've sent the bot at least one message first. If you previously set a webhook on the bot, remove it with:
 > ```
@@ -191,19 +259,19 @@ the data.
 
 ## LLM Provider Setup
 
-AlexClaw needs at least one LLM provider. The router automatically selects the cheapest available model for each task.
+AlexClaw needs at least one LLM provider. The router selects the cheapest available model for each task.
 
 | Provider | Tier | Cost | Setup |
 |---|---|---|---|
-| Gemini Flash | light | Free (250 req/day) | Set `GEMINI_API_KEY` |
-| Gemini Pro | medium | Free (50 req/day) | Set `GEMINI_API_KEY` |
-| Claude Haiku | light | Paid | Set `ANTHROPIC_API_KEY` |
-| Claude Sonnet | medium | Paid | Set `ANTHROPIC_API_KEY` |
-| Claude Opus | heavy | Paid | Set `ANTHROPIC_API_KEY` |
+| Gemini Flash | light | Free (250 req/day) | Set `llm.gemini_api_key` on the Config page, then enable the provider on the LLM page |
+| Gemini Pro | medium | Free (50 req/day) | Set `llm.gemini_api_key` on the Config page, then enable the provider on the LLM page |
+| Claude Haiku | light | Paid | Set `llm.anthropic_api_key` on the Config page, then enable the provider on the LLM page |
+| Claude Sonnet | medium | Paid | Set `llm.anthropic_api_key` on the Config page, then enable the provider on the LLM page |
+| Claude Opus | heavy | Paid | Set `llm.anthropic_api_key` on the Config page, then enable the provider on the LLM page |
 | Ollama | local | Free (your hardware) | See Local Models below |
 | LM Studio | local | Free (your hardware) | See Local Models below |
 
-**Recommended first setup:** Get a free [Gemini API key](https://ai.google.dev/). No credit card, takes 2 minutes, and gives you both `light` and `medium` tiers.
+**Recommended first setup:** a free [Gemini API key](https://ai.google.dev/). No credit card, and it gives both `light` and `medium` tiers.
 
 All limits are configurable at runtime from Admin > Config.
 
@@ -211,7 +279,7 @@ All limits are configurable at runtime from Admin > Config.
 
 ## Local Models (Optional)
 
-Local models run on your own hardware — no API keys, no costs, full privacy. The right model depends on your machine:
+Local models run on your own hardware — no API keys, no costs, no data leaving the machine. The right model depends on your machine:
 
 | VRAM | Suggested size | Examples |
 |---|---|---|
@@ -235,7 +303,7 @@ These are rough guidelines — actual fit depends on quantization, context lengt
    ```
 5. Restart: `docker compose restart alexclaw-prod`
 
-Ollama uses the `/api/chat` endpoint (messages format). After boot, per-provider inference options (e.g., `num_ctx`, `temperature`) can be configured from **Admin > LLM Providers** — stored in an `options` JSON column on each provider.
+Ollama uses the `/api/chat` endpoint (messages format). After boot, per-provider inference options (e.g., `num_ctx`, `temperature`) can be configured from **Admin > LLM** — stored in an `options` JSON column on each provider.
 
 ### LM Studio
 
@@ -251,7 +319,7 @@ Ollama uses the `/api/chat` endpoint (messages format). After boot, per-provider
    ```
 6. Restart: `docker compose restart alexclaw-prod`
 
-> `host.docker.internal` allows the Docker container to reach services on your host machine. This works automatically on Docker Desktop (macOS/Windows). For Linux, see the [VPS section](#running-on-a-vps--cloud-server) below.
+> `host.docker.internal` allows the Docker container to reach services on your host machine. This works automatically on Docker Desktop (macOS/Windows). For Linux, see the [Linux platform notes](#linux) below.
 
 ---
 
@@ -294,15 +362,11 @@ Copy the `refresh_token` from the response.
 
 ### 3. Configure AlexClaw
 
-Add to your `.env`:
-
-```
-GOOGLE_OAUTH_CLIENT_ID=your-client-id
-GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
-GOOGLE_OAUTH_REFRESH_TOKEN=your-refresh-token
-```
-
-Or set them at runtime in Admin > Config under the `google` category.
+Set the client ID in `.env` (`GOOGLE_OAUTH_CLIENT_ID=your-client-id`) or in
+Admin > Config under the `google` category. With editing unlocked, enter the
+client secret (`google.oauth.client_secret`) and the refresh token
+(`google.oauth.refresh_token`) on the Config page: both are secrets, kept in
+OpenBao, and are not read from `.env`.
 
 Restart: `docker compose restart alexclaw-prod`
 
@@ -324,13 +388,9 @@ Example: a "Daily Briefing" workflow could use `google_calendar` as step 1, then
 
 Google Tasks uses the same OAuth credentials as Google Calendar. If you've already set up Google Calendar, Tasks work automatically — no additional configuration needed.
 
-The only difference is the API scope. If you set up OAuth before Tasks support was added, you may need to re-authorize with the additional scope `https://www.googleapis.com/auth/tasks`. The easiest way is to use the Telegram-based OAuth flow:
+The only difference is the API scope. If you set up OAuth before Tasks support was added, you may need to re-authorize with the additional scope `https://www.googleapis.com/auth/tasks`. The easiest way is the Services page: **Connect** on the Google row (with editing unlocked) runs the authorization flow; authorize both the Calendar and Tasks scopes.
 
-1. Send `/google auth` to your bot
-2. Follow the link and authorize both Calendar and Tasks scopes
-3. Send the authorization code back to the bot
-
-### Telegram commands
+### Chat commands
 
 | Command | Description |
 |---|---|
@@ -338,13 +398,13 @@ The only difference is the API scope. If you set up OAuth before Tasks support w
 | `/tasklists` | List your task lists by name |
 | `/task add Buy groceries` | Add a new task |
 
-Tasks can also be used as a workflow step with the `google_tasks` skill. You can target a specific list by name in the config (e.g., `"task_list": "Shopping"`) — the skill resolves names to IDs automatically.
+Tasks can also be used as a workflow step with the `google_tasks` skill. You can target a specific list by name in the config (e.g., `"task_list": "Shopping"`) — the skill resolves names to IDs.
 
 ---
 
 ## Discord Setup (Optional)
 
-AlexClaw supports Discord as a full bidirectional gateway — you can use Discord instead of (or alongside) Telegram for all commands and notifications. No `.env` changes needed — configure entirely from the admin UI.
+AlexClaw supports Discord as a bidirectional gateway — you can use Discord instead of (or alongside) Telegram for all commands and notifications. No `.env` changes needed — configure entirely from the admin UI.
 
 ### 1. Create a Discord Application
 
@@ -373,36 +433,42 @@ The permissions included (101376) are: View Channels, Send Messages, Attach File
 
 ### 4. Configure AlexClaw
 
-1. Open **Admin > Config** in AlexClaw
+1. Open **Admin > Config** in AlexClaw and unlock editing with a 2FA code
 2. Expand the **discord** section
 3. Set `discord.enabled` to `true`
-4. Paste your bot token into `discord.bot_token`
-5. Restart the container: `docker compose restart alexclaw-prod`
+4. Paste the bot token into `discord.bot_token`
+5. Set `discord.channel_id` (the channel the bot answers in) and
+   `discord.owner_user_id` (the one user whose messages count; with
+   Developer Mode on, *Copy User ID*). With either blank, the bot answers
+   nothing
+6. Restart the container: `docker compose restart alexclaw-prod`
 
-The bot should appear online in Discord within a few seconds. `discord.channel_id` is auto-detected when you send the bot its first message — no need to set it manually.
+The bot should appear online in Discord within a few seconds.
 
 ### 5. Verify
 
-Type `/ping` in any text channel where the bot has access. You should get `pong` back.
+Type `/ping` in that channel. The answer is `pong`.
 
 All commands listed under `/help` work identically in Discord and Telegram.
 
-> **Note:** After changing the Discord bot token in Admin > Config, you must restart the container for the change to take effect (`docker compose restart alexclaw-prod`).
-
 ---
 
-## Two-Factor Authentication (Optional)
+## Two-Factor Authentication
 
-AlexClaw supports TOTP-based 2FA for sensitive operations (workflow 2FA checkboxes).
+Every configuration change needs a second factor: until one is set up, the
+admin UI is read-only. It is set up with the admin password alone, and needs
+OpenBao initialised and running, which creates and keeps the key.
 
-### Setup via Telegram
+### Setup
 
-1. Send `/setup 2fa` to your bot
-2. You'll receive a QR code and a manual key
-3. Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)
-4. Send `/confirm 2fa <6-digit-code>` with a code from your authenticator
+1. In the admin UI, open **Services → Two-factor authentication** and choose *Set up*
+2. Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), or type the key shown
+3. Confirm with a 6-digit code from your authenticator
+4. The page then shows the recovery codes, once: store them offline
 
-Once confirmed, workflows marked with "Require 2FA" will prompt for a code before execution.
+Once confirmed, editing is unlocked with a code for fifteen minutes at a
+time, and workflows marked "Requires 2FA" ask for a code before they run.
+See [SECURITY.md](SECURITY.md#control-plane-elevation).
 
 ---
 
@@ -417,12 +483,13 @@ Add to your `.env`:
 ```bash
 WEB_AUTOMATOR_ENABLED=true
 WEB_AUTOMATOR_HOST=http://web-automator:6900
-WEB_AUTOMATOR_TOKEN=<output of: openssl rand -hex 32>
 ```
 
-`WEB_AUTOMATOR_TOKEN` is passed to both AlexClaw and the sidecar. The sidecar
-answers every route except `/health` only with `Authorization: Bearer <token>`;
-without a configured token it refuses them all, and AlexClaw sends it nothing.
+The token AlexClaw and the sidecar share is generated at the first start by the
+one-shot `automator-token-init` service, into a volume only those two mount,
+read-only; there is nothing to set. The sidecar answers every route except
+`/health` only with `Authorization: Bearer <token>`; without a token it refuses
+them all, and AlexClaw sends it nothing.
 
 The sidecar sits on its own `automation` network, shared with AlexClaw and not
 with the database. During a replay, its browser reaches the internet only
@@ -454,20 +521,17 @@ republish the port:
 ssh -L 6080:127.0.0.1:6080 <host>
 ```
 
-### Telegram Commands
+### Recording and replaying
 
-| Command | Description |
-|---|---|
-| `/record <url>` | Start a recording session — opens a browser via noVNC |
-| `/record stop <session_id>` | Stop recording, save captured actions as a resource |
-| `/replay <resource_id>` | Replay a saved automation headlessly |
-| `/automate <url>` | Quick scrape + screenshot of a URL |
+Recordings are made and replayed from the admin UI (Resources page), with
+editing unlocked; the chat commands `/record`, `/replay` and `/automate`
+only answer where that is done.
 
 ### Example: Record and Replay a Form
 
 **1. Record your interactions:**
 
-Send `/record https://httpbin.org/forms/post` to your bot. You'll get a noVNC link — open it in your browser, fill out the form, then send `/record stop <session_id>`.
+Start a recording on the Resources page with `https://httpbin.org/forms/post`. Open the noVNC link it shows, fill out the form, then stop the recording.
 
 AlexClaw saves the captured actions as an automation resource — a recipe like:
 
@@ -484,11 +548,13 @@ AlexClaw saves the captured actions as an automation resource — a recipe like:
 }
 ```
 
-The recorder captures fills, selects (dropdowns and radio buttons), checkboxes (with their state) and clicks, with CSS selectors. A recording is saved only if it is a valid recipe; otherwise the reply says why.
+A credential field (a password, or an `autocomplete` of `current-password`, `new-password` or `one-time-code`) is recorded as a login slot, without its value; the Resources page takes a login for each. Every fill value a recipe keeps is stored in OpenBao, bound to the recipe's origin, and the stored recipe holds references.
 
-**2. Replay instantly:**
+The recorder captures fills, selects (dropdowns and radio buttons), checkboxes (with their state) and clicks, with CSS selectors. A recording is saved only if it is a valid recipe; otherwise the page says why.
 
-Send `/replay <resource_id>` to replay the automation headlessly and get the result.
+**2. Replay it:**
+
+Replay it from the Resources page.
 
 **3. Build a workflow for scheduled replay:**
 
@@ -503,9 +569,9 @@ In Admin > Workflows, create a new workflow with two steps: `web_automation` (st
 }
 ```
 
-Then assign your automation resource to the workflow under Resources, and run it with `/run <workflow_id>` or a cron schedule.
+Then assign the automation resource to the workflow under Resources, and give it a cron schedule, or run it from Admin > Workflows with a code. A workflow with a `web_automation` step does not run from a chat, MCP, a webhook or another node.
 
-A whole play is bounded by the step's `timeout_ms` — 120 seconds when it is not set, at most 600000 — and ends as a timeout past it. `/replay` and `/automate` use the 120-second default. One play runs at a time: a second one started meanwhile is refused as busy.
+A whole play is bounded by the step's `timeout_ms` — 120 seconds when it is not set, at most 600000 — and ends as a timeout past it. A replay from the Resources page uses the 120-second default. One play runs at a time: a second one started meanwhile is refused as busy.
 
 ### Supported Actions
 
@@ -526,7 +592,7 @@ A recipe is `{"url": "https://…", "steps": [...]}`. Each step has an `action` 
 | `extract_grid` | Extract a jqxGrid widget's data | `selector` |
 | `screenshot` | Take a screenshot | optional `name` (`a-z`, `0-9`, `_`, `-`; up to 40), optional `full_page` |
 
-A `fill`, `select`, `check` or `click` whose selector matches nothing ends the play with an error naming it. Recipes can be recorded with `/record` or written by hand in the resource's metadata.
+A `fill`, `select`, `check` or `click` whose selector matches nothing ends the play with an error naming it. Recipes can be recorded on the Resources page or written by hand in the resource's metadata.
 
 ---
 
@@ -543,8 +609,8 @@ You can:
 - Set a schedule (e.g. `0 8 * * *` for daily at 8am UTC)
 - Edit steps, change prompts, add or remove feeds
 - Create your own workflows from the Admin UI
-- **Export** a workflow as a self-contained JSON file (click "Export" in the workflow actions) — includes all steps, configs, prompt templates, and full resource definitions
-- **Import** a workflow from JSON (click "Import Workflow" at the top of the page) — resources are matched by name+URL if they already exist, or created automatically if they don't. Imported workflows are disabled by default with "(imported N)" appended to the name
+- **Export** a workflow as a JSON file (click "Export" in the workflow actions, with editing unlocked) — includes all steps, configs, prompt templates, and full resource definitions. Credentials are not exported: they appear as `<secret not exported>` and are entered again after import
+- **Import** a workflow from JSON (click "Import Workflow" at the top of the page) — resources are matched by name+URL if they already exist, or created if they don't. Imported workflows are disabled by default with "(imported N)" appended to the name
 - **Filter** the workflow list by typing in the search box under the Name column
 
 To re-seed examples manually (if you deleted them):
@@ -570,12 +636,12 @@ There are two Docker Compose files:
 
 | File | Purpose |
 |---|---|
-| `docker-compose.yml` | **Single node** (default). One AlexClaw instance + DB; the web-automator is opt-in (`--profile web-automation`) |
-| `docker-compose_swarm.yml` | **Multi-node**. Two AlexClaw nodes + shared DB. Each node has its own port and node name |
+| `docker-compose.yml` | **Single node** (default). One AlexClaw instance + DB + OpenBao; the web-automator is opt-in (`--profile web-automation`) |
+| `docker-compose_swarm.yml` | **Multi-node**, for testing BEAM clustering. Two AlexClaw nodes + shared DB. Each node has its own port and node name. It has no OpenBao: no credential resolves and no second factor can be set up, so its configuration is read-only |
 
 ### Single Node (default)
 
-No extra config needed. Just `docker compose up -d` as described in Setup.
+No extra config needed. Follow [Setup](#setup).
 
 The default node name is `alexclaw@node1.local`. Override via `NODE_NAME` in `.env` if needed. Single-node mode ignores gateway node assignments — Telegram and Discord always start.
 
@@ -589,15 +655,17 @@ This starts two nodes:
 - **node1** — `alexclaw@node1.local` on `localhost:5001`
 - **node2** — `alexclaw@node2.local` on `localhost:5002`
 
-Both share the same database and auto-discover each other on boot. The Cluster admin page (Admin > Cluster) shows connected nodes.
+Both share the same database. Each node registers itself there at boot and tries the nodes registered there. A node is not registered by connecting: the Cluster admin page (Admin > Cluster) shows the registered nodes, and a node not yet registered is added there.
 
 To add more nodes, duplicate a node block in `docker-compose_swarm.yml` with a new hostname and port.
 
 ### Cross-Node Workflows
 
-1. Create a workflow with `receive_from_workflow` as step 1 — this is the receiver
+1. Create a workflow with `receive_from_workflow` as step 1 — this is the receiver. List the sending nodes in its `allowed_nodes`: empty, it allows no node
 2. Create a workflow with `send_to_workflow` as a step — configure `target_node` and `target_workflow`
 3. Run the sender workflow — data flows from one node to the other over BEAM distribution
+
+Another node may start only an unprotected workflow, and never one with a privileged step.
 
 ### Node Assignment
 
@@ -626,7 +694,7 @@ Both workflows and gateways support node assignment — cluster-wide or pinned t
 
 ## Running on a VPS / Cloud Server
 
-AlexClaw is designed to run on a local machine, but works fine on a VPS too. Telegram polling is outbound-only, so no inbound ports are needed for the bot itself.
+AlexClaw is designed to run on a local machine, but works on a VPS too. Telegram polling is outbound-only, so no inbound ports are needed for the bot itself.
 
 **Accessing the admin UI remotely** — the simplest option is an SSH tunnel:
 
@@ -642,6 +710,27 @@ If you want to expose the UI directly, put it behind a reverse proxy (nginx, Cad
 
 ---
 
+## Backups
+
+The database no longer holds credentials: they are in OpenBao. A database
+backup restored without the matching OpenBao data restores records whose
+credentials are gone, so the two are backed up together.
+
+- **Database:** the `db_backup` skill in a scheduled workflow (see the
+  README's "Database Backups"), or by hand:
+  `docker compose exec -T db-prod pg_dump -U alexclaw -Fc alex_claw_prod > alex_claw_prod-<timestamp>.dump`.
+- **OpenBao:** `make backup-openbao REASON=<reason>` writes a raft snapshot
+  to `~/backups` (or `OPENBAO_BACKUP_DIR`), readable by its owner only, and
+  checks it before reporting success. It refuses `BACKUP_DIR`, which
+  AlexClaw mounts, and any directory inside it. The snapshot does **not** hold the unseal key file
+  or the recovery key: keep both offline, apart from the snapshots, or the
+  snapshot cannot be opened.
+
+Restoring an OpenBao snapshot is described in
+[OpenBao](docs/architecture/openbao.md#backing-up-and-restoring-openbao).
+
+---
+
 ## Updating
 
 AlexClaw is built from source locally (no pre-built images). To update:
@@ -652,7 +741,12 @@ docker compose build
 docker compose up -d
 ```
 
-Migrations run automatically on every start.
+Migrations run in the one-shot `migrate` service on every `up`, before the
+application starts.
+
+Upgrading from 0.3.x to 0.4.0 needs OpenBao set up first, before the
+application's first start on 0.4.0: follow "Upgrading from 0.3.55" in the
+[v0.4.0 release notes](https://github.com/thatsme/AlexClaw/releases/tag/v0.4.0).
 
 ---
 
@@ -660,51 +754,29 @@ Migrations run automatically on every start.
 
 AlexClaw uses Docker for testing — no local Elixir or Python installation required.
 
-### Run all tests
-
 ```bash
-make test
+make gate-elixir     # the whole Elixir suite
+make gate-python     # the whole Python (web-automator) suite
+make test-elixir FILES="test/alex_claw/skills/web_automation_test.exs"
 ```
 
-This builds and runs both Elixir and Python test suites in isolated containers.
-
-### Run tests individually
-
-```bash
-# Elixir tests only
-make test-elixir
-
-# Python (web-automator) tests only
-make test-python
-```
+`make test-elixir` without `FILES=` does not run the whole suite:
+`make gate-elixir` does.
 
 ### What happens under the hood
 
-`make test` uses `docker-compose.test.yml` which spins up:
-
-- **db-test** — a PostgreSQL + pgvector instance for the test database
-- **test-elixir** — builds the Dockerfile `test` stage, runs migrations, then `mix test`
-- **test-python** — installs pytest in the web-automator container and runs the test suite
-
-Each run starts fresh containers — no state leaks between runs.
-
-### Running a specific test file
-
-```bash
-docker compose -f docker-compose.test.yml build --quiet test-elixir && docker compose -f docker-compose.test.yml run --rm test-elixir \
-  sh -c "mix ecto.create && mix ecto.migrate && mix test test/alex_claw/skills/web_automation_test.exs"
-```
+The suites run in `docker-compose.test.yml`: a PostgreSQL + pgvector database
+and an OpenBao, both started empty and initialised afresh for every run, under
+a time limit (`TEST_TIME_LIMIT`, default 2400 seconds), with a timestamped log
+kept in `TEST_LOG_DIR`. The make targets call the scripts in `scripts/`
+(`gate-elixir.sh`, `gate-python.sh`, `test-elixir.sh`, `test-python.sh`).
 
 ### Windows users
 
-`make` is not installed by default on Windows. You can either:
-
-- **Use Docker Compose directly** (works everywhere):
-  ```bash
-  docker compose -f docker-compose.test.yml build --quiet test-elixir && docker compose -f docker-compose.test.yml run --rm test-elixir
-  docker compose -f docker-compose.test.yml build --quiet test-python && docker compose -f docker-compose.test.yml run --rm test-python
-  ```
-- **Install Make** via [Git for Windows](https://gitforwindows.org/) (includes Git Bash with make), [Chocolatey](https://chocolatey.org/) (`choco install make`), or WSL
+`make` is not installed by default on Windows. Run the scripts in `scripts/`
+from a POSIX shell (Git Bash or WSL), or install Make via
+[Git for Windows](https://gitforwindows.org/) (includes Git Bash with make),
+[Chocolatey](https://chocolatey.org/) (`choco install make`), or WSL.
 
 ---
 
@@ -732,6 +804,7 @@ AlexClaw runs on **Windows**, **macOS**, and **Linux** via Docker. A few things 
 
 - **Docker Engine** and **Docker Compose v2** (the `docker compose` plugin, not the standalone `docker-compose`)
 - **`host.docker.internal`:** Does not resolve by default on Linux. The `docker-compose.yml` already includes `extra_hosts: host.docker.internal:host-gateway` for the main service. If you add custom services that need host access, add the same directive
+- **OpenBao's unseal key:** OpenBao runs as uid 100; the key file must be readable by it (`sudo chown 100 openbao/unseal/key`)
 - **File permissions:** Docker runs containers as root by default. Volume-mounted files will be owned by root on the host. This doesn't affect normal operation but may matter if you mount config or data directories
 
 ---
@@ -740,8 +813,8 @@ AlexClaw runs on **Windows**, **macOS**, and **Linux** via Docker. A few things 
 
 ### Bot not responding
 
-- Check that `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are correct in `.env`
-- Check logs: `docker compose logs alexclaw-prod | grep -i telegram`
+- Check on the Config page that the bot token is set (it shows when, never the value), and that `telegram.chat_id` and `telegram.owner_user_id` are set: with either blank, nothing is answered
+- Check logs: `docker compose logs alexclaw-prod | grep -i telegram`. A message from another chat or user is logged as ignored
 - Make sure you started a conversation with the bot first (send it any message)
 
 ### The admin UI is unreachable from another device
@@ -795,6 +868,12 @@ CHECK_ORIGIN=https://alexclaw.example.com,http://192.168.1.10:5001
 
 Unset, both `http://localhost:<port>` and `http://127.0.0.1:<port>` are accepted, where `<port>` is `ADMIN_PORT` (5001 by default).
 
+### Nothing can be changed in the admin UI
+
+Every change is refused until 2FA is set up (Services → Two-factor
+authentication), and then until editing is unlocked with a code. See
+[Two-Factor Authentication](#two-factor-authentication).
+
 ### Skill uploads or generated skills fail to save
 
 The container runs as uid 1000 with a read-only root filesystem. Only the
@@ -824,13 +903,14 @@ chown -R 1000:1000 ./backups
 ### LLM errors
 
 - Verify your API key is valid and has quota remaining
+- Check on the LLM page that the provider using it is enabled
 - Check provider status in Admin > LLM
 - Check the Logs page in the admin UI — filter by `critical` or `high` severity
 - If all providers fail, AlexClaw will log `No available model` — add at least one working provider
 
 ### Port conflict
 
-If port 5001 is already in use (common on macOS — see [Step 4](#4-log-in)), set `ADMIN_PORT` in `.env`:
+If port 5001 is already in use (common on macOS — see [step 4](#4-start-and-initialise-openbao)), set `ADMIN_PORT` in `.env`:
 ```
 ADMIN_PORT=5002
 ```
@@ -844,18 +924,39 @@ docker compose logs alexclaw-prod
 ```
 
 Look for Elixir/Erlang crash messages. Common causes:
-- Missing required env vars (`SECRET_KEY_BASE`, `DATABASE_PASSWORD`)
+- Missing required variables (`SECRET_KEY_BASE`, `DATABASE_USERNAME`,
+  `DATABASE_PASSWORD`, `DATABASE_OWNER_PASSWORD`, `CLUSTER_COOKIE`)
 - Database not ready (usually resolves on retry — the healthcheck handles this)
+
+### Codes are "unavailable", or no credential works
+
+OpenBao is unreachable, sealed or not initialised; AlexClaw keeps running
+and logs `OpenBao login failed (…); retrying`. Check
+`docker compose logs openbao openbao-init`. `openbao-init` saying OpenBao is
+not initialised means `docker compose run --rm openbao-init` has not been
+run; OpenBao not unsealing means the unseal key file is missing or not
+readable by uid 100 (see [OpenBao](docs/architecture/openbao.md#first-start)).
 
 ### Bot not receiving messages (multiple instances)
 
-If you run two AlexClaw instances with the same `TELEGRAM_BOT_TOKEN` (e.g., dev and prod), Telegram sends each update to only one of them at random. This causes silent message loss with no errors in logs. Use a separate bot token for each instance.
+If you run two AlexClaw instances with the same Telegram bot token (e.g., dev and prod), Telegram sends each update to only one of them at random. This causes silent message loss with no errors in logs. Use a separate bot token for each instance.
 
-### Locked out after changing SECRET_KEY_BASE
+### Signed out after changing SECRET_KEY_BASE
 
-Changing `SECRET_KEY_BASE` invalidates all existing sessions and makes every encrypted value (API keys, tokens, the TOTP secret) unreadable. To change it deliberately, follow [Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md).
+Changing `SECRET_KEY_BASE` ends every login: sign in again. Since 0.4.0 it
+encrypts nothing, so no stored value becomes unreadable — see
+[Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md). When
+upgrading from 0.3.x, keep it unchanged until the first start of 0.4.0 has
+run.
 
-If it was changed without a rotation, the application does not start: the log says `These stored values do not decrypt under this SECRET_KEY_BASE` and names each one, never its value. Put the old value back and restart. If the old value is lost for good, those values cannot be recovered. Follow [Lost key](docs/deployment/rotate-secret-key-base.md#lost-key) to discard exactly them, then enter them again. If you also changed the admin password and forgot it, you'll need to set a new one in `.env` and restart.
+### Changing the admin password
+
+The admin password is not read from `.env` once it has been used: the first
+login stores its hash. To set a new one, put it in `ADMIN_PASSWORD`, delete
+the `auth.admin_password_hash` row from the `settings` table, and recreate
+the container (`docker compose up -d alexclaw-prod`). The next login is
+checked against the variable and stores the new hash; every existing login
+ends.
 
 ### Web automator noVNC behind a proxy
 
@@ -864,6 +965,11 @@ noVNC is reached through an SSH tunnel and is not meant to sit behind a public p
 ### Rebuilding from scratch
 
 ```bash
-docker compose down -v   # WARNING: deletes all data
+docker compose down -v   # WARNING: deletes the database AND every secret in OpenBao
 docker compose up -d --build
+docker compose run --rm openbao-init
 ```
+
+The unseal key file is on the host and survives; the new, empty OpenBao is
+initialised again, with a new recovery key. Every credential must then be
+entered again, and 2FA set up again.

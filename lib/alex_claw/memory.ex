@@ -131,6 +131,19 @@ defmodule AlexClaw.Memory do
     |> Repo.exists?()
   end
 
+  @doc """
+  Delete the memory entry `id`. Performed as `:delete_memory` through
+  `AlexClaw.ControlPlane.perform/3`: what the agent remembers shapes what it
+  answers.
+  """
+  @spec delete_entry(integer()) :: {:ok, Entry.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def delete_entry(id) do
+    case Repo.get(Entry, id) do
+      nil -> {:error, :not_found}
+      entry -> Repo.delete(entry)
+    end
+  end
+
   @doc "List recent memories, optionally filtered by kind."
   @spec recent(keyword()) :: [Entry.t()]
   def recent(opts \\ []) do

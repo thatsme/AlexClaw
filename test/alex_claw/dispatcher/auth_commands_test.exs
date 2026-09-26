@@ -16,6 +16,13 @@ defmodule AlexClaw.Dispatcher.AuthCommandsTest do
     }
   end
 
+  # The owner chat (0.4.0 S5b): a gateway answers only the chat set in the
+  # admin UI.
+  setup do
+    insert_setting("telegram.chat_id", "123", type: "string", category: "telegram")
+    :ok
+  end
+
   describe "2FA commands routing" do
     test "/setup 2fa dispatches without crash" do
       result = Dispatcher.dispatch(msg("/setup 2fa"))
@@ -33,8 +40,11 @@ defmodule AlexClaw.Dispatcher.AuthCommandsTest do
     end
   end
 
-  # Turning the second factor off is itself a sensitive action.
-  describe "/disable 2fa requires a valid current code" do
+  # Since 0.4.0 the second factor is managed only in the admin UI: turning it
+  # off or on over a chat is refused, whatever the code — a chat is not a
+  # place for the factor that guards everything else (THREAT_MODEL.md P3, P4).
+  # The command answers where to do it, and changes nothing.
+  describe "/disable 2fa over a gateway is refused" do
     setup do
       secret = NimbleTOTP.secret()
 
@@ -44,6 +54,7 @@ defmodule AlexClaw.Dispatcher.AuthCommandsTest do
       )
 
       AlexClaw.Config.set("auth.totp.enabled", "true", type: "boolean", category: "auth")
+      AlexClaw.RecordingGateway.install()
 
       %{secret: secret}
     end
@@ -60,22 +71,12 @@ defmodule AlexClaw.Dispatcher.AuthCommandsTest do
       assert TOTP.enabled?()
     end
 
-    test "with a non-numeric code, 2FA stays enabled" do
-      Dispatcher.dispatch(msg("/disable 2fa abcdef"))
-
-      assert TOTP.enabled?()
-    end
-
-    test "with the current code, 2FA is disabled", %{secret: secret} do
+    test "even with the current code, 2FA stays enabled, and the reply points to the admin UI",
+         %{secret: secret} do
       Dispatcher.dispatch(msg("/disable 2fa " <> NimbleTOTP.verification_code(secret)))
 
-      refute TOTP.enabled?()
-    end
-
-    test "trailing whitespace around the code is tolerated", %{secret: secret} do
-      Dispatcher.dispatch(msg("/disable 2fa  " <> NimbleTOTP.verification_code(secret) <> "  "))
-
-      refute TOTP.enabled?()
+      assert TOTP.enabled?()
+      assert Enum.any?(AlexClaw.RecordingGateway.sent(), &(&1 =~ ~r/admin UI/i))
     end
   end
 

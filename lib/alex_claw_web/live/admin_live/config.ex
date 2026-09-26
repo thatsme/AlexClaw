@@ -2,7 +2,11 @@ defmodule AlexClawWeb.AdminLive.Config do
   @moduledoc "LiveView page for viewing and editing key-value configuration settings."
 
   use Phoenix.LiveView
+  alias AlexClaw.Config.SecretSettings
+  alias AlexClawWeb.AdminLive.Config.McpKeyPanel
   alias AlexClawWeb.Live.Elevation
+
+  @gateway_owners ~w(telegram.chat_id telegram.owner_user_id discord.channel_id discord.owner_user_id)
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -16,6 +20,9 @@ defmodule AlexClawWeb.AdminLive.Config do
        page_title: "Configuration",
        settings: settings,
        grouped: group_by_category(settings),
+       secret_states: secret_states(),
+       mcp_key_configured: McpKeyPanel.configured?(),
+       new_mcp_key: nil,
        collapsed: group_by_category(settings) |> Enum.map(&elem(&1, 0)) |> MapSet.new(),
        show_form: false,
        editing: nil,
@@ -31,7 +38,14 @@ defmodule AlexClawWeb.AdminLive.Config do
   @impl true
   def handle_info({:config_changed, _key, _value}, socket) do
     settings = AlexClaw.Config.list()
-    {:noreply, assign(socket, settings: settings, grouped: group_by_category(settings))}
+
+    {:noreply,
+     assign(socket,
+       settings: settings,
+       grouped: group_by_category(settings),
+       secret_states: secret_states(),
+       mcp_key_configured: McpKeyPanel.configured?()
+     )}
   end
 
   @impl true
@@ -40,6 +54,12 @@ defmodule AlexClawWeb.AdminLive.Config do
   def handle_event("toggle_form", _, socket) do
     {:noreply, assign(socket, show_form: !socket.assigns.show_form, editing: nil)}
   end
+
+  def handle_event("generate_mcp_key", _params, socket), do: McpKeyPanel.generate(socket)
+  def handle_event("revoke_mcp_key", _params, socket), do: McpKeyPanel.revoke(socket)
+
+  def handle_event("dismiss_mcp_key", _params, socket),
+    do: {:noreply, assign(socket, new_mcp_key: nil)}
 
   @impl true
   def handle_event("save", params, socket) do
@@ -92,14 +112,8 @@ defmodule AlexClawWeb.AdminLive.Config do
     Elevation.close_entry(socket)
   end
 
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
-  end
-
-  @sensitive_patterns ~w(api_key token password secret)
-
-  # auth.totp.* is written by /setup 2fa and /disable 2fa on a gateway and
-  # nowhere else. Elevation does not open it: the setting that decides whether
+  # auth.totp.* is written only by the second-factor setup (Services, and
+  # /setup 2fa on a gateway until 0.4.0 removes it). Elevation does not open it: the setting that decides whether
   # elevation is required at all must not be editable from behind that gate,
   # or the gate can be switched off through the page it protects.
   defp save_setting(true, params, socket) do
@@ -107,6 +121,35 @@ defmodule AlexClawWeb.AdminLive.Config do
   end
 
   defp save_setting(false, params, socket) do
+    params
+    |> clearing_secret?()
+    |> clear_or_save(params, socket)
+  end
+
+  # Empty keeps a secret setting's value, so its Clear button is its own
+  # action: Config.clear/1 deletes the value from OpenBao.
+  defp clearing_secret?(params),
+    do: params["_clear"] == "true" and AlexClaw.Config.secret?(params["key"] || "")
+
+  defp clear_or_save(true, %{"key" => key}, socket) do
+    Elevation.perform(socket, :clear_secret, %{key: key, detail: "#{key}: cleared"},
+      ok: fn socket, _key ->
+        settings = AlexClaw.Config.list()
+
+        socket
+        |> put_flash(:info, "Setting '#{key}' cleared")
+        |> assign(
+          settings: settings,
+          grouped: group_by_category(settings),
+          secret_states: secret_states(),
+          show_form: false,
+          editing: nil
+        )
+      end
+    )
+  end
+
+  defp clear_or_save(false, params, socket) do
     params
     |> keeps_secret?(socket)
     |> save_value(params, socket)
@@ -133,21 +176,20 @@ defmodule AlexClawWeb.AdminLive.Config do
     key = params["key"]
     value = params["value"]
 
-    Elevation.gated(socket, setting_change(params),
-      write: fn ->
-        with {:ok, _setting} <-
-               AlexClaw.Config.persist(key, value || "",
-                 type: params["type"],
-                 description: params["description"],
-                 category:
-                   params["category"] |> to_string() |> String.trim() |> String.downcase(),
-                 sensitive: sensitive_key?(key)
-               ),
-             {:ok, assigned} <- assign_gateway_node(key, value) do
-          {:ok, [key | assigned]}
-        end
-      end,
-      after_commit: fn keys -> Enum.each(keys, &AlexClaw.Config.publish/1) end,
+    Elevation.perform(
+      socket,
+      setting_action(key),
+      %{
+        key: key,
+        value: value || "",
+        opts: [
+          type: params["type"],
+          description: params["description"],
+          category: params["category"] |> to_string() |> String.trim() |> String.downcase(),
+          sensitive: sensitive_key?(key)
+        ],
+        detail: setting_change(params)
+      },
       ok: fn socket, _keys ->
         settings = AlexClaw.Config.list()
 
@@ -156,6 +198,7 @@ defmodule AlexClawWeb.AdminLive.Config do
         |> assign(
           settings: settings,
           grouped: group_by_category(settings),
+          secret_states: secret_states(),
           show_form: false,
           editing: nil
         )
@@ -163,17 +206,30 @@ defmodule AlexClawWeb.AdminLive.Config do
     )
   end
 
+  # Which chat a gateway answers is its own action: the owner chat receives
+  # every code prompt.
+  defp setting_action(key) when key in @gateway_owners, do: :set_gateway_owner
+
+  defp setting_action(key),
+    do: if(AlexClaw.Config.secret?(key), do: :set_secret, else: :set_setting)
+
   defp gateway_managed?(key) when is_binary(key), do: String.starts_with?(key, "auth.totp.")
   defp gateway_managed?(_key), do: false
 
   defp managed_message(key) do
-    "#{key} is managed from a gateway — use /setup 2fa or /disable 2fa"
+    "#{key} is managed by two-factor setup — use the Services page"
   end
 
   defp setting_change(params) do
     key = params["key"]
-    Elevation.describe_setting(key, AlexClaw.Config.get(key), params["value"])
+    Elevation.describe_setting(key, current_value(key), params["value"])
   end
+
+  # A secret setting's value is in OpenBao and never read back into the page:
+  # the audit description has no old value to show for it.
+  defp current_value(key), do: current_value(AlexClaw.Config.secret?(key), key)
+  defp current_value(true, _key), do: nil
+  defp current_value(false, key), do: AlexClaw.Config.get(key)
 
   defp delete_setting(true, key, socket) do
     {:noreply, put_flash(socket, :error, managed_message(key))}
@@ -181,23 +237,25 @@ defmodule AlexClawWeb.AdminLive.Config do
 
   # Deleting auth.totp.enabled disables 2FA exactly as setting it to false does.
   defp delete_setting(false, key, socket) do
-    Elevation.gated(socket, "#{key}: deleted",
-      write: fn -> AlexClaw.Config.remove(key) end,
-      after_commit: fn _removed -> AlexClaw.Config.publish(key) end,
+    Elevation.perform(
+      socket,
+      setting_action(key),
+      %{key: key, delete: true, detail: "#{key}: deleted"},
       ok: fn socket, _removed ->
         settings = AlexClaw.Config.list()
 
         socket
         |> put_flash(:info, "Setting '#{key}' deleted")
-        |> assign(settings: settings, grouped: group_by_category(settings))
+        |> assign(
+          settings: settings,
+          grouped: group_by_category(settings),
+          secret_states: secret_states()
+        )
       end
     )
   end
 
-  defp sensitive_key?(key) do
-    key_down = String.downcase(key)
-    Enum.any?(@sensitive_patterns, &String.contains?(key_down, &1))
-  end
+  defp sensitive_key?(key), do: AlexClaw.Config.credential_key?(key)
 
   defp mask_value(nil), do: ""
   defp mask_value(""), do: ""
@@ -209,7 +267,27 @@ defmodule AlexClawWeb.AdminLive.Config do
     String.slice(value, 0, 4) <> "********" <> String.slice(value, -4, 4)
   end
 
-  defp display_value(setting) do
+  # A secret setting's value is in OpenBao: the page says whether and when it
+  # was set, never any part of the value. Kept as an assign, recomputed with the
+  # settings, so LiveView re-renders it when it changes.
+  defp secret_states do
+    Map.new(SecretSettings.keys(), &{&1, secret_state(&1)})
+  end
+
+  defp secret_state(key) do
+    case AlexClaw.Config.secret_set_at(key) do
+      nil -> "not set"
+      set_at -> "set on " <> Calendar.strftime(set_at, "%Y-%m-%d %H:%M UTC")
+    end
+  end
+
+  defp value_hint(setting, secret_states),
+    do: Map.get_lazy(secret_states, setting.key, fn -> mask_value(setting.value) end)
+
+  defp display_value(setting, secret_states),
+    do: Map.get_lazy(secret_states, setting.key, fn -> shown_value(setting) end)
+
+  defp shown_value(setting) do
     if setting.sensitive || sensitive_key?(setting.key) do
       mask_value(setting.value)
     else
@@ -217,7 +295,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     end
   end
 
-  @category_order ~w(telegram discord llm embedding github google auth shell web_automator skills cluster prompts identity display general)
+  @category_order ~w(telegram discord llm embedding github google mcp auth shell web_automator skills cluster prompts identity display general)
   @category_labels %{
     "telegram" => "Telegram",
     "discord" => "Discord",
@@ -225,6 +303,7 @@ defmodule AlexClawWeb.AdminLive.Config do
     "embedding" => "Embedding",
     "github" => "GitHub",
     "google" => "Google",
+    "mcp" => "MCP",
     "auth" => "Authentication",
     "shell" => "Shell",
     "web_automator" => "Web Automator",
@@ -236,8 +315,14 @@ defmodule AlexClawWeb.AdminLive.Config do
     "general" => "General"
   }
 
+  # The MCP key has no value to show or edit, only its panel, so its row is not
+  # listed; the "mcp" group is always there to hold the panel.
   defp group_by_category(settings) do
-    groups = Enum.group_by(settings, &(&1.category || "general"))
+    groups =
+      settings
+      |> Enum.reject(&SecretSettings.recognised_only?(&1.key))
+      |> Enum.group_by(&(&1.category || "general"))
+      |> Map.put_new("mcp", [])
 
     known = Enum.filter(@category_order, &Map.has_key?(groups, &1))
     extra = Map.keys(groups) |> Enum.reject(&(&1 in @category_order)) |> Enum.sort()
@@ -267,27 +352,6 @@ defmodule AlexClawWeb.AdminLive.Config do
     |> Enum.filter(& &1.enabled)
     |> Enum.map(& &1.name)
   end
-
-  # Enabling a gateway assigns it to this node — telegram.enabled sets
-  # telegram.node — in the same transaction as the setting itself. Answers the
-  # further keys it wrote, for publishing after commit.
-  defp assign_gateway_node(key, value) when value in ["true", true] do
-    assign_node(String.ends_with?(key, ".enabled"), key)
-  end
-
-  defp assign_gateway_node(_key, _value), do: {:ok, []}
-
-  defp assign_node(true, key) do
-    node_key = String.replace(key, ".enabled", ".node")
-    category = key |> String.split(".") |> hd()
-
-    with {:ok, _setting} <-
-           AlexClaw.Config.persist(node_key, to_string(node()), category: category) do
-      {:ok, [node_key]}
-    end
-  end
-
-  defp assign_node(false, _key), do: {:ok, []}
 
   defp cluster_node_names do
     Enum.uniq([to_string(node()) | Enum.map(AlexClaw.Cluster.list_nodes(), & &1.name)])

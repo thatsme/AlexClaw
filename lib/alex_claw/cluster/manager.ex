@@ -3,18 +3,26 @@ defmodule AlexClaw.Cluster.Manager do
   GenServer that manages cluster connectivity and handles incoming
   remote workflow triggers from other BEAM nodes.
 
-  Called via `:rpc.call` from `send_to_workflow` on remote nodes.
-  Validates that the target workflow has `receive_from_workflow` as step 1
-  before allowing execution. Auto-registers nodes on connection and
-  attempts to connect to known nodes on boot.
+  Called by `send_to_workflow` on another node with a GenServer call to this
+  manager; the sender is the node of the calling process, never a name the
+  request carries. A request
+  is `:run_workflow` from the `:cluster` entry point, through
+  `AlexClaw.ControlPlane.perform/3`: refused, and audited, unless the node is
+  registered, the workflow's step 1 is the `receive_from_workflow` gate
+  allowing it, and the workflow is not protected — before any run starts.
+
+  A node that connects is not registered by connecting (it needs only the
+  cookie): its arrival is audited, and it is registered in the admin UI
+  (`save_node`). This node registers its own row at boot, and tries the
+  known nodes.
   """
   use GenServer
   require Logger
 
-  import Ecto.Query
-
-  alias AlexClaw.BootRetry
-  alias AlexClaw.Workflows.Executor
+  alias AlexClaw.Auth.AuditLog
+  alias AlexClaw.{BootRetry, Cluster, ControlPlane, Repo}
+  alias AlexClaw.ControlPlane.Context
+  alias AlexClaw.Workflows.Workflow
 
   # --- Client API ---
 
@@ -24,13 +32,13 @@ defmodule AlexClaw.Cluster.Manager do
   end
 
   @doc """
-  Called via RPC from a remote node. Validates the target workflow
-  has receive_from_workflow as step 1, then starts it with the given data.
+  Ask this node to run the workflow `workflow_name` with `data`, as the node
+  the calling process runs on — from another node, `send_to_workflow` calls
+  `{AlexClaw.Cluster.Manager, node}` directly.
   """
-  @spec receive_workflow_data(String.t(), any(), String.t()) ::
-          {:ok, :started} | {:error, atom() | tuple()}
-  def receive_workflow_data(workflow_name, data, source_node) do
-    GenServer.call(__MODULE__, {:receive, workflow_name, data, source_node}, 10_000)
+  @spec receive_workflow_data(String.t(), any()) :: {:ok, :started} | {:error, atom() | tuple()}
+  def receive_workflow_data(workflow_name, data) do
+    GenServer.call(__MODULE__, {:receive, workflow_name, data}, 10_000)
   end
 
   # --- GenServer Callbacks ---
@@ -60,16 +68,20 @@ defmodule AlexClaw.Cluster.Manager do
   end
 
   @impl true
-  def handle_call({:receive, workflow_name, data, source_node}, _from, state) do
-    result = do_receive(workflow_name, data, source_node)
-    {:reply, result, state}
+  # The sender is the node the calling process runs on.
+  def handle_call({:receive, workflow_name, data}, {caller, _tag}, state) do
+    {:reply, request(workflow_named(workflow_name), data, node(caller)), state}
   end
 
   @impl true
   def handle_info({:nodeup, remote_node}, state) do
     name = to_string(remote_node)
     Logger.info("Node connected: #{name}")
-    register(name, 0)
+
+    guarded("noting #{name}'s arrival", fn ->
+      arrived(Cluster.mark_status(name, "connected"), name)
+    end)
+
     {:noreply, state}
   end
 
@@ -98,7 +110,7 @@ defmodule AlexClaw.Cluster.Manager do
   @impl true
   def handle_info(:refresh_statuses, state) do
     Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      AlexClaw.Cluster.refresh_statuses()
+      Cluster.refresh_statuses()
     end)
 
     {:noreply, state}
@@ -106,19 +118,29 @@ defmodule AlexClaw.Cluster.Manager do
 
   # --- Internal ---
 
-  defp mark_disconnected(name) do
-    case AlexClaw.Cluster.get_by_name(name) do
-      nil -> :ok
-      node -> AlexClaw.Cluster.update_node(node, %{status: "disconnected"})
-    end
+  defp mark_disconnected(name), do: Cluster.mark_status(name, "disconnected")
+
+  # A registered node's arrival is a heartbeat. Any other node only has the
+  # cookie: it is not registered by connecting, and the log says it came.
+  defp arrived({:ok, _node}, _name), do: :ok
+
+  defp arrived({:error, :not_registered}, name) do
+    AuditLog.log_action_refusal(
+      "cluster:#{name}",
+      :cluster,
+      :save_node,
+      "node #{name} connected but is not registered — register it in the admin UI (Cluster page)"
+    )
   end
+
+  defp arrived({:error, _changeset}, _name), do: :ok
 
   defp connect_known_nodes do
     self_name = to_string(node())
 
-    AlexClaw.Cluster.list_nodes()
+    Cluster.list_nodes()
     |> Enum.reject(fn n -> n.name == self_name end)
-    |> Enum.each(fn n -> AlexClaw.Cluster.node_ping(n.name) end)
+    |> Enum.each(fn n -> Cluster.node_ping(n.name) end)
   end
 
   # This process answers RPC from other nodes and monitors the cluster, so a
@@ -163,42 +185,20 @@ defmodule AlexClaw.Cluster.Manager do
   # server raises DBConnection.ConnectionError, and a connection that goes away
   # exits rather than raising.
   defp auto_register_node(name) do
-    case AlexClaw.Cluster.get_by_name(name) do
-      nil -> create_node(name)
-      existing -> touch_node(existing)
-    end
+    name |> Cluster.register_self() |> registered(name)
   rescue
     e -> {:error, Exception.message(e)}
   catch
     :exit, reason -> {:error, inspect(reason)}
   end
 
-  defp create_node(name) do
-    label = name |> String.split("@") |> List.last()
-
-    AlexClaw.Cluster.create_node(%{
-      name: name,
-      label: label,
-      status: "connected",
-      last_seen_at: DateTime.utc_now()
-    })
-    |> registered(name)
-  end
-
-  # A node that was already known is a heartbeat, not news, so it is not logged.
-  defp touch_node(existing) do
-    AlexClaw.Cluster.update_node(existing, %{
-      status: "connected",
-      last_seen_at: DateTime.utc_now()
-    })
-
+  defp registered({:ok, :created}, name) do
+    Logger.info("Registered this node: #{name}")
     :ok
   end
 
-  defp registered({:ok, _node}, name) do
-    Logger.info("Auto-registered cluster node: #{name}")
-    :ok
-  end
+  # Already known: a heartbeat, not news, so it is not logged.
+  defp registered({:ok, :touched}, _name), do: :ok
 
   # A changeset that will not validate is not a database that will be back in a
   # second, so this is not retried.
@@ -207,40 +207,26 @@ defmodule AlexClaw.Cluster.Manager do
     :ok
   end
 
-  defp do_receive(workflow_name, data, source_node) do
-    alias AlexClaw.Workflows.Workflow
+  defp workflow_named(name), do: Repo.get_by(Workflow, name: name, enabled: true)
 
-    AlexClaw.Repo.one(
-      from(w in Workflow,
-        where: w.name == ^workflow_name and w.enabled == true,
-        preload: [steps: ^from(s in AlexClaw.Workflows.WorkflowStep, order_by: s.position)]
-      )
+  defp request(nil, _data, _source_node), do: {:error, :workflow_not_found}
+
+  defp request(workflow, data, source_node) do
+    :run_workflow
+    |> ControlPlane.perform(
+      %{workflow_id: workflow.id, input: data},
+      Context.cluster(source_node)
     )
-    |> trigger_workflow(workflow_name, data, source_node)
+    |> requested(workflow.name, source_node)
   end
 
-  defp trigger_workflow(nil, workflow_name, _data, _source_node) do
-    Logger.warning("Remote trigger rejected: workflow '#{workflow_name}' not found or disabled")
-    {:error, :workflow_not_found}
-  end
-
-  defp trigger_workflow(workflow, workflow_name, data, source_node) do
-    gated? = match?(%{skill: "receive_from_workflow"}, List.first(workflow.steps))
-    run_gated(gated?, workflow, workflow_name, data, source_node)
-  end
-
-  defp run_gated(false, _workflow, workflow_name, _data, _source_node) do
-    Logger.warning("Remote trigger rejected: '#{workflow_name}' lacks receive_from_workflow gate")
-    {:error, :no_receive_gate}
-  end
-
-  defp run_gated(true, workflow, workflow_name, data, source_node) do
-    Logger.info("Remote trigger accepted: '#{workflow_name}' from #{source_node}")
-
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      Executor.run_remote_trigger(workflow.id, data, %{"_source_node" => source_node})
-    end)
-
+  defp requested({:ok, _started}, name, source_node) do
+    Logger.info("Remote trigger accepted: '#{name}' from #{source_node}")
     {:ok, :started}
+  end
+
+  defp requested({:error, reason} = refused, name, source_node) do
+    Logger.warning("Remote trigger refused: '#{name}' from #{source_node}: #{inspect(reason)}")
+    refused
   end
 end

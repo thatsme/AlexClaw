@@ -4,6 +4,8 @@ defmodule AlexClawWeb.AdminLive.Skills do
   use Phoenix.LiveView
   require Logger
 
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Workflows.SkillRegistry
   alias AlexClawWeb.Live.{ActionCode, Elevation}
 
@@ -50,7 +52,7 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
     result =
       consume_uploaded_entries(socket, :skill_file, fn %{path: tmp_path}, entry ->
-        {:ok, store_upload(tmp_path, entry.client_name)}
+        {:ok, store_upload(socket, tmp_path, entry.client_name)}
       end)
 
     case result do
@@ -63,6 +65,13 @@ defmodule AlexClawWeb.AdminLive.Skills do
          |> put_flash(:error, "Rejected: skill files must be a plain .ex filename")
          |> assign(uploading: false)}
 
+      [{:error, :second_factor_required}] ->
+        {:noreply,
+         socket
+         |> Elevation.refresh()
+         |> put_flash(:error, "Unlock editing first")
+         |> assign(uploading: false)}
+
       [] ->
         {:noreply, socket |> put_flash(:error, "No file selected") |> assign(uploading: false)}
     end
@@ -70,16 +79,16 @@ defmodule AlexClawWeb.AdminLive.Skills do
 
   @impl true
   def handle_event("unload_skill", %{"name" => name}, socket) do
-    socket
-    |> assign(pending_2fa: name)
-    |> ActionCode.request(%{type: :skill_unload, name: name}, "Unload skill: #{name}")
+    Elevation.perform(socket, :unload_skill, %{name: name},
+      ok: fn socket, _name -> assign(socket, skills: build_skill_list()) end
+    )
   end
 
   @impl true
   def handle_event("reload_skill", %{"name" => name}, socket) do
     socket
     |> assign(pending_2fa: name)
-    |> ActionCode.request(%{type: :skill_reload, name: name}, "Reload skill: #{name}")
+    |> ActionCode.request(:load_skill, %{name: name, reload: true}, "Reload skill: #{name}")
   end
 
   def handle_event("submit_action_code", %{"code" => code}, socket) do
@@ -90,16 +99,29 @@ defmodule AlexClawWeb.AdminLive.Skills do
     ActionCode.cancel(socket)
   end
 
+  # The code approves what the approval screen names: the permissions, and the
+  # risky ones (SkillRegistry.describe_pending/1).
   defp upload_skill(socket, filename) do
     socket
     |> assign(uploading: false, pending_2fa: filename)
-    |> ActionCode.request(%{type: :skill_load, file_path: filename}, "Load skill: #{filename}")
+    |> ActionCode.request(
+      :load_skill,
+      %{file_path: filename, origin: :upload},
+      upload_description(filename, SkillRegistry.describe_pending(filename))
+    )
   end
+
+  defp upload_description(filename, {:ok, text}), do: "Load skill: #{filename}. #{text}"
+  defp upload_description(filename, {:error, _reason}), do: "Load skill: #{filename}"
 
   # Staged under skills_dir/pending, never the live directory: until the 2FA code
   # is verified the upload cannot replace a skill that is already loaded.
-  defp store_upload(tmp_path, client_name) do
-    case SkillRegistry.stage_upload(tmp_path, client_name) do
+  defp store_upload(socket, tmp_path, client_name) do
+    case ControlPlane.perform(
+           :stage_skill,
+           %{path: tmp_path, name: client_name},
+           Context.admin_ui(socket.assigns.elevation_sid)
+         ) do
       {:ok, file_name} ->
         file_name
 

@@ -1,20 +1,24 @@
 defmodule AlexClaw.Config.SensitiveConfigTest do
+  @moduledoc """
+  Since 0.4.0 (S7) `sensitive` marks a setting kept from skills and from the
+  admin UI's plain view; it no longer means encrypted. No credential is stored
+  in the settings table: a declared secret setting is in OpenBao, and a key
+  named like a credential is refused (`credential_keys_test.exs`).
+  """
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
   alias AlexClaw.Config
-  alias AlexClaw.Config.{Crypto, Setting}
+  alias AlexClaw.Config.Setting
   alias AlexClaw.Repo
 
   describe "set/3 with sensitive: true" do
-    test "encrypts value in DB, stores plaintext in ETS" do
-      {:ok, setting} = Config.set("test.api_key", "sk-12345", sensitive: true)
+    test "stores the value as given, flagged sensitive" do
+      {:ok, setting} = Config.set("test.private", "p-12345", sensitive: true)
 
-      # DB value is encrypted
-      assert Crypto.encrypted?(setting.value)
-
-      # ETS has plaintext
-      assert Config.get("test.api_key") == "sk-12345"
+      assert setting.value == "p-12345"
+      assert Config.get("test.private") == "p-12345"
+      assert Config.sensitive?("test.private")
     end
 
     test "does not encrypt empty values" do
@@ -27,43 +31,41 @@ defmodule AlexClaw.Config.SensitiveConfigTest do
       {:ok, setting} = Config.set("test.preserve", "v2")
 
       assert setting.sensitive == true
-      assert Crypto.encrypted?(setting.value)
+      assert setting.value == "v2"
       assert Config.get("test.preserve") == "v2"
     end
 
     test "non-sensitive values are stored as plaintext" do
       {:ok, setting} = Config.set("test.plain", "visible", sensitive: false)
-      refute Crypto.encrypted?(setting.value)
       assert setting.value == "visible"
+      refute setting.sensitive
     end
   end
 
-  describe "list/1 decryption" do
-    test "list returns decrypted values for sensitive settings" do
+  describe "list/1" do
+    test "list returns sensitive settings with their flag" do
       {:ok, _} =
-        Config.set("test.list_secret", "decrypted-value", sensitive: true, category: "test_cat")
+        Config.set("test.list_private", "listed-value", sensitive: true, category: "test_cat")
 
       settings = Config.list("test_cat")
-      setting = Enum.find(settings, &(&1.key == "test.list_secret"))
+      setting = Enum.find(settings, &(&1.key == "test.list_private"))
 
-      assert setting.value == "decrypted-value"
+      assert setting.value == "listed-value"
       assert setting.sensitive == true
     end
   end
 
   describe "init/0 reload" do
-    test "ETS contains decrypted values after reload" do
-      {:ok, _} = Config.set("test.reload", "reload-secret", sensitive: true)
+    test "ETS holds the value after reload" do
+      {:ok, _} = Config.set("test.reload", "reload-value", sensitive: true)
 
-      # Verify DB has encrypted value
       db_setting = Repo.get_by!(Setting, key: "test.reload")
-      assert Crypto.encrypted?(db_setting.value)
+      assert db_setting.value == "reload-value"
 
       # Reload ETS from DB
       Config.init()
 
-      # ETS should have plaintext
-      assert Config.get("test.reload") == "reload-secret"
+      assert Config.get("test.reload") == "reload-value"
     end
   end
 

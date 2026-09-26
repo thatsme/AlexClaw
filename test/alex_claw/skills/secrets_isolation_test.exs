@@ -2,7 +2,7 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.{SafeExecutor, TOTP}
   alias AlexClaw.Config
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.SkillRegistry
@@ -40,7 +40,8 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
                     google.oauth.client_secret google.oauth.refresh_token) do
         Config.set(key, "SECRET-#{key}", type: "string", category: "test", sensitive: true)
 
-        assert {:error, :sensitive} = SkillAPI.config_get(skill, key),
+        assert {:error, :sensitive} =
+                 SafeExecutor.as_skill(skill, fn -> SkillAPI.config_get(skill, key) end),
                "#{key} was served to a dynamic skill"
       end
     end
@@ -48,17 +49,26 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
     test "the TOTP secret is refused", %{skill: skill} do
       Config.set("auth.totp.secret", "JBSWY3DPEHPK3PXP", type: "string", category: "auth")
 
-      assert {:error, :sensitive} = SkillAPI.config_get(skill, "auth.totp.secret")
+      assert {:error, :sensitive} =
+               SafeExecutor.as_skill(skill, fn ->
+                 SkillAPI.config_get(skill, "auth.totp.secret")
+               end)
     end
 
     test "an unknown key is refused rather than assumed safe", %{skill: skill} do
-      assert {:error, :sensitive} = SkillAPI.config_get(skill, "never.seeded.key")
+      assert {:error, :sensitive} =
+               SafeExecutor.as_skill(skill, fn ->
+                 SkillAPI.config_get(skill, "never.seeded.key")
+               end)
     end
 
     test "non-sensitive settings still read", %{skill: skill} do
       Config.set("skills.rss.max_items", "7", type: "integer", category: "skills")
 
-      assert {:ok, 7} = SkillAPI.config_get(skill, "skills.rss.max_items")
+      assert {:ok, 7} =
+               SafeExecutor.as_skill(skill, fn ->
+                 SkillAPI.config_get(skill, "skills.rss.max_items")
+               end)
     end
   end
 
@@ -79,8 +89,10 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
       end
     end
 
+    # Since 0.4.0 (S6) TOTP reads it only to carry it into OpenBao's TOTP
+    # engine, which keeps the key from then on.
     test "TOTP's own accessor can" do
-      assert TOTP.secret() == "JBSWY3DPEHPK3PXP"
+      assert :imported = TOTP.import_legacy()
     end
 
     test "verification still works through the accessor" do
@@ -94,20 +106,22 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
     test "an absent secret verifies nothing" do
       Config.delete("auth.totp.secret")
 
-      refute TOTP.secret()
       refute TOTP.verify("123456")
     end
   end
 
-  # api_request reads metadata["auth"]["value"] as a literal credential, and
-  # :resources_read is inside the generated auto-load ceiling.
+  # api_request reads the resource's credential; :resources_read is inside the
+  # generated auto-load ceiling. Since 0.4.0 the credential is a reference to
+  # OpenBao, and a URL carrying user:password cannot be created at all.
   describe "resource credentials are redacted for skills" do
+    @describetag :vault
+
     setup do
       {:ok, resource} =
         AlexClaw.Resources.create_resource(%{
           name: "creds-#{System.unique_integer([:positive])}",
           type: "api",
-          url: "https://user:hunter2@api.example.com/v1",
+          url: "https://api.example.com/v1",
           metadata: %{
             "auth" => %{"header" => "authorization", "value" => "Bearer SECRET-TOKEN"},
             "discovery" => %{"base_url" => "https://api.example.com"}
@@ -118,38 +132,47 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
     end
 
     test "get_resource strips the auth block", %{skill: skill, resource: resource} do
-      {:ok, read} = SkillAPI.get_resource(skill, resource.id)
+      {:ok, read} =
+        SafeExecutor.as_skill(skill, fn -> SkillAPI.get_resource(skill, resource.id) end)
 
       refute Map.has_key?(read.metadata, "auth")
       refute inspect(read) =~ "SECRET-TOKEN"
     end
 
-    test "get_resource strips credentials embedded in the URL", %{skill: skill, resource: r} do
-      {:ok, read} = SkillAPI.get_resource(skill, r.id)
-
-      refute read.url =~ "hunter2"
-      assert read.url =~ "api.example.com"
+    test "a URL with user:password in it cannot be created in the first place" do
+      assert {:error, _} =
+               AlexClaw.Resources.create_resource(%{
+                 name: "userinfo-#{System.unique_integer([:positive])}",
+                 type: "api",
+                 url: "https://user:hunter2@api.example.com/v1"
+               })
     end
 
     test "list_resources redacts too", %{skill: skill} do
-      {:ok, resources} = SkillAPI.list_resources(skill, %{type: "api"})
+      {:ok, resources} =
+        SafeExecutor.as_skill(skill, fn -> SkillAPI.list_resources(skill, %{type: "api"}) end)
 
       refute inspect(resources) =~ "SECRET-TOKEN"
-      refute inspect(resources) =~ "hunter2"
     end
 
     test "non-credential metadata survives", %{skill: skill, resource: resource} do
-      {:ok, read} = SkillAPI.get_resource(skill, resource.id)
+      {:ok, read} =
+        SafeExecutor.as_skill(skill, fn -> SkillAPI.get_resource(skill, resource.id) end)
 
       assert get_in(read.metadata, ["discovery", "base_url"]) == "https://api.example.com"
     end
 
-    # api_request is core code and must keep working.
-    test "core code reading Resources directly still sees the credential", %{resource: r} do
+    # Core code reads a reference, never the value; the value comes only from
+    # resolving it for the resource's host (bound to its discovered API base).
+    test "core code reading Resources directly sees a reference; the value only by resolving it",
+         %{resource: r} do
       {:ok, read} = AlexClaw.Resources.get_resource(r.id)
 
-      assert get_in(read.metadata, ["auth", "value"]) == "Bearer SECRET-TOKEN"
-      assert read.url =~ "hunter2"
+      assert %{"secret" => name} = get_in(read.metadata, ["auth", "value"])
+      refute inspect(read) =~ "SECRET-TOKEN"
+
+      assert {:ok, "Bearer SECRET-TOKEN"} =
+               AlexClaw.Secrets.resolve(name, for: "host:api.example.com")
     end
   end
 end

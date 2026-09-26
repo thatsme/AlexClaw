@@ -43,7 +43,7 @@
       <div>
         <label class="block text-xs text-gray-500 mb-1">API Key</label>
         <input type="password" name="api_key"
-          placeholder={if @editing && @editing.api_key, do: mask_value(@editing.api_key), else: "optional"}
+          placeholder={if @editing && get_in(@editing.credentials || %{}, ["api_key"]), do: "set — leave blank to keep", else: "optional"}
           autocomplete="off"
           class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
       </div>

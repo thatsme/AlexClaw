@@ -106,8 +106,17 @@ services:
         # Named in db-init/pg_hba.conf: change both together.
         ipv4_address: 10.213.61.10
       automation: {}
+      # Its address is the one OpenBao's AppRole is bound to (openbao-init).
+      vault:
+        ipv4_address: 10.213.63.10
     depends_on:
+      # Started, not waited for: AlexClaw runs without OpenBao, and says so.
+      openbao:
+        condition: service_started
+        required: false
       migrate:
+        condition: service_completed_successfully
+      automator-token-init:
         condition: service_completed_successfully
     ports:
       # Loopback by default. The admin UI carries session cookies and the MCP
@@ -130,9 +139,6 @@ services:
 
       # Application
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
-      # Only for a key rotation, run in a one-off container of this service
-      # (docs/deployment/rotate-secret-key-base.md); unset otherwise.
-      OLD_SECRET_KEY_BASE: ${OLD_SECRET_KEY_BASE:-}
       TOTP_ISSUER: ${TOTP_ISSUER:-AlexClaw}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       # The origins the LiveView socket accepts: loopback on the published
@@ -142,12 +148,7 @@ services:
       CHECK_ORIGIN: ${CHECK_ORIGIN:-}
 
       # Telegram
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
-
-      # LLM providers (at least one required)
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
       # Local models (optional)
       OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
@@ -159,17 +160,14 @@ services:
 
       # Google OAuth (optional) — seeded into Admin > Config on first boot
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
-      GOOGLE_OAUTH_REFRESH_TOKEN: ${GOOGLE_OAUTH_REFRESH_TOKEN:-}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-}
 
       # Web automator (optional)
       WEB_AUTOMATOR_ENABLED: ${WEB_AUTOMATOR_ENABLED:-false}
       WEB_AUTOMATOR_HOST: ${WEB_AUTOMATOR_HOST:-http://web-automator:6900}
-      # Shared with the sidecar, which refuses every route but /health without
-      # it. Unset, AlexClaw sends nothing to the sidecar and the sidecar
-      # refuses everything: generate one with `openssl rand -hex 32`.
-      WEB_AUTOMATOR_TOKEN: ${WEB_AUTOMATOR_TOKEN:-}
+      # The token shared with the sidecar, which refuses every route but
+      # /health without it: generated once by automator-token-init, read here.
+      WEB_AUTOMATOR_TOKEN_FILE: /run/alexclaw/automator/token
 
       # Clustering
       NODE_NAME: ${NODE_NAME:-alexclaw@node1.local}
@@ -184,8 +182,17 @@ services:
       # pointing at an unwritable path is a trap rather than a decision.
       RELEASE_TMP: /tmp
       ERL_CRASH_DUMP: /tmp/erl_crash.dump
+
+      # OpenBao: where it answers, and where openbao-init leaves AlexClaw's
+      # AppRole credentials and the CA certificate to verify it with.
+      OPENBAO_ADDR: https://openbao:8200
+      OPENBAO_BOOTSTRAP_DIR: /run/alexclaw/openbao
     volumes:
       - skills_data:/app/skills
+      # The only OpenBao mount AlexClaw has: role_id, secret_id, ca.pem.
+      - openbao_bootstrap:/run/alexclaw/openbao:ro
+      # The web automator's token, and nothing else.
+      - automator_token:/run/alexclaw/automator:ro
       - ${BACKUP_DIR:-./backups}:/app/backups
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5001/health || exit 1"]
@@ -224,7 +231,13 @@ services:
       - automation
     environment:
       DISPLAY: ":99"
-      WEB_AUTOMATOR_TOKEN: ${WEB_AUTOMATOR_TOKEN:-}
+      WEB_AUTOMATOR_TOKEN_FILE: /run/automator/token
+    volumes:
+      # The token shared with AlexClaw, read at each request; nothing else.
+      - automator_token:/run/automator:ro
+    depends_on:
+      automator-token-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6900/health"]
       interval: 10s
@@ -236,6 +249,144 @@ services:
 # and Docker's automatic pool (172.17-31.x). If they collide with a network of
 # yours, change them here and the pinned addresses with them — alexclaw-prod,
 # migrate, and the two lines of db-init/pg_hba.conf.
+  # One-shot, on every start: the token AlexClaw and the web automator share,
+  # generated once into its own volume. Only those two mount it, read-only:
+  # the sidecar never sees AlexClaw's OpenBao credentials, and no operator
+  # sets or copies the token. An existing token is kept.
+  automator-token-init:
+    image: alexclaw-app:latest
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        test -s /token/token ||
+        { head -c 32 /dev/urandom | base64 | tr -d '\n=' > /token/token.new &&
+        chmod 0444 /token/token.new && mv /token/token.new /token/token; }
+    read_only: true
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    volumes:
+      - automator_token:/token
+
+  # Holds every secret AlexClaw uses (docs/architecture/openbao.md). Nothing is
+  # published; only AlexClaw and the init service join its network.
+  openbao:
+    image: openbao/openbao:2.6.3@sha256:a60afafda36337abe833c4a63894bf1095098f29abea4091e7e555a33dd52889
+    user: "100:1000"
+    read_only: true
+    # A snapshot restore stages the file here; nothing else is written to it.
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    command: ["server", "-config=/openbao/config/config.hcl"]
+    environment:
+      # The volumes are mounted with the right owner; the image's entrypoint
+      # must not try to chown them on a read-only root.
+      SKIP_CHOWN: "1"
+      BAO_API_ADDR: https://openbao:8200
+      BAO_CLUSTER_ADDR: https://openbao:8201
+    volumes:
+      - openbao_data:/openbao/file
+      - openbao_tls:/openbao/tls:ro
+      - ./openbao/config.hcl:/openbao/config/config.hcl:ro
+      # 32 random bytes, made on the host before the first start
+      # (docs/reference/env-vars.md). Mounted by nothing else.
+      - type: bind
+        source: ${OPENBAO_UNSEAL_DIR:-./openbao/unseal}
+        target: /openbao/unseal
+        read_only: true
+    networks:
+      vault:
+        ipv4_address: 10.213.63.2
+    depends_on:
+      # Healthy once the TLS certificate is in place.
+      openbao-init:
+        condition: service_healthy
+
+  # One-shot, on every start of the stack: the TLS certificate (while OpenBao is
+  # not running), then — once — OpenBao's initialisation. The first
+  # initialisation needs an operator at a terminal:
+  #   docker compose run --rm openbao-init
+  openbao-init:
+    image: alexclaw-openbao-init:latest
+    build:
+      context: ./openbao
+      dockerfile: init.Dockerfile
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    # Root, to hand the TLS key to OpenBao's user and the credentials to the
+    # group it shares with AlexClaw.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    environment:
+      OPENBAO_ADDR: https://openbao:8200
+      OPENBAO_HOSTNAME: openbao
+      ALEXCLAW_ADDRESS: 10.213.63.10
+      BACKUP_ADDRESS: 10.213.63.11
+    volumes:
+      - openbao_tls:/openbao/tls
+      - openbao_bootstrap:/bootstrap
+      - openbao_backup:/backup-credentials
+    networks:
+      - vault
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/ready"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+
+  # On demand only (profile "backup", started by scripts/backup-openbao.sh): a
+  # raft snapshot of OpenBao into the host's backups directory, taken with the
+  # backup AppRole — which may read a snapshot and nothing else. Its
+  # credentials are on openbao_backup, which AlexClaw never mounts: AlexClaw
+  # cannot copy its own vault.
+  openbao-backup:
+    image: alexclaw-openbao-init:latest
+    build:
+      context: ./openbao
+      dockerfile: init.Dockerfile
+    profiles: ["backup"]
+    entrypoint: ["/usr/local/bin/openbao-backup"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    # BACKUP_NAME is given by the script (docker compose run -e).
+    environment:
+      OPENBAO_ADDR: https://openbao:8200
+    volumes:
+      - openbao_backup:/credentials:ro
+      # Not BACKUP_DIR: that is the db_backup skill's directory, which AlexClaw
+      # mounts. The snapshots go where AlexClaw never sees them.
+      - type: bind
+        source: ${OPENBAO_BACKUP_DIR:-./openbao-backups}
+        target: /backups
+    networks:
+      vault:
+        ipv4_address: 10.213.63.11
+
 networks:
   default:
     ipam:
@@ -248,7 +399,21 @@ networks:
     ipam:
       config:
         - subnet: 10.213.62.0/24
+  # OpenBao and AlexClaw only; no route out.
+  vault:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.213.63.0/24
+          # Automatic addresses (the init service) from the upper half, away
+          # from the pinned ones.
+          ip_range: 10.213.63.128/25
 
 volumes:
   pgdata:
+  automator_token:
   skills_data:
+  openbao_data:
+  openbao_tls:
+  openbao_bootstrap:
+  openbao_backup:

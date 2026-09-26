@@ -7,8 +7,9 @@ defmodule AlexClaw.Skills.ReceiveFromWorkflow do
   optionally validates the source node against an allowlist.
 
   Config:
-    - `allowed_nodes` (list, optional): node names allowed to trigger this workflow.
-      If empty or absent, any registered cluster node is accepted.
+    - `allowed_nodes` (list): the registered cluster nodes allowed to trigger
+      this workflow. Empty or absent allows no one: a workflow names who may
+      trigger it (since 0.4.0).
   """
   @behaviour AlexClaw.Skill
 
@@ -26,7 +27,8 @@ defmodule AlexClaw.Skills.ReceiveFromWorkflow do
 
   @impl true
   @spec config_hint() :: String.t()
-  def config_hint, do: ~s|{"allowed_nodes": []} — leave empty to accept from any registered node|
+  def config_hint,
+    do: ~s|{"allowed_nodes": ["node@host"]} — the registered nodes that may trigger it|
 
   @impl true
   @spec config_scaffold() :: map()
@@ -42,26 +44,21 @@ defmodule AlexClaw.Skills.ReceiveFromWorkflow do
   @spec config_help() :: String.t()
   def config_help,
     do:
-      "Gate skill — must be step 1. allowed_nodes: optional list of node names that can trigger this workflow. Leave empty to accept from any registered cluster node."
+      "Gate skill — must be step 1. allowed_nodes: the registered cluster nodes that may trigger this workflow. Empty allows no one."
 
   @impl true
   @spec run(map()) :: {:ok, any(), atom()} | {:error, any()}
   def run(args) do
-    input = args[:input]
     config = args[:config] || %{}
-
-    allowed_nodes = config["allowed_nodes"]
-    source_node = config["_source_node"]
-
-    cond do
-      is_nil(input) ->
-        {:error, :no_input_received}
-
-      is_list(allowed_nodes) and allowed_nodes != [] and source_node not in allowed_nodes ->
-        {:error, {:unauthorized_node, source_node}}
-
-      true ->
-        {:ok, input, :on_success}
-    end
+    gate(args[:input], config["_source_node"], config["allowed_nodes"] || [])
   end
+
+  defp gate(nil, _source_node, _allowed), do: {:error, :no_input_received}
+
+  # The node must be named: an empty list allows no one.
+  defp gate(input, source_node, allowed),
+    do: admitted(is_list(allowed) and source_node in allowed, input, source_node)
+
+  defp admitted(true, input, _source_node), do: {:ok, input, :on_success}
+  defp admitted(false, _input, source_node), do: {:error, {:unauthorized_node, source_node}}
 end

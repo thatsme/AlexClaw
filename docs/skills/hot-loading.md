@@ -1,28 +1,25 @@
 # Dynamic Hot-Loading
 
-Load custom skills at runtime — no code changes, no Docker rebuild, no restart. Drop an `.ex` file into the skills volume or upload via the Admin UI.
+Load custom skills at runtime — no code changes, no Docker rebuild, no restart. A skill is uploaded on the Admin UI's Skills page.
 
 ## Loading a Skill
 
-### Via Admin UI
+1. Go to **Admin > Skills** and unlock the page (2FA elevation)
+2. Click **Upload Skill** and select the `.ex` file — it is staged outside the live skills directory
+3. The approval screen lists the skill's permissions and flags the risky ones; type a TOTP code to approve that load
+4. The skill is checked (syntax tree, containment), compiled into the running VM and registered
 
-1. Go to **Admin > Skills**
-2. Click **Upload Skill**
-3. Select your `.ex` file
-4. Confirm with 2FA (TOTP code sent to Telegram/Discord)
-5. The skill compiles into the running VM immediately
-
-### Via Volume Mount
-
-1. Place the `.ex` file in the skills Docker volume
-2. The skill is loaded automatically on next boot
-3. To load without restart, use the Admin UI reload button
+A file placed in the skills volume by hand is not loaded: at boot, only skills registered through an approved upload are loaded, each verified against its stored checksum.
 
 ## Security Layers
 
-Dynamic skills are sandboxed with multiple layers of protection:
+Dynamic skills are bounded by several layers:
 
-### Permission Sandbox
+### Containment
+
+Every remote call in the source must be to `SkillAPI` or the allowlist of pure modules ([Skill API Reference](skill-api.md#what-a-skills-source-may-call)). Checked at every load and every boot; a skill that fails it does not load, whatever was approved.
+
+### Permissions
 
 Skills declare their required permissions via `permissions/0`. Undeclared permissions are denied at runtime by the PolicyEngine:
 
@@ -50,16 +47,16 @@ SHA256 checksum is stored on load and verified on boot. Tampered files are skipp
 
 ### 2FA Gate
 
-Every skill load, unload, and reload requires TOTP verification. No exceptions, no bypass.
+Loading and reloading a skill each take a TOTP code typed on the Skills page, for that action alone. Unloading needs the page unlocked (a 2FA elevation). None of it is possible from a chat.
 
 ## Lifecycle
 
-| Action | How | 2FA Required |
+| Action | How | 2FA |
 |---|---|---|
-| Load | Upload via Admin UI or place in volume | Yes |
-| Reload | Admin UI reload button | Yes |
-| Unload | Admin UI unload button | Yes |
-| Boot load | Automatic from volume on container start | No (integrity verified) |
+| Load | Upload on the Skills page | A code for that load |
+| Reload | Reload button | A code for that reload |
+| Unload | Unload button | The page unlocked (elevation) |
+| Boot load | Registered skills, on container start | None: checksum verified, containment re-judged |
 
 ## Persistence
 
@@ -70,6 +67,6 @@ Dynamic skills survive container restarts:
 - On boot: files are verified (SHA256) and compiled into the VM
 - Tampered files are skipped with an alert
 
-## MCP Integration
+## MCP
 
-Dynamically loaded skills automatically appear as MCP tools. Connected MCP clients receive a `tools/list_changed` notification and can re-fetch the tool list without reconnecting.
+Skills are not MCP tools; an MCP client runs workflows, and a dynamic skill is reached by using it as a workflow step.

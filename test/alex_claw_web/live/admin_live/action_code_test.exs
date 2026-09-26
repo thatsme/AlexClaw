@@ -67,14 +67,16 @@ defmodule AlexClawWeb.AdminLive.ActionCodeTest do
   end
 
   describe "the field appears for every per-action gate" do
-    test "unloading a skill", ctx do
+    # Unloading is not a per-action gate since 0.4.0 (S5a): the catalogue makes
+    # it an elevated change (unload_skill: elevation). Without the elevation it
+    # asks to unlock, and shows no code field.
+    test "unloading a skill is an elevated change, not a code field", ctx do
       view = open(ctx.conn, ctx.sid, "/skills")
 
       html = render_click(view, "unload_skill", %{"name" => "echo"})
 
-      assert html =~ "Confirm:"
-      assert html =~ "Unload skill: echo"
-      assert html =~ "Code from your authenticator"
+      refute html =~ "Code from your authenticator"
+      assert html =~ ~r/unlock/i
     end
 
     test "reloading a skill", ctx do

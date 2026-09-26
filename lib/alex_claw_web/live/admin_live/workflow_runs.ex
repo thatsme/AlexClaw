@@ -4,13 +4,14 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   use Phoenix.LiveView
 
   alias AlexClaw.Workflows
+  alias AlexClawWeb.Live.Elevation
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(%{"id" => id}, _session, socket) do
+  def mount(%{"id" => id}, session, socket) do
     case parse_id(id) do
       {:ok, wf_id} ->
-        mount_workflow(Workflows.get_workflow(wf_id), socket)
+        mount_workflow(Workflows.get_workflow(wf_id), Elevation.assign_elevation(socket, session))
 
       :error ->
         {:ok, socket |> put_flash(:error, "Invalid workflow ID") |> redirect(to: "/workflows")}
@@ -65,13 +66,27 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
 
   @impl true
   def handle_event("clear_runs", _, socket) do
-    Workflows.clear_runs(socket.assigns.workflow.id)
-
-    {:noreply,
-     socket
-     |> put_flash(:info, "Run history cleared")
-     |> assign(runs: [], expanded: MapSet.new())}
+    Elevation.perform(
+      socket,
+      :clear_run_history,
+      %{
+        workflow_id: socket.assigns.workflow.id,
+        detail: "run history cleared: #{socket.assigns.workflow.name}"
+      },
+      ok: fn socket, _cleared ->
+        socket
+        |> put_flash(:info, "Run history cleared")
+        |> assign(runs: [], expanded: MapSet.new())
+      end
+    )
   end
+
+  def handle_event("unlock_editing", _params, socket), do: Elevation.open_entry(socket)
+
+  def handle_event("submit_code", %{"code" => code}, socket),
+    do: Elevation.submit_code(socket, code)
+
+  def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
 
   @impl true
   def handle_info({event, %{workflow_id: wf_id}}, socket)
@@ -88,6 +103,10 @@ defmodule AlexClawWeb.AdminLive.WorkflowRuns do
   end
 
   def handle_info({:workflow_step_completed, _}, socket), do: {:noreply, socket}
+
+  def handle_info({:elevation, _state, _detail} = message, socket),
+    do: {:noreply, Elevation.handle_broadcast(socket, message)}
+
   def handle_info(_, socket), do: {:noreply, socket}
 
   defp format_datetime(nil), do: "-"

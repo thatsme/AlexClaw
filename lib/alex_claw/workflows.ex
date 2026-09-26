@@ -3,12 +3,14 @@ defmodule AlexClaw.Workflows do
   Context for managing workflows, steps, resource assignments, and runs.
   """
   import Ecto.Query
-  alias AlexClaw.Repo
+  alias AlexClaw.{Repo, Resources}
+  alias AlexClaw.Secrets.Owned
 
   alias AlexClaw.Workflows.{
     SkillOutcome,
     SkillRegistry,
     StepReferences,
+    StepSecrets,
     Workflow,
     WorkflowResource,
     WorkflowRun,
@@ -55,7 +57,12 @@ defmodule AlexClaw.Workflows do
 
   @spec delete_workflow(Workflow.t()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
   def delete_workflow(%Workflow{} = workflow) do
-    Repo.delete(workflow)
+    steps = Repo.preload(workflow, :steps).steps
+
+    with {:ok, deleted} <- Repo.delete(workflow) do
+      Enum.each(steps, &StepSecrets.delete/1)
+      {:ok, deleted}
+    end
   end
 
   @spec duplicate_workflow(Workflow.t()) :: {:ok, Workflow.t()} | {:error, Ecto.Changeset.t()}
@@ -98,14 +105,22 @@ defmodule AlexClaw.Workflows do
   defp inserted_or_rollback({:ok, record}), do: record
   defp inserted_or_rollback({:error, changeset}), do: Repo.rollback(changeset)
 
+  # The copy owns copies of the step's secrets: deleting one step never takes
+  # the other's credentials with it.
   defp copy_step(step, workflow_id) do
+    config =
+      case StepSecrets.copied(step.skill, step.config, workflow_id) do
+        {:ok, config} -> config
+        {:error, reason} -> Repo.rollback({:secret_not_copied, step.name, reason})
+      end
+
     %WorkflowStep{}
     |> WorkflowStep.changeset(%{
       workflow_id: workflow_id,
       name: step.name,
       skill: step.skill,
       position: step.position,
-      config: step.config,
+      config: config,
       llm_tier: step.llm_tier,
       llm_model: step.llm_model,
       prompt_template: step.prompt_template,
@@ -200,8 +215,12 @@ defmodule AlexClaw.Workflows do
 
   defp export_resource(nil), do: Map.new(@resource_fields, &{Atom.to_string(&1), nil})
 
-  defp export_resource(resource),
-    do: Map.new(@resource_fields, &{Atom.to_string(&1), Map.fetch!(resource, &1)})
+  # A resource's credential and recorded values are not exported: the same
+  # rule MCP applies, with the credential shown as the placeholder.
+  defp export_resource(resource) do
+    exported = Resources.exported(resource, @secret_placeholder)
+    Map.new(@resource_fields, &{Atom.to_string(&1), Map.fetch!(exported, &1)})
+  end
 
   @doc "Import a workflow from a JSON-decoded map. Returns {:ok, workflow, warnings} or {:error, message}."
   @spec import_workflow(map()) :: {:ok, Workflow.t(), [String.t()]} | {:error, String.t()}
@@ -305,7 +324,7 @@ defmodule AlexClaw.Workflows do
              input_from: step["input_from"],
              routes: step["routes"] || []
            })
-           |> Repo.insert() do
+           |> save_step(nil, %{}, &Repo.insert/1) do
         {:ok, inserted} -> {inserted.id, missing}
         {:error, changeset} -> Repo.rollback(changeset_to_message(changeset))
       end
@@ -331,17 +350,45 @@ defmodule AlexClaw.Workflows do
 
   # Every value under a key some skill declares secret, string by string, is
   # replaced by `placeholder`: an export's, or a run definition's.
+  @doc """
+  `config` with the value of every secret step key (`c:AlexClaw.Skill.secret_config_keys/0`)
+  replaced by `placeholder`. The one rule for everything that shows a step's
+  config outside the executor: workflow export, a run's recorded definition,
+  MCP.
+  """
+  @spec redacted_config(map() | nil, String.t()) :: map() | nil
+  def redacted_config(config, placeholder), do: redacted(config, placeholder)
+
   defp redacted(nil, _placeholder), do: nil
 
+  # A reference to a secret is shown as the placeholder wherever it is (a
+  # recipe's login is not under a declared key).
   defp redacted(config, placeholder) do
     secret = SkillRegistry.secret_config_keys()
-    Map.new(config, fn {k, v} -> {k, redact_if(to_string(k) in secret, v, placeholder)} end)
+
+    Map.new(config, fn {k, v} ->
+      {k, redact_if(to_string(k) in secret, without_references(v, placeholder), placeholder)}
+    end)
   end
+
+  defp without_references(%{"secret" => name}, placeholder) when is_binary(name), do: placeholder
+
+  defp without_references(value, placeholder) when is_map(value),
+    do: Map.new(value, fn {k, v} -> {k, without_references(v, placeholder)} end)
+
+  defp without_references(value, placeholder) when is_list(value),
+    do: Enum.map(value, &without_references(&1, placeholder))
+
+  defp without_references(value, _placeholder), do: value
 
   defp redact_if(false, value, _placeholder), do: value
   defp redact_if(true, value, placeholder), do: redact(value, placeholder)
 
   defp redact(value, _placeholder) when value in [nil, ""], do: value
+
+  # A reference to a secret is shown as the placeholder too: its name says
+  # nothing a reader needs, and an import never takes it as a value.
+  defp redact(%{"secret" => name}, placeholder) when is_binary(name), do: placeholder
 
   defp redact(value, placeholder) when is_map(value),
     do: Map.new(value, fn {k, v} -> {k, redact(v, placeholder)} end)
@@ -352,18 +399,14 @@ defmodule AlexClaw.Workflows do
   defp redact(_value, placeholder), do: placeholder
 
   # The config with every placeholder emptied, and the declared keys that held one.
+  # Wherever an export put the placeholder: under a declared secret key, or in
+  # a recipe's fill (a web_automation step's login).
   defp unredacted(config) when is_map(config) do
-    secret = SkillRegistry.secret_config_keys()
-    missing = for {k, v} <- config, to_string(k) in secret, placeholder?(v), do: to_string(k)
-
-    {Map.new(config, fn {k, v} -> {k, empty_if(to_string(k) in secret, v)} end),
-     Enum.sort(missing)}
+    missing = for {k, v} <- config, placeholder?(v), do: to_string(k)
+    {Map.new(config, fn {k, v} -> {k, emptied(v)} end), Enum.sort(missing)}
   end
 
   defp unredacted(config), do: {config, []}
-
-  defp empty_if(true, value), do: emptied(value)
-  defp empty_if(false, value), do: value
 
   defp placeholder?(@secret_placeholder), do: true
 
@@ -431,22 +474,27 @@ defmodule AlexClaw.Workflows do
   defp found_or_create(nil, res), do: create_resource(res)
   defp found_or_create(resource, _res), do: {:ok, resource, :found}
 
+  # Through Resources, like any resource: a credential in the file is stored
+  # as the resource's secret; a placeholder is emptied, to be entered again.
+  # Inside the import's transaction, so discovery is not started here.
   defp create_resource(res) do
-    alias AlexClaw.Resources.Resource
-
-    %Resource{}
-    |> Resource.changeset(%{
+    %{
       name: res["name"],
       type: res["type"],
       url: res["url"],
       content: res["content"],
-      metadata: res["metadata"] || %{},
+      metadata: unredacted_metadata(res["metadata"] || %{}),
       tags: res["tags"] || [],
       enabled: res["enabled"] != false
-    })
-    |> Repo.insert()
+    }
+    |> Resources.create_resource(skip_discovery: true)
     |> created()
   end
+
+  defp unredacted_metadata(%{"auth" => %{"value" => @secret_placeholder} = auth} = metadata),
+    do: %{metadata | "auth" => %{auth | "value" => ""}}
+
+  defp unredacted_metadata(metadata), do: metadata
 
   defp created({:ok, resource}), do: {:ok, resource, :created}
   defp created({:error, changeset}), do: {:error, changeset_to_message(changeset)}
@@ -490,16 +538,27 @@ defmodule AlexClaw.Workflows do
 
     %WorkflowStep{}
     |> WorkflowStep.changeset(attrs)
-    |> Repo.insert()
+    |> save_step(nil, %{}, &Repo.insert/1)
   end
 
   @spec update_step(WorkflowStep.t(), map()) ::
           {:ok, WorkflowStep.t()} | {:error, Ecto.Changeset.t()}
   def update_step(%WorkflowStep{} = step, attrs) do
-    with {:ok, updated} <- step |> WorkflowStep.changeset(attrs) |> Repo.update() do
+    with {:ok, updated} <-
+           step
+           |> WorkflowStep.changeset(attrs)
+           |> save_step(step.skill, step.config, &Repo.update/1) do
       clear_secret_mark(updated)
       {:ok, updated}
     end
+  end
+
+  # A step is saved with its credentials (StepSecrets): the row holds
+  # references, the values go to OpenBao in the same transaction, and the
+  # secrets it no longer references are deleted once it has committed.
+  defp save_step(changeset, old_skill, old_config, persist) do
+    with {:ok, changeset, secrets} <- StepSecrets.plan(changeset, old_skill, old_config),
+         do: Owned.saved(changeset, secrets, &StepSecrets.kind/1, persist)
   end
 
   # A step imported without its secrets stops being marked once every key it
@@ -539,7 +598,15 @@ defmodule AlexClaw.Workflows do
       others = Enum.reject(steps_of(step.workflow_id), &(&1.id == step.id))
       removed(Enum.filter(others, &points_to?(&1, step.position)), step, others)
     end)
+    |> secrets_deleted()
   end
+
+  defp secrets_deleted({:ok, removed} = result) do
+    StepSecrets.delete(removed)
+    result
+  end
+
+  defp secrets_deleted(error), do: error
 
   # The remaining steps are numbered 1..n in their order, which also closes
   # gaps an earlier removal left; references follow.

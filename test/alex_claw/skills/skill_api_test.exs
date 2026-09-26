@@ -2,6 +2,7 @@ defmodule AlexClaw.Skills.SkillAPITest do
   use AlexClaw.DataCase
   @moduletag :integration
 
+  alias AlexClaw.Auth.SafeExecutor
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.SkillRegistry
 
@@ -35,58 +36,102 @@ defmodule AlexClaw.Skills.SkillAPITest do
     test "allows declared permissions", %{module: mod} do
       AlexClaw.Config.set("some.key", "value", type: "string", category: "test")
 
-      assert {:ok, "value"} = SkillAPI.config_get(mod, "some.key", "default")
+      assert {:ok, "value"} =
+               SafeExecutor.as_skill(mod, fn ->
+                 SkillAPI.config_get(mod, "some.key", "default")
+               end)
     end
 
     # :config_read grants configuration, not credentials.
+    # S9: the key is not named like a credential — since S7 such a key is
+    # refused at save, which left this test passing on an unknown key.
     test "refuses a sensitive setting even with :config_read", %{module: mod} do
-      AlexClaw.Config.set("test.secret", "s3cret",
-        type: "string",
-        category: "test",
-        sensitive: true
-      )
+      {:ok, _} =
+        AlexClaw.Config.set("test.private_value", "s3cret",
+          type: "string",
+          category: "test",
+          sensitive: true
+        )
 
-      assert {:error, :sensitive} = SkillAPI.config_get(mod, "test.secret")
+      assert {:error, :sensitive} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.config_get(mod, "test.private_value") end)
     end
 
     test "denies undeclared permissions", %{module: mod} do
-      assert {:error, :permission_denied} = SkillAPI.llm_complete(mod, "test prompt")
-      assert {:error, :permission_denied} = SkillAPI.send_telegram(mod, "test")
-      assert {:error, :permission_denied} = SkillAPI.memory_search(mod, "query")
-      assert {:error, :permission_denied} = SkillAPI.memory_store(mod, :test, "content")
-      assert {:error, :permission_denied} = SkillAPI.memory_exists?(mod, "test")
-      assert {:error, :permission_denied} = SkillAPI.memory_recent(mod)
-      assert {:error, :permission_denied} = SkillAPI.http_get(mod, "https://example.com")
-      assert {:error, :permission_denied} = SkillAPI.http_post(mod, "https://example.com")
-      assert {:error, :permission_denied} = SkillAPI.list_resources(mod)
-      assert {:error, :permission_denied} = SkillAPI.run_skill(mod, "rss_collector", %{})
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.llm_complete(mod, "test prompt") end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.send_telegram(mod, "test") end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.memory_search(mod, "query") end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.memory_store(mod, :test, "content") end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.memory_exists?(mod, "test") end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.memory_recent(mod) end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.http_get(mod, "https://example.com") end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.http_post(mod, "https://example.com") end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.list_resources(mod) end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn -> SkillAPI.run_skill(mod, "rss_collector", %{}) end)
     end
 
-    test "core skills pass all permission checks" do
+    # S9 (S8 C1): the fast path is for the core skill that is running, never
+    # for a module a call merely names. This test used to call SkillAPI naming
+    # a core module from anywhere, which pinned the hole.
+    test "a running core skill passes all permission checks", %{module: mod} do
       AlexClaw.Config.set("some.key", "value", type: "string", category: "test")
+      core = AlexClaw.Skills.RSSCollector
 
-      # Core skills have :all permissions
-      assert {:ok, _} = SkillAPI.config_get(AlexClaw.Skills.RSSCollector, "some.key", "default")
+      assert {:ok, _} =
+               SafeExecutor.as_skill(core, fn ->
+                 SkillAPI.config_get(core, "some.key", "default")
+               end)
+
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(mod, fn ->
+                 SkillAPI.config_get(core, "some.key", "default")
+               end),
+             "a dynamic skill naming a core skill got its rights"
+
+      assert {:error, :permission_denied} = SkillAPI.config_get(core, "some.key", "default"),
+             "code that is not a running skill got a core skill's rights"
     end
 
     # The redaction is about the route, not the caller: a core skill needing a
     # credential reads Config directly rather than through the skill surface.
     test "a core skill is refused a sensitive setting through config_get too" do
-      AlexClaw.Config.set("test.core_secret", "s3cret",
+      AlexClaw.Config.set("test.core_private", "s3cret",
         type: "string",
         category: "test",
         sensitive: true
       )
 
       assert {:error, :sensitive} =
-               SkillAPI.config_get(AlexClaw.Skills.RSSCollector, "test.core_secret")
+               SafeExecutor.as_skill(AlexClaw.Skills.RSSCollector, fn ->
+                 SkillAPI.config_get(AlexClaw.Skills.RSSCollector, "test.core_private")
+               end)
 
       # ...and still reaches it directly.
-      assert AlexClaw.Config.get("test.core_secret") == "s3cret"
+      assert AlexClaw.Config.get("test.core_private") == "s3cret"
     end
 
     test "unknown module is denied" do
-      assert {:error, :permission_denied} = SkillAPI.config_get(FakeModule, "key")
+      assert {:error, :permission_denied} =
+               SafeExecutor.as_skill(FakeModule, fn -> SkillAPI.config_get(FakeModule, "key") end)
     end
   end
 

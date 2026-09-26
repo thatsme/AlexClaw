@@ -2,6 +2,7 @@ defmodule AlexClaw.KnowledgeDeleteTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
+  alias AlexClaw.Auth.SafeExecutor
   alias AlexClaw.Knowledge
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.SkillRegistry
@@ -141,26 +142,34 @@ defmodule AlexClaw.KnowledgeDeleteTest do
       entry(:hexdocs, "pkg/gone/a")
 
       assert {:ok, 1} =
-               SkillAPI.knowledge_delete(writer, kind: "hexdocs", source_prefix: "pkg/gone/")
+               SafeExecutor.as_skill(writer, fn ->
+                 SkillAPI.knowledge_delete(writer, kind: "hexdocs", source_prefix: "pkg/gone/")
+               end)
     end
 
     test "a skill without :knowledge_write is denied", %{reader: reader} do
       entry(:hexdocs, "pkg/kept/a")
 
       assert {:error, :permission_denied} =
-               SkillAPI.knowledge_delete(reader, kind: "hexdocs", source_prefix: "pkg/kept/")
+               SafeExecutor.as_skill(reader, fn ->
+                 SkillAPI.knowledge_delete(reader, kind: "hexdocs", source_prefix: "pkg/kept/")
+               end)
 
       assert "pkg/kept/a" in sources(:hexdocs)
     end
 
     test "the permission check runs before the scope check", %{reader: reader} do
       assert {:error, :permission_denied} =
-               SkillAPI.knowledge_delete(reader, kind: nil, source_prefix: nil)
+               SafeExecutor.as_skill(reader, fn ->
+                 SkillAPI.knowledge_delete(reader, kind: nil, source_prefix: nil)
+               end)
     end
 
     test "a permitted skill still cannot express an unscoped delete", %{writer: writer} do
       assert {:error, :invalid_scope} =
-               SkillAPI.knowledge_delete(writer, kind: "hexdocs", source_prefix: nil)
+               SafeExecutor.as_skill(writer, fn ->
+                 SkillAPI.knowledge_delete(writer, kind: "hexdocs", source_prefix: nil)
+               end)
     end
   end
 end

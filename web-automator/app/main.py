@@ -113,11 +113,29 @@ app = FastAPI(
 
 # --- Authentication ---
 
-class RequireToken:
-    """Every route but /health needs `Authorization: Bearer <WEB_AUTOMATOR_TOKEN>`.
+def _configured_token() -> str:
+    """The shared token, from the file named by WEB_AUTOMATOR_TOKEN_FILE.
 
-    The token is read at request time. With none configured every protected
-    route answers 503: the sidecar never falls back to open. A plain ASGI
+    The automator-token-init service generates it once into a volume only
+    AlexClaw and this sidecar mount (0.4.0). Read at each request, so a new
+    token takes effect without a restart. Missing, unreadable or empty: "".
+    """
+    path = os.environ.get("WEB_AUTOMATOR_TOKEN_FILE", "")
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
+
+
+class RequireToken:
+    """Every route but /health needs `Authorization: Bearer <token>`.
+
+    The token is read at request time from the file named by
+    WEB_AUTOMATOR_TOKEN_FILE. With none configured every protected route
+    answers 503: the sidecar never falls back to open. A plain ASGI
     middleware, so the endpoint still sees the client's disconnect (/play
     cancels on it).
     """
@@ -129,9 +147,9 @@ class RequireToken:
         if scope["type"] != "http" or scope["path"] == "/health":
             return await self.app(scope, receive, send)
 
-        expected = os.environ.get("WEB_AUTOMATOR_TOKEN", "")
+        expected = _configured_token()
         if not expected:
-            response = JSONResponse({"detail": "WEB_AUTOMATOR_TOKEN is not configured"}, status_code=503)
+            response = JSONResponse({"detail": "the shared token is not configured"}, status_code=503)
         elif not _bearer_matches(Headers(scope=scope).get("authorization", ""), expected):
             response = JSONResponse(
                 {"detail": "Unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"}

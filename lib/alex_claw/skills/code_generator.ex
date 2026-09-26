@@ -61,6 +61,8 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   @chunk_separator "\n---\n"
 
+  @coder AlexClaw.Skills.Coder
+
   @spec system_prompt() :: String.t()
   def system_prompt, do: @system_prompt
 
@@ -71,10 +73,13 @@ defmodule AlexClaw.Skills.CodeGenerator do
     chunks = gather_knowledge_chunks(goal, context_source)
     build = &fitted_prompt(goal, skill_name, chunks, error_context, &1)
 
-    AlexClaw.Skills.Coder
-    |> SkillAPI.llm_complete_fitted(build, llm_opts(provider))
+    as_coder(fn -> SkillAPI.llm_complete_fitted(@coder, build, llm_opts(provider)) end)
     |> load_response(skill_name)
   end
+
+  # The generator runs in the Forge's process, not as a skill: it calls
+  # SkillAPI as the Coder skill, said explicitly (SafeExecutor.as_skill/2).
+  defp as_coder(fun), do: SafeExecutor.as_skill(@coder, fun)
 
   @doc """
   The attempt after a failed one. Code that failed is repaired: the model gets
@@ -90,8 +95,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
   def retry_step(goal, skill_name, _context_source, provider, {reason, code}) do
     prompt = repair_prompt(goal, skill_name, code, error_to_hint(reason))
 
-    AlexClaw.Skills.Coder
-    |> SkillAPI.llm_complete(prompt, llm_opts(provider))
+    as_coder(fn -> SkillAPI.llm_complete(@coder, prompt, llm_opts(provider)) end)
     |> load_response(skill_name)
   end
 
@@ -154,10 +158,16 @@ defmodule AlexClaw.Skills.CodeGenerator do
     end
   end
 
+  # Calls outside the allowlist are refused whoever approves (0.4.0 S6): only
+  # a skill whose calls are contained but whose permissions exceed the
+  # unattended cap is left for a person's code.
   defp vet_and_load(file_name, skill_name, code) do
     case SkillRegistry.vet_pending(file_name) do
       {:ok, %{contained: :ok} = vetted} ->
         load_contained(file_name, skill_name, vetted, code)
+
+      {:ok, %{calls: :ok, contained: {:error, reasons}}} ->
+        {:error, {:needs_permissions, reasons}, code}
 
       {:ok, %{contained: {:error, violations}}} ->
         {:error, {:not_contained, violations}, code}
@@ -193,7 +203,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
   defp runtime_verdict(%{module: module}, _vetted), do: validate_runtime(module)
 
   defp revert_load(skill_name, reason, code) do
-    SkillAPI.unload_skill(AlexClaw.Skills.Coder, skill_name)
+    SkillRegistry.unload_skill(skill_name)
     {:error, {:runtime_validation, reason}, code}
   end
 
@@ -207,8 +217,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
     }
   end
 
-  # Not contained: the file stays in pending and the violations become the retry
-  # hint. If the model cannot get inside the envelope, the caller asks for a code.
+  # Not unattended: the file stays in pending and the reasons become the retry
+  # hint. Calls outside the allowlist end it there; permissions over the
+  # unattended cap are left for a code (:needs_permissions).
 
   @doc """
   The prompt for one provider's budget: the mandatory part — the goal, the
@@ -433,6 +444,18 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   def error_to_hint({:write_failed, reason}), do: "Failed to write skill file: #{inspect(reason)}"
   def error_to_hint({:llm_failed, reason}), do: "LLM call failed: #{inspect(reason)}"
+
+  def error_to_hint({:needs_permissions, reasons}) do
+    """
+    The code is contained, but it declares permissions a generated skill may not
+    hold without a person's approval:
+    #{Enum.map_join(reasons, "\n", &"  - #{&1}")}
+
+    Declare only the permissions the skill uses. If it needs these, it can be
+    approved with a code.
+    """
+  end
+
   def error_to_hint(other), do: "Error: #{inspect(other)}"
 
   defp fetch_by_source(source_prefixes) do
@@ -453,11 +476,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   @spec search_kb(String.t(), non_neg_integer(), keyword()) :: [map()]
   defp search_kb(query, limit, opts) do
-    case SkillAPI.knowledge_search(
-           AlexClaw.Skills.Coder,
-           query,
-           Keyword.merge([limit: limit], opts)
-         ) do
+    case as_coder(fn ->
+           SkillAPI.knowledge_search(@coder, query, Keyword.merge([limit: limit], opts))
+         end) do
       {:ok, entries} -> entries
       _ -> []
     end

@@ -6,7 +6,19 @@ defmodule AlexClaw.LLM.Client do
   """
   require Logger
 
-  alias AlexClaw.LLM.Provider
+  alias AlexClaw.Config
+  alias AlexClaw.LLM.{Provider, ProviderSecrets}
+  alias AlexClaw.Net.Credentials
+
+  # A provider call carries its key (and any custom headers): a redirect to
+  # another host is refused rather than followed with them (S8 H7).
+  defp post_credentialed(opts) do
+    opts
+    |> Keyword.put(:method, :post)
+    |> Req.new()
+    |> Credentials.guard_redirects(credentialed: true)
+    |> Req.request()
+  end
 
   # --- API Key Resolution ---
 
@@ -15,20 +27,60 @@ defmodule AlexClaw.LLM.Client do
     "anthropic" => "llm.anthropic_api_key"
   }
 
-  @doc "Resolve API key from provider record or config database."
+  @gemini_base "https://generativelanguage.googleapis.com"
+  @anthropic_url "https://api.anthropic.com/v1/messages"
+
+  @doc """
+  The API key for a provider's completion calls: its own, or, when it has
+  none, its type's secret setting, resolved for the host the call goes to. An
+  own key that cannot be resolved gives "" — never the type's key.
+  """
   @spec resolve_api_key(Provider.t()) :: String.t()
-  def resolve_api_key(%Provider{api_key: key}) when is_binary(key) and key != "", do: key
+  def resolve_api_key(%Provider{type: type} = p), do: resolve_api_key(p, completion_host(type))
 
-  def resolve_api_key(%Provider{type: type}), do: setting_api_key(type) || ""
+  defp resolve_api_key(%Provider{type: type} = p, destination),
+    do: p |> own_key() |> or_type_key(type, destination)
 
-  @doc "The API key a provider type reads from the settings, if it has one."
+  # A provider with no key of its own uses its type's; one whose own key cannot
+  # be resolved gets none (S8 M15): the call fails as unconfigured rather than
+  # going out under another key.
+  defp or_type_key({:ok, key}, _type, _destination) when is_binary(key), do: key
+  defp or_type_key({:ok, nil}, type, destination), do: setting_api_key(type, destination) || ""
+  defp or_type_key(:unresolved, _type, _destination), do: ""
+
+  # The provider's own key, from OpenBao for its host. A failure to resolve it
+  # is logged by name.
+  defp own_key(%Provider{} = p), do: own_key(ProviderSecrets.resolved(p), p)
+
+  defp own_key({:ok, key, _headers}, _p), do: {:ok, key}
+
+  defp own_key({:error, reason}, p) do
+    Logger.warning(
+      "LLM provider #{p.name}: its API key could not be resolved (#{inspect(reason)})"
+    )
+
+    :unresolved
+  end
+
+  @doc """
+  The API key a provider type reads from its secret setting, if it has one,
+  resolved for the type's completion host (the use is audited).
+  """
   @spec setting_api_key(String.t()) :: String.t() | nil
-  def setting_api_key(type) do
+  def setting_api_key(type), do: setting_api_key(type, completion_host(type))
+
+  defp setting_api_key(type, destination) do
     case Map.get(@config_key_map, type) do
       nil -> nil
-      config_key -> AlexClaw.Config.get(config_key)
+      config_key -> Config.secret_value(config_key, for: destination)
     end
   end
+
+  defp completion_host("gemini"), do: host_binding(@gemini_base)
+  defp completion_host("anthropic"), do: host_binding(@anthropic_url)
+  defp completion_host(_type), do: nil
+
+  defp host_binding(url), do: "host:" <> URI.parse(url).host
 
   # --- Provider Completion Calls ---
 
@@ -87,11 +139,12 @@ defmodule AlexClaw.LLM.Client do
   @spec call_embedding(Provider.t(), String.t(), String.t()) ::
           {:ok, list(float())} | {:error, term()}
   def call_embedding(%Provider{type: "gemini"} = p, text, model) do
-    api_key = resolve_api_key(p)
+    base = embedding_base_url() || @gemini_base
+    api_key = resolve_api_key(p, host_binding(base))
 
     if api_key == "",
       do: {:error, :api_key_not_set},
-      else: call_embedding_gemini(api_key, text, model)
+      else: call_embedding_gemini(base, api_key, text, model)
   end
 
   def call_embedding(%Provider{type: "ollama"} = p, text, model) do
@@ -101,22 +154,26 @@ defmodule AlexClaw.LLM.Client do
 
   def call_embedding(%Provider{type: type} = p, text, model)
       when type in ["openai_compatible", "custom"] do
-    host = p.host || ""
-
-    if host == "",
-      do: {:error, :host_not_set},
-      else: call_embedding_openai(host, p.api_key, p.headers, text, model)
+    embedded_openai(p.host || "", p, text, model)
   end
 
   def call_embedding(%Provider{type: "anthropic"}, _text, _model) do
     {:error, :anthropic_no_embeddings}
   end
 
+  defp embedded_openai("", _p, _text, _model), do: {:error, :host_not_set}
+
+  defp embedded_openai(host, p, text, model) do
+    with {:ok, api_key, headers} <- ProviderSecrets.resolved(p),
+         do: call_embedding_openai(host, api_key, headers, text, model)
+  end
+
   # --- Gemini ---
 
+  # The key goes in the x-goog-api-key header, never in the URL, where it would
+  # land in any log that records request lines.
   defp call_gemini(model, api_key, prompt, system) do
-    url =
-      "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+    url = "#{@gemini_base}/v1beta/models/#{model}:generateContent"
 
     contents = [%{role: "user", parts: [%{text: prompt}]}]
 
@@ -127,11 +184,11 @@ defmodule AlexClaw.LLM.Client do
         %{contents: contents}
       end
 
-    do_gemini_request(url, body, _retries = 3)
+    do_gemini_request([url: url, headers: [{"x-goog-api-key", api_key}]], body, _retries = 3)
   end
 
-  defp do_gemini_request(url, body, retries) do
-    case Req.post(url, json: body) do
+  defp do_gemini_request(request, body, retries) do
+    case post_credentialed([json: body] ++ request) do
       {:ok,
        %{
          status: 200,
@@ -140,7 +197,7 @@ defmodule AlexClaw.LLM.Client do
         {:ok, text}
 
       {:ok, %{status: 429, body: resp_body}} ->
-        gemini_rate_limited(url, body, retries, resp_body, quota_exhausted?(resp_body))
+        gemini_rate_limited(request, body, retries, resp_body, quota_exhausted?(resp_body))
 
       {:ok, %{status: status, body: resp_body}} ->
         {:error, {:gemini, status, resp_body}}
@@ -150,16 +207,16 @@ defmodule AlexClaw.LLM.Client do
     end
   end
 
-  defp gemini_rate_limited(_url, _body, _retries, resp_body, true) do
+  defp gemini_rate_limited(_request, _body, _retries, resp_body, true) do
     Logger.warning("Gemini daily quota exhausted, not retrying")
     {:error, {:gemini_quota_exhausted, resp_body}}
   end
 
-  defp gemini_rate_limited(_url, _body, retries, resp_body, false) when retries <= 0 do
+  defp gemini_rate_limited(_request, _body, retries, resp_body, false) when retries <= 0 do
     {:error, {:gemini, 429, resp_body}}
   end
 
-  defp gemini_rate_limited(url, body, retries, _resp_body, false) do
+  defp gemini_rate_limited(request, body, retries, _resp_body, false) do
     wait = (4 - retries) * 5_000
 
     Logger.warning(
@@ -167,7 +224,7 @@ defmodule AlexClaw.LLM.Client do
     )
 
     Process.sleep(wait)
-    do_gemini_request(url, body, retries - 1)
+    do_gemini_request(request, body, retries - 1)
   end
 
   defp quota_exhausted?(%{"error" => %{"status" => "RESOURCE_EXHAUSTED"} = error}) do
@@ -181,7 +238,7 @@ defmodule AlexClaw.LLM.Client do
   # --- Anthropic ---
 
   defp call_anthropic(model, api_key, prompt, system) do
-    url = "https://api.anthropic.com/v1/messages"
+    url = @anthropic_url
 
     headers = [
       {"x-api-key", api_key},
@@ -191,7 +248,7 @@ defmodule AlexClaw.LLM.Client do
     body = %{model: model, max_tokens: 4096, messages: [%{role: "user", content: prompt}]}
     body = if system, do: Map.put(body, :system, system), else: body
 
-    case Req.post(url, json: body, headers: headers) do
+    case post_credentialed(url: url, json: body, headers: headers) do
       {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
         {:ok, text}
 
@@ -241,13 +298,14 @@ defmodule AlexClaw.LLM.Client do
   # --- OpenAI Compatible (LM Studio, GROQ, custom) ---
 
   defp call_openai_compatible(%Provider{} = p, prompt, system, timeout) do
-    url = "#{p.host}/v1/chat/completions"
-    body = openai_body(p.model, p.options || %{}, chat_messages(prompt, system))
-    headers = openai_headers(p.headers, p.api_key)
+    with {:ok, api_key, headers} <- ProviderSecrets.resolved(p) do
+      url = "#{p.host}/v1/chat/completions"
+      body = openai_body(p.model, p.options || %{}, chat_messages(prompt, system))
 
-    url
-    |> Req.post(json: body, headers: headers, receive_timeout: timeout)
-    |> openai_response()
+      [url: url, json: body, headers: openai_headers(headers, api_key), receive_timeout: timeout]
+      |> post_credentialed()
+      |> openai_response()
+    end
   end
 
   defp chat_messages(prompt, nil), do: [%{role: "user", content: prompt}]
@@ -309,9 +367,8 @@ defmodule AlexClaw.LLM.Client do
 
   # --- Gemini Embeddings ---
 
-  defp call_embedding_gemini(api_key, text, model) do
-    base = embedding_base_url() || "https://generativelanguage.googleapis.com"
-    url = "#{base}/v1beta/models/#{model}:embedContent?key=#{api_key}"
+  defp call_embedding_gemini(base, api_key, text, model) do
+    url = "#{base}/v1beta/models/#{model}:embedContent"
 
     body = %{
       model: "models/#{model}",
@@ -319,7 +376,7 @@ defmodule AlexClaw.LLM.Client do
       outputDimensionality: 768
     }
 
-    case Req.post(url, json: body) do
+    case post_credentialed(url: url, json: body, headers: [{"x-goog-api-key", api_key}]) do
       {:ok, %{status: 200, body: %{"embedding" => %{"values" => values}}}} when is_list(values) ->
         {:ok, values}
 
@@ -365,7 +422,7 @@ defmodule AlexClaw.LLM.Client do
 
     body = %{model: model, input: text}
 
-    case Req.post(url, json: body, headers: headers, receive_timeout: 600_000) do
+    case post_credentialed(url: url, json: body, headers: headers, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vector} | _]}}}
       when is_list(vector) ->
         {:ok, vector}

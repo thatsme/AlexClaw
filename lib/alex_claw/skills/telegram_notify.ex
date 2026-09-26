@@ -55,6 +55,11 @@ defmodule AlexClaw.Skills.TelegramNotify do
       when is_binary(token) and token != "" and is_binary(chat) and chat != "",
       do: true
 
+  # Its own token, saved: a reference to the secret that holds it.
+  def available?(%{"bot_token" => %{"secret" => _}, "chat_id" => chat})
+      when is_binary(chat) and chat != "",
+      do: true
+
   def available?(_config), do: Telegram.configured?()
 
   @impl true

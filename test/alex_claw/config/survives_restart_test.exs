@@ -23,46 +23,51 @@ defmodule AlexClaw.Config.SurvivesRestartTest do
 
   alias AlexClaw.Auth.{Elevation, SecondFactor, TOTP}
   alias AlexClaw.Config
-  alias AlexClaw.Config.{EncryptExisting, Seeder, Setting}
+  alias AlexClaw.Config.{Seeder, Setting}
 
-  @secret "JBSWY3DPEHPK3PXP"
-
+  # A fresh secret per test: OpenBao remembers the codes it accepted, across
+  # tests (0.4.0 S6).
   defp enrol do
-    Config.set("auth.totp.secret", @secret, type: "string", category: "auth", sensitive: true)
+    secret = Base.encode32(NimbleTOTP.secret(), padding: false)
+    Config.set("auth.totp.secret", secret, type: "string", category: "auth", sensitive: true)
     Config.set("auth.totp.enabled", "true", type: "boolean", category: "auth")
-    :ok
+    secret
   end
+
+  defp current_code(secret),
+    do: secret |> Base.decode32!(padding: false) |> NimbleTOTP.verification_code()
 
   # The steps AlexClaw.Config.Loader performs on the way up, minus the ones
   # that only schedule work for later.
   defp boot do
     Config.init()
     Seeder.seed()
-    EncryptExisting.run()
     Config.init()
     :ok
   end
 
+  # Since 0.4.0 (S6) the key is kept by OpenBao, not read back from the
+  # database: what must survive is that the enrolment still answers.
   test "an enrolled secret is still there after a boot" do
-    enrol()
-    assert TOTP.secret() == @secret
+    secret = enrol()
+    assert TOTP.configured?()
 
     boot()
 
-    assert TOTP.secret() == @secret, "booting erased the second factor"
+    assert TOTP.verify(current_code(secret)), "booting erased the second factor"
     assert Elevation.configured?(), "the instance came up unable to verify a code"
   end
 
   # Once could be luck — a value that survives the first pass and is eaten by
   # the second. The fault this guards against happened on *every* boot.
   test "and after another one" do
-    enrol()
+    secret = enrol()
 
     boot()
     boot()
     boot()
 
-    assert TOTP.secret() == @secret
+    assert TOTP.verify(current_code(secret))
     assert Elevation.configured?()
   end
 
@@ -100,7 +105,8 @@ defmodule AlexClaw.Config.SurvivesRestartTest do
       |> String.split("\n  end", parts: 2)
       |> List.first()
 
-    performed = ["AlexClaw.Config.init()", "Seeder.seed()", "EncryptExisting.run()"]
+    # EncryptExisting.run() left the loader in 0.4.0 (S7): nothing is encrypted.
+    performed = ["AlexClaw.Config.init()", "Seeder.seed()"]
 
     for call <- performed do
       assert String.contains?(body, call),

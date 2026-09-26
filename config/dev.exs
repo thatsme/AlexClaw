@@ -20,7 +20,6 @@ config :alex_claw, AlexClawWeb.Endpoint,
   ]
 
 config :alex_claw, AlexClaw.Gateway,
-  telegram_token: System.get_env("TELEGRAM_BOT_TOKEN"),
   chat_id: System.get_env("TELEGRAM_CHAT_ID"),
   poll_interval: 1_000
 

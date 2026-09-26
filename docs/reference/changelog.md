@@ -8,6 +8,8 @@ Upgrades that need manual steps have their own guides:
 
 - [Upgrading to 0.3.34](../deployment/upgrade-0.3.34.md) — separate database roles
 - [Rotating SECRET_KEY_BASE](../deployment/rotate-secret-key-base.md)
+- [OpenBao — First start](../architecture/openbao.md#first-start) — the unseal key file and the one-time initialisation, needed by 0.4.0
+- Upgrading to 0.4.0 also needs `telegram.owner_user_id` and `discord.owner_user_id` set on the Config page: with one blank, that bot answers nothing
 
 ## A version without a release
 

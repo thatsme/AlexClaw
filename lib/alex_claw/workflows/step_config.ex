@@ -18,6 +18,8 @@ defmodule AlexClaw.Workflows.StepConfig do
   `on_missing_skill`.
   """
 
+  alias AlexClaw.Auth.SafeExecutor
+
   @executor_fields %{
     "timeout_ms" => %{type: :integer, required: false},
     "on_circuit_open" => %{type: :string, required: false},
@@ -50,7 +52,7 @@ defmodule AlexClaw.Workflows.StepConfig do
   @spec available?(module(), map() | nil) :: boolean()
   def available?(skill, config) do
     Code.ensure_loaded(skill)
-    availability(skill, config || %{})
+    SafeExecutor.as_target(skill, fn -> availability(skill, config || %{}) end)
   end
 
   defp availability(skill, config) do
@@ -88,6 +90,9 @@ defmodule AlexClaw.Workflows.StepConfig do
     if of_type?(value, type), do: [], else: ["#{key}: must be #{article(type)} #{type}"]
   end
 
+  # A credential field holds a reference to its secret once saved
+  # (AlexClaw.Workflows.StepSecrets); the executor hands the skill the value.
+  defp of_type?(%{"secret" => name}, :string), do: is_binary(name)
   defp of_type?(value, :string), do: is_binary(value)
   defp of_type?(value, :integer), do: is_integer(value)
   defp of_type?(value, :number), do: is_number(value)

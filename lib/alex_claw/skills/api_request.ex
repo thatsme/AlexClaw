@@ -9,6 +9,12 @@ defmodule AlexClaw.Skills.ApiRequest do
   placeholders are replaced with the resource's base URL + base path.
   A `"path"` key in config constructs the full URL from the resource.
   Auth headers from `metadata["auth"]` are merged into the request.
+
+  The skill never holds a credential: the step's and the resource's reach it
+  as placeholders, filled at send for the host the request goes to, and only
+  that host (`AlexClaw.Net.Credentials`). A credential a request would carry
+  elsewhere, or across a redirect to another host, is refused:
+  `{:error, {:credential_refused, message}}`.
   """
   @behaviour AlexClaw.Skill
   @impl true
@@ -33,7 +39,7 @@ defmodule AlexClaw.Skills.ApiRequest do
   def step_fields, do: [:config]
 
   # Request headers carry the credentials an API asks for (Authorization,
-  # x-api-key), so the whole map is stored encrypted.
+  # x-api-key): those entries are kept in OpenBao (AlexClaw.Workflows.StepSecrets).
   @impl true
   @spec secret_config_keys() :: [String.t()]
   def secret_config_keys, do: ["headers"]
@@ -62,11 +68,26 @@ defmodule AlexClaw.Skills.ApiRequest do
   # api resource's base url when it runs.
   @impl true
   @spec validate_config(map()) :: :ok | {:error, [String.t()]}
-  def validate_config(%{"url" => url}) when is_binary(url) and url != "", do: :ok
+  def validate_config(%{"url" => url}) when is_binary(url) and url != "",
+    do: url |> URI.parse() |> without_userinfo()
+
   def validate_config(%{"path" => path}) when is_binary(path) and path != "", do: :ok
 
   def validate_config(_config),
     do: {:error, ["url: required (or a path, with an assigned api resource)"]}
+
+  # The request's host and path, for the log: a query string may carry a token.
+  defp loggable(url) do
+    uri = URI.parse(url)
+    URI.to_string(%URI{scheme: uri.scheme, host: uri.host, port: uri.port, path: uri.path})
+  end
+
+  # A password in a URL is stored, shown and logged with it: a credential goes
+  # in a header, where it is kept as a secret.
+  defp without_userinfo(%URI{userinfo: nil}), do: :ok
+
+  defp without_userinfo(_uri),
+    do: {:error, ["url: must not carry a user name or password (put the credential in a header)"]}
 
   @impl true
   @spec config_presets() :: %{String.t() => map()}
@@ -90,7 +111,17 @@ defmodule AlexClaw.Skills.ApiRequest do
 
   require Logger
 
-  @allowed_methods ~w(GET POST PUT PATCH DELETE)
+  alias AlexClaw.Net.Credentials
+  alias AlexClaw.Secrets.Owned
+
+  @methods %{
+    "GET" => :get,
+    "POST" => :post,
+    "PUT" => :put,
+    "PATCH" => :patch,
+    "DELETE" => :delete
+  }
+  @allowed_methods Map.keys(@methods)
 
   @impl true
   @spec run(map()) :: {:ok, any()} | {:error, any()}
@@ -99,8 +130,7 @@ defmodule AlexClaw.Skills.ApiRequest do
     input = args[:input]
     resources = args[:resources] || []
 
-    api_resource = find_api_resource(resources)
-    config = enrich_config(config, api_resource)
+    config = enrich_config(config, api_resource(resources))
 
     method = String.upcase(config["method"] || "GET")
     url = interpolate(config["url"] || "", input)
@@ -118,11 +148,15 @@ defmodule AlexClaw.Skills.ApiRequest do
     end
   end
 
-  defp find_api_resource(resources) when is_list(resources) do
-    Enum.find(resources, fn r -> r.type == "api" and r.enabled end)
-  end
+  @doc """
+  The API resource a step addresses through `{base_url}` or `path`: the first
+  enabled resource of type `api` among `resources`, or nil.
+  """
+  @spec api_resource([struct()] | term()) :: struct() | nil
+  def api_resource(resources) when is_list(resources),
+    do: Enum.find(resources, fn r -> r.type == "api" and r.enabled end)
 
-  defp find_api_resource(_), do: nil
+  def api_resource(_resources), do: nil
 
   defp enrich_config(config, nil), do: config
 
@@ -160,25 +194,24 @@ defmodule AlexClaw.Skills.ApiRequest do
 
   defp merge_auth_headers(config, _metadata), do: config
 
-  defp execute_request(method, url, headers, body) do
-    Logger.info("ApiRequest #{method} #{url}", skill: :api_request)
+  # The request is built and sent through the step that attaches credentials
+  # at send (AlexClaw.Net.Credentials). Its declared slots are the configured
+  # headers and the resource's auth header: each one whose value is a
+  # placeholder is filled there, for the host the request actually goes to,
+  # and nowhere else — the URL and the body, input included, are sent as written.
+  defp execute_request(method, url, {headers, slots}, body) do
+    Logger.info("ApiRequest #{method} #{loggable(url)}", skill: :api_request)
 
-    method
-    |> dispatch_request(url, [headers: headers, receive_timeout: 30_000], body)
+    [method: Map.fetch!(@methods, method), url: url, headers: headers, receive_timeout: 30_000]
+    |> Keyword.merge(body_opts(method, body))
+    |> Req.new()
+    |> Credentials.attach(slots)
+    |> Req.request()
     |> request_result()
   end
 
-  defp dispatch_request("GET", url, opts, _body), do: Req.get(url, opts)
-  defp dispatch_request("DELETE", url, opts, _body), do: Req.delete(url, opts)
-
-  defp dispatch_request("POST", url, opts, body),
-    do: Req.post(url, Keyword.merge(opts, json_or_body(body)))
-
-  defp dispatch_request("PUT", url, opts, body),
-    do: Req.put(url, Keyword.merge(opts, json_or_body(body)))
-
-  defp dispatch_request("PATCH", url, opts, body),
-    do: Req.request(Keyword.merge(opts, [method: :patch, url: url] ++ json_or_body(body)))
+  defp body_opts(method, _body) when method in ~w(GET DELETE), do: []
+  defp body_opts(_method, body), do: json_or_body(body)
 
   defp request_result({:ok, %{status: status, body: resp_body}}) when status in 200..299,
     do: {:ok, format_response(resp_body), :on_2xx}
@@ -201,6 +234,11 @@ defmodule AlexClaw.Skills.ApiRequest do
   defp request_result({:error, %Req.TransportError{reason: :timeout}}) do
     Logger.warning("ApiRequest timeout", skill: :api_request)
     {:ok, nil, :on_timeout}
+  end
+
+  defp request_result({:error, %Credentials.Refused{} = refused}) do
+    Logger.warning("ApiRequest #{Exception.message(refused)}", skill: :api_request)
+    {:error, {:credential_refused, Exception.message(refused)}}
   end
 
   defp request_result({:error, reason}) do
@@ -236,13 +274,15 @@ defmodule AlexClaw.Skills.ApiRequest do
     |> String.replace("{input}", str)
   end
 
-  defp parse_headers(nil), do: []
-
+  # {plain headers, credential slots}: a header whose value is a placeholder
+  # is a slot, filled at send.
   defp parse_headers(headers) when is_map(headers) do
-    Enum.map(headers, fn {k, v} -> {to_string(k), to_string(v)} end)
+    headers
+    |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+    |> Enum.split_with(fn {_k, v} -> is_nil(Owned.placeholder_name(v)) end)
   end
 
-  defp parse_headers(_), do: []
+  defp parse_headers(_headers), do: {[], []}
 
   defp json_or_body(""), do: []
 

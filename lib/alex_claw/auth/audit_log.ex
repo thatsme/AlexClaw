@@ -12,6 +12,7 @@ defmodule AlexClaw.Auth.AuditLog do
 
   alias AlexClaw.Auth.{AuditEntry, AuditLoss, AuthContext, Principal}
   alias AlexClaw.Repo
+  alias AlexClaw.Secrets.Mask
 
   @doc "Log and persist an authorization denial."
   @spec log_deny(AuthContext.t(), String.t()) :: :ok
@@ -82,6 +83,82 @@ defmodule AlexClaw.Auth.AuditLog do
       decision: "deny",
       reason: "#{reason} — #{detail}"
     })
+  end
+
+  @doc """
+  Write the row for an action `AlexClaw.ControlPlane.perform/3` allowed:
+  `decision` is "write" for a change (inside its transaction) or "allow" for
+  an effect (before it starts). Not best effort: a row that cannot be written
+  stops the action.
+  """
+  @spec record_action(String.t(), atom(), atom(), String.t(), String.t()) ::
+          :ok | {:error, term()}
+  def record_action(caller, entry_point, action, decision, reason) do
+    Logger.info("#{action} by #{caller}: #{reason}", auth: :control_plane)
+    record(stamp(action_row(caller, entry_point, action, decision, reason)))
+  end
+
+  @doc "Record an action `AlexClaw.ControlPlane.perform/3` refused, and why."
+  @spec log_action_refusal(String.t(), atom(), atom(), String.t()) :: :ok
+  def log_action_refusal(caller, entry_point, action, reason) do
+    Logger.warning("#{action} by #{caller} refused: #{reason}", auth: :denied)
+    insert_entry(action_row(caller, entry_point, action, "deny", storable(reason)))
+  end
+
+  # A refusal is written whatever it quotes: PostgreSQL stores no NUL in text.
+  defp storable(reason), do: String.replace(reason, "\u0000", "\\0")
+
+  # The admin UI's rows keep the caller type they have always had.
+  defp caller_type(:admin_ui), do: "admin"
+  defp caller_type(entry_point), do: to_string(entry_point)
+
+  defp action_row(caller, entry_point, action, decision, reason) do
+    %{
+      caller: caller,
+      caller_type: caller_type(entry_point),
+      permission: "control_plane.#{action}",
+      decision: decision,
+      reason: reason
+    }
+  end
+
+  @doc """
+  Record an admin login attempt: the session it opened (by fingerprint) or why
+  it was refused, and the client address. Never the password.
+  """
+  @spec log_login(
+          {:ok, String.t()} | {:error, :invalid_password | :no_admin_password},
+          String.t()
+        ) ::
+          :ok
+  def log_login({:ok, session_fingerprint}, ip) do
+    Logger.info("Admin login from #{ip}", auth: :login)
+
+    insert_entry(
+      login_row("admin:" <> session_fingerprint, "allow", "login succeeded from #{ip}")
+    )
+  end
+
+  def log_login({:error, reason}, ip) do
+    Logger.warning("Admin login refused (#{reason}) from #{ip}", auth: :login)
+    insert_entry(login_row("ip:" <> ip, "deny", "login refused from #{ip}: #{reason}"))
+  end
+
+  @doc "Record an admin logout, by the session's fingerprint."
+  @spec log_logout(String.t()) :: :ok
+  def log_logout(session_fingerprint) do
+    Logger.info("Admin logout by #{session_fingerprint}", auth: :login)
+    insert_entry(login_row("admin:" <> session_fingerprint, "allow", "logout"))
+  end
+
+  defp login_row(caller, decision, reason) do
+    %{
+      caller: caller,
+      caller_type: "admin",
+      permission: "admin.session",
+      decision: decision,
+      reason: reason
+    }
   end
 
   @doc """
@@ -217,6 +294,99 @@ defmodule AlexClaw.Auth.AuditLog do
   end
 
   @doc """
+  Record an attempt to resolve a secret: its name, the destination asked for
+  and the outcome. Allowed and refused alike, and never the value
+  (`AlexClaw.Secrets.resolve/2`). Written before the value is handed out, and
+  says whether it was: `{:error, reason}` when the row could not be written,
+  and the value then is not handed out (S8 M4).
+  """
+  @spec record_secret_resolve(String.t(), String.t(), :ok | {:error, atom()}) ::
+          :ok | {:error, term()}
+  def record_secret_resolve(name, destination, outcome) do
+    {decision, what} = secret_decision(outcome, "secret #{name} for #{destination}")
+
+    "secret.resolve"
+    |> secret_row(decision, what)
+    |> Mask.mask()
+    |> stamp()
+    |> record()
+  end
+
+  @doc "Record an attempt to set a secret's value: its name and the outcome, never the value."
+  @spec log_secret_set(String.t(), :ok | {:error, atom()}) :: :ok
+  def log_secret_set(name, outcome) do
+    secret_entry("secret.set", outcome, "secret #{name}: value set")
+  end
+
+  @doc "Record an attempt to define a secret: its name, its binding and the outcome."
+  @spec log_secret_define(String.t(), [String.t()], :ok | {:error, atom()}) :: :ok
+  def log_secret_define(name, binding, outcome) do
+    secret_entry(
+      "secret.define",
+      outcome,
+      "secret #{name}: defined, bound to #{bindings(binding)}"
+    )
+  end
+
+  @doc "Record an attempt to rebind a secret: its name, the new binding and the outcome."
+  @spec log_secret_rebind(String.t(), [String.t()], :ok | {:error, atom()}) :: :ok
+  def log_secret_rebind(name, binding, outcome) do
+    secret_entry("secret.rebind", outcome, "secret #{name}: rebound to #{bindings(binding)}")
+  end
+
+  defp bindings([]), do: "nothing"
+  defp bindings(binding), do: Enum.join(binding, ", ")
+
+  @doc "Record an attempt to delete a secret: its name and the outcome."
+  @spec log_secret_delete(String.t(), :ok | {:error, atom()}) :: :ok
+  def log_secret_delete(name, outcome) do
+    secret_entry("secret.delete", outcome, "secret #{name}: deleted")
+  end
+
+  defp secret_entry(permission, outcome, what) do
+    {decision, reason} = secret_decision(outcome, what)
+    permission |> secret_row(decision, reason) |> insert_apart()
+  end
+
+  defp secret_decision(:ok, what) do
+    Logger.debug("#{what}: allowed", auth: :secrets)
+    {"allow", what}
+  end
+
+  defp secret_decision({:error, reason}, what) do
+    Logger.warning("#{what}: refused (#{reason})", auth: :secrets)
+    {"deny", "#{what} — refused: #{reason}"}
+  end
+
+  # A secret changes in OpenBao, which no rollback undoes; so its row must not
+  # be undone either. Inside a transaction it is written from a task, on a
+  # connection of its own (S8 M4); outside one, here.
+  defp insert_apart(attrs), do: insert_apart(attrs, Repo.in_transaction?())
+
+  defp insert_apart(attrs, false), do: insert_entry(attrs)
+
+  defp insert_apart(attrs, true) do
+    entry = attrs |> Mask.mask() |> stamp()
+
+    {:ok, _pid} =
+      Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+        entry |> write() |> kept(entry)
+      end)
+
+    :ok
+  end
+
+  defp secret_row(permission, decision, reason) do
+    %{
+      caller: "secrets",
+      caller_type: "system",
+      permission: permission,
+      decision: decision,
+      reason: reason
+    }
+  end
+
+  @doc """
   Prune audit entries older than thirty days.
 
   The application's database role cannot delete from the audit log, so this
@@ -260,8 +430,10 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
+  # Masked before it is written: a reason or detail that quotes a value
+  # resolved from OpenBao does not carry it into the trail (S8 H1).
   defp insert_entry(attrs) do
-    entry = stamp(attrs)
+    entry = attrs |> Mask.mask() |> stamp()
 
     entry
     |> write()

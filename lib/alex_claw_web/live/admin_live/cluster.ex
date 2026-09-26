@@ -3,7 +3,7 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   use Phoenix.LiveView
   alias AlexClawWeb.Live.Elevation
 
-  alias AlexClaw.{Cluster, ControlPlane}
+  alias AlexClaw.Cluster
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
@@ -48,8 +48,13 @@ defmodule AlexClawWeb.AdminLive.Cluster do
 
   @impl true
   def handle_event("add_node", %{"name" => name, "label" => label}, socket) do
-    Elevation.gated(socket, "cluster node added: #{name}",
-      write: fn -> Cluster.create_node(%{name: String.trim(name), label: String.trim(label)}) end,
+    Elevation.perform(
+      socket,
+      :save_node,
+      %{
+        attrs: %{name: String.trim(name), label: String.trim(label)},
+        detail: "cluster node added: #{name}"
+      },
       ok: fn socket, _node ->
         socket
         |> put_flash(:info, "Node added")
@@ -64,25 +69,28 @@ defmodule AlexClawWeb.AdminLive.Cluster do
   # are audited once known.
   @impl true
   def handle_event("connect", %{"id" => id}, socket) do
-    sid = socket.assigns.elevation_sid
-
-    Elevation.gated(socket, "cluster node connect: id #{id}",
-      write: fn -> {:ok, Cluster.get_node!(String.to_integer(id))} end,
-      after_commit: fn node ->
-        status = if Cluster.node_ping(node.name) == :pong, do: "connected", else: "disconnected"
-
-        ControlPlane.outcome(sid, "cluster node connect: id #{id} — #{status}", fn ->
-          Cluster.update_node(node, %{status: status, last_seen_at: DateTime.utc_now()})
-        end)
-      end,
+    Elevation.perform(
+      socket,
+      :save_node,
+      %{
+        node_id: String.to_integer(id),
+        connect: true,
+        detail: "cluster node connect: id #{id}"
+      },
       ok: fn socket, _node -> assign(socket, nodes: remote_nodes(socket.assigns.self_node)) end
     )
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    Elevation.gated(socket, "cluster node deleted: id #{id}",
-      write: fn -> Cluster.delete_node(Cluster.get_node!(String.to_integer(id))) end,
+    Elevation.perform(
+      socket,
+      :save_node,
+      %{
+        node_id: String.to_integer(id),
+        delete: true,
+        detail: "cluster node deleted: id #{id}"
+      },
       ok: fn socket, node ->
         socket
         |> put_flash(:info, "Node '#{node.name}' removed")
@@ -101,10 +109,6 @@ defmodule AlexClawWeb.AdminLive.Cluster do
 
   def handle_event("cancel_code", _params, socket) do
     Elevation.close_entry(socket)
-  end
-
-  def handle_event("request_gateway_code", _params, socket) do
-    Elevation.unlock(socket)
   end
 
   defp not_added(socket, %Ecto.Changeset{} = changeset) do

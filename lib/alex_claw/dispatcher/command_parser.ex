@@ -21,8 +21,8 @@ defmodule AlexClaw.Dispatcher.CommandParser do
   @spec resolve_tier(keyword(), String.t(), String.t()) :: atom()
   def resolve_tier(opts, config_key, default) do
     case Keyword.get(opts, :tier) do
-      nil -> to_tier(AlexClaw.Config.get(config_key) || default)
-      val -> to_tier(val)
+      nil -> to_tier(AlexClaw.Config.get(config_key) || default, default)
+      val -> to_tier(val, default)
     end
   end
 
@@ -43,8 +43,13 @@ defmodule AlexClaw.Dispatcher.CommandParser do
          not Regex.match?(~r/--#{flag}\s+\S/, text))
   end
 
-  defp to_tier(val) when is_atom(val), do: val
-  defp to_tier(val) when is_binary(val), do: String.to_existing_atom(val)
+  # Text from a chat is looked up, never turned into an atom: an unknown tier
+  # is the default's.
+  @tiers %{"light" => :light, "medium" => :medium, "heavy" => :heavy, "local" => :local}
+
+  defp to_tier(val, _default) when is_atom(val) and val != :query, do: val
+  defp to_tier(val, default) when is_binary(val), do: Map.get(@tiers, val, @tiers[default])
+  defp to_tier(_val, default), do: @tiers[default]
 
   defp extract_flags([], flags, rest), do: {Enum.reverse(flags), Enum.reverse(rest)}
 

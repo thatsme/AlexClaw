@@ -31,28 +31,19 @@ defmodule AlexClaw.Auth.GatePromptTest do
     on_exit(&CodeAttempts.reset/0)
 
     {:ok, %{secret: secret}} = TOTP.setup()
-    :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+    :ok =
+      TOTP.confirm_setup(NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30))
 
     chat = "gate_#{System.unique_integer([:positive])}"
     insert_setting("telegram.chat_id", chat, type: "string", category: "telegram")
     insert_setting("discord.channel_id", "", type: "string", category: "discord")
     RecordingGateway.install()
 
-    %{chat: chat}
+    %{chat: chat, secret: secret}
   end
 
   defp prompts, do: Enum.filter(RecordingGateway.sent(), &(&1 =~ ~r/authenticator/i))
-
-  defp command(chat, text) do
-    AlexClaw.Dispatcher.dispatch(%AlexClaw.Message{
-      text: text,
-      chat_id: chat,
-      from: "Test",
-      timestamp: DateTime.utc_now(),
-      raw: %{},
-      gateway: :test
-    })
-  end
 
   test "an unlocked chat is prompted, and the prompt names the authenticator entry" do
     assert :challenged = Gate.request(%{type: :test}, "Unlock admin editing for 15 minutes")
@@ -83,11 +74,23 @@ defmodule AlexClaw.Auth.GatePromptTest do
       refute prompt =~ "AlexClaw-Air", "the prompt names today's issuer, not the enrolled one"
     end
 
-    test "an enrolment made with a custom issuer is named by it" do
-      TOTP.disable()
+    test "an enrolment made with a custom issuer is named by it", %{secret: secret} do
+      # Re-enrolling means turning 2FA off first, with a current code (0.4.0).
+      # The confirming code cannot be replayed; move the marker back.
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
       System.put_env("TOTP_ISSUER", "Terminal-Ops")
-      {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+      {:ok, %{secret: new_secret}} = TOTP.setup()
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(new_secret, time: System.os_time(:second) - 30)
+        )
+
       System.put_env("TOTP_ISSUER", "Something-Else")
 
       assert :challenged = Gate.request(%{type: :test}, "Unlock admin editing for 15 minutes")
@@ -105,37 +108,6 @@ defmodule AlexClaw.Auth.GatePromptTest do
       assert [prompt] = prompts()
       assert prompt =~ "AlexClaw"
       refute prompt =~ "AlexClaw-Air"
-    end
-  end
-
-  # The second way a gateway is prompted: a Telegram command that needs a code
-  # (AuthCommands.require_2fa/3, e.g. /shell). Same rules as Gate.request/2 —
-  # one prompt builder, one lock check.
-  describe "commands that need a code" do
-    # /shell reaches its 2FA step only when the shell is enabled; the seeded
-    # default is off.
-    setup do
-      insert_setting("shell.enabled", "true", type: "boolean", category: "shell")
-      :ok
-    end
-
-    test "prompt with the enrolled entry's name", %{chat: chat} do
-      command(chat, "/shell uptime")
-      assert [prompt] = prompts()
-      assert prompt =~ ~r/authenticator entry/i
-      assert prompt =~ "AlexClaw"
-    end
-
-    test "a locked chat gets the lock, not a prompt", %{chat: chat} do
-      Challenge.create(chat, %{type: :test})
-      for wrong <- ~w(000000 000001 000002), do: Challenge.resolve(chat, wrong)
-      RecordingGateway.clear()
-
-      command(chat, "/shell uptime")
-
-      assert prompts() == []
-      assert List.last(RecordingGateway.sent()) =~ ~r/locked/i
-      refute Challenge.pending?(chat)
     end
   end
 

@@ -117,8 +117,8 @@ The `alexclaw_app` role and its privileges do nothing unless `.env` names it. Dr
 
 ## Restoring after 0.3.34
 
-- **From the admin UI.** Database → **Export Data** writes the application's data as a JSON file, and **Restore** loads such a file. The restore replaces the application's data. It never touches the audit log or the current sign-ins, and it never runs anything from the file. Each restore asks for a code. Encrypted values (sensitive settings, and from 0.3.35 every stored credential) are written to the file encrypted under `SECRET_KEY_BASE`, so a file restores only on an installation with the same key.
-- **A full restore**, schema and audit log included, is an operator step with the owner's credentials. It **replaces the whole database** with the backup: take a fresh backup first if the current data may still be needed.
+- **From the admin UI.** Database → **Export Data** writes the application's data as a JSON file, and **Restore** loads such a file. The restore replaces the application's data. It never touches the audit log or the current sign-ins, and it never runs anything from the file. Each restore asks for a code. Encrypted values (sensitive settings, and from 0.3.35 every stored credential) are written to the file encrypted under `SECRET_KEY_BASE`, so a file restores only on an installation with the same key. From 0.4.0 an export holds no credential, only references to secrets in OpenBao, and 0.4.0 refuses a file holding values 0.3.x encrypted: such a file is restored into 0.3.x and then upgraded.
+- **A full restore**, schema and audit log included, is an operator step with the owner's credentials. It **replaces the whole database** with the backup: take a fresh backup first if the current data may still be needed. From 0.4.0 the database holds references to secrets in OpenBao, and a full restore restores nothing in OpenBao: restore OpenBao's data from the same point in time (see [OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao)).
 
   The backup can come from **Download Backup** (`.sql`), the backup skill (`.sql.gz`), or the command in *Before you start* (`.dump`). The database is recreated first, so the restore reproduces the backup exactly whatever version it was made on. `migrate` then brings the schema up to date and grants the application role its privileges:
 
@@ -147,7 +147,7 @@ The same steps apply. The swarm file has the same `migrate` service, and both no
 
 ## What the upgrade was tested on
 
-The steps above were rehearsed from 0.3.29 on a copy of a production database, with the single-node `docker-compose.yml`: the upgrade, both checks in step 4, the rollback to 0.3.33, upgrading again after it, and the full restore of a backup from before the upgrade. On the upgraded copy, the admin UI's Export Data and Restore were run as a round trip with a two-factor code, and `SECRET_KEY_BASE` was rotated with [its procedure](rotate-secret-key-base.md); afterwards the settings and the TOTP secret decrypted under the new key, and an export made under the old one was refused.
+The steps above were rehearsed from 0.3.29 on a copy of a production database, with the single-node `docker-compose.yml`: the upgrade, both checks in step 4, the rollback to 0.3.33, upgrading again after it, and the full restore of a backup from before the upgrade. On the upgraded copy, the admin UI's Export Data and Restore were run as a round trip with a two-factor code, and `SECRET_KEY_BASE` was rotated with the procedure of that release; afterwards the settings and the TOTP secret decrypted under the new key, and an export made under the old one was refused.
 
 Not rehearsed:
 

@@ -46,11 +46,28 @@ defmodule AlexClawWeb.AdminLive.Memory do
   # What the agent remembers shapes what it answers, so removing a memory is a
   # change like any other: audited, and behind an elevation.
   @impl true
-  def handle_event("delete", %{"id" => id_str}, socket) do
-    Elevation.gated(socket, "memory entry deleted: id #{id_str}",
-      write: fn ->
-        with {:ok, entry} <- fetch_entry(id_str), do: AlexClaw.Repo.delete(entry)
-      end,
+  def handle_event("delete", %{"id" => id_str}, socket),
+    do: delete_entry(parse_id(id_str), socket)
+
+  def handle_event("unlock_editing", _params, socket), do: Elevation.open_entry(socket)
+
+  def handle_event("submit_code", %{"code" => code}, socket),
+    do: Elevation.submit_code(socket, code)
+
+  def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
+
+  @impl true
+  def handle_info({:elevation, _state, _detail} = message, socket) do
+    {:noreply, Elevation.handle_broadcast(socket, message)}
+  end
+
+  defp delete_entry({:error, reason}, socket), do: {:noreply, not_deleted(socket, reason)}
+
+  defp delete_entry({:ok, id}, socket) do
+    Elevation.perform(
+      socket,
+      :delete_memory,
+      %{entry_id: id, detail: "memory entry deleted: id #{id}"},
       ok: fn socket, _entry ->
         socket
         |> put_flash(:info, "Memory entry deleted")
@@ -59,30 +76,6 @@ defmodule AlexClawWeb.AdminLive.Memory do
       error: &not_deleted/2
     )
   end
-
-  def handle_event("unlock_editing", _params, socket), do: Elevation.open_entry(socket)
-
-  def handle_event("submit_code", %{"code" => code}, socket),
-    do: Elevation.submit_code(socket, code)
-
-  def handle_event("cancel_code", _params, socket), do: Elevation.close_entry(socket)
-  def handle_event("request_gateway_code", _params, socket), do: Elevation.unlock(socket)
-
-  @impl true
-  def handle_info({:elevation, _state, _detail} = message, socket) do
-    {:noreply, Elevation.handle_broadcast(socket, message)}
-  end
-
-  defp fetch_entry(id_str) do
-    with {:ok, id} <- parse_id(id_str) do
-      AlexClaw.Memory.Entry
-      |> AlexClaw.Repo.get(id)
-      |> found_entry()
-    end
-  end
-
-  defp found_entry(nil), do: {:error, :not_found}
-  defp found_entry(entry), do: {:ok, entry}
 
   defp not_deleted(socket, :invalid_id), do: socket
   defp not_deleted(socket, :not_found), do: put_flash(socket, :error, "Memory entry not found")

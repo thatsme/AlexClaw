@@ -15,6 +15,13 @@ defmodule AlexClaw.Dispatcher.AutomationCommandsTest do
     }
   end
 
+  # The owner chat (0.4.0 S5b): a gateway answers only the chat set in the
+  # admin UI.
+  setup do
+    insert_setting("telegram.chat_id", "123", type: "string", category: "telegram")
+    :ok
+  end
+
   describe "automation commands routing" do
     test "/record dispatches without crash" do
       insert_setting("web_automator.enabled", "true", type: "boolean", category: "web_automator")

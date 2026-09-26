@@ -19,7 +19,7 @@ defmodule AlexClaw.Auth.SecondFactor.Totp do
 
   @impl true
   def verify(secret, method) do
-    accepted(TOTP.verify(normalize(secret)), secret, method)
+    secret |> normalize() |> TOTP.check() |> accepted(secret, method)
   end
 
   # The flag is not the factor. TOTP.configured?/0 requires a secret that can
@@ -36,16 +36,38 @@ defmodule AlexClaw.Auth.SecondFactor.Totp do
 
   # The flag is the claim; the secret is the ability to make good on it.
   @impl true
-  def misconfigured?, do: TOTP.enabled?() and TOTP.secret() == nil
+  def misconfigured?, do: TOTP.enabled?() and not TOTP.key_recorded?()
 
-  defp accepted(true, _secret, _method), do: {:ok, :totp}
+  # A Base32 secret from before 0.4.0 is imported into OpenBao's TOTP engine.
+  @impl true
+  def carry_over(opts), do: TOTP.import_legacy(opts)
 
-  defp accepted(false, secret, :web), do: spent(RecoveryCodes.redeem(secret))
+  @impl true
+  def reset, do: TOTP.reset_by_operator()
 
-  defp accepted(false, _secret, :gateway), do: {:error, :invalid_code}
+  defp accepted(:ok, _secret, _method), do: {:ok, :totp}
+
+  # The authenticator cannot answer — OpenBao unreachable, or a key from
+  # before 0.4.0 not (or never) imported: a recovery code is exactly the way
+  # in for that, and is tried in the browser (S9 fix review). An authenticator
+  # code typed meanwhile is unavailable, not wrong: it is not counted (S8 M11).
+  defp accepted({:error, :unavailable}, secret, :web),
+    do: unavailable_or_recovery(authenticator_code?(secret), secret)
+
+  defp accepted({:error, :unavailable} = unavailable, _secret, :gateway), do: unavailable
+
+  defp accepted({:error, :invalid_code}, secret, :web), do: spent(RecoveryCodes.redeem(secret))
+
+  defp accepted({:error, :invalid_code}, _secret, :gateway), do: {:error, :invalid_code}
+
+  defp unavailable_or_recovery(true, _secret), do: {:error, :unavailable}
+  defp unavailable_or_recovery(false, secret), do: spent(RecoveryCodes.redeem(secret))
+
+  defp authenticator_code?(secret), do: normalize(secret) =~ ~r/\A\d{6}\z/
 
   defp spent({:ok, _remaining}), do: {:ok, :recovery_code}
-  defp spent({:error, :invalid_code}), do: {:error, :invalid_code}
+  defp spent({:error, :unavailable} = unavailable), do: unavailable
+  defp spent({:error, _reason}), do: {:error, :invalid_code}
 
   # Operators paste codes with the space their authenticator shows. Recovery
   # codes carry their own normalisation, since a hyphen is punctuation there.

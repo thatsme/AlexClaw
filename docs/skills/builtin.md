@@ -17,22 +17,25 @@ Skills marked **External** fetch data from outside the system. Their output is a
 | `discord_notify` | Send workflow output to a Discord channel | `on_delivered`, `on_error` | — |
 | `llm_transform` | Run a prompt template through the LLM (workflow glue step) | `on_success`, `on_error` | — |
 | `api_request` | Generic REST client (GET/POST/PUT/PATCH/DELETE) | `on_2xx`, `on_4xx`, `on_5xx`, `on_timeout`, `on_error` | Yes |
-| `github_security_review` | Fetch PR/commit diff, run LLM security analysis | `on_clean`, `on_findings`, `on_error` | Yes |
+| `github_security_review` | Fetch a PR or commit diff — analysis is a following `llm_transform` step | `on_diff`, `on_empty`, `on_error` | Yes |
 | `google_calendar` | Fetch upcoming Google Calendar events | `on_events`, `on_empty`, `on_error` | Yes |
 | `google_tasks` | List and create Google Tasks | `on_tasks`, `on_empty`, `on_error` | Yes |
-| `db_backup` | PostgreSQL backup with gzip compression and rotation | `on_success`, `on_error` | — |
-| `shell` | Execute whitelisted OS commands (2FA-gated) | `on_success`, `on_error`, `on_timeout` | — |
-| `web_automation` | Browser automation via headless Playwright sidecar | `on_success`, `on_error` | Yes |
-| `coder` | Generate dynamic skills from natural language via local LLM | `on_created`, `on_workflow_created`, `on_error` | — |
+| `db_backup` | PostgreSQL backup with gzip compression and rotation (privileged) | `on_success`, `on_error` | — |
+| `shell` | Execute allow-listed OS commands (privileged) | `on_success`, `on_error`, `on_timeout` | — |
+| `web_automation` | Browser automation via the headless Playwright sidecar (privileged) | `on_success`, `on_error` | Yes |
+| `coder` | Generation engine behind the Forge page — not usable as a workflow step | `on_created`, `on_partial`, `on_error` | — |
+| `skill_source_indexer` | Index skill source into the knowledge base | `on_success`, `on_empty`, `on_error` | — |
 | `send_to_workflow` | Send data to a workflow on another BEAM node | `on_sent`, `on_error` | — |
 | `receive_from_workflow` | Gate: accepts remote triggers when placed as step 1 | `on_success`, `on_error` | — |
+
+Privileged steps (`shell`, `coder`, `db_backup`, `web_automation`) run only in a run the scheduler starts, or one the admin UI starts with a 2FA code; a run of a workflow that contains one, started from a chat, MCP, a webhook or another node, is refused before it starts. `coder` is never a step: skills are generated on the Forge page.
 
 ## Composable Skills (v0.3.15+)
 
 Pure-fetch and pure-LLM skills designed for single-responsibility workflows. Use these instead of the monolithic skills above.
 
 !!! warning "Deprecation"
-    `web_browse`, `web_search`, and `rss_collector` will be removed in v0.4.0. Migrate to the composable pattern below.
+    `web_browse`, `web_search` and `rss_collector` are deprecated and kept for existing workflows; a later release removes them. Migrate to the composable pattern below.
 
 ### Pure Fetch (No LLM)
 
@@ -66,23 +69,9 @@ web_fetch → llm_transform → telegram_notify
 rss_fetch → llm_score → llm_transform → telegram_notify
 ```
 
-## Dynamic Skills (Shipped)
+## Example Dynamic Skills
 
-These are loaded from the skills volume at boot:
-
-| Skill | Description |
-|---|---|
-| `elixir_source_scraper` | Fetch Elixir stdlib source from GitHub for pattern learning |
-| `erlang_docs_scraper` | Fetch Erlang/OTP docs from GitHub into knowledge base |
-| `lyse_scraper` | Scrape Learn You Some Erlang chapters into knowledge base |
-| `skill_source_indexer` | Index existing skill source code into knowledge base |
-| `system_info` | Returns UTC time, hostname, and Elixir version |
-| `github_security_review_v2` | Enhanced GitHub PR/commit security review |
-| `research_v2` | Enhanced deep research |
-| `rss_v2` | RSS collector with full article fetch and configurable timeouts |
-| `web_browse_v2` | Enhanced web browsing |
-| `web_search_v2` | Enhanced DuckDuckGo search |
-| `nvd_cve_monitor` | Fetches recent CVEs from NIST NVD 2.0 API |
+The repository's `test/fixtures/skills/` holds example dynamic skills (scrapers, an NVD CVE monitor, variants of the research and web skills) and a documented template, `skill_template.ex`. None is installed by default: a dynamic skill is loaded by uploading it on the Skills page. Some examples predate containment (they call `Task`, `System`, `File` or `:code` directly) and do not load until they use `SkillAPI.parallel_map/4` and `SkillAPI.module_docs/2` instead, or drop the call.
 
 ## Notify Skills
 
@@ -90,4 +79,4 @@ These are loaded from the skills volume at boot:
 
 ## MCP Access
 
-All skills are exposed as MCP tools with the `skill:` prefix. See [MCP Tools](../mcp/tools.md).
+Skills are not MCP tools. An MCP client runs workflows (`workflow:<name>`), and a skill runs inside a workflow. See [MCP Tools](../mcp/tools.md).

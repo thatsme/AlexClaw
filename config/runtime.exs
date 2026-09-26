@@ -3,8 +3,19 @@ import Config
 config :alex_claw, :skills_dir, System.get_env("SKILLS_DIR", "/app/skills")
 
 # The shared token the web-automator sidecar requires on every route but
-# /health. Unset or empty, AlexClaw sends nothing to the sidecar.
-config :alex_claw, :web_automator_token, System.get_env("WEB_AUTOMATOR_TOKEN")
+# /health: generated once by the automator-token-init service into a file only
+# AlexClaw and the sidecar mount (0.4.0 S7). Missing or empty, AlexClaw sends
+# nothing to the sidecar.
+web_automator_token =
+  with path when is_binary(path) and path != "" <- System.get_env("WEB_AUTOMATOR_TOKEN_FILE"),
+       {:ok, contents} <- File.read(path),
+       token when token != "" <- String.trim(contents) do
+    token
+  else
+    _missing -> nil
+  end
+
+config :alex_claw, :web_automator_token, web_automator_token
 
 if config_env() == :prod do
   # The migrate service runs an eval with the database owner's credentials and,
@@ -76,13 +87,23 @@ if config_env() == :prod do
 
   config :alex_claw, admin_password: System.get_env("ADMIN_PASSWORD")
 
+  # OpenBao: its address, and the directory where openbao-init leaves the
+  # AppRole credentials and the CA certificate. Unset, the client reports every
+  # secret unavailable; nothing falls back.
+  openbao_bootstrap = System.get_env("OPENBAO_BOOTSTRAP_DIR")
+
+  config :alex_claw, AlexClaw.Vault,
+    address: System.get_env("OPENBAO_ADDR"),
+    ca_file: openbao_bootstrap && Path.join(openbao_bootstrap, "ca.pem"),
+    role_id_file: openbao_bootstrap && Path.join(openbao_bootstrap, "role_id"),
+    secret_id_file: openbao_bootstrap && Path.join(openbao_bootstrap, "secret_id")
+
   # The running application must connect as its own restricted role, never as
   # the database owner: the boot stops otherwise. Unconditional, by design —
   # see AlexClaw.Database.PrivilegeCheck.
   config :alex_claw, enforce_db_privileges: true
 
   config :alex_claw, AlexClaw.Gateway,
-    telegram_token: System.get_env("TELEGRAM_BOT_TOKEN"),
     chat_id: System.get_env("TELEGRAM_CHAT_ID"),
     poll_interval: 1_000
 

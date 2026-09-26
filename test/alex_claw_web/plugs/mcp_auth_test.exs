@@ -5,7 +5,8 @@ defmodule AlexClawWeb.Plugs.McpAuthTest do
   alias AlexClawWeb.Plugs.McpAuth
 
   setup do
-    AlexClaw.Config.set("mcp.api_key", "test-mcp-key-2026", type: "string", category: "mcp")
+    {:ok, fingerprint} = AlexClaw.MCP.Key.fingerprint_of("test-mcp-key-2026")
+    {:ok, _} = AlexClaw.Config.set("mcp.api_key", fingerprint, category: "mcp")
     :ok
   end
 

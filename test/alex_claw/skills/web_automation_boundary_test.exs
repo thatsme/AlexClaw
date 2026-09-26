@@ -8,7 +8,7 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
   with the setting false.
 
   And every request to the sidecar carries its token (F2). The token comes
-  from the application environment (runtime.exs reads WEB_AUTOMATOR_TOKEN), not
+  from the application environment (runtime.exs reads the WEB_AUTOMATOR_TOKEN_FILE file), not
   from a setting: it stays out of the database and out of exports. Without a
   token AlexClaw refuses before sending — it never talks to the sidecar
   unauthenticated.
@@ -19,11 +19,9 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.{Dispatcher, Message, RecordingGateway}
   alias AlexClaw.Skills.WebAutomation
 
   @token "test-automator-token"
-  @secret "s3cr3t-value-7731"
 
   setup do
     bypass = Bypass.open()
@@ -44,17 +42,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
       type: "boolean",
       category: "web_automator"
     )
-  end
-
-  defp msg(text) do
-    %Message{
-      text: text,
-      chat_id: "123",
-      from: "Test",
-      timestamp: DateTime.utc_now(),
-      raw: %{},
-      gateway: :test
-    }
   end
 
   describe "with web_automator.enabled false, nothing reaches the sidecar" do
@@ -82,23 +69,9 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
                })
     end
 
-    test "the Telegram commands refuse too, and say so" do
-      RecordingGateway.install()
-
-      for text <- [
-            "/record https://example.com",
-            "/record stop abc12345",
-            "/automate https://example.com"
-          ] do
-        Dispatcher.dispatch(msg(text))
-      end
-
-      sent = RecordingGateway.sent()
-      assert length(sent) >= 3, "each command answers: #{inspect(sent)}"
-
-      assert Enum.all?(sent, &(&1 =~ ~r/disabled/i)),
-             "not every answer says disabled: #{inspect(sent)}"
-    end
+    # The chat commands (/record, /automate) no longer exist since 0.4.0 (S5b):
+    # a chat refuses them always, pointing to the admin UI
+    # (dispatcher/operate_not_author_test.exs) — not only while disabled.
   end
 
   describe "every request carries the token" do
@@ -179,49 +152,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
     end
   end
 
-  # automation_commands.ex:99–104 sent the whole recipe — values included — to
-  # Telegram when saving a recording failed. A recorded value may be a
-  # password. No gateway message about a recording carries a step's value,
-  # whether the save succeeds or fails.
-  describe "a recording's values never reach the gateway" do
-    setup %{bypass: bypass} do
-      enable(true)
-      RecordingGateway.install()
-      %{bypass: bypass}
-    end
-
-    test "when the recording is saved", %{bypass: bypass} do
-      stub_stop(bypass, %{
-        "base_url" => "https://portal.example.com/login",
-        "captured_actions" => 3
-      })
-
-      Dispatcher.dispatch(msg("/record stop abc12345"))
-
-      sent = RecordingGateway.sent()
-      assert sent != []
-
-      refute Enum.any?(sent, &String.contains?(&1, @secret)),
-             "a recorded value was sent: #{inspect(sent)}"
-    end
-
-    # A summary whose base_url is not a string fails the resource's :string
-    # cast (the only field the sidecar controls; name and type come from the
-    # dispatcher). Verified by Claude Code, phase-1 result §2.1.
-    test "when saving the recording fails", %{bypass: bypass} do
-      stub_stop(bypass, %{"base_url" => 42, "captured_actions" => 3})
-      Dispatcher.dispatch(msg("/record stop abc12345"))
-
-      sent = RecordingGateway.sent()
-
-      assert Enum.any?(sent, &(&1 =~ ~r/fail|could not|error/i)),
-             "the failure was not reported: #{inspect(sent)}"
-
-      refute Enum.any?(sent, &String.contains?(&1, @secret)),
-             "a recorded value was sent: #{inspect(sent)}"
-    end
-  end
-
   # The Services page called /status with its own Req.get, so it would not
   # carry the token. Only the skill module builds sidecar requests.
   test "only WebAutomation reads the sidecar host" do
@@ -238,35 +168,6 @@ defmodule AlexClaw.Skills.WebAutomationBoundaryTest do
 
     assert offenders == [],
            "these build sidecar requests outside WebAutomation: #{Enum.join(offenders, ", ")}"
-  end
-
-  defp stub_stop(bypass, summary) do
-    Bypass.stub(bypass, "POST", "/record/abc12345/stop", fn conn ->
-      json(conn, %{
-        "actions" => [
-          %{
-            "action_type" => "fill",
-            "selector" => "#user",
-            "value" => "alex",
-            "url" => "https://portal.example.com/login"
-          },
-          %{
-            "action_type" => "fill",
-            "selector" => "#password",
-            "value" => @secret,
-            "url" => "https://portal.example.com/login"
-          },
-          %{
-            "action_type" => "click",
-            "selector" => "button",
-            "value" => "",
-            "url" => "https://portal.example.com/login"
-          }
-        ],
-        "downloads" => [],
-        "summary" => summary
-      })
-    end)
   end
 
   defp json(conn, body) do

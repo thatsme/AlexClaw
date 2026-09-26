@@ -2,50 +2,74 @@ defmodule AlexClawWeb.Live.ActionCode do
   @moduledoc """
   Confirming one action with a code, from the page that asked for it.
 
-  These are the gates an elevation deliberately does not satisfy — loading a
-  skill, approving generated code, running a workflow marked `requires_2fa`,
-  restoring the database. Each needs a code of its own, and until now the only
-  place to type it was a gateway.
+  These are the actions an elevation deliberately does not satisfy — loading
+  a skill, approving generated code, running a workflow marked `requires_2fa`,
+  restoring the database. Each needs a code of its own (`:code` in
+  `AlexClaw.ControlPlane.catalogue/0`).
 
-  The action waits in the same supervised store as a gateway challenge, keyed
-  by session instead of by chat, and is performed by the same
-  `execute_2fa_action/2`. One execution path; two ways to supply the code.
-
-  Both ways are live at once: raising a web challenge also sends the gateway
-  prompt, and whichever is answered first performs the action and withdraws the
-  other. Otherwise an operator who typed the code would leave a challenge
-  standing that a later code could answer a second time.
+  The action and its params wait in the challenge store, keyed by session;
+  the typed code is handed to `AlexClaw.ControlPlane.perform/3`, which checks
+  it and performs the action. A protected workflow run is also sent to the
+  gateway, since a chat may approve that one (and nothing else): whichever is
+  answered first performs it and withdraws the other.
   """
 
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [put_flash: 3]
 
-  alias AlexClaw.Auth.{Challenge, CodeEntry, Gate, Principal}
-  alias AlexClaw.Dispatcher.AuthCommands
-  alias AlexClaw.Message
+  alias AlexClaw.Auth.{Challenge, Gate, Principal}
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
+  alias AlexClaw.Workflows
+  alias AlexClaw.Workflows.Launch
   alias Phoenix.LiveView.Socket
 
-  @doc """
-  Ask for a code for `action`, on the page and on any gateway.
+  @code_refusals [:invalid_code, :locked_session, :locked_instance, :not_configured, :unavailable]
 
-  The page shows a field; a gateway, if one is configured, shows the prompt it
-  always did. `description` is what the operator is told they are approving.
+  @doc """
+  Ask for a code for the catalogued `action` with `params`. The page shows a
+  field; for a protected workflow run, a gateway also shows the prompt.
+  `description` is what the operator is told they are approving.
   """
-  @spec request(Socket.t(), map(), String.t()) :: {:noreply, Socket.t()}
-  def request(socket, action, description) do
-    sid = sid(socket)
-    Challenge.create_for_session(sid, Map.put(action, :requested_by, Principal.requested_by()))
-    Gate.request(action, description)
+  @spec request(Socket.t(), atom(), map(), String.t()) :: {:noreply, Socket.t()}
+  def request(socket, action, params, description) do
+    Challenge.create_for_session(sid(socket), %{
+      action: action,
+      params: params,
+      requested_by: Principal.requested_by()
+    })
+
+    prompt_gateways(action, params, description)
 
     {:noreply,
      assign(socket, :action_code, %{open?: true, description: description, message: nil})}
   end
 
+  # A chat's code cannot make a run privileged (S8 M7): a run with a
+  # privileged step is approved here only, and the chat is not asked.
+  defp prompt_gateways(:run_protected_workflow, %{workflow_id: id}, description),
+    do: id |> Workflows.get_workflow() |> prompt_unless_privileged(id, description)
+
+  defp prompt_gateways(_action, _params, _description), do: :ok
+
+  defp prompt_unless_privileged({:ok, workflow}, id, description),
+    do: prompt_chat(Launch.privileged_steps(workflow), id, description)
+
+  defp prompt_unless_privileged({:error, _not_found}, _id, _description), do: :ok
+
+  defp prompt_chat([], id, description),
+    do: Gate.request(%{type: :run_workflow, workflow_id: id}, description)
+
+  defp prompt_chat(_privileged, _id, _description), do: :ok
+
   @doc "Check a typed code and, if it holds, perform the waiting action."
   @spec submit(Socket.t(), String.t()) :: {:noreply, Socket.t()}
   def submit(socket, code) do
     sid = sid(socket)
-    perform(CodeEntry.verify(sid, code, :web), sid, socket)
+
+    sid
+    |> Challenge.pending_for_session()
+    |> perform(code, sid, socket)
   end
 
   @doc "Abandon the waiting action, on the page and on the gateway."
@@ -64,47 +88,36 @@ defmodule AlexClawWeb.Live.ActionCode do
 
   # --- Internals ---
 
-  defp perform(:ok, sid, socket) do
-    sid
-    |> Challenge.take_for_session()
-    |> run(sid, socket)
-  end
-
-  defp perform({:error, reason}, _sid, socket) do
-    {:noreply, message(socket, refusal(reason))}
-  end
-
-  defp run({:ok, action}, sid, socket) do
-    withdraw_gateway_challenges()
-    AuthCommands.execute_2fa_action(action, confirmation_context(sid))
-
-    {:noreply,
-     socket
-     |> closed()
-     |> put_flash(:info, "Confirmed.")}
+  defp perform({:ok, %{action: action, params: params}}, code, sid, socket) do
+    action
+    |> ControlPlane.perform(params, Context.admin_ui(sid, code))
+    |> performed(sid, socket)
   end
 
   # Two minutes is not long, and an approval that expired is not an approval.
-  defp run(:error, _sid, socket) do
-    {:noreply, message(socket, "That request has expired. Start it again.")}
+  defp perform(_expired, _code, _sid, socket),
+    do: {:noreply, message(socket, "That request has expired. Start it again.")}
+
+  # A wrong code leaves the request waiting for the next one.
+  defp performed({:error, reason}, _sid, socket) when reason in @code_refusals,
+    do: {:noreply, message(socket, refusal(reason))}
+
+  defp performed(result, sid, socket) do
+    Challenge.drop_for_session(sid)
+    withdraw_gateway_challenges()
+    {:noreply, socket |> closed() |> confirmed(result)}
   end
 
-  # The same action was also waiting on every configured gateway. Leaving it
+  defp confirmed(socket, {:error, reason}),
+    do: put_flash(socket, :error, "Not done: #{inspect(reason)}")
+
+  defp confirmed(socket, _done), do: put_flash(socket, :info, "Confirmed.")
+
+  # The same run may also be waiting on every configured gateway. Leaving it
   # there would let a second code perform it twice.
   defp withdraw_gateway_challenges do
     for chat_id <- Gate.notify_targets(), do: Challenge.drop(chat_id)
     :ok
-  end
-
-  # execute_2fa_action/2 reports back over a gateway for actions that came from
-  # one. A web confirmation has no chat to answer, and the page says so itself.
-  defp confirmation_context(sid) do
-    %Message{
-      chat_id: "web:" <> String.slice(sid, 0, 8),
-      timestamp: DateTime.utc_now(),
-      raw: %{},
-      gateway: nil
-    }
   end
 
   defp closed(socket) do
@@ -124,6 +137,10 @@ defmodule AlexClawWeb.Live.ActionCode do
     do: "Too many wrong codes across sessions. Code entry is locked for fifteen minutes."
 
   defp refusal(:not_configured), do: "No second factor is configured yet."
+
+  defp refusal(:unavailable),
+    do:
+      "The second factor cannot be checked right now (OpenBao is unavailable). Try again shortly."
 
   defp sid(%{assigns: %{elevation_sid: sid}}), do: sid
   defp sid(_socket), do: nil

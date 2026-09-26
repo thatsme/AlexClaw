@@ -37,6 +37,19 @@ The executor matches the branch against the step's route configuration to determ
 
 By default, each step receives the output of the previous step. The `input_from` field enables non-linear wiring — a step can pull its input from any earlier step by position number, enabling fan-in patterns.
 
+## Credentials in steps
+
+A step's credential fields — the keys its skill declares in
+`secret_config_keys/0` (every header of an API Request step, a Telegram Notify
+step's own `bot_token`), and the fill values of a web-automation recipe — are
+stored as secrets in OpenBao, bound when they are entered to the host the step
+sends them to. For an API Request step addressed through its workflow's API
+resource (a `{base_url}` URL, or a `path`), that is the resource's host. A step
+with a credential and no such host is refused. The step row holds references;
+at run time the skill receives placeholders, never values, and the value is
+attached at send, for the host the request actually goes to. See
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md#secrets-in-openbao).
+
 ## Triggering
 
 | Method | How |
@@ -45,12 +58,23 @@ By default, each step receives the output of the previous step. The `input_from`
 | Telegram/Discord | `/run <id or name>` |
 | Admin UI | Run button on the workflow page |
 | MCP | `workflow:<name>` tool call |
+| GitHub webhook | The workflow named in `github.review_workflow` |
+| Another node | `send_to_workflow` to a workflow whose step 1 is `receive_from_workflow` |
 
-Every run executes under `AlexClaw.TaskSupervisor`, so a crash is supervised
-rather than lost. A workflow marked as requiring a second factor raises a
-challenge first, on every one of these paths —
+Every trigger but the scheduler starts the run through
+`ControlPlane.perform/3`, which audits it, allowed or refused. A run started
+from the admin UI, a chat, the webhook or another node executes under
+`AlexClaw.TaskSupervisor`, so a crash is supervised rather than lost; an MCP
+call runs the workflow and waits for its result.
+
+A workflow marked `Requires 2FA` takes a code for each run — typed in the
+admin UI, or answered in the chat that asked — and cannot be scheduled; MCP,
+the webhook and other nodes cannot start it. A workflow with a privileged step
+(`shell`, `coder`, `db_backup`, `web_automation`) runs only when the scheduler
+starts it or the admin UI starts it with a code; from anywhere else it is
+refused before any step runs.
 [SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md) states
-what that gate covers and how it behaves when 2FA is not configured.
+what these gates cover and how they behave when 2FA is not configured.
 
 ## The LLM step
 
@@ -103,7 +127,7 @@ This is transparent to workflow authors — no sanitize step to add, no step to 
 
 Workflows can be exported as self-contained JSON files and imported on any instance.
 
-**Export** (`GET /workflows/:id/export` or "Export" button in Admin UI) produces a JSON file containing:
+**Export** (`GET /workflows/:id/export`, or the Export button in the Admin UI, with the page unlocked) produces a JSON file containing:
 
 - Workflow definition (name, description, schedule, provider, node, metadata)
 - All steps with position, skill, config, prompt template, LLM tier/model, routes, input_from

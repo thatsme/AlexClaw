@@ -68,11 +68,13 @@ defmodule AlexClaw.Auth.RecoveryCodesTest do
       end
     end
 
+    # Since 0.4.0 (S6): an OpenBao transit HMAC of the code's SHA-256, keyed by
+    # a key that never leaves OpenBao (recovery_codes_transit_test.exs).
     test "is a sha-256 hash, and nothing else about the code" do
       RecoveryCodes.generate()
 
       for row <- Repo.all(RecoveryCode) do
-        assert row.hash =~ ~r/^[0-9a-f]{64}$/
+        assert row.hash =~ ~r/^vault:v\d+:[A-Za-z0-9+\/]+=*$/
         assert row.used_at == nil
       end
     end

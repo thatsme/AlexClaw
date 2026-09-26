@@ -5,7 +5,7 @@ defmodule AlexClaw.Skills.Dynamic.WebBrowseV2 do
   """
   @behaviour AlexClaw.Skill
 
-  import AlexClaw.Skills.Helpers, only: [sanitize_utf8: 1, strip_noise: 1]
+  alias AlexClaw.Skills.Helpers
   alias AlexClaw.Skills.SkillAPI
 
   @max_content_length 8_000
@@ -129,9 +129,9 @@ defmodule AlexClaw.Skills.Dynamic.WebBrowseV2 do
 
   defp extract_text(html) do
     html
-    |> sanitize_utf8()
+    |> Helpers.sanitize_utf8()
     |> Floki.parse_document!()
-    |> strip_noise()
+    |> Helpers.strip_noise()
     |> Floki.text(sep: "\n")
     |> String.replace(~r/\n{3,}/, "\n\n")
     |> String.replace(~r/[ \t]+/, " ")

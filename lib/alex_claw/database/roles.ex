@@ -41,6 +41,8 @@ defmodule AlexClaw.Database.Roles do
     "reasoning_sessions" => @full,
     "reasoning_steps" => @full,
     "resources" => @full,
+    # The secrets catalogue: names, kinds, bindings, dates — never a value.
+    "secrets" => @full,
     "settings" => @full,
     "skill_outcomes" => @full,
     "workflow_resources" => @full,
@@ -73,6 +75,9 @@ defmodule AlexClaw.Database.Roles do
     )
     |> Kernel.++([
       "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO #{role}",
+      # Inserting a row needs USAGE (nextval); UPDATE would let the role move
+      # the audit log's sequence (setval), and every later row collide (S8 M4).
+      "REVOKE UPDATE ON SEQUENCE auth_audit_log_id_seq FROM #{role}",
       "GRANT EXECUTE ON FUNCTION prune_auth_audit_log() TO #{role}"
     ])
     |> Enum.each(&Postgrex.query!(conn, &1, []))

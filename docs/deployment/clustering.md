@@ -10,6 +10,9 @@ A `docker-compose_swarm.yml` is included for multi-node testing:
 docker compose -f docker-compose_swarm.yml up -d
 ```
 
+It runs no OpenBao: on it, no credential resolves and no second factor can be
+set up, so it tests clustering, not a working installation.
+
 Each node needs:
 
 | Variable | Example |

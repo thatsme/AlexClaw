@@ -16,7 +16,7 @@ defmodule AlexClaw.Skills.Research do
   def routes, do: [:on_results, :on_error]
   require Logger
 
-  alias AlexClaw.{Config, Gateway, Identity, LLM, Memory}
+  alias AlexClaw.{Config, Identity, LLM, Memory}
   alias AlexClaw.RAG.Fallback
 
   @impl true
@@ -73,22 +73,6 @@ defmodule AlexClaw.Skills.Research do
 
   defp provider_opt(provider) when provider in [nil, "", "auto"], do: []
   defp provider_opt(provider), do: [provider: provider]
-
-  @spec handle(String.t(), keyword()) :: :ok
-  def handle(query, opts \\ []) do
-    tier = Keyword.get(opts, :tier, resolve_tier())
-    provider = Keyword.get(opts, :provider, resolve_provider())
-    gateway_opts = Keyword.take(opts, [:gateway, :chat_id])
-
-    case do_research(query, tier: tier, provider: provider) do
-      {:ok, response, _branch} ->
-        Gateway.send_message(response, gateway_opts)
-
-      {:error, reason} ->
-        Logger.warning("Research failed: #{inspect(reason)}", skill: :research)
-        Gateway.send_message("Research failed: #{inspect(reason)}", gateway_opts)
-    end
-  end
 
   defp resolve_tier, do: String.to_existing_atom(Config.get("skill.research.tier") || "medium")
 

@@ -10,7 +10,10 @@ defmodule AlexClaw.Auth.ChallengeStoreTest do
 
   defp enable_2fa do
     {:ok, %{secret: secret}} = TOTP.setup()
-    :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+    :ok =
+      TOTP.confirm_setup(NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30))
+
     secret
   end
 

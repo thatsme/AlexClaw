@@ -14,10 +14,15 @@ defmodule AlexClaw.Workflows.Executor do
 
   alias AlexClaw.Auth.{CapabilityToken, RunApproval, SafeExecutor}
   alias AlexClaw.ContentSanitizer
+  alias AlexClaw.Resources.ResourceSecrets
+  alias AlexClaw.Secrets.Mask
   alias AlexClaw.Skill
-  alias AlexClaw.Skills.CircuitBreaker
+  alias AlexClaw.Skills.{CircuitBreaker, Invoke}
   alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.{Registry, SkillRegistry, StepConfig, Workflow}
+  alias AlexClaw.Workflows.{Registry, SkillRegistry, StepConfig, StepSecrets, Workflow}
+
+  # Whether the run in this process may run privileged steps (S8 M7).
+  @privileged_run :privileged_run
 
   @doc """
   Run a workflow by ID. Creates a run record and walks the step graph.
@@ -25,6 +30,11 @@ defmodule AlexClaw.Workflows.Executor do
   A workflow that requires 2FA runs only with `opts[:approval]`, a live
   `AlexClaw.Auth.RunApproval` for it, consumed here; otherwise
   `{:error, :approval_required}` and no run is created.
+
+  A privileged step (`AlexClaw.Skills.Invoke.privileged_skills/0`) runs only
+  in a run started with `opts[:privileged]` — by the scheduler, or by the
+  admin UI with a code (S8 M7); otherwise that step fails with
+  `{:privileged_step, skill}` and the skill does not run.
   """
   @spec run(integer(), keyword()) ::
           {:ok, AlexClaw.Workflows.WorkflowRun.t()}
@@ -70,6 +80,10 @@ defmodule AlexClaw.Workflows.Executor do
   defp launch(%Workflow{enabled: false}, _data, _opts), do: {:error, :workflow_disabled}
 
   defp launch(workflow, data, opts) do
+    # The run executes in this process: whether it may run privileged steps
+    # is set for it here, every time (S8 M7).
+    Process.put(@privileged_run, Keyword.get(opts, :privileged) == true)
+
     workflow
     |> approval(Keyword.get(opts, :approval))
     |> approved(workflow, data)
@@ -252,7 +266,10 @@ defmodule AlexClaw.Workflows.Executor do
     announce_step(step, ctx)
 
     started_at = System.monotonic_time(:millisecond)
-    step_result = contained_step(step, input, ctx.workflow, ctx.run)
+    # Masked where it enters the run: whatever the skill returned or failed
+    # with no longer holds a value resolved from OpenBao, for the next step,
+    # the outcome, the history, the error and the notices alike (S8 H1).
+    step_result = step |> contained_step(input, ctx.workflow, ctx.run) |> Mask.mask()
 
     record_outcome(
       ctx.run.id,
@@ -415,23 +432,62 @@ defmodule AlexClaw.Workflows.Executor do
 
   # A step saved before the config contract is held to it here: one that breaks
   # it fails at this step, naming the field, instead of running on what it has.
+  # So is one saved before its skill stopped being available as a step (Coder,
+  # since 0.4.0): it fails with the skill's reason, and the skill never runs.
   defp run_resolved_skill({:ok, module}, step, args) do
     module
-    |> StepConfig.validate(args.config, runtime: true)
-    |> run_checked(module, step, args)
+    |> StepConfig.available?(args.config)
+    |> run_available(module, step, args)
   end
 
-  defp run_checked({:error, reasons}, _module, _step, _args),
-    do: {:error, {:invalid_config, reasons}}
+  defp privileged_allowed?(skill),
+    do: skill not in Invoke.privileged_skills() or Process.get(@privileged_run) == true
 
-  defp run_checked(:ok, module, step, args) do
+  defp run_available(false, module, step, _args),
+    do: {:error, {:unavailable, Skill.unavailable_reason(module, step.skill)}}
+
+  defp run_available(true, module, step, args) do
+    module
+    |> StepConfig.validate(args.config, runtime: true)
+    |> with_secrets(step, args)
+    |> run_checked(module, step)
+  end
+
+  # The step's secret references, and its resources', as placeholders: the
+  # skill never holds a value. The names go with the run as its allow-list:
+  # only those are attached, in a declared slot, each for the host its request
+  # goes to (AlexClaw.Net.Credentials). A resource's credential is on it only
+  # for a skill that attaches it in a declared slot.
+  defp with_secrets(:ok, step, args) do
+    with {:ok, config, step_names} <- StepSecrets.for_skill(step.skill, args.config),
+         {:ok, resources, resource_names} <- ResourceSecrets.for_skill_all(args.resources) do
+      {:ok, %{args | config: config, resources: resources},
+       step_names ++ ResourceSecrets.given_to(step.skill, resource_names)}
+    end
+  end
+
+  defp with_secrets({:error, reasons}, _step, _args), do: {:error, {:invalid_config, reasons}}
+
+  defp run_checked({:error, reason}, _module, _step), do: {:error, reason}
+
+  defp run_checked({:ok, args, secrets}, module, step) do
+    step.skill
+    |> privileged_allowed?()
+    |> run_permitted({args, secrets}, module, step)
+  end
+
+  # Last before the skill runs: a step that is unavailable or misconfigured
+  # fails with that reason first (S8 M7).
+  defp run_permitted(false, _args, _module, step), do: {:error, {:privileged_step, step.skill}}
+
+  defp run_permitted(true, {args, secrets}, module, step) do
     skill_type = SkillRegistry.get_type(module) || :dynamic
     token = mint_step_token(module, skill_type)
     if token, do: Process.put(:auth_token, token)
 
     step.skill
     |> CircuitBreaker.call(fn ->
-      SafeExecutor.run(module, args, skill_type, token, safe_opts(step))
+      SafeExecutor.run(module, args, skill_type, token, [secrets: secrets] ++ safe_opts(step))
     end)
     |> normalize_result()
     |> maybe_sanitize(step.skill)
@@ -486,8 +542,23 @@ defmodule AlexClaw.Workflows.Executor do
     {:error, {:fallback_not_found, fallback_name}}
   end
 
-  defp run_fallback({:ok, mod}, _fallback_name, args) do
-    normalize_result(mod.run(args))
+  # The fallback runs as any skill does: through SafeExecutor, with its own
+  # token, and refused if it is not available.
+  defp run_fallback({:ok, fallback}, fallback_name, args) do
+    fallback_name
+    |> privileged_allowed?()
+    |> fallback_permitted(fallback, fallback_name, args)
+  end
+
+  defp fallback_permitted(false, _fallback, fallback_name, _args),
+    do: {:error, {:privileged_step, fallback_name}}
+
+  defp fallback_permitted(true, fallback, _fallback_name, args) do
+    skill_type = SkillRegistry.get_type(fallback) || :dynamic
+
+    fallback
+    |> SafeExecutor.run(args, skill_type, mint_step_token(fallback, skill_type), [])
+    |> normalize_result()
   end
 
   defp handle_missing_skill(step, args) do

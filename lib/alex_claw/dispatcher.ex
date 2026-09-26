@@ -3,44 +3,74 @@ defmodule AlexClaw.Dispatcher do
   Routes incoming messages and scheduled events to the correct skill.
   Pattern matches on message content — no LLM for routing.
 
-  Command groups are delegated to focused modules:
-  - `AutomationCommands` — /record, /replay, /automate
-  - `AuthCommands` — 2FA setup/confirm/disable, OAuth connect/disconnect
+  A chat operates AlexClaw; it never authors it (0.4.0 S5b): commands that
+  wrote a setting, recorded or replayed a page, generated a skill or ran a
+  shell command answer where that is done instead. Workflow runs go through
+  `AlexClaw.ControlPlane.perform/3`. `AuthCommands` answers the 2FA and
+  connection commands, and approves a protected run with a code.
   """
   require Logger
 
   alias AlexClaw.Auth.Challenge
   alias AlexClaw.Config
-  alias AlexClaw.Dispatcher.{AuthCommands, AutomationCommands, CommandParser}
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
+  alias AlexClaw.Dispatcher.{AuthCommands, CommandParser}
   alias AlexClaw.Gateway
-  alias AlexClaw.Message
+  alias AlexClaw.{Memory, Message}
   alias AlexClaw.Repo
   alias AlexClaw.SkillSupervisor
 
-  alias AlexClaw.Skills.{
-    Coder,
-    Conversational,
-    GitHubSecurityReview,
-    GoogleTasks,
-    Research,
-    Shell,
-    WebBrowse,
-    WebSearch
-  }
-
   alias AlexClaw.Workflows
-  alias Workflows.{Executor, SkillRegistry, Workflow}
+  alias Workflows.{Launch, SkillRegistry, Workflow}
 
-  @spec dispatch(Message.t()) :: :ok | :ignored | term()
-  def dispatch(%Message{text: "/start" <> _} = msg) do
+  @doc """
+  Handle a message from a gateway. Only the owner is answered, as set in the
+  admin UI (`:set_gateway_owner`): the user `telegram.owner_user_id` in the
+  chat `telegram.chat_id`, the user `discord.owner_user_id` in the channel
+  `discord.channel_id` — a group or a channel has members, and any of them
+  could otherwise command the agent (S8 M10). With no owner set, every message is
+  ignored; a message never makes its chat, or its sender, the owner.
+  """
+  @spec dispatch(Message.t() | term()) :: :ok | :ignored | term()
+  def dispatch(%Message{} = msg), do: msg |> owner?() |> routed(msg)
+  def dispatch(_other), do: :ignored
+
+  defp routed(true, msg), do: route(msg)
+
+  defp routed(false, msg) do
+    Logger.warning("Ignored a message from chat #{msg.chat_id}: not the owner chat")
+    :ignored
+  end
+
+  defp owner?(%Message{gateway: :discord, chat_id: chat_id, user_id: user_id}),
+    do:
+      owner_chat?(Config.get("discord.channel_id"), chat_id) and
+        owner_chat?(Config.get("discord.owner_user_id"), user_id)
+
+  defp owner?(%Message{gateway: :telegram, chat_id: chat_id, user_id: user_id}),
+    do:
+      owner_chat?(Config.get("telegram.chat_id"), chat_id) and
+        owner_chat?(Config.get("telegram.owner_user_id"), user_id)
+
+  defp owner?(%Message{chat_id: chat_id, gateway: gateway}),
+    do: owner_chat?(Config.get(owner_key(gateway)), chat_id)
+
+  defp owner_key(_gateway), do: "telegram.chat_id"
+
+  defp owner_chat?(owner, _chat_id) when owner in [nil, ""], do: false
+  defp owner_chat?(_owner, nil), do: false
+  defp owner_chat?(owner, chat_id), do: to_string(owner) == to_string(chat_id)
+
+  defp route(%Message{text: "/start" <> _} = msg) do
     Gateway.send_message("🦇 *AlexClaw* is ready.\nType /help for commands.", gateway: msg.gateway)
   end
 
-  def dispatch(%Message{text: "/ping" <> _} = msg) do
+  defp route(%Message{text: "/ping" <> _} = msg) do
     Gateway.send_message("pong from `#{node()}`", chat_id: msg.chat_id, gateway: msg.gateway)
   end
 
-  def dispatch(%Message{text: "/status" <> _} = msg) do
+  defp route(%Message{text: "/status" <> _} = msg) do
     uptime = :erlang.statistics(:wall_clock) |> elem(0) |> div(1000)
     memory = div(:erlang.memory(:total), 1_048_576)
 
@@ -55,110 +85,73 @@ defmodule AlexClaw.Dispatcher do
     )
   end
 
-  def dispatch(%Message{text: "/task add " <> title} = msg) do
-    case GoogleTasks.run(%{
-           config: %{"action" => "add"},
-           input: String.trim(title)
-         }) do
-      {:ok, result, _branch} ->
-        Gateway.send_message(result, gateway: msg.gateway)
-
-      {:error, reason} ->
-        Gateway.send_message("Failed to add task: #{inspect(reason)}", gateway: msg.gateway)
-    end
+  defp route(%Message{text: "/task add " <> title} = msg) do
+    "google_tasks"
+    |> run_skill(%{config: %{"action" => "add"}, input: String.trim(title)}, msg)
+    |> answer(msg, "", "Failed to add task")
   end
 
-  def dispatch(%Message{text: "/tasklists" <> _} = msg) do
-    case GoogleTasks.run(%{config: %{"action" => "lists"}}) do
-      {:ok, result, _branch} ->
-        Gateway.send_message("*Your Task Lists*\n\n#{result}", gateway: msg.gateway)
-
-      {:error, reason} ->
-        Gateway.send_message("Failed to fetch task lists: #{inspect(reason)}",
-          gateway: msg.gateway
-        )
-    end
+  defp route(%Message{text: "/tasklists" <> _} = msg) do
+    "google_tasks"
+    |> run_skill(%{config: %{"action" => "lists"}}, msg)
+    |> answer(msg, "*Your Task Lists*\n\n", "Failed to fetch task lists")
   end
 
-  def dispatch(%Message{text: "/tasks" <> _} = msg) do
-    case GoogleTasks.run(%{config: %{"action" => "list"}}) do
-      {:ok, result, _branch} ->
-        Gateway.send_message("*Your Tasks*\n\n#{result}", gateway: msg.gateway)
-
-      {:error, reason} ->
-        Gateway.send_message("Failed to fetch tasks: #{inspect(reason)}", gateway: msg.gateway)
-    end
+  defp route(%Message{text: "/tasks" <> _} = msg) do
+    "google_tasks"
+    |> run_skill(%{config: %{"action" => "list"}}, msg)
+    |> answer(msg, "*Your Tasks*\n\n", "Failed to fetch tasks")
   end
 
-  def dispatch(%Message{text: "/research " <> raw} = msg) do
+  defp route(%Message{text: "/research " <> raw} = msg) do
     tiered_command(msg, raw, %{
       label: "Research",
       report_label: "Research",
-      prefix: "skill.research",
+      tier_key: "skill.research.tier",
+      provider_key: "skill.research.provider",
       default_tier: "medium",
       usage: "Usage: /research [--tier light|medium|heavy|local] [--provider name] <query>",
-      handler: &Research.handle/2
+      skill: "research"
     })
   end
 
-  def dispatch(%Message{text: "/search " <> raw} = msg) do
+  defp route(%Message{text: "/search " <> raw} = msg) do
     tiered_command(msg, raw, %{
       label: "Search",
       report_label: "Web Search",
-      prefix: "skill.web_search",
+      tier_key: "skill.web_search.tier",
+      provider_key: "skill.web_search.provider",
       default_tier: "medium",
       usage: "Usage: /search [--tier light|medium|heavy|local] [--provider name] <query>",
-      handler: &WebSearch.handle/2
+      skill: "web_search"
     })
   end
 
-  def dispatch(%Message{text: "/web " <> raw} = msg) do
+  defp route(%Message{text: "/web " <> raw} = msg) do
     {rest, flags} = CommandParser.parse(String.trim(raw))
 
     if rest == "" and Keyword.has_key?(flags, :tier) do
-      new_tier = Keyword.get(flags, :tier)
-      Config.set("skill.web_browse.tier", new_tier)
-
-      if provider = Keyword.get(flags, :provider) do
-        Config.set("skill.web_browse.provider", provider)
-
-        Gateway.send_message("Browse defaults saved: tier=#{new_tier}, provider=#{provider}",
-          gateway: msg.gateway
-        )
-      else
-        Gateway.send_message("Browse default tier saved: #{new_tier}", gateway: msg.gateway)
-      end
+      defaults_elsewhere(msg)
     else
       tier = CommandParser.resolve_tier(flags, "skill.web_browse.tier", "light")
       provider = CommandParser.resolve_provider(flags, "skill.web_browse.provider")
 
-      case String.split(rest, " ", parts: 2) do
-        [url, question] ->
-          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})",
-            gateway: msg.gateway
-          )
+      Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})", gateway: msg.gateway)
 
-          WebBrowse.handle(url, question,
-            tier: tier,
-            provider: provider,
-            gateway: msg.gateway
-          )
-
-        [url] ->
-          Gateway.send_message("Browse (tier: #{tier}, provider: #{provider})",
-            gateway: msg.gateway
-          )
-
-          WebBrowse.handle(url, nil,
-            tier: tier,
-            provider: provider,
-            gateway: msg.gateway
-          )
-      end
+      "web_browse"
+      |> run_skill(
+        %{
+          config: browse_config(String.split(rest, " ", parts: 2)),
+          llm_tier: to_string(tier),
+          llm_provider: provider
+        },
+        msg
+      )
+      |> answer(msg, "", "Failed")
     end
   end
 
-  def dispatch(%Message{text: "/skills" <> _} = msg) do
+  defp route(%Message{text: "/skills" <> _} = msg) do
     text =
       Enum.map_join(SkillRegistry.list_all_with_type(), "\n", fn {name, module, type, perms,
                                                                   _routes, _ext} ->
@@ -182,35 +175,42 @@ defmodule AlexClaw.Dispatcher do
 
   # --- Delegated Command Groups ---
 
-  def dispatch(%Message{text: "/skill" <> _} = msg) do
+  defp route(%Message{text: "/skill" <> _} = msg) do
     Gateway.send_message(
       "Skill management is only available from the Admin UI.\n2FA verification will be sent here when actions are performed.",
       gateway: msg.gateway
     )
   end
 
-  def dispatch(%Message{text: "/record " <> _} = msg), do: AutomationCommands.dispatch(msg)
-  def dispatch(%Message{text: "/replay " <> _} = msg), do: AutomationCommands.dispatch(msg)
-  def dispatch(%Message{text: "/automate " <> _} = msg), do: AutomationCommands.dispatch(msg)
+  # Recording, replaying and automating a page start a browser session, and
+  # a recording can later hold a login: authoring, done in the admin UI.
+  defp route(%Message{text: "/" <> command} = msg)
+       when binary_part(command, 0, 6) in ["record", "replay"] or
+              binary_part(command, 0, 8) == "automate" do
+    Gateway.send_message(
+      "Recordings are made, replayed and automated in the admin UI (Resources page), not over a chat.",
+      gateway: msg.gateway
+    )
+  end
 
-  def dispatch(%Message{text: "/setup 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
-  def dispatch(%Message{text: "/confirm 2fa " <> _} = msg), do: AuthCommands.dispatch(msg)
-  def dispatch(%Message{text: "/disable 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
-  def dispatch(%Message{text: "/connect" <> _} = msg), do: AuthCommands.dispatch(msg)
-  def dispatch(%Message{text: "/disconnect" <> _} = msg), do: AuthCommands.dispatch(msg)
+  defp route(%Message{text: "/setup 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
+  defp route(%Message{text: "/confirm 2fa " <> _} = msg), do: AuthCommands.dispatch(msg)
+  defp route(%Message{text: "/disable 2fa" <> _} = msg), do: AuthCommands.dispatch(msg)
+  defp route(%Message{text: "/connect" <> _} = msg), do: AuthCommands.dispatch(msg)
+  defp route(%Message{text: "/disconnect" <> _} = msg), do: AuthCommands.dispatch(msg)
 
   # --- Workflows ---
 
-  def dispatch(%Message{text: "/workflows" <> _} = msg) do
+  defp route(%Message{text: "/workflows" <> _} = msg) do
     send_workflow_list(Workflows.list_workflows(), msg)
   end
 
-  def dispatch(%Message{text: "/run " <> rest} = msg) do
+  defp route(%Message{text: "/run " <> rest} = msg) do
     input = String.trim(rest)
     run_workflow(find_workflow(input), input, msg)
   end
 
-  def dispatch(%Message{text: "/runs" <> _} = msg) do
+  defp route(%Message{text: "/runs" <> _} = msg) do
     active = Workflows.list_active_runs()
 
     if active == [] do
@@ -228,7 +228,7 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
-  def dispatch(%Message{text: "/cancel " <> rest} = msg) do
+  defp route(%Message{text: "/cancel " <> rest} = msg) do
     case Integer.parse(String.trim(rest)) do
       {run_id, ""} ->
         case Workflows.cancel_run(run_id) do
@@ -258,7 +258,7 @@ defmodule AlexClaw.Dispatcher do
   Also accepts: `up`/`down`, `yes`/`no`, \u{1F44D}/\u{1F44E}
   """
 
-  def dispatch(%Message{text: "/rate " <> rest} = msg) do
+  defp route(%Message{text: "/rate " <> rest} = msg) do
     rest
     |> String.trim()
     |> String.split(" ", parts: 3)
@@ -422,7 +422,7 @@ defmodule AlexClaw.Dispatcher do
     {"LM Studio", :local, nil}
   ]
 
-  def dispatch(%Message{text: "/llm" <> _} = msg) do
+  defp route(%Message{text: "/llm" <> _} = msg) do
     text = Enum.map_join(@llm_providers, "\n", &provider_line/1)
     Gateway.send_message("*AlexClaw LLM Providers*\n\n#{text}", gateway: msg.gateway)
   end
@@ -434,23 +434,23 @@ defmodule AlexClaw.Dispatcher do
   defp provider_status("Ollama", _key_path), do: toggle_status("llm.ollama_enabled")
   defp provider_status("LM Studio", _key_path), do: toggle_status("llm.lmstudio_enabled")
   defp provider_status(_name, nil), do: "disabled"
-  defp provider_status(_name, key_path), do: key_status(Config.get(key_path) || "")
+  defp provider_status(_name, key_path), do: key_status(Config.secret_set_at(key_path))
 
   defp toggle_status(config_key) do
     if Config.get(config_key), do: "enabled", else: "disabled"
   end
 
-  defp key_status(""), do: "no key"
-  defp key_status(_key), do: "configured"
+  defp key_status(nil), do: "no key"
+  defp key_status(_set_at), do: "configured"
 
   # --- GitHub ---
 
-  def dispatch(%Message{text: "/github pr " <> rest} = msg) do
+  defp route(%Message{text: "/github pr " <> rest} = msg) do
     case String.split(String.trim(rest), " ", parts: 2) do
       [repo, pr] ->
         case Integer.parse(pr) do
           {pr_number, ""} ->
-            GitHubSecurityReview.review_pr(repo, pr_number, gateway: msg.gateway)
+            review(%{"mode" => "specific_pr", "repo" => repo, "pr_number" => pr_number}, msg)
 
             Gateway.send_message(
               "GitHub security review started for PR ##{pr_number} on #{repo}.",
@@ -465,7 +465,7 @@ defmodule AlexClaw.Dispatcher do
         end
 
       [repo] ->
-        GitHubSecurityReview.review_pr(repo, nil, gateway: msg.gateway)
+        review(%{"mode" => "latest_pr", "repo" => repo}, msg)
 
         Gateway.send_message("GitHub security review started for latest PR on #{repo}.",
           gateway: msg.gateway
@@ -473,10 +473,10 @@ defmodule AlexClaw.Dispatcher do
     end
   end
 
-  def dispatch(%Message{text: "/github commit " <> rest} = msg) do
+  defp route(%Message{text: "/github commit " <> rest} = msg) do
     case String.split(String.trim(rest), " ", parts: 2) do
       [repo, sha] ->
-        GitHubSecurityReview.review_commit(repo, sha, gateway: msg.gateway)
+        review(%{"mode" => "specific_commit", "repo" => repo, "commit_sha" => sha}, msg)
 
         Gateway.send_message(
           "GitHub security review started for commit #{String.slice(sha, 0, 8)} on #{repo}.",
@@ -490,71 +490,29 @@ defmodule AlexClaw.Dispatcher do
 
   # --- Coder ---
 
-  def dispatch(%Message{text: "/coder " <> goal} = msg) do
-    goal = String.trim(goal)
-    Gateway.send_message("Generating skill: _#{goal}_...", gateway: msg.gateway)
-
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      Coder.handle(goal, gateway: msg.gateway)
-    end)
-  end
-
-  def dispatch(%Message{text: "/coder" <> _} = msg) do
+  defp route(%Message{text: "/coder" <> _} = msg) do
     Gateway.send_message(
-      """
-      *Coder — autonomous skill generation*
-      /coder <goal> — generate a dynamic skill from a natural language description
-
-      Example: `/coder a skill that returns the current BEAM process count and memory usage`
-      """,
+      "Skills are generated in the admin UI (Forge page), not over a chat.",
       gateway: msg.gateway
     )
   end
 
   # --- Shell ---
 
-  def dispatch(%Message{text: "/shell " <> command} = msg) do
-    run_shell(Config.get("shell.enabled"), String.trim(command), msg)
-  end
-
-  defp run_shell(true, command, msg) do
-    msg
-    |> AuthCommands.require_2fa(
-      %{type: :shell_command, command: command},
-      "Execute: `#{String.slice(command, 0, 80)}`"
-    )
-    |> shell_after_2fa(command, msg)
-  end
-
-  defp run_shell(_enabled, _command, msg) do
-    Gateway.send_message("Shell commands are disabled. Enable in Admin > Config.",
-      gateway: msg.gateway
-    )
-  end
-
-  defp shell_after_2fa(:challenged, _command, _msg), do: :ok
-  # The chat was told it is locked.
-  defp shell_after_2fa({:locked, _minutes}, _command, _msg), do: :ok
-
-  defp shell_after_2fa(:no_2fa, _command, msg) do
-    Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
-  end
-
-  def dispatch(%Message{text: "/shell" <> _} = msg) do
+  # A shell command from a chat is a protected workflow: a shell step in a
+  # workflow marked "requires 2FA" in the admin UI, run here with /run and a
+  # code.
+  defp route(%Message{text: "/shell" <> _} = msg) do
     Gateway.send_message(
-      """
-      *Shell — container introspection*
-      /shell <command> — execute a whitelisted command (2FA-gated)
-
-      Examples: `df -h`, `ps aux`, `free -m`, `uptime`
-      """,
+      "A shell command from a chat is a protected workflow, run with a code: add a shell " <>
+        "step to a workflow that requires 2FA in the admin UI (Workflows page), then /run it.",
       gateway: msg.gateway
     )
   end
 
   # --- Help ---
 
-  def dispatch(%Message{text: "/help" <> _} = msg) do
+  defp route(%Message{text: "/help" <> _} = msg) do
     Gateway.send_message(
       """
       *AlexClaw commands*
@@ -563,7 +521,7 @@ defmodule AlexClaw.Dispatcher do
       /skills — list registered skills
       /llm — show LLM providers status
       /workflows — list all workflows
-      /run <id or name> — run a workflow
+      /run <id or name> — run a workflow (one that requires 2FA asks for a code)
       /runs — show active workflow runs
       /cancel <run\_id> — cancel a running workflow
       /rate <run\_id> — view/rate workflow step outcomes (+/- or up/down)
@@ -576,16 +534,6 @@ defmodule AlexClaw.Dispatcher do
       /tasks — list your Google Tasks
       /tasklists — list your task lists with IDs
       /task add <title> — add a new task
-      /coder <goal> — generate a dynamic skill from a description
-      /shell <command> — run whitelisted OS command (2FA-gated)
-      /record <url> — start browser recording (returns noVNC link)
-      /record stop <session\_id> — stop recording, get captured actions
-      /replay <resource\_id> — replay a recorded automation
-      /automate <url> — scrape and screenshot a URL via web-automator
-      /connect google — connect Google Calendar/Tasks via OAuth
-      /disconnect google — remove Google connection
-      /setup 2fa — enable two-factor authentication
-      /disable 2fa <code> — disable two-factor authentication (requires a current code)
       /help — this message
       _Anything else → conversation_
       """,
@@ -595,27 +543,50 @@ defmodule AlexClaw.Dispatcher do
 
   # --- Catch-all: 2FA challenge response or conversational ---
 
-  def dispatch(%Message{text: text} = msg) when is_binary(text) do
+  defp route(%Message{text: text} = msg) when is_binary(text) do
     trimmed = String.trim(text)
 
     if Regex.match?(~r/^\d{6}$/, trimmed) and Challenge.pending?(msg.chat_id) do
       msg.chat_id
-      |> Challenge.resolve(trimmed)
-      |> answer_code(msg)
+      |> Challenge.pending_action()
+      |> approve(msg)
     else
-      Conversational.handle(msg)
+      "conversational"
+      |> run_skill(%{input: msg.text}, msg)
+      |> conversed(msg)
     end
   end
 
-  def dispatch(_other), do: :ignored
+  defp route(_other), do: :ignored
 
-  # Every result of Challenge.resolve/2 ends in a reply. A code that meets a
-  # lock was never checked, so the reply says the lock, not "invalid code".
-  defp answer_code({:ok, action}, msg) do
-    reply("Code verified. Executing...", msg)
-    Phoenix.PubSub.broadcast(AlexClaw.PubSub, "services:totp", {:totp_verified, action})
-    AuthCommands.execute_2fa_action(action, msg)
+  # The exchange is remembered, as a conversation always was.
+  defp conversed({:ok, response, _branch}, msg) when is_binary(response) do
+    source = to_string(msg.gateway || "chat")
+    Memory.store(:conversation, "User: #{msg.text}", source: source)
+    Memory.store(:conversation, "AlexClaw: #{response}", source: source)
+    Gateway.send_message(response, gateway: msg.gateway)
   end
+
+  defp conversed(_failed, msg),
+    do: Gateway.send_message("Something went wrong. Try again.", gateway: msg.gateway)
+
+  # The code approves the action the chat's challenge is waiting for — a
+  # protected run, nothing else — and is checked when it is performed.
+  defp approve({:ok, action}, msg),
+    do: action |> AuthCommands.execute_2fa_action(msg) |> answer_code(msg)
+
+  defp approve(:error, msg), do: answer_code({:error, :no_challenge}, msg)
+
+  # Every result ends in a reply. A code that meets a lock was never checked,
+  # so the reply says the lock, not "invalid code".
+  defp answer_code({:ok, {:started, workflow}}, msg),
+    do: reply("Code verified. Workflow '#{workflow.name}' started.", msg)
+
+  defp answer_code({:error, :not_chat_approvable}, msg),
+    do: reply("That can only be approved in the admin UI.", msg)
+
+  defp answer_code({:error, {:privileged_steps, skills}}, msg),
+    do: reply(privileged_refusal("This workflow", skills), msg)
 
   defp answer_code({:error, :invalid_code}, msg),
     do: reply("Invalid code. Try again (2 minutes remaining).", msg)
@@ -662,8 +633,9 @@ defmodule AlexClaw.Dispatcher do
 
   # --- Tier/provider commands (/research, /search) ---
   #
-  # Both accept the same flag grammar: `--tier` alone reports or saves the
-  # default, a bare command prints usage, anything else runs the skill.
+  # Both accept the same flag grammar: `--tier` alone reports the default (a
+  # tier after it is refused: defaults are set in the admin UI), a bare
+  # command prints usage, anything else runs the skill.
 
   defp tiered_command(msg, raw, spec) do
     {query, flags} = CommandParser.parse(String.trim(raw))
@@ -671,43 +643,82 @@ defmodule AlexClaw.Dispatcher do
   end
 
   defp tiered_command(msg, spec, _query, _flags, :query) do
-    tier = Config.get("#{spec.prefix}.tier") || spec.default_tier
-    provider = Config.get("#{spec.prefix}.provider") || "auto"
+    tier = Config.get(spec.tier_key) || spec.default_tier
+    provider = Config.get(spec.provider_key) || "auto"
 
     Gateway.send_message("#{spec.report_label}: tier=#{tier}, provider=#{provider}",
       gateway: msg.gateway
     )
   end
 
-  defp tiered_command(msg, spec, "", flags, tier) when not is_nil(tier) do
-    save_tier_defaults(msg, spec, tier, Keyword.get(flags, :provider))
-  end
+  defp tiered_command(msg, _spec, "", _flags, tier) when not is_nil(tier),
+    do: defaults_elsewhere(msg)
 
   defp tiered_command(msg, spec, "", _flags, _tier) do
     Gateway.send_message(spec.usage, gateway: msg.gateway)
   end
 
   defp tiered_command(msg, spec, query, flags, _tier) do
-    tier = CommandParser.resolve_tier(flags, "#{spec.prefix}.tier", spec.default_tier)
-    provider = CommandParser.resolve_provider(flags, "#{spec.prefix}.provider")
+    tier = CommandParser.resolve_tier(flags, spec.tier_key, spec.default_tier)
+    provider = CommandParser.resolve_provider(flags, spec.provider_key)
 
     Gateway.send_message("#{spec.label} (tier: #{tier}, provider: #{provider})",
       gateway: msg.gateway
     )
 
-    spec.handler.(query, tier: tier, provider: provider, gateway: msg.gateway)
+    spec.skill
+    |> run_skill(%{input: query, llm_tier: to_string(tier), llm_provider: provider}, msg)
+    |> answer(msg, "", "#{spec.label} failed")
   end
 
-  defp save_tier_defaults(msg, spec, tier, nil) do
-    Config.set("#{spec.prefix}.tier", tier)
-    Gateway.send_message("#{spec.label} default tier saved: #{tier}", gateway: msg.gateway)
+  defp browse_config([url, question]), do: %{"url" => url, "question" => question}
+  defp browse_config([url]), do: %{"url" => url}
+
+  # A review takes minutes, so it runs beside the chat; its report, or why it
+  # failed, is the reply.
+  defp review(config, msg) do
+    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+      "github_security_review"
+      |> run_skill(%{config: config}, msg)
+      |> answer(msg, "", "⚠️ GitHub security review failed")
+    end)
   end
 
-  defp save_tier_defaults(msg, spec, tier, provider) do
-    Config.set("#{spec.prefix}.tier", tier)
-    Config.set("#{spec.prefix}.provider", provider)
+  # A chat command runs its skill as every skill runs: through the control
+  # plane (:run_skill from the gateway, audited) and SafeExecutor, which
+  # refuses a skill that is not available. The chat's own wording — a heading,
+  # "… failed:" — is added here, never inside the skill.
+  defp run_skill(skill, args, msg) do
+    ControlPlane.perform(
+      :run_skill,
+      %{caller: __MODULE__, skill: skill, args: args},
+      Context.gateway(msg.chat_id)
+    )
+  end
 
-    Gateway.send_message("#{spec.label} defaults saved: tier=#{tier}, provider=#{provider}",
+  defp answer({:ok, text, _branch}, msg, heading, _failed) when is_binary(text),
+    do: Gateway.send_message(heading <> text, gateway: msg.gateway)
+
+  defp answer({:ok, text}, msg, heading, _failed) when is_binary(text),
+    do: Gateway.send_message(heading <> text, gateway: msg.gateway)
+
+  defp answer({:ok, _nothing, branch}, msg, _heading, _failed),
+    do: Gateway.send_message("Nothing to report (#{branch}).", gateway: msg.gateway)
+
+  defp answer({:error, {:unavailable, reason}}, msg, _heading, _failed),
+    do: Gateway.send_message(reason, gateway: msg.gateway)
+
+  defp answer({:error, reason}, msg, _heading, failed) do
+    Gateway.send_message("#{failed}: #{AlexClaw.FailureText.describe(reason)}",
+      gateway: msg.gateway
+    )
+  end
+
+  # A chat operates AlexClaw; it never authors it: a command's default tier
+  # and provider are settings, changed in the admin UI.
+  defp defaults_elsewhere(msg) do
+    Gateway.send_message(
+      "Default tiers and providers are set in the admin UI (Config page), not over a chat.",
       gateway: msg.gateway
     )
   end
@@ -763,9 +774,18 @@ defmodule AlexClaw.Dispatcher do
     )
   end
 
+  # A run with a privileged step is refused before the chat is asked for
+  # anything: no code from a chat can make it privileged (S8 M7).
   defp run_workflow(workflow, _input, msg) do
-    launch_workflow(workflow, msg, AlexClaw.Workflows.Workflow.protected?(workflow))
+    workflow = Repo.preload(workflow, :steps)
+    launch_unless_privileged(Launch.privileged_steps(workflow), workflow, msg)
   end
+
+  defp launch_unless_privileged([], workflow, msg),
+    do: launch_workflow(workflow, msg, Workflow.protected?(workflow))
+
+  defp launch_unless_privileged(skills, workflow, msg),
+    do: started({:error, {:privileged_steps, skills}}, workflow, msg)
 
   defp launch_workflow(workflow, msg, true) do
     msg
@@ -783,14 +803,36 @@ defmodule AlexClaw.Dispatcher do
   defp resume_after_2fa({:locked, _minutes}, _workflow, _msg), do: :ok
 
   defp resume_after_2fa(:no_2fa, _workflow, msg) do
-    Gateway.send_message("Enable 2FA first: /setup 2fa", gateway: msg.gateway)
+    Gateway.send_message("Enable 2FA first, in the admin UI (Services page).",
+      gateway: msg.gateway
+    )
   end
 
   defp start_workflow(workflow, msg) do
-    Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-      Executor.run(workflow.id)
-    end)
+    :run_workflow
+    |> ControlPlane.perform(%{workflow_id: workflow.id}, Context.gateway(msg.chat_id))
+    |> started(workflow, msg)
+  end
 
-    Gateway.send_message("Workflow '#{workflow.name}' started.", gateway: msg.gateway)
+  defp started({:ok, _started}, workflow, msg),
+    do: Gateway.send_message("Workflow '#{workflow.name}' started.", gateway: msg.gateway)
+
+  defp started({:error, :workflow_disabled}, workflow, msg),
+    do: Gateway.send_message("Workflow '#{workflow.name}' is disabled.", gateway: msg.gateway)
+
+  defp started({:error, {:privileged_steps, skills}}, workflow, msg),
+    do: Gateway.send_message(privileged_refusal(workflow.name, skills), gateway: msg.gateway)
+
+  defp started({:error, reason}, workflow, msg) do
+    Gateway.send_message("Workflow '#{workflow.name}' was not started: #{inspect(reason)}",
+      gateway: msg.gateway
+    )
+  end
+
+  # A run with a privileged step is refused outside the admin UI (S8 M7):
+  # the reply names the steps and where the run can be started.
+  defp privileged_refusal(name, skills) do
+    "#{name} has a #{Enum.join(skills, ", ")} step: it runs only when started " <>
+      "from the admin UI with a code, or by its schedule. It was not started."
   end
 end

@@ -22,8 +22,21 @@ defmodule AlexClaw.LLM.ClientTest do
   end
 
   describe "resolve_api_key/1" do
+    # Since 0.4.0 (S7) a provider's own key is in OpenBao, resolved for its
+    # host (provider_credentials_test.exs).
+    @tag :vault
     test "returns provider api_key when set" do
-      provider = build_provider(%{api_key: "my-secret-key"})
+      {:ok, provider} =
+        AlexClaw.LLM.create_provider(%{
+          name: "own-key-#{System.unique_integer([:positive])}",
+          type: "openai_compatible",
+          tier: "light",
+          model: "m",
+          host: "https://llm.example.com",
+          api_key: "my-secret-key",
+          enabled: false
+        })
+
       assert Client.resolve_api_key(provider) == "my-secret-key"
     end
 

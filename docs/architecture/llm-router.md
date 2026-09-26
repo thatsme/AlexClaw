@@ -46,7 +46,7 @@ left running. Other providers wait up to 10 minutes.
 
 ```elixir
 # A skill requests a tier, not a specific model
-AlexClaw.LLM.call(prompt, tier: :medium)
+AlexClaw.LLM.complete(prompt, tier: :medium)
 ```
 
 ## Provider Types
@@ -61,6 +61,17 @@ AlexClaw.LLM.call(prompt, tier: :medium)
 ## Provider Options
 
 Each provider row has an `options` JSONB column for provider-specific inference parameters (e.g., `num_ctx`, `temperature`, `top_p`). These are sent with every request to that provider and can be edited from **Admin > LLM Providers** via a dynamic options form that adapts to the provider type. For OpenAI-compatible providers, the client falls back to `reasoning_content` when `content` is empty (Qwen3 thinking mode). Qwen3 models also expose a thinking toggle in the Admin UI.
+
+## Provider credentials
+
+A provider's API key and header values are secrets in OpenBao, bound to the
+host its calls go to — the fixed API host for `gemini` and `anthropic`, the
+provider's `host` otherwise. The row keeps the header names and references;
+each call resolves the values for that host, and every use is audited. A key
+with no host to bind to is refused, and moving a provider to another host
+requires entering the key again. A `gemini` or `anthropic` provider with no key
+of its own uses its type's secret setting from the Config page
+(`llm.gemini_api_key`, `llm.anthropic_api_key`).
 
 ## Test seam
 
@@ -85,7 +96,7 @@ without the skill knowing it is being tested.
 
 - Provider resolution is separate from the completion tier system
 - Configured via `embedding.provider` config, or auto-detected: Gemini → Ollama → OpenAI-compatible
-- Supports Gemini `text-embedding-004` (free tier), Ollama `/api/embed`, and OpenAI `/v1/embeddings`
+- Supports Gemini (`gemini-embedding-001` by default), Ollama `/api/embed` (`nomic-embed-text` by default), and OpenAI `/v1/embeddings` (the model must be named in `embedding.model`)
 - Concurrent embedding requests are throttled by `EmbedThrottle` (GenServer limiter)
 - Embedding calls are tracked in the same usage counters
 

@@ -9,26 +9,38 @@ defmodule AlexClaw.Database.Restore do
   the tables, their columns and their types come from the live catalog, and a
   file that disagrees with it is refused before anything changes.
 
-  The audit log, the logins and the migrator's bookkeeping are never touched —
-  see `AlexClaw.Database.DataSet`. Every other table is emptied and refilled
-  from the file in one transaction, so a restore that fails part-way leaves
-  the data as it was. Sequences are set past the restored rows.
+  The audit log, the logins, the recovery codes, the secret catalogue, the
+  authorisation policies and the migrator's bookkeeping are never touched —
+  see `AlexClaw.Database.DataSet`. Nor are the settings that protect this
+  installation (the admin's identity, the login protection, the gateway
+  owners): a restore keeps this installation's, skips the file's copies, and
+  its result says so. Once it is done, every other admin session is signed
+  out and the cached settings and policies are read again. Every other table is emptied and refilled from the
+  file in one transaction, so a restore that fails part-way leaves the data
+  as it was. Sequences are set past the restored rows.
 
   It is challenged per action, never covered by an elevation window, and
   audited on both sides: a row before anything runs — no restore without it —
   and a row saying how it ended.
 
-  Every encrypted value in the file is checked to decrypt before anything is
-  written — see `AlexClaw.Database.KeyCheck` — so a file made under another
-  `SECRET_KEY_BASE` is refused whole.
+  A file holding a value AlexClaw 0.3 stored encrypted under `SECRET_KEY_BASE`
+  is refused whole, before anything is written: since 0.4.0 nothing decrypts
+  such a value outside the boot upgrade, so it is restored into 0.3.x and
+  upgraded. Every reference a step or resource holds
+  to a secret must name one this installation's catalogue (`secrets`) holds,
+  or the file is refused, naming the table and the secret: the file never
+  says where a secret may be sent.
 
   A full backup, schema and audit log included, is restored by an operator
   with the database owner's credentials; see the upgrade guide.
   """
 
-  alias AlexClaw.Auth.{AuditLog, Principal}
-  alias AlexClaw.Database.{DataExport, DataSet, KeyCheck}
+  alias AlexClaw.Auth.{AuditLog, PolicyEngine, Principal, Sessions}
+  alias AlexClaw.Config
+  alias AlexClaw.Database.{DataExport, DataSet}
   alias AlexClaw.Repo
+  alias AlexClaw.Resources.ResourceSecrets
+  alias AlexClaw.Workflows.StepSecrets
 
   @staging_prefix "alexclaw-restore-"
   @max_params 60_000
@@ -70,13 +82,24 @@ defmodule AlexClaw.Database.Restore do
     result = path |> read() |> loaded()
     discard(path)
     AuditLog.record_admin_outcome(session, "#{detail} — #{message(result)}", Principal.current())
-    result
+    settled(result, session)
   end
 
   defp restore({:error, _reason}, path, _session, _detail) do
     discard(path)
     {:error, "The restore was not run: it could not be recorded in the audit log."}
   end
+
+  # The data changed under every page and cache: the other sessions are signed
+  # out, and what is cached is read again.
+  defp settled({:ok, _message} = done, session) do
+    {:ok, _closed} = Sessions.close_others_than(session, "database restored")
+    Config.reload()
+    PolicyEngine.reload_policies()
+    done
+  end
+
+  defp settled(failed, _session), do: failed
 
   defp read(path) do
     with {:ok, body} <- read_file(File.read(path)), do: decoded(Jason.decode(body))
@@ -106,10 +129,21 @@ defmodule AlexClaw.Database.Restore do
   @spec load(term()) :: {:ok, String.t()} | {:error, String.t()}
   def load(data) do
     with {:ok, plan} <- plan(data),
+         :ok <- references_known(plan),
+         {plan, skipped} = without_identity(plan, data),
          {:ok, count} <- Repo.transaction(fn -> replace(plan) end, timeout: :infinity) do
-      {:ok, "Restore completed: #{count} rows in #{length(plan)} tables"}
+      {:ok, "Restore completed: #{count} rows in #{length(plan)} tables. " <> kept(skipped)}
     end
   end
+
+  defp kept(0),
+    do:
+      "Kept from this installation, not restored: the admin password, the second factor, " <>
+        "the recovery codes, the login protection, the gateway owners, the secret catalogue " <>
+        "and the authorisation policies."
+
+  defp kept(skipped),
+    do: kept(0) <> " The file's copies (#{skipped} rows) were skipped."
 
   # --- Checking the file ---
 
@@ -151,7 +185,7 @@ defmodule AlexClaw.Database.Restore do
     do: {:error, "The export was made on schema #{schema}, newer than this database's #{current}"}
 
   defp known_tables(names) do
-    case names -- DataSet.tables() do
+    case names -- (DataSet.tables() ++ DataSet.skipped()) do
       [] ->
         :ok
 
@@ -226,21 +260,43 @@ defmodule AlexClaw.Database.Restore do
     Enum.map(live, fn {name, _type} -> Map.get(values, name) end)
   end
 
-  # Encrypted values must decrypt under this key before anything is written, so
-  # a file made under another SECRET_KEY_BASE is refused whole.
+  # A value 0.3.x stored encrypted under SECRET_KEY_BASE (`enc:`) is refused
+  # before anything is written: since 0.4.0 (S7) nothing decrypts it outside
+  # the boot upgrade, so such a file is restored into 0.3.x and upgraded.
   defp checked(table, live, rows) do
     names = Enum.map(live, &elem(&1, 0))
 
     rows
-    |> Enum.find_value(:ok, &refusal(KeyCheck.check(table, names, &1)))
+    |> Enum.any?(&legacy_row?(table, names, &1))
     |> checked_plan(table, live, rows)
   end
 
-  defp refusal(:ok), do: nil
-  defp refusal(error), do: error
+  @credential_columns %{
+    "settings" => ["value"],
+    "llm_providers" => ["api_key", "headers", "credentials"],
+    "workflow_steps" => ["config"],
+    "resources" => ["metadata"]
+  }
 
-  defp checked_plan(:ok, table, live, rows), do: {:ok, {table, live, rows}}
-  defp checked_plan({:error, reason}, table, _live, _rows), do: {:error, "#{table}: #{reason}"}
+  defp legacy_row?(table, names, row) do
+    columns = Map.get(@credential_columns, table, [])
+
+    names
+    |> Enum.zip(row)
+    |> Enum.any?(fn {name, value} -> name in columns and legacy_value?(value) end)
+  end
+
+  defp legacy_value?("enc:" <> _sealed), do: true
+  defp legacy_value?(value) when is_binary(value), do: String.contains?(value, ~s|"enc:|)
+  defp legacy_value?(_null), do: false
+
+  defp checked_plan(false, table, live, rows), do: {:ok, {table, live, rows}}
+
+  defp checked_plan(true, table, _live, _rows),
+    do:
+      {:error,
+       "#{table}: holds values AlexClaw 0.3 stored encrypted. Restore this file into 0.3.x " <>
+         "and upgrade to 0.4.0, which moves them into OpenBao."}
 
   defp row?(row, width) when is_list(row) and length(row) == width,
     do: Enum.all?(row, &(is_binary(&1) or is_nil(&1)))
@@ -253,10 +309,91 @@ defmodule AlexClaw.Database.Restore do
   defp reversed({:ok, plan}), do: {:ok, Enum.reverse(plan)}
   defp reversed(error), do: error
 
+  # --- Secret references ---
+
+  # A step or resource holds references to secrets (AlexClaw.Secrets.Owned);
+  # the restore keeps this installation's catalogue. A reference to a name it
+  # does not hold would never resolve: refused, naming the table and the secret.
+  defp references_known(plan) do
+    %{rows: rows} = Repo.query!("SELECT name FROM secrets")
+    catalogue = rows |> List.flatten() |> MapSet.new()
+
+    plan
+    |> Enum.flat_map(&references/1)
+    |> Enum.find(fn {_table, name} -> not MapSet.member?(catalogue, name) end)
+    |> unknown_reference()
+  end
+
+  defp unknown_reference(nil), do: :ok
+
+  defp unknown_reference({table, name}),
+    do: {:error, "#{table}: references the secret #{name}, which this installation does not hold"}
+
+  defp references({"workflow_steps" = table, live, rows}) do
+    for row <- rows,
+        values = row_map(live, row),
+        name <- Map.values(StepSecrets.references(values["skill"], decoded_map(values["config"]))),
+        do: {table, name}
+  end
+
+  defp references({"resources" = table, live, rows}) do
+    for row <- rows,
+        name <-
+          Map.values(ResourceSecrets.references(decoded_map(row_map(live, row)["metadata"]))),
+        do: {table, name}
+  end
+
+  defp references(_entry), do: []
+
+  defp row_map(live, row), do: live |> Enum.map(&elem(&1, 0)) |> Enum.zip(row) |> Map.new()
+
+  defp decoded_map(json) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, map} when is_map(map) -> map
+      _other -> %{}
+    end
+  end
+
+  defp decoded_map(_value), do: %{}
+
+  # --- Keeping the admin's identity ---
+
+  # The file's identity rows are skipped: its settings rows for the password
+  # and the second factor, and the recovery codes an older export carried.
+  defp without_identity(plan, data) do
+    {Enum.map(plan, &identity_dropped/1),
+     count_identity(plan) + skipped_rows(data["tables"], DataSet.skipped())}
+  end
+
+  defp identity_dropped({"settings", live, rows}),
+    do: {"settings", live, Enum.reject(rows, &identity_row?(live, &1))}
+
+  defp identity_dropped(entry), do: entry
+
+  defp count_identity(plan) do
+    Enum.reduce(plan, 0, fn
+      {"settings", live, rows}, n -> n + Enum.count(rows, &identity_row?(live, &1))
+      _entry, n -> n
+    end)
+  end
+
+  defp identity_row?(live, row), do: DataSet.kept_setting?(row_map(live, row)["key"])
+
+  defp skipped_rows(tables, skipped) do
+    tables
+    |> Map.take(skipped)
+    |> Enum.map(fn {_table, entry} -> entry |> Map.get("rows", []) |> length() end)
+    |> Enum.sum()
+  end
+
   # --- Replacing the data ---
 
   defp replace(plan) do
-    Repo.query!("TRUNCATE " <> Enum.map_join(DataSet.tables(), ", ", &DataSet.quote_name/1))
+    Repo.query!(
+      "TRUNCATE " <> Enum.map_join(DataSet.tables() -- ["settings"], ", ", &DataSet.quote_name/1)
+    )
+
+    clear_settings(plan)
 
     count =
       Enum.reduce(plan, 0, fn {table, columns, rows}, total ->
@@ -266,6 +403,33 @@ defmodule AlexClaw.Database.Restore do
     Enum.each(plan, fn {table, columns, _rows} -> reset_sequences(table, columns) end)
     count
   end
+
+  # Every setting goes but the kept ones (DataSet.kept_setting?/1), their rows
+  # moved past the file's ids so none of the file's collides with one of them.
+  defp clear_settings(plan) do
+    {identity, params} = DataSet.kept_settings()
+    Repo.query!("DELETE FROM settings WHERE NOT " <> identity, params)
+    Repo.query!("UPDATE settings SET id = id + $1", [highest_id(plan)])
+  end
+
+  defp highest_id(plan) do
+    plan
+    |> Enum.find_value([], fn
+      {"settings", live, rows} -> Enum.map(rows, &row_map(live, &1)["id"])
+      _entry -> nil
+    end)
+    |> Enum.map(&integer_or_zero/1)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  defp integer_or_zero(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} -> n
+      _other -> 0
+    end
+  end
+
+  defp integer_or_zero(_value), do: 0
 
   defp insert(_table, _columns, []), do: 0
 

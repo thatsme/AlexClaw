@@ -8,7 +8,12 @@ defmodule AlexClaw.Gateway.Telegram do
   use GenServer
   require Logger
 
+  @token_key "telegram.bot_token"
+
   alias AlexClaw.{Config, Message}
+  alias AlexClaw.Gateway.Telegram.Token
+  alias AlexClaw.Net.Credentials
+  alias AlexClaw.Secrets.Mask
 
   # --- Behaviour callbacks ---
 
@@ -18,10 +23,16 @@ defmodule AlexClaw.Gateway.Telegram do
   @impl AlexClaw.Gateway.Behaviour
   @spec configured?() :: boolean()
   def configured? do
-    enabled = Config.get("telegram.enabled")
-    token = Config.get("telegram.bot_token")
-    enabled in [true, "true"] and token != nil and token != ""
+    Config.enabled?("telegram.enabled") and Config.secret_set_at(@token_key) != nil
   end
+
+  @doc """
+  The bot token, or nil when none is set. Resolved once and held by
+  `AlexClaw.Gateway.Telegram.Token`, which resolves again only on a rotation or
+  when Telegram refuses it.
+  """
+  @spec bot_token() :: String.t() | nil
+  def bot_token, do: Token.get()
 
   # --- Client API ---
 
@@ -35,14 +46,14 @@ defmodule AlexClaw.Gateway.Telegram do
   @impl AlexClaw.Gateway.Behaviour
   @spec send_message(String.t(), keyword()) :: :ok
   def send_message(text, opts \\ []) do
-    GenServer.cast(__MODULE__, {:send, text, opts})
+    GenServer.cast(__MODULE__, {:send, Mask.mask(text), opts})
   end
 
   @doc "Send an HTML-formatted message to the configured chat."
   @impl AlexClaw.Gateway.Behaviour
   @spec send_html(String.t(), keyword()) :: :ok
   def send_html(text, opts \\ []) do
-    GenServer.cast(__MODULE__, {:send_html, text, opts})
+    GenServer.cast(__MODULE__, {:send_html, Mask.mask(text), opts})
   end
 
   @doc """
@@ -56,14 +67,26 @@ defmodule AlexClaw.Gateway.Telegram do
   def deliver(chat_id, text, opts \\ []) do
     opts
     |> Keyword.get_lazy(:bot_token, &get_token/0)
-    |> deliver_with(chat_id, text, Keyword.get(opts, :send_options, %{}))
+    |> bot_token()
+    |> deliver_with(chat_id, Mask.mask(text), Keyword.get(opts, :send_options, %{}))
   end
 
-  defp deliver_with(token, _chat_id, _text, _send_options) when token in [nil, ""],
+  # A step's own bot token reaches it as a placeholder: a declared slot, the
+  # token's place in the URL, resolved for the Bot API's host
+  # (AlexClaw.Net.Credentials), and only for a step given it.
+  defp bot_token("{{secret:" <> _ = placeholder),
+    do: Credentials.resolved(placeholder, api_url("", ""))
+
+  defp bot_token(token), do: {:ok, token}
+
+  defp deliver_with({:ok, token}, _chat_id, _text, _send_options) when token in [nil, ""],
     do: {:error, :telegram_not_configured}
 
-  defp deliver_with(token, chat_id, text, send_options),
+  defp deliver_with({:ok, token}, chat_id, text, send_options),
     do: do_send(token, chat_id, text, "HTML", send_options)
+
+  defp deliver_with({:error, refused}, _chat_id, _text, _send_options),
+    do: {:error, {:credential_refused, Exception.message(refused)}}
 
   @doc """
   The URL of a Bot API `method` for `token`. The base is the
@@ -169,7 +192,7 @@ defmodule AlexClaw.Gateway.Telegram do
   defp token_for(false, _peers), do: nil
 
   # Single node: always poll, ignore node assignment
-  defp token_for(true, []), do: Config.get("telegram.bot_token")
+  defp token_for(true, []), do: bot_token()
 
   # Cluster: must be assigned to this node
   defp token_for(true, _peers), do: token_for_node(Config.get("telegram.node"))
@@ -177,7 +200,7 @@ defmodule AlexClaw.Gateway.Telegram do
   defp token_for_node(node_name) when node_name in [nil, ""], do: nil
 
   defp token_for_node(node_name) do
-    if node_name == to_string(node()), do: Config.get("telegram.bot_token")
+    if node_name == to_string(node()), do: bot_token()
   end
 
   defp get_chat_id do
@@ -202,6 +225,11 @@ defmodule AlexClaw.Gateway.Telegram do
     case Req.get(url, params: [offset: state.offset, timeout: 30], receive_timeout: 60_000) do
       {:ok, %{status: 200, body: %{"ok" => true, "result" => updates}}} ->
         %{state | offset: process_updates(updates, state.offset, &AlexClaw.Dispatcher.dispatch/1)}
+
+      {:ok, %{status: 401, body: body}} ->
+        Token.invalidate()
+        Logger.warning("Telegram API error: 401 - #{inspect(body)}")
+        state
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Telegram API error: #{status} - #{inspect(body)}")
@@ -251,7 +279,6 @@ defmodule AlexClaw.Gateway.Telegram do
 
   defp dispatch_message(message, true, dispatch) do
     Logger.info("Received: #{message.text}", [])
-    maybe_save_chat_id(message.chat_id)
     dispatch.(message)
   end
 
@@ -261,6 +288,7 @@ defmodule AlexClaw.Gateway.Telegram do
     %Message{
       text: msg["text"],
       chat_id: msg["chat"]["id"],
+      user_id: get_in(msg, ["from", "id"]),
       from: get_in(msg, ["from", "first_name"]),
       timestamp: DateTime.utc_now(),
       raw: update,
@@ -268,25 +296,13 @@ defmodule AlexClaw.Gateway.Telegram do
     }
   end
 
-  defp authorized_chat?(chat_id) do
-    configured = get_chat_id()
-    # Allow if no chat_id configured yet (first-message auto-detect)
-    configured == nil or configured == "" or to_string(chat_id) == to_string(configured)
-  end
+  # Only the owner chat, set in the admin UI (:set_gateway_owner), is
+  # answered. With none set nothing is, and no message makes its chat the
+  # owner.
+  defp authorized_chat?(chat_id), do: owner?(get_chat_id(), chat_id)
 
-  defp maybe_save_chat_id(nil), do: :ok
-
-  defp maybe_save_chat_id(chat_id) do
-    current = Config.get("telegram.chat_id")
-
-    if current == nil or current == "" do
-      Config.set("telegram.chat_id", to_string(chat_id), type: "string", category: "telegram")
-
-      Logger.warning(
-        "Auto-saved Telegram chat_id: #{chat_id} — verify this is your chat. Set telegram.chat_id in config to disable auto-detect."
-      )
-    end
-  end
+  defp owner?(configured, _chat_id) when configured in [nil, ""], do: false
+  defp owner?(configured, chat_id), do: to_string(chat_id) == to_string(configured)
 
   # Telegram refuses a message over 4096 characters outright, so an overlong
   # one arrived as nothing at all. It is cut, and says so.
@@ -315,7 +331,7 @@ defmodule AlexClaw.Gateway.Telegram do
     text = fit(text)
     request = Map.merge(%{chat_id: chat_id, text: text, parse_mode: parse_mode}, send_options)
 
-    case Req.post(url, json: request) do
+    case post_json(url, request) do
       {:ok, %{status: 200}} ->
         :ok
 
@@ -323,6 +339,11 @@ defmodule AlexClaw.Gateway.Telegram do
         Logger.warning("#{parse_mode} parse failed, retrying as plain text: #{inspect(body)}")
         plain_text = if parse_mode == "HTML", do: strip_tags(text), else: text
         send_plain(url, Map.merge(%{chat_id: chat_id, text: plain_text}, send_options))
+
+      {:ok, %{status: 401, body: body}} ->
+        invalidate_if_held(token)
+        Logger.warning("Send failed: 401 - #{inspect(body)}")
+        {:error, {:telegram, 401, body}}
 
       {:ok, %{status: status, body: body}} ->
         Logger.warning("Send failed: #{status} - #{inspect(body)}")
@@ -334,8 +355,25 @@ defmodule AlexClaw.Gateway.Telegram do
     end
   end
 
+  # The token is in the URL: a redirect to another host would carry it
+  # (AlexClaw.Net.Credentials). Nothing in the message is ever filled.
+  defp post_json(url, request) do
+    [method: :post, url: url, json: request]
+    |> Req.new()
+    |> Credentials.guard_redirects(credentialed: true)
+    |> Req.request()
+  end
+
+  # A 401 says the token that was used is not valid. When that is the held
+  # token, it is resolved again on next use; a step's own token says nothing
+  # about the held one.
+  defp invalidate_if_held(token), do: invalidated(token == Token.get())
+
+  defp invalidated(true), do: Token.invalidate()
+  defp invalidated(false), do: :ok
+
   defp send_plain(url, request) do
-    case Req.post(url, json: request) do
+    case post_json(url, request) do
       {:ok, %{status: 200}} ->
         :ok
 

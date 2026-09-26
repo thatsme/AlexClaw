@@ -21,7 +21,7 @@ defmodule AlexClaw.Skills.WebBrowse do
   require Logger
   import AlexClaw.Skills.Helpers, only: [llm_opts: 1, sanitize_utf8: 1, strip_noise: 1]
 
-  alias AlexClaw.{Gateway, Identity, LLM, Memory}
+  alias AlexClaw.{Identity, LLM, Memory}
 
   @max_content_length 8_000
 
@@ -143,38 +143,8 @@ defmodule AlexClaw.Skills.WebBrowse do
     end
   end
 
-  @spec handle(String.t(), String.t() | nil, keyword()) :: :ok
-  def handle(url, question \\ nil, opts \\ []) do
-    Logger.info("WebBrowse: #{url}#{if question, do: " — #{question}", else: ""}", skill: :web)
-    gateway_opts = Keyword.take(opts, [:gateway, :chat_id])
-
-    tier = Keyword.get(opts, :tier, resolve_tier())
-    provider = Keyword.get(opts, :provider, resolve_provider())
-
-    config = %{"url" => url}
-    config = if question, do: Map.put(config, "question", question), else: config
-
-    llm_provider = if provider && provider != "auto", do: provider, else: nil
-
-    case run(%{config: config, llm_provider: llm_provider, llm_tier: tier}) do
-      {:ok, response, _branch} ->
-        Gateway.send_message(response, gateway_opts)
-
-      {:error, reason} ->
-        Logger.warning("WebBrowse failed: #{inspect(reason)}", skill: :web)
-        Gateway.send_message("Failed: #{inspect(reason)}", gateway_opts)
-    end
-  end
-
   defp resolve_tier,
     do: String.to_existing_atom(AlexClaw.Config.get("skill.web_browse.tier") || "light")
-
-  defp resolve_provider do
-    case AlexClaw.Config.get("skill.web_browse.provider") do
-      p when p in [nil, "", "auto"] -> nil
-      p -> p
-    end
-  end
 
   defp fetch_and_extract(url) do
     headers = [

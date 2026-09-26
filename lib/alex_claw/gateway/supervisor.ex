@@ -20,7 +20,10 @@ defmodule AlexClaw.Gateway.Supervisor do
 
   @impl true
   def init(_opts) do
-    Supervisor.init([AlexClaw.Gateway.Telegram | discord_children()], strategy: :one_for_one)
+    Supervisor.init(
+      [AlexClaw.Gateway.Telegram.Token, AlexClaw.Gateway.Telegram | discord_children()],
+      strategy: :one_for_one
+    )
   end
 
   defp discord_children do

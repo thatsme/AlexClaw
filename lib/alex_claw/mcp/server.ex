@@ -1,15 +1,14 @@
 defmodule AlexClaw.MCP.Server do
   @moduledoc """
-  MCP (Model Context Protocol) server exposing AlexClaw skills, workflows, and data as
-  tools and resources.
+  MCP (Model Context Protocol) server: an MCP client reads AlexClaw's data
+  and runs its unprotected workflows — nothing more (0.4.0 S5b).
 
   Uses the Streamable HTTP transport via anubis_mcp. Clients connect to
-  the /mcp endpoint, authenticate with a Bearer token, and can discover
-  and invoke AlexClaw skills through the standard MCP protocol.
-
-  Tool discovery is dynamic: when skills are loaded/unloaded/reloaded,
-  connected clients receive a `notifications/tools/list_changed` notification
-  and can re-fetch the tool list.
+  the /mcp endpoint and authenticate with a Bearer token. The tools are the
+  enabled workflows that need no second factor (`workflow:<name>`); a run is
+  performed as `:run_workflow` through `AlexClaw.ControlPlane.perform/3`,
+  which refuses a protected one. There are no skill tools: a skill runs
+  inside a workflow.
 
   Resources expose AlexClaw data stores (RSS feeds, knowledge base, memory,
   workflows, runs, config) via URI templates like `alexclaw://knowledge/{id}`.
@@ -22,27 +21,22 @@ defmodule AlexClaw.MCP.Server do
 
   require Logger
 
-  alias AlexClaw.Auth.{AuthContext, CapabilityToken, PolicyEngine}
+  alias AlexClaw.Auth.{AuthContext, PolicyEngine}
+  alias AlexClaw.ControlPlane
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.MCP.{ResourceProvider, ToolSchema}
-  alias AlexClaw.Skills.SkillAPI
-  alias AlexClaw.Workflows.Executor
-  alias AlexClaw.Workflows.SkillRegistry
   alias Anubis.MCP.Error
   alias Anubis.Server.Frame
   alias Anubis.Server.Response
-
-  @skills_topic "skills:registry"
 
   @impl true
   @spec init(map(), map()) :: {:ok, map()}
   def init(client_info, frame) do
     Logger.info("[MCP] Client connected: #{inspect(client_info["name"])}")
 
-    # Subscribe this session to skill registry changes
-    Phoenix.PubSub.subscribe(AlexClaw.PubSub, @skills_topic)
-
     frame =
       frame
+      |> Frame.assign(:client, to_string(client_info["name"] || "client"))
       |> register_all_tools()
       |> ResourceProvider.register_templates()
 
@@ -51,28 +45,20 @@ defmodule AlexClaw.MCP.Server do
 
   @impl true
   @spec handle_tool_call(String.t(), map(), map()) :: {:ok, map(), map()} | {:error, map(), map()}
-  def handle_tool_call("skill:" <> skill_name, arguments, frame) do
-    with {:resolve, {:ok, module}} <-
-           {:resolve, SkillRegistry.resolve(skill_name)},
-         {:policy, :allow} <- {:policy, check_mcp_policy("skill:#{skill_name}", :execute)} do
-      args = build_skill_args(arguments)
-      result = execute_skill(module, skill_name, args)
-      format_tool_result(result, frame)
-    else
-      {:resolve, {:error, :unknown_skill}} ->
-        {:error, Error.protocol(:invalid_params, %{message: "Unknown skill: #{skill_name}"}),
-         frame}
-
-      {:policy, {:deny, reason}} ->
-        {:error, Error.execution(reason), frame}
-    end
+  def handle_tool_call("skill:" <> _skill_name, _arguments, frame) do
+    {:reply,
+     Response.error(
+       Response.tool(),
+       "Skills are not tools over MCP: a skill runs inside a workflow."
+     ), frame}
   end
 
   def handle_tool_call("workflow:" <> workflow_name, arguments, frame) do
     with {:find, {:ok, workflow}} <- {:find, find_workflow_by_name(workflow_name)},
          {:policy, :allow} <- {:policy, check_mcp_policy("workflow:#{workflow_name}", :execute)} do
-      result = execute_workflow(workflow, arguments)
-      format_tool_result(result, frame)
+      workflow
+      |> run_workflow(arguments, frame)
+      |> format_tool_result(frame)
     else
       {:find, {:error, :not_found}} ->
         {:error,
@@ -87,22 +73,7 @@ defmodule AlexClaw.MCP.Server do
     {:error, Error.protocol(:invalid_params, %{message: "Unknown tool: #{name}"}), frame}
   end
 
-  # PubSub events from SkillRegistry — re-register all tools and notify client
   @impl true
-  def handle_info({:skill_registered, name}, frame) do
-    Logger.info("[MCP] Skill registered: #{name}, refreshing tool list")
-    frame = register_all_tools(frame)
-    send_tools_list_changed()
-    {:noreply, frame}
-  end
-
-  def handle_info({:skill_unregistered, name}, frame) do
-    Logger.info("[MCP] Skill unregistered: #{name}, refreshing tool list")
-    frame = register_all_tools(frame)
-    send_tools_list_changed()
-    {:noreply, frame}
-  end
-
   def handle_info(_msg, frame) do
     {:noreply, frame}
   end
@@ -137,87 +108,25 @@ defmodule AlexClaw.MCP.Server do
     end)
   end
 
-  defp build_skill_args(arguments) do
-    %{
-      input: arguments["input"],
-      config: skill_config(arguments),
-      resources: [],
-      workflow_run_id: nil,
-      llm_provider: nil,
-      llm_tier: arguments["llm_tier"] || "medium",
-      prompt_template: nil
-    }
+  # The run is performed through the control plane, which refuses a protected
+  # or disabled workflow; MCP waits for it and answers with its result.
+  defp run_workflow(workflow, arguments, frame) do
+    :run_workflow
+    |> ControlPlane.perform(
+      %{workflow_id: workflow.id, input: arguments["input"], wait: true},
+      Context.mcp(frame.assigns[:client] || "client")
+    )
+    |> ran()
   end
 
-  # MCP passes no resources. A feed skill reads every enabled feed only when
-  # the caller says so with "all_feeds"; it is forwarded, never added here.
-  defp skill_config(%{"all_feeds" => all_feeds} = arguments),
-    do: Map.put(arguments["config"] || %{}, "all_feeds", all_feeds)
-
-  defp skill_config(arguments), do: arguments["config"] || %{}
-
-  defp execute_skill(module, _skill_name, args) do
-    type = SkillRegistry.get_type(module)
-
-    task =
-      Task.Supervisor.async_nolink(AlexClaw.TaskSupervisor, fn ->
-        permissions =
-          if type == :dynamic do
-            SkillRegistry.get_permissions(module)
-          else
-            SkillAPI.known_permissions()
-          end
-
-        token = CapabilityToken.mint(permissions)
-        Process.put(:auth_token, token)
-
-        module.run(args)
-      end)
-
-    timeout = Application.get_env(:alex_claw, :mcp_tool_timeout_ms, 30_000)
-
-    case Task.yield(task, timeout) || Task.shutdown(task) do
-      {:ok, result} -> result
-      nil -> {:error, :timeout}
-      {:exit, reason} -> {:error, {:crash, reason}}
-    end
-  rescue
-    e -> {:error, Exception.message(e)}
-  end
-
-  defp execute_workflow(workflow, arguments) do
-    input = arguments["input"]
-
-    result =
-      if input do
-        Executor.run_with_initial_input(workflow.id, input)
-      else
-        Executor.run(workflow.id)
-      end
-
-    case result do
-      {:ok, run} ->
-        {:ok,
-         %{
-           run_id: run.id,
-           status: run.status,
-           result: run.result
-         }}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+  defp ran({:ok, run}), do: {:ok, %{run_id: run.id, status: run.status, result: run.result}}
+  defp ran({:error, reason}), do: {:error, reason}
 
   defp find_workflow_by_name(name) do
     case Enum.find(AlexClaw.Workflows.list_workflows(), &(&1.name == name)) do
       nil -> {:error, :not_found}
       workflow -> {:ok, workflow}
     end
-  end
-
-  defp format_tool_result({:ok, result, _branch}, frame) do
-    {:reply, build_response(result), frame}
   end
 
   defp format_tool_result({:ok, result}, frame) do

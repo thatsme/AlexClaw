@@ -36,9 +36,8 @@ defmodule AlexClaw.ComposeEnvTest do
 
   # Referenced in docker-compose.yml as ${VAR} but deliberately absent from
   # .env.example, each with the reason.
+  # OLD_SECRET_KEY_BASE left with the key rotation in 0.4.0 (S7).
   @not_in_example %{
-    "OLD_SECRET_KEY_BASE" =>
-      "never kept in .env: the rotation doc reads it with read -rs and passes it with -e for one run",
     "BUILD_NUMBER" => "a build argument set by the build, not by an operator"
   }
 

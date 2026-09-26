@@ -25,7 +25,7 @@ defmodule AlexClaw.Skills.WebSearch do
   require Logger
   import AlexClaw.Skills.Helpers, only: [llm_opts: 1, sanitize_utf8: 1, strip_noise: 1]
 
-  alias AlexClaw.{Gateway, Identity, LLM, Memory}
+  alias AlexClaw.{Identity, LLM, Memory}
 
   @max_results 3
   @max_page_length 3_000
@@ -83,37 +83,8 @@ defmodule AlexClaw.Skills.WebSearch do
 
   defp searched({:error, reason}, _query, _llm_opts), do: {:error, reason}
 
-  @spec handle(String.t(), keyword()) :: :ok
-  def handle(query, opts \\ []) do
-    Logger.info("WebSearch: #{query}", skill: :web_search)
-    gateway_opts = Keyword.take(opts, [:gateway, :chat_id])
-    Gateway.send_message("Searching: #{query}...", gateway_opts)
-
-    tier = Keyword.get(opts, :tier, resolve_tier())
-    provider = Keyword.get(opts, :provider, resolve_provider())
-
-    case run(%{input: query, llm_provider: provider, llm_tier: tier}) do
-      {:ok, response, _branch} ->
-        Gateway.send_message(response, gateway_opts)
-
-      {:error, :no_query} ->
-        Gateway.send_message("No query provided.", gateway_opts)
-
-      {:error, reason} ->
-        Logger.warning("WebSearch failed: #{inspect(reason)}", skill: :web_search)
-        Gateway.send_message("Search failed: #{inspect(reason)}", gateway_opts)
-    end
-  end
-
   defp resolve_tier,
     do: String.to_existing_atom(AlexClaw.Config.get("skill.web_search.tier") || "medium")
-
-  defp resolve_provider do
-    case AlexClaw.Config.get("skill.web_search.provider") do
-      p when p in [nil, "", "auto"] -> nil
-      p -> p
-    end
-  end
 
   defp search_ddg(query) do
     url = "https://html.duckduckgo.com/html/"

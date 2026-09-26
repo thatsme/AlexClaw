@@ -4,7 +4,6 @@ defmodule AlexClaw.Auth.TOTPTest do
 
   alias AlexClaw.Auth.{Challenge, CodeAttempts, TOTP}
   alias AlexClaw.Config
-  alias AlexClaw.Config.Crypto
 
   describe "setup/0" do
     test "generates a secret and QR code" do
@@ -17,18 +16,11 @@ defmodule AlexClaw.Auth.TOTPTest do
       assert byte_size(qr_png) > 0
     end
 
-    test "stores pending secret in config" do
+    # Since 0.4.0 (S6) the key is created and kept by OpenBao's TOTP engine:
+    # the database holds no pending secret to encrypt.
+    test "stores no pending secret in the database" do
       {:ok, _} = TOTP.setup()
-      pending = AlexClaw.Config.get("auth.totp.pending_secret")
-      assert is_binary(pending)
-      assert pending != ""
-    end
-
-    test "pending secret is encrypted at rest in database" do
-      {:ok, _} = TOTP.setup()
-      record = Repo.get_by(Config.Setting, key: "auth.totp.pending_secret")
-      assert record.sensitive == true
-      assert Crypto.encrypted?(record.value)
+      refute Repo.get_by(Config.Setting, key: "auth.totp.pending_secret")
     end
   end
 
@@ -44,20 +36,20 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "activates 2FA with valid code" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
+      code = NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
 
       assert :ok = TOTP.confirm_setup(code)
       assert TOTP.enabled?()
     end
 
-    test "active secret is encrypted at rest in database" do
+    # Since 0.4.0 (S6) the active key lives in OpenBao, not the database.
+    test "stores no active secret in the database" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
+      code = NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
       :ok = TOTP.confirm_setup(code)
 
-      record = Repo.get_by(Config.Setting, key: "auth.totp.secret")
-      assert record.sensitive == true
-      assert Crypto.encrypted?(record.value)
+      # The seeder keeps an empty row for it; what matters is that no value is kept.
+      assert Repo.get_by(Config.Setting, key: "auth.totp.secret").value in [nil, ""]
     end
   end
 
@@ -68,7 +60,7 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "returns true after setup and confirmation" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
+      code = NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
       :ok = TOTP.confirm_setup(code)
 
       assert TOTP.enabled?()
@@ -82,7 +74,7 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "returns true for valid code" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
+      code = NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
       :ok = TOTP.confirm_setup(code)
 
       new_code = NimbleTOTP.verification_code(secret)
@@ -91,29 +83,68 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "returns false for invalid code" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
+      code = NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
       :ok = TOTP.confirm_setup(code)
 
       refute TOTP.verify("000000")
     end
   end
 
-  describe "disable/0" do
-    test "disables 2FA" do
+  # disable/1 verifies the current code itself (0.4.0): no caller can turn
+  # 2FA off by forgetting to check. The code it receives goes through the same
+  # verification as any other, replay protection included — so these tests
+  # move the last-used marker back before using a fresh code.
+  describe "disable/1" do
+    defp enabled_secret do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
-      :ok = TOTP.confirm_setup(code)
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
+
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      secret
+    end
+
+    test "a current code disables 2FA" do
+      secret = enabled_secret()
       assert TOTP.enabled?()
 
-      :ok = TOTP.disable()
+      :ok = TOTP.disable(NimbleTOTP.verification_code(secret))
       refute TOTP.enabled?()
+    end
+
+    test "a wrong code does not" do
+      enabled_secret()
+
+      assert {:error, :invalid_code} = TOTP.disable("000000")
+      assert TOTP.enabled?()
+    end
+
+    # The lost-phone path. Recovery codes exist for exactly this: without it,
+    # a lost authenticator would lock the admin out for good.
+    test "a recovery code disables 2FA, and every code is wiped" do
+      enabled_secret()
+      codes = AlexClaw.Auth.RecoveryCodes.generate()
+
+      :ok = TOTP.disable(hd(codes))
+      refute TOTP.enabled?()
+
+      # With 2FA off, leftover recovery codes mean nothing: all are wiped, the
+      # one used included.
+      refute Enum.any?(codes, &AlexClaw.Auth.RecoveryCodes.valid?/1)
     end
   end
 
   describe "challenge system" do
     test "create and resolve challenge" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
+      code = NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
       :ok = TOTP.confirm_setup(code)
 
       action = %{type: :run_workflow, workflow_id: 1}
@@ -129,7 +160,7 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "returns error for invalid code on challenge" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      code = NimbleTOTP.verification_code(secret)
+      code = NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
       :ok = TOTP.confirm_setup(code)
 
       Challenge.create("chat_456", %{type: :test})
@@ -151,7 +182,11 @@ defmodule AlexClaw.Auth.TOTPTest do
   describe "replay protection" do
     test "a valid code is accepted once and refused on reuse" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
 
       code = NimbleTOTP.verification_code(secret)
 
@@ -161,7 +196,11 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "a code from a period after the last acceptance is allowed" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
 
       AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
         type: "string",
@@ -173,7 +212,11 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "acceptance is recorded as a row, outside the config cache" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
 
       assert TOTP.verify(NimbleTOTP.verification_code(secret))
 
@@ -195,17 +238,35 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     test "disabling 2FA clears the marker" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
+
       assert TOTP.verify(NimbleTOTP.verification_code(secret))
 
-      :ok = TOTP.disable()
+      # The code just accepted cannot be replayed; move the marker back so a
+      # fresh code is valid for disable/1, which verifies it. Since 0.4.0 (S6)
+      # OpenBao also refuses a code it accepted, so the fresh code is the next
+      # period's.
+      AlexClaw.Config.set("auth.totp.last_used_at", to_string(System.os_time(:second) - 120),
+        type: "string",
+        category: "auth"
+      )
+
+      :ok = TOTP.disable(NimbleTOTP.verification_code(secret, time: System.os_time(:second) + 30))
 
       refute AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
     end
 
     test "a rejected code is not recorded" do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
 
       refute TOTP.verify("000000")
       refute AlexClaw.Repo.get_by(AlexClaw.Config.Setting, key: "auth.totp.last_used_at")
@@ -230,7 +291,12 @@ defmodule AlexClaw.Auth.TOTPTest do
 
     defp enable_2fa do
       {:ok, %{secret: secret}} = TOTP.setup()
-      :ok = TOTP.confirm_setup(NimbleTOTP.verification_code(secret))
+
+      :ok =
+        TOTP.confirm_setup(
+          NimbleTOTP.verification_code(secret, time: System.os_time(:second) - 30)
+        )
+
       secret
     end
 

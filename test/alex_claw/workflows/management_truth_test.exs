@@ -11,15 +11,18 @@ defmodule AlexClaw.Workflows.ManagementTruthTest do
   - A step saved with the provider select's default stored "auto", which
     then overrode the workflow's default provider. `"auto"` or no model on a
     step means "use the workflow's provider".
-  - "Run" on a disabled workflow said "triggered" while nothing ran:
-    `Launch.start/1` (it takes the workflow) now refuses a disabled workflow with
-    `{:error, :workflow_disabled}` before starting anything.
+  - "Run" on a disabled workflow said "triggered" while nothing ran: starting
+    a run now refuses a disabled workflow with `{:error, :workflow_disabled}`
+    before starting anything. Since 0.4.0 (S5b) a run starts through the one
+    door — `ControlPlane.perform(:run_workflow, …)` — which replaced
+    `Launch.start/1`.
   """
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Workflows
-  alias AlexClaw.Workflows.{Executor, Launch}
+  alias AlexClaw.{ControlPlane, Workflows}
+  alias AlexClaw.ControlPlane.Context
+  alias AlexClaw.Workflows.Executor
   alias Ecto.Adapters.SQL.Sandbox
 
   defp workflow(attrs \\ %{}) do
@@ -79,10 +82,14 @@ defmodule AlexClaw.Workflows.ManagementTruthTest do
   end
 
   describe "running a disabled workflow" do
+    defp start(wf) do
+      ControlPlane.perform(:run_workflow, %{workflow_id: wf.id}, Context.admin_ui("mgmt-truth"))
+    end
+
     test "is refused before anything starts, and says so" do
       wf = workflow(%{enabled: false})
 
-      assert {:error, :workflow_disabled} = Launch.start(wf)
+      assert {:error, :workflow_disabled} = start(wf)
       assert Workflows.list_runs(wf.id) == []
     end
 
@@ -90,7 +97,7 @@ defmodule AlexClaw.Workflows.ManagementTruthTest do
       Sandbox.mode(AlexClaw.Repo, {:shared, self()})
       wf = workflow()
 
-      assert :started = Launch.start(wf)
+      assert {:ok, {:started, _}} = start(wf)
 
       # Wait for the run to finish, so it does not outlive the test's sandbox.
       assert Enum.any?(1..100, fn _ ->

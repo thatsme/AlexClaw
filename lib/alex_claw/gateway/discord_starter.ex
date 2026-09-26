@@ -1,12 +1,21 @@
 defmodule AlexClaw.Gateway.DiscordStarter do
   @moduledoc """
   Starts the Discord gateway after Config.Loader has populated ETS.
-  Reads discord.bot_token and discord.enabled from DB config,
-  configures Nostrum at runtime, and starts it if enabled.
+  Resolves discord.bot_token (a secret setting, kept in OpenBao) once, reads
+  discord.enabled, configures Nostrum at runtime, and starts it if enabled.
   No .env required — configure entirely from Admin > Config.
+
+  The token is resolved again when it is rotated (`AlexClaw.Secrets` announces
+  it) and handed to Nostrum, which uses it from its next connection. Nostrum
+  keeps its copy in its application environment: that copy is the one place
+  outside this process the token lives.
   """
   use GenServer
   require Logger
+
+  alias AlexClaw.Config.SecretSettings
+
+  @key "discord.bot_token"
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -15,6 +24,7 @@ defmodule AlexClaw.Gateway.DiscordStarter do
 
   @impl true
   def init(_opts) do
+    Phoenix.PubSub.subscribe(AlexClaw.PubSub, AlexClaw.Secrets.topic())
     # Small delay to ensure Config.Loader has finished seeding
     Process.send_after(self(), :start_discord, 1_000)
     {:ok, %{started: false}}
@@ -22,10 +32,22 @@ defmodule AlexClaw.Gateway.DiscordStarter do
 
   @impl true
   def handle_info(:start_discord, state) do
-    token = AlexClaw.Config.get("discord.bot_token")
+    token = bot_token()
 
     start_discord(state, token, startable?(token))
   end
+
+  def handle_info({:secret_rotated, name}, %{started: true} = state) do
+    if name == SecretSettings.secret_name(@key), do: rotated(bot_token())
+    {:noreply, state}
+  end
+
+  def handle_info({:secret_rotated, _name}, state), do: {:noreply, state}
+
+  defp rotated(nil), do: Logger.warning("Discord bot token removed; Nostrum keeps the old one")
+  defp rotated(token), do: Application.put_env(:nostrum, :token, token)
+
+  defp bot_token, do: AlexClaw.Config.secret_value(@key, for: "host:discord.com")
 
   defp startable?(token) when not is_binary(token) or token == "", do: false
 

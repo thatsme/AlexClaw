@@ -12,7 +12,6 @@ import re
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from typing import Optional
-from urllib.parse import urlparse
 
 from patchright.async_api import Page, Request
 
@@ -33,6 +32,37 @@ class CapturedAction:
     post_data: Optional[str] = None
     headers: Optional[dict] = None
     checked: Optional[bool] = None
+    # A fill into a credential field: a login goes here. It has no value.
+    secret: Optional[bool] = None
+
+
+# A credential field: type=password, or an autocomplete token naming one.
+CREDENTIAL_AUTOCOMPLETE = frozenset(["current-password", "new-password", "one-time-code"])
+
+
+def is_credential_field(input_type: Optional[str], autocomplete: Optional[str]) -> bool:
+    """Whether a filled field holds a credential, from what the page reported."""
+    if (input_type or "").lower() == "password":
+        return True
+    tokens = (autocomplete or "").lower().split()
+    return any(token in CREDENTIAL_AUTOCOMPLETE for token in tokens)
+
+
+def captured_action(a: dict) -> CapturedAction:
+    """A DOM action as the recorder keeps it. A fill into a credential field
+    is kept as a slot: `secret=True` and no value, whatever the page sent."""
+    action_type = a.get("action_type", "interaction")
+    secret = action_type == "fill" and is_credential_field(a.get("input_type"), a.get("autocomplete"))
+    return CapturedAction(
+        timestamp=a.get("timestamp", datetime.now().isoformat()),
+        action_type=action_type,
+        description=a.get("description", ""),
+        selector=a.get("selector"),
+        value=None if secret else a.get("value"),
+        url=None,
+        checked=a.get("checked") if action_type == "check" else None,
+        secret=True if secret else None,
+    )
 
 
 @dataclass
@@ -78,104 +108,6 @@ class Recorder:
         self._page: Optional[Page] = None
 
         os.makedirs(output_dir, exist_ok=True)
-
-    # --- Static asset filter ---
-
-    _IGNORE_EXTENSIONS = frozenset([
-        ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
-        ".css", ".js", ".woff", ".woff2", ".ttf", ".ico", ".map",
-    ])
-
-    def _is_interesting(self, request: Request) -> bool:
-        """Determine if a request represents a meaningful user action."""
-        url = request.url
-        path = urlparse(url).path
-
-        # Ignore static assets
-        if any(path.endswith(ext) for ext in self._IGNORE_EXTENSIONS):
-            self.ignored_count += 1
-            return False
-
-        # Ignore common heartbeat/polling endpoints
-        lower_path = path.lower()
-        if any(p in lower_path for p in ["/pong", "/heartbeat", "/health", "/ping"]):
-            self.ignored_count += 1
-            return False
-
-        # For POST requests, check if content matches interesting patterns
-        if request.method == "POST":
-            post_data = request.post_data or ""
-            combined = (path + post_data).lower()
-
-            # Check URL path and headers for interesting patterns
-            headers = request.headers
-            for key, val in headers.items():
-                if key.startswith("x-") and val:
-                    combined += val.lower()
-
-            if any(pattern in combined for pattern in self.interesting_patterns):
-                return True
-
-            # POST with body data is usually meaningful
-            if post_data and len(post_data) > 2:
-                return True
-
-            self.ignored_count += 1
-            return False
-
-        # GET requests to API-like paths
-        if request.method == "GET" and ("/api/" in path or "/v1/" in path or "/v2/" in path):
-            return True
-
-        # Page navigation
-        if request.resource_type in ("document", "xhr", "fetch"):
-            return True
-
-        self.ignored_count += 1
-        return False
-
-    def _classify_action(self, request: Request) -> Optional[CapturedAction]:
-        """Parse a request into a classified action."""
-        url = request.url
-        path = urlparse(url).path
-        post_data = request.post_data
-        method = request.method
-        combined = (path + (post_data or "")).lower()
-
-        action_type = "interaction"
-        description = f"{method} {path}"
-
-        if "login" in combined or "auth" in combined or "signin" in combined:
-            action_type = "login"
-            description = "Login/authentication request"
-        elif any(kw in combined for kw in ["download", "export", "excel", "csv", "pdf"]):
-            action_type = "download_click"
-            fmt = "file"
-            for f in ["excel", "csv", "pdf"]:
-                if f in combined:
-                    fmt = f
-                    break
-            description = f"Download triggered ({fmt})"
-        elif "filter" in combined or "search" in combined or "query" in combined:
-            action_type = "filter"
-            description = f"Filter/search: {path}"
-            if post_data and len(post_data) < 200:
-                description += f" data={post_data[:100]}"
-        elif request.resource_type == "document":
-            action_type = "navigate"
-            description = f"Navigate to {path}"
-        elif "submit" in combined or method == "POST":
-            action_type = "submit"
-            description = f"Form submit: {path}"
-
-        return CapturedAction(
-            timestamp=datetime.now().isoformat(),
-            action_type=action_type,
-            description=description,
-            url=url,
-            post_data=post_data[:500] if post_data and len(post_data) < 500 else None,
-            headers={k: v for k, v in request.headers.items() if k.startswith("x-")},
-        )
 
     async def _on_request(self, request: Request):
         """Handle intercepted request — only used to flush DOM actions before navigations."""
@@ -247,16 +179,25 @@ class Recorder:
             const isSelect = tag === 'SELECT';
             const isCheckbox = el.type === 'checkbox' || el.type === 'radio';
             const isRadio = el.type === 'radio';
-            const value = isCheckbox ? el.value : el.value;
+            const inputType = (el.type || '').toLowerCase();
+            const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+            // A credential field (type=password, or autocomplete current-password,
+            // new-password or one-time-code): its value never leaves the page.
+            const credential = inputType === 'password' ||
+                autocomplete.split(/\s+/).some(t => ['current-password', 'new-password', 'one-time-code'].includes(t));
             const checked = isCheckbox ? el.checked : null;
 
             send({
                 timestamp: new Date().toISOString(),
                 action_type: isRadio ? 'select' : (isSelect ? 'select' : (isCheckbox ? 'check' : 'fill')),
                 selector: sel,
-                value: value,
+                value: credential ? null : el.value,
+                secret: credential,
+                input_type: inputType,
+                autocomplete: autocomplete,
                 checked: checked,
-                description: (isCheckbox ? (el.checked ? 'Check ' : 'Uncheck ') : (isSelect ? 'Select ' : 'Fill ')) + sel + ' = ' + value.substring(0, 50)
+                // The description names the field, never what was typed in it.
+                description: (isCheckbox ? (el.checked ? 'Check ' : 'Uncheck ') : (isSelect ? 'Select ' : 'Fill ')) + sel
             });
         }, true);
 
@@ -302,16 +243,7 @@ class Recorder:
         try:
             raw = await self._page.evaluate("window.__recordedActions || []")
             logger.info("Collected %d DOM actions from page", len(raw))
-            actions = []
-            for a in raw:
-                actions.append(CapturedAction(
-                    timestamp=a.get("timestamp", datetime.now().isoformat()),
-                    action_type=a.get("action_type", "interaction"),
-                    description=a.get("description", ""),
-                    selector=a.get("selector"),
-                    value=a.get("value"),
-                    url=None,
-                ))
+            actions = [captured_action(a) for a in raw]
             # Clear collected actions from page to avoid duplicates
             await self._page.evaluate("window.__recordedActions = []")
             return actions
@@ -335,15 +267,7 @@ class Recorder:
             if action_type not in ACTIONS:
                 logger.info("Ignored DOM action: %s", action_type)
                 return
-            action = CapturedAction(
-                timestamp=a.get("timestamp", datetime.now().isoformat()),
-                action_type=action_type,
-                description=a.get("description", ""),
-                selector=a.get("selector"),
-                value=a.get("value"),
-                url=None,
-                checked=a.get("checked") if action_type == "check" else None,
-            )
+            action = captured_action(a)
             self.actions.append(action)
             # Not the description: the page builds it with the typed value.
             logger.info("[DOM %s] %s", action.action_type.upper(), action.selector)

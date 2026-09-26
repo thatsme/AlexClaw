@@ -2,7 +2,9 @@ defmodule AlexClaw.Application do
   @moduledoc "OTP application supervisor for AlexClaw."
   use Application
 
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Database.PrivilegeCheck
+  alias AlexClaw.Secrets.Mask
 
   @impl true
   def start(_type, _args) do
@@ -15,19 +17,38 @@ defmodule AlexClaw.Application do
     # start stops here rather than running with fewer defences than shipped.
     AlexClaw.ContentSanitizer.load_patterns!()
 
+    # The key control-plane contexts are sealed with, made for this start only
+    # (AlexClaw.ControlPlane.Context; S8 M5).
+    Context.init_key()
+
+    # Every value resolved from OpenBao is masked in every log line, crash
+    # reports included (AlexClaw.Secrets.Mask; S8 H1, H8). The table it reads
+    # is started below; until then nothing has been resolved.
+    :logger.add_primary_filter(:secret_mask, {&Mask.log_filter/2, []})
+
     children = [
       AlexClaw.Repo,
       {Phoenix.PubSub, name: AlexClaw.PubSub},
       {Task.Supervisor, name: AlexClaw.TaskSupervisor},
+      # Before the OpenBao client: every value it hands out is remembered here
+      # for masking.
+      AlexClaw.Secrets.Mask,
+      # The OpenBao client, on its own branch: OpenBao unreachable or the client
+      # failing is a value callers get, never a restart of anything else.
+      {AlexClaw.Vault.Supervisor, Application.get_env(:alex_claw, AlexClaw.Vault, [])},
       # Before anything that audits: a row lost at boot is announced too.
       AlexClaw.Auth.AuditLoss,
       AlexClaw.Knowledge.EmbedThrottle,
       AlexClaw.LLM.UsageTracker,
       AlexClaw.Config.Loader,
       AlexClaw.Workflows.SkillRegistry,
-      # Encrypts credentials still stored in plain text and checks the rest
-      # decrypt, before anything reads them; the boot stops if one fails.
-      AlexClaw.Database.EncryptCredentials,
+      # Moves secret settings still held in the settings table into OpenBao —
+      # read back and compared before the database copy is emptied. Before the
+      # gateways, which read their tokens from OpenBao.
+      AlexClaw.Config.SecretUpgrade,
+      # The webhook secret, resolved once rather than per delivery. Before the
+      # endpoint, which checks deliveries against it.
+      AlexClaw.Webhooks.GitHubSecret,
       AlexClaw.Workflows.Registry,
       AlexClaw.LogBuffer,
       AlexClaw.Google.TokenManager,

@@ -1,14 +1,17 @@
 defmodule AlexClaw.Google.OAuth do
   @moduledoc """
-  Handles the Google OAuth2 flow initiated via Telegram.
+  Handles the Google OAuth2 flow, started from the admin UI (Services page).
 
-  Flow:
-  1. User sends /connect google
-  2. We generate an auth URL with a random state token linked to their chat_id
-  3. User taps the link, authorizes in Google
-  4. Google redirects to /auth/google/callback with code + state
-  5. We exchange the code for tokens, store refresh_token in Config
-  6. We notify the user via Telegram
+  Flow (both steps performed as `:connect_google` through
+  `AlexClaw.ControlPlane.perform/3`, with the elevation):
+  1. The operator asks to connect Google.
+  2. An auth URL is generated with a random state issued to that signed-in
+     session (by its fingerprint).
+  3. The operator authorizes in Google.
+  4. Google redirects to /auth/google/callback with code + state; the
+     callback needs the same signed-in session, and the state must have been
+     issued to it.
+  5. The code is exchanged for tokens; the refresh token goes to OpenBao.
   """
   require Logger
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
@@ -24,9 +27,9 @@ defmodule AlexClaw.Google.OAuth do
     "https://www.googleapis.com/auth/tasks"
   ]
 
-  @doc "Generate an OAuth authorization URL for a Telegram user."
-  @spec generate_auth_url(String.t() | integer()) :: {:ok, String.t()} | {:error, atom()}
-  def generate_auth_url(chat_id) do
+  @doc "Generate an OAuth authorization URL, its state issued to `owner` (a session fingerprint)."
+  @spec generate_auth_url(String.t()) :: {:ok, String.t()} | {:error, atom()}
+  def generate_auth_url(owner) do
     client_id = Config.get("google.oauth.client_id")
 
     if blank?(client_id) do
@@ -35,7 +38,7 @@ defmodule AlexClaw.Google.OAuth do
       state = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
       redirect_uri = get_redirect_uri()
 
-      TokenManager.put_state(state, to_string(chat_id))
+      TokenManager.put_state(state, owner)
 
       params =
         URI.encode_query(%{
@@ -61,42 +64,44 @@ defmodule AlexClaw.Google.OAuth do
     :ok
   end
 
-  @doc "Handle the OAuth callback — exchange code for tokens."
-  @spec handle_callback(String.t(), String.t()) :: {:ok, String.t()} | {:error, atom()}
-  def handle_callback(code, state) do
+  @doc """
+  Handle the OAuth callback for `owner` (the signed-in session's
+  fingerprint) — exchange the code for tokens. A state issued to another
+  session is refused, and spent.
+  """
+  @spec handle_callback(String.t(), String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, atom()}
+  def handle_callback(code, state, owner) do
     # Lookup and delete happen together inside TokenManager, so a state cannot
     # be redeemed twice by two callbacks arriving at once.
     case TokenManager.take_state(state) do
-      {:ok, chat_id} -> exchange_code(code, chat_id)
+      {:ok, ^owner} -> exchange_code(code, owner)
+      {:ok, _other} -> {:error, :invalid_state}
       :expired -> {:error, :state_expired}
       :error -> {:error, :invalid_state}
     end
   end
 
-  @doc "Disconnect Google — remove stored tokens."
-  @spec disconnect() :: :ok
+  @doc "Disconnect Google — remove the stored refresh token from OpenBao."
+  @spec disconnect() :: :ok | {:error, term()}
   def disconnect do
-    Config.set("google.oauth.refresh_token", "",
-      type: "string",
-      category: "google",
-      description: "Google OAuth refresh token (obtained via one-time authorization flow)"
-    )
-
-    Logger.info("Google OAuth disconnected")
-    :ok
+    with :ok <- Config.clear("google.oauth.refresh_token") do
+      Logger.info("Google OAuth disconnected")
+      :ok
+    end
   end
 
   @doc "Check if Google OAuth is connected."
   @spec connected?() :: boolean()
   def connected? do
-    not blank?(Config.get("google.oauth.refresh_token"))
+    Config.secret_set?("google.oauth.refresh_token")
   end
 
   # --- Internal ---
 
-  defp exchange_code(code, chat_id) do
+  defp exchange_code(code, owner) do
     client_id = Config.get("google.oauth.client_id")
-    client_secret = Config.get("google.oauth.client_secret")
+    client_secret = Config.secret_value("google.oauth.client_secret")
     redirect_uri = get_redirect_uri()
 
     body = %{
@@ -118,7 +123,7 @@ defmodule AlexClaw.Google.OAuth do
         TokenManager.refresh()
 
         Logger.info("Google OAuth connected successfully")
-        {:ok, chat_id}
+        {:ok, owner}
 
       {:ok, %{status: 200, body: body}} ->
         # Token response without refresh_token (user already authorized before)

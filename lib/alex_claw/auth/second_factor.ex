@@ -36,7 +36,7 @@ defmodule AlexClaw.Auth.SecondFactor do
   `AlexClaw.Auth.CodeEntry` owns those, for every implementation.
   """
   @callback verify(secret :: String.t(), method :: method()) ::
-              {:ok, factor()} | {:error, :invalid_code}
+              {:ok, factor()} | {:error, :invalid_code | :unavailable}
 
   @doc "Whether a second factor exists to be asked for on this instance."
   @callback configured?() :: boolean()
@@ -74,6 +74,26 @@ defmodule AlexClaw.Auth.SecondFactor do
   and says so, loudly, to a person.
   """
   @callback misconfigured?() :: boolean()
+
+  @doc """
+  Carry an enrolment made before 0.4.0 into the factor's current store, so the
+  authenticator keeps working through the upgrade: `:imported`, `:none` when
+  there is nothing to carry, or `{:error, reason}` to be tried again at the
+  next start. Options: `vault:` — the `AlexClaw.Vault` server to use; `open:`
+  — a function opening a stored value 0.3.x encrypted, passed by the boot
+  upgrade (0.4.0 S7).
+  """
+  @callback carry_over(keyword()) :: :imported | :none | {:error, term()}
+
+  @doc """
+  Turn the second factor off with no code, for when the admin has lost every
+  way to give one: reached only from the host (`make reset-2fa`, through
+  `AlexClaw.Release.reset_second_factor/0`). Removes what the factor holds,
+  its recovery codes included, and records the reset in the audit log.
+  """
+  @callback reset() :: :ok | {:error, term()}
+
+  @optional_callbacks reset: 0
 
   @doc "The configured implementation."
   @spec impl() :: module()

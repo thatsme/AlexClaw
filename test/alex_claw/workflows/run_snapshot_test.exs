@@ -19,7 +19,6 @@ defmodule AlexClaw.Workflows.RunSnapshotTest do
 
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.Executor
-  alias AlexClawTest.TelegramStub
   alias Ecto.Adapters.SQL.Sandbox
 
   @placeholder "<secret>"
@@ -75,8 +74,10 @@ defmodule AlexClaw.Workflows.RunSnapshotTest do
   end
 
   test "secret config values are not copied into the snapshot", %{wf: wf} do
-    TelegramStub.accept_all()
-
+    # No TelegramStub: this step carries its own bot_token and chat_id, which
+    # is what makes it available. Configuring the main Telegram would only add
+    # the executor's fire-and-forget "workflow started" notice, racing the
+    # end of the test.
     {:ok, _} =
       Workflows.add_step(wf, %{
         name: "Notify",

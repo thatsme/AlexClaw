@@ -28,5 +28,18 @@ defmodule AlexClaw.Resources.Resource do
     |> cast(attrs, [:name, :type, :url, :content, :metadata, :tags, :enabled])
     |> validate_required([:name, :type])
     |> validate_inclusion(:type, @allowed_types)
+    |> validate_change(:url, &without_userinfo/2)
+  end
+
+  # A password in a URL is stored, shown and logged with it: a credential goes
+  # in metadata's auth, where it is kept as a secret.
+  defp without_userinfo(:url, url) do
+    case URI.parse(url) do
+      %URI{userinfo: nil} ->
+        []
+
+      _with_userinfo ->
+        [url: "must not carry a user name or password (put the credential in auth)"]
+    end
   end
 end

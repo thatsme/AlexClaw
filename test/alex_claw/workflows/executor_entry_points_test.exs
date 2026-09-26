@@ -17,18 +17,20 @@ defmodule AlexClaw.Workflows.ExecutorEntryPointsTest do
 
   alias AlexClaw.Workflows.Executor
 
-  # The definition, and the one legitimate caller: the node that receives
-  # another node's send_to_workflow.
+  # The definition, and the one legitimate caller: since 0.4.0 (S5c) another
+  # node's send_to_workflow is a :cluster request through the one door, so the
+  # call lives in ControlPlane.Effects, not in the cluster manager.
   @allowed [
     "lib/alex_claw/workflows/executor.ex",
-    "lib/alex_claw/cluster/manager.ex"
+    "lib/alex_claw/control_plane/effects.ex"
   ]
 
   # Callers that start a run with input meant for step 1. Each must go through
-  # run_with_initial_input/2.
+  # run_with_initial_input/2. Since 0.4.0 (S5b) every run starts through the
+  # one door — the webhook and the MCP workflow tool included — so the call
+  # lives in one place: ControlPlane.Effects.
   @initial_input_callers [
-    "lib/alex_claw_web/controllers/github_webhook_controller.ex",
-    "lib/alex_claw/mcp/server.ex"
+    "lib/alex_claw/control_plane/effects.ex"
   ]
 
   defp sources, do: Path.wildcard("lib/**/*.ex")
@@ -83,7 +85,7 @@ defmodule AlexClaw.Workflows.ExecutorEntryPointsTest do
     assert offenders == [], "still named: #{Enum.join(offenders, ", ")}"
   end
 
-  test "the webhook and the MCP workflow tool start runs with step-1 input" do
+  test "the webhook and the door's run start give step 1 its input" do
     for path <- @initial_input_callers do
       assert File.exists?(path), "#{path} does not exist — update this list"
 

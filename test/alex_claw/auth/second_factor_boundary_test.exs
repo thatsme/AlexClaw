@@ -13,14 +13,17 @@ defmodule AlexClaw.Auth.SecondFactorBoundaryTest do
 
   alias AlexClaw.Auth.SecondFactor
 
-  # The implementation itself, and the two screens whose job is configuring
-  # this particular factor: enrolling an authenticator is TOTP-specific work,
-  # and pretending otherwise would be a worse abstraction than none.
+  # The implementation itself, and the places whose job is configuring this
+  # particular factor: enrolling or removing an authenticator is TOTP-specific
+  # work, and pretending otherwise would be a worse abstraction than none.
+  # Since 0.4.0 (S5a) the one door performs those identity actions (set up,
+  # confirm, disable), so control_plane/actions.ex is one of those places.
   @allowed [
     "lib/alex_claw/auth/totp.ex",
     "lib/alex_claw/auth/second_factor/totp.ex",
     "lib/alex_claw_web/live/admin_live/services.ex",
-    "lib/alex_claw/dispatcher/auth_commands.ex"
+    "lib/alex_claw/dispatcher/auth_commands.ex",
+    "lib/alex_claw/control_plane/actions.ex"
   ]
 
   defp sources, do: Path.wildcard("lib/**/*.ex")

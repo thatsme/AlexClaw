@@ -5,7 +5,9 @@ defmodule AlexClaw.WebAutomation.Recipe do
   A recipe is exactly `%{"url" => url, "steps" => steps}`. `url` is http(s) with
   a host. Every step names one action and carries only that action's fields,
   plus an optional `timeout_ms` (an integer, 1..120000); unknown keys anywhere
-  are refused. The sidecar enforces the same contract (`app.recipe`), and both
+  are refused. A fill that types a login carries the `origin` the login is
+  bound to (`scheme://host[:port]`); the sidecar types it only on a page of
+  that origin. The sidecar enforces the same contract (`app.recipe`), and both
   are tested against `web-automator/tests/contract/recipes.json`.
   """
 
@@ -17,7 +19,9 @@ defmodule AlexClaw.WebAutomation.Recipe do
   @actions %{
     "navigate" => {%{"url" => :url}, %{}},
     "click" => {%{"selector" => :selector}, %{}},
-    "fill" => {%{"selector" => :selector, "value" => :string}, %{"input_type" => :date_type}},
+    "fill" =>
+      {%{"selector" => :selector, "value" => :string},
+       %{"input_type" => :date_type, "origin" => :origin}},
     "select" => {%{"selector" => :selector, "value" => :string}, %{}},
     "check" => {%{"selector" => :selector, "checked" => :boolean}, %{}},
     "wait" => {%{"seconds" => :wait_seconds}, %{}},
@@ -101,6 +105,7 @@ defmodule AlexClaw.WebAutomation.Recipe do
     do: if(valid?(value, type), do: [], else: ["#{at} #{expected(type)}"])
 
   defp valid?(value, :url) when is_binary(value), do: http_url?(URI.parse(value))
+  defp valid?(value, :origin) when is_binary(value), do: origin?(URI.parse(value))
   defp valid?(value, :selector) when is_binary(value), do: value != ""
   defp valid?(value, :string), do: is_binary(value)
   defp valid?(value, :boolean), do: is_boolean(value)
@@ -118,7 +123,15 @@ defmodule AlexClaw.WebAutomation.Recipe do
 
   defp http_url?(_uri), do: false
 
+  # An origin is a URL's scheme, host and port, and nothing more.
+  defp origin?(%URI{path: path, query: nil, fragment: nil, userinfo: nil} = uri)
+       when path in [nil, ""],
+       do: http_url?(uri)
+
+  defp origin?(_uri), do: false
+
   defp expected(:url), do: "must be an http(s) URL with a host"
+  defp expected(:origin), do: "must be an http(s) origin: scheme://host[:port]"
   defp expected(:selector), do: "must be a non-empty string"
   defp expected(:string), do: "must be a string"
   defp expected(:boolean), do: "must be true or false"

@@ -32,7 +32,7 @@ The loop runs as a GenServer under a DynamicSupervisor. LLM calls run as Tasks s
 
 **Planning** — The LLM receives the goal, available whitelisted skills with descriptions, and prior knowledge from Memory/Knowledge semantic search. It returns a JSON plan with ordered steps.
 
-**Execution** — For each step, the LLM prepares concrete skill input, then the skill runs through the standard security stack: whitelist check, SkillRegistry resolve, capability token mint, SafeExecutor, CircuitBreaker, ContentSanitizer.
+**Execution** — For each step, the LLM prepares concrete skill input. The skill must be on the whitelist; after the SkillRegistry resolve and the capability token mint, it runs as `:run_skill` through the control plane (`ControlPlane.perform/3`, as the system), audited like any other run, inside the circuit breaker and `SafeExecutor`. The output of an external skill passes the `ContentSanitizer`. The privileged skills (`shell`, `coder`, `db_backup`, `web_automation`) are refused even if whitelisted.
 
 **Evaluation** — The LLM scores the skill output on four criteria (relevance, completeness, usability, goal progress) each 1-5. Quality is derived: good (avg >= 3.5), partial (>= 2.0), failed.
 
@@ -49,7 +49,7 @@ The loop runs as a GenServer under a DynamicSupervisor. LLM calls run as Tasks s
 
 | Module | Role |
 |---|---|
-| `Reasoning.Loop` | The `gen_statem` running one session's cycle |
+| `Reasoning.Loop` | The GenServer running one session's cycle |
 | `Reasoning.Supervisor` | DynamicSupervisor — one child per active session |
 | `Reasoning.Session`, `Reasoning.Step` | The persisted record of a run and its steps |
 | `Reasoning.SkillExecutor` | Runs a chosen skill with a per-step timeout, isolating the loop from a skill that hangs |
@@ -137,7 +137,7 @@ All settings are editable from the Admin UI config page.
 | `reasoning.llm_tier` | `local` | LLM tier: local, light, medium, heavy |
 | `reasoning.max_iterations` | `15` | Max loop iterations |
 | `reasoning.max_llm_calls` | `60` | Max LLM calls per session |
-| `reasoning.skill_whitelist` | JSON array | Skills the loop may invoke |
+| `reasoning.skill_whitelist` | `["web_search","web_fetch","web_search_fetch","research","llm_transform","google_calendar","rss_fetch"]` | Skills the loop may invoke. Privileged skills are refused even if listed. An installation that already has this setting keeps its value on upgrade, so a list from an earlier release may still include `google_tasks` (a skill that writes to the Google account) until it is edited on the Config page |
 | `reasoning.done_confidence_threshold` | `0.7` | Min confidence to accept done |
 | `reasoning.stuck_threshold` | `3` | Consecutive failures before stuck |
 | `reasoning.step_timeout_seconds` | `120` | Per-skill execution timeout |

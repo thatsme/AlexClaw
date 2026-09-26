@@ -34,8 +34,6 @@ defmodule AlexClawWeb.Router do
     get("/login", AuthController, :login)
     post("/login", AuthController, :authenticate)
     post("/logout", AuthController, :logout)
-
-    get("/auth/google/callback", OAuthCallbackController, :google)
   end
 
   scope "/", AlexClawWeb do
@@ -71,6 +69,8 @@ defmodule AlexClawWeb.Router do
     get("/database/download", DatabaseController, :download)
     get("/database/export", DatabaseController, :export)
     get("/workflows/:id/export", WorkflowExportController, :export)
+    # The session that asked for the Google connection redeems it.
+    get("/auth/google/callback", OAuthCallbackController, :google)
     get("/metrics", MetricsController, :index)
   end
 

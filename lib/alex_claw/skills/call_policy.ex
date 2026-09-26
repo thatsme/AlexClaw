@@ -35,7 +35,6 @@ defmodule AlexClaw.Skills.CallPolicy do
     Jason,
     Base,
     URI,
-    Path,
     Date,
     Time,
     DateTime,
@@ -53,6 +52,26 @@ defmodule AlexClaw.Skills.CallPolicy do
     {String, :to_charlist_atom},
     {List, :to_atom}
   ]
+
+  # Path takes names apart and puts them together; the rest of it reads the
+  # filesystem (wildcard/2) or the working and home directories (expand,
+  # absname, relative_to_cwd) (S8 M14).
+  @pure_path_functions ~w(basename dirname extname join relative relative_to rootname split type)a
+
+  # Denied module, allowed function: each of these is harmless on its own, while
+  # the rest of its module reaches the OS, the process dictionary, randomness
+  # meant for keys, or other processes. Kernel.to_string/1 is what string
+  # interpolation compiles to.
+  @allowed_functions [
+    {Kernel, :to_string},
+    {System, :monotonic_time},
+    {Process, :sleep},
+    {Exception, :message},
+    {:crypto, :hash}
+    | for(fun <- @pure_path_functions, do: {Path, fun})
+  ]
+
+  @typespec_attributes [:spec, :type, :typep, :opaque, :callback, :macrocallback]
 
   # Logger is allowed for its level functions and nothing else: it also carries
   # configuration and backend control.
@@ -129,6 +148,39 @@ defmodule AlexClaw.Skills.CallPolicy do
   @spec auto_load_permissions() :: [atom()]
   def auto_load_permissions, do: @auto_load_permissions
 
+  @doc """
+  What a person approving `permissions` should know: one sentence per risky
+  permission or pairing, none for a skill that holds nothing risky.
+  """
+  @spec risks([atom()]) :: [String.t()]
+  def risks(permissions),
+    do:
+      Enum.flat_map(permissions, &risk/1) ++
+        Enum.map(exfiltration_reason(permissions), &describe_risk/1)
+
+  defp risk(:knowledge_write),
+    do: [
+      "knowledge_write: what it writes to the knowledge base is read back into prompts, " <>
+        "so it can steer later answers."
+    ]
+
+  defp risk(:memory_write),
+    do: [
+      "memory_write: what it writes to memory is read back into prompts, " <>
+        "so it can steer later answers."
+    ]
+
+  defp risk(:skill_invoke),
+    do: ["skill_invoke: it can run other skills, with their permissions."]
+
+  defp risk(_permission), do: []
+
+  defp describe_risk({:exfiltration, reads}) do
+    listed = Enum.map_join(reads, ", ", &to_string/1)
+
+    "web_read with #{listed}: it can read private data and send it out over the network."
+  end
+
   defp exfiltration_reason(permissions) do
     reads = Enum.filter(permissions, &(&1 in @private_reads))
 
@@ -149,6 +201,20 @@ defmodule AlexClaw.Skills.CallPolicy do
 
   # --- Alias resolution ---
 
+  @doc """
+  The aliases `ast` declares, as last segment => module — the one alias
+  resolution every load-time scan of a skill uses (containment here, the
+  external-call scan in `AlexClaw.Workflows.SkillRegistry`). Only the plain
+  `alias A.B.C` form is understood; `as:` and the brace form are refused by
+  containment rather than resolved.
+  """
+  @spec aliases(Macro.t()) :: %{atom() => module()}
+  def aliases(ast), do: collect_aliases(ast)
+
+  @doc "The module the alias parts of a remote call name, given `aliases/1`."
+  @spec resolve([atom()], %{atom() => module()}) :: module()
+  def resolve(parts, aliases), do: resolve_alias(parts, aliases)
+
   # Only the plain `alias A.B.C` form is understood. `as:` and the brace form are
   # reported as violations rather than resolved, so nothing slips through a shape
   # this checker does not model.
@@ -166,6 +232,12 @@ defmodule AlexClaw.Skills.CallPolicy do
   end
 
   # --- Node checks ---
+
+  # A typespec names types, and a remote type (`AlexClaw.Skill.config_schema()`)
+  # has the shape of a call without being one: nothing inside it runs.
+  defp check_node({:@, meta, [{attribute, _attr_meta, _args}]}, acc, _aliases)
+       when attribute in @typespec_attributes,
+       do: {{:@, meta, []}, acc}
 
   defp check_node({:alias, _meta, [_target, opts]} = node, acc, _aliases) when is_list(opts) do
     if Keyword.has_key?(opts, :as) do
@@ -220,27 +292,24 @@ defmodule AlexClaw.Skills.CallPolicy do
     end
   end
 
-  defp judge_module(module, fun, arity, acc) do
-    cond do
-      {module, fun} in @denied_remote ->
-        ["#{inspect(module)}.#{fun}/#{arity} (denied: creates atoms from runtime data)" | acc]
+  defp judge_module(module, fun, arity, acc),
+    do: refused(refusal(module, fun), "#{inspect(module)}.#{fun}/#{arity}", acc)
 
-      apply_call?(module, fun) ->
-        ["#{inspect(module)}.#{fun}/#{arity} (dynamic dispatch is not permitted)" | acc]
+  defp refused(nil, _call, acc), do: acc
+  defp refused(reason, call, acc), do: ["#{call} (#{reason})" | acc]
 
-      module == Logger and fun not in @allowed_logger_functions ->
-        ["Logger.#{fun}/#{arity} (only the level functions are permitted)" | acc]
+  defp refusal(module, fun) when {module, fun} in @denied_remote,
+    do: "denied: creates atoms from runtime data"
 
-      module in @allowed_modules ->
-        acc
+  defp refusal(module, :apply) when module in [Kernel, :erlang],
+    do: "dynamic dispatch is not permitted"
 
-      true ->
-        ["#{inspect(module)}.#{fun}/#{arity} (not in allowlist)" | acc]
-    end
-  end
+  defp refusal(Logger, fun) when fun not in @allowed_logger_functions,
+    do: "only the level functions are permitted"
 
-  defp apply_call?(module, :apply) when module in [Kernel, :erlang], do: true
-  defp apply_call?(_module, _fun), do: false
+  defp refusal(module, _fun) when module in @allowed_modules, do: nil
+  defp refusal(module, fun) when {module, fun} in @allowed_functions, do: nil
+  defp refusal(_module, _fun), do: "not in allowlist"
 
   # Jason.decode(body, keys: :atoms) turns every key of an attacker-supplied
   # document into an atom. Anything but :strings is refused, including a keys:

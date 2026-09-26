@@ -12,6 +12,7 @@ defmodule AlexClaw.Gateway.Discord do
   require Logger
 
   alias AlexClaw.{Config, Message}
+  alias AlexClaw.Secrets.Mask
 
   # --- Behaviour callbacks ---
 
@@ -21,9 +22,7 @@ defmodule AlexClaw.Gateway.Discord do
   @impl AlexClaw.Gateway.Behaviour
   @spec configured?() :: boolean()
   def configured? do
-    enabled = Config.get("discord.enabled")
-    token = Config.get("discord.bot_token")
-    (enabled == true or enabled == "true") and token != nil and token != ""
+    Config.enabled?("discord.enabled") and Config.secret_set?("discord.bot_token")
   end
 
   @impl AlexClaw.Gateway.Behaviour
@@ -31,7 +30,7 @@ defmodule AlexClaw.Gateway.Discord do
   @discord_max_length 2000
 
   def send_message(text, opts \\ []) do
-    send_to_channel(Keyword.get(opts, :chat_id) || get_channel_id(), text)
+    send_to_channel(Keyword.get(opts, :chat_id) || get_channel_id(), Mask.mask(text))
   end
 
   defp send_to_channel(channel_id, _text) when channel_id in [nil, ""] do
@@ -98,7 +97,6 @@ defmodule AlexClaw.Gateway.Discord do
       if authorized_channel?(msg.channel_id) do
         message = normalize(msg)
         Logger.info("Discord received: #{message.text}")
-        maybe_save_channel_id(msg.channel_id)
         AlexClaw.Dispatcher.dispatch(message)
       else
         Logger.debug("Discord: ignored message from unauthorized channel #{msg.channel_id}")
@@ -133,6 +131,7 @@ defmodule AlexClaw.Gateway.Discord do
     %Message{
       text: msg.content,
       chat_id: msg.channel_id,
+      user_id: msg.author.id,
       from: msg.author.username,
       timestamp: DateTime.utc_now(),
       raw: %{discord_message: msg},
@@ -140,26 +139,13 @@ defmodule AlexClaw.Gateway.Discord do
     }
   end
 
-  defp authorized_channel?(channel_id) do
-    configured = get_channel_id()
-    # Allow if no channel_id configured yet (first-message auto-detect)
-    configured == nil or configured == "" or to_string(channel_id) == to_string(configured)
-  end
+  # Only the owner channel, set in the admin UI (:set_gateway_owner), is
+  # answered. With none set nothing is, and no message makes its channel the
+  # owner.
+  defp authorized_channel?(channel_id), do: owner?(get_channel_id(), channel_id)
 
-  defp maybe_save_channel_id(channel_id) do
-    current = Config.get("discord.channel_id")
-
-    if current == nil or current == "" do
-      Config.set("discord.channel_id", to_string(channel_id),
-        type: "string",
-        category: "discord"
-      )
-
-      Logger.warning(
-        "Auto-saved Discord channel_id: #{channel_id} — verify this is your channel. Set discord.channel_id in config to disable auto-detect."
-      )
-    end
-  end
+  defp owner?(configured, _channel_id) when configured in [nil, ""], do: false
+  defp owner?(configured, channel_id), do: to_string(channel_id) == to_string(configured)
 
   defp get_channel_id do
     Config.get("discord.channel_id")

@@ -55,6 +55,7 @@ defmodule AlexClaw.Auth.Challenge do
           | :locked_instance
           | :invalid_code
           | :too_many_attempts
+          | :unavailable
 
   @spec resolve(String.t() | integer(), String.t()) :: {:ok, map()} | {:error, resolve_error()}
   def resolve(chat_id, code) do
@@ -89,6 +90,25 @@ defmodule AlexClaw.Auth.Challenge do
     |> ChallengeStore.fetch()
     |> alive?()
   end
+
+  @doc """
+  The action a gateway's chat is waiting to approve, if it has not expired —
+  read, not answered: the code is checked when the action is performed
+  (`AlexClaw.ControlPlane.perform/3`, which calls `resolve/2`).
+  """
+  @spec pending_action(String.t() | integer()) :: {:ok, map()} | :error
+  def pending_action(chat_id) do
+    chat_id
+    |> to_string()
+    |> ChallengeStore.fetch()
+    |> live_action()
+  end
+
+  defp live_action({:ok, challenge} = found), do: live_action(alive?(found), challenge)
+  defp live_action(:error), do: :error
+
+  defp live_action(true, challenge), do: {:ok, challenge.action}
+  defp live_action(false, _challenge), do: :error
 
   @doc "The action a session is waiting to confirm, if it has not expired."
   @spec pending_for_session(String.t() | nil) :: {:ok, map()} | :error
@@ -162,9 +182,9 @@ defmodule AlexClaw.Auth.Challenge do
     {:ok, challenge.action}
   end
 
-  defp resolved({:error, locked}, _challenge, _chat_id_str)
-       when locked in [:locked_session, :locked_instance] do
-    {:error, locked}
+  defp resolved({:error, reason}, _challenge, _chat_id_str)
+       when reason in [:locked_session, :locked_instance, :unavailable] do
+    {:error, reason}
   end
 
   defp resolved({:error, _reason}, _challenge, chat_id_str) do

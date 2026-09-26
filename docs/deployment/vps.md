@@ -14,7 +14,7 @@ ufw allow 443/tcp
 ufw enable
 
 # Everything else is blocked by default
-# Do NOT expose 5001, 5432, 4369, 8000
+# Do NOT expose 5001, 5432, 4369, 6080
 ```
 
 ## Docker Security
@@ -39,10 +39,13 @@ openssl rand -base64 32
 
 # CLUSTER_COOKIE
 openssl rand -base64 32
-
-# MCP API key
-openssl rand -base64 32
 ```
+
+The MCP key is not generated here: AlexClaw generates it on the Config page (group **MCP**) and shows it once.
+
+- OpenBao's unseal key (`openbao/unseal/key`, or `OPENBAO_UNSEAL_DIR`) and
+  the recovery key printed at initialisation: keep both offline, apart from
+  the server's backups. Losing the unseal key loses every stored credential.
 
 ## Backups
 
@@ -52,6 +55,11 @@ Configure automated database backups:
 2. Create a workflow: `db_backup` → `telegram_notify`
 3. Schedule it via cron (e.g., daily at 03:00)
 4. Enable in Admin > Config: `backup.enabled = true`
+5. Back up OpenBao's data together with the database — the database holds
+   only references to the credentials: `make backup-openbao REASON=<reason>`
+   writes a snapshot to `OPENBAO_BACKUP_DIR`, which must be outside
+   `BACKUP_DIR` (AlexClaw mounts that directory)
+   (see [OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao))
 
 Also consider:
 
@@ -70,7 +78,9 @@ Also consider:
 ```bash
 cd AlexClaw
 git pull
-docker compose up --build --no-deps -d alexclaw-prod
+docker compose up --build -d
 ```
 
-Migrations run automatically on container start.
+Migrations run in the one-shot `migrate` job before the application starts.
+Upgrading from 0.3.x needs OpenBao set up first: see
+[OpenBao](../architecture/openbao.md#first-start).

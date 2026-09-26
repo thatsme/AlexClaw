@@ -79,3 +79,14 @@ __pycache__/
 .venv/
 .pytest_cache/
 .mypy_cache/
+
+# OpenBao: the test stack's certificates and bootstrap files (rewritten each run),
+# and the production unseal key's default directory.
+/.openbao-test/
+/openbao/unseal/
+
+# Build directory and test records kept between targeted test runs
+/.test-cache/
+
+# OpenBao snapshots when compose runs openbao-backup without scripts/backup-openbao.sh.
+/openbao-backups/

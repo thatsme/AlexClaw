@@ -3,19 +3,24 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
 
   use Phoenix.LiveView
 
-  alias AlexClaw.Workflows
+  alias AlexClaw.{ControlPlane, Workflows}
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Workflows.Launch
+  alias AlexClawWeb.Live.ActionCode
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     if connected?(socket) do
       :timer.send_interval(30_000, :refresh)
     end
 
     {:ok,
-     assign(socket,
+     socket
+     |> ActionCode.assign_action_code()
+     |> assign(
        page_title: "Scheduler",
+       elevation_sid: session["elevation_sid"],
        jobs: list_jobs()
      )}
   end
@@ -38,15 +43,43 @@ defmodule AlexClawWeb.AdminLive.Scheduler do
     {:noreply, assign(socket, jobs: list_jobs())}
   end
 
+  def handle_event("submit_action_code", %{"code" => code}, socket),
+    do: ActionCode.submit(socket, code)
+
+  def handle_event("cancel_action_code", _params, socket), do: ActionCode.cancel(socket)
+
   defp trigger({:ok, workflow_id}, socket), do: found(Workflows.get_workflow(workflow_id), socket)
   defp trigger(:error, socket), do: put_flash(socket, :error, "Invalid workflow ID")
 
-  defp found({:ok, workflow}, socket) do
-    {kind, message} = Launch.describe(Launch.start(workflow), workflow)
-    put_flash(socket, kind, message)
-  end
+  defp found({:ok, workflow}, socket), do: launch(Launch.needs_code?(workflow), workflow, socket)
 
   defp found({:error, :not_found}, socket), do: put_flash(socket, :error, "Workflow not found")
+
+  # A workflow that requires 2FA gets the code field here, as on the Workflows
+  # page: its run is :run_protected_workflow, approved by that code.
+  defp launch(true, workflow, socket) do
+    {:noreply, socket} =
+      ActionCode.request(
+        socket,
+        :run_protected_workflow,
+        %{workflow_id: workflow.id},
+        "Run workflow: #{workflow.name}"
+      )
+
+    socket
+  end
+
+  defp launch(false, workflow, socket) do
+    {kind, message} =
+      :run_workflow
+      |> ControlPlane.perform(
+        %{workflow_id: workflow.id},
+        Context.admin_ui(socket.assigns.elevation_sid)
+      )
+      |> Launch.describe(workflow)
+
+    put_flash(socket, kind, message)
+  end
 
   defp list_jobs do
     quantum_jobs =

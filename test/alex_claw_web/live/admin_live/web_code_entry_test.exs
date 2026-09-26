@@ -78,13 +78,16 @@ defmodule AlexClawWeb.AdminLive.WebCodeEntryTest do
       assert AlexClaw.Config.get("web.entry.probe") == "written"
     end
 
-    test "the page offers the field rather than only a gateway prompt", ctx do
+    # Since 0.4.0 (S5b) the typed code is the only way to unlock: a code typed
+    # into a chat approves a protected run and nothing else, so the page no
+    # longer offers to send the prompt to a gateway.
+    test "the page offers the field, and no gateway prompt", ctx do
       {view, _html} = open(ctx.conn, ctx.sid)
 
       html = render_click(view, "unlock_editing", %{})
 
       assert html =~ "Code from your authenticator"
-      assert html =~ "Send the prompt to my gateway instead"
+      refute html =~ "Send the prompt to my gateway instead"
     end
   end
 
@@ -185,22 +188,6 @@ defmodule AlexClawWeb.AdminLive.WebCodeEntryTest do
 
       refute Elevation.elevated?(ctx.sid),
              "a replayed code elevated the session a second time"
-    end
-  end
-
-  describe "the gateway path" do
-    test "is still offered, and still works", ctx do
-      AlexClaw.Config.set("telegram.chat_id", "chat-#{System.unique_integer([:positive])}",
-        type: "string",
-        category: "telegram"
-      )
-
-      {view, _html} = open(ctx.conn, ctx.sid)
-      render_click(view, "unlock_editing", %{})
-
-      html = render_click(view, "request_gateway_code", %{})
-
-      assert html =~ "authenticator" or html =~ "2FA code requested"
     end
   end
 

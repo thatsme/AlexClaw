@@ -179,6 +179,15 @@
           class="px-2 py-1 text-xs rounded transition text-gray-400 hover:text-yellow-400 bg-gray-800 hover:bg-gray-700">
           Re-embed
         </button>
+        <button :if={svc.id == "google"} phx-click="connect_google"
+          class="px-2 py-1 text-xs rounded transition text-gray-400 hover:text-claw-400 bg-gray-800 hover:bg-gray-700">
+          Connect
+        </button>
+        <button :if={svc.id == "google"} phx-click="disconnect_google"
+          data-confirm="Disconnect Google? Its refresh token is removed."
+          class="px-2 py-1 text-xs rounded transition text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700">
+          Disconnect
+        </button>
         <button phx-click="check" phx-value-service={svc.id}
           class="px-2 py-1 text-xs rounded transition text-gray-400 hover:text-claw-400 bg-gray-800 hover:bg-gray-700">
           Check

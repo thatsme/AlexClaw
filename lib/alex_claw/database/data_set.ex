@@ -2,9 +2,15 @@ defmodule AlexClaw.Database.DataSet do
   @moduledoc """
   What an export holds and a restore replaces, read from the live catalog.
 
-  The application's data is every table except three: the audit log, which is
+  The application's data is every table except these: the audit log, which is
   append-only and never replaced; the logins, which belong to whoever is signed
-  in now; and the migrator's bookkeeping. Table names, column names and column
+  in now; the recovery codes, which are the admin's identity; the secret
+  catalogue, which says where each secret may be sent; the authorisation
+  policies; and the migrator's bookkeeping. In `settings` the same holds for
+  the rows that protect this installation (`kept_setting?/1`): the admin's
+  identity — the password's hash, the second factor — the login protection
+  and the gateway owners. An export does not carry any of them and a restore
+  keeps this installation's (S8 H4, S9 fix review). Table names, column names and column
   types all come from the database's own catalog. A restore file supplies
   values and nothing else — no name, type or statement of it is ever used.
   """
@@ -12,7 +18,15 @@ defmodule AlexClaw.Database.DataSet do
   alias AlexClaw.Database.Roles
   alias AlexClaw.Repo
 
-  @excluded ~w(auth_audit_log admin_sessions schema_migrations)
+  @excluded ~w(auth_audit_log admin_sessions auth_recovery_codes auth_policies secrets
+               schema_migrations)
+  # Excluded tables an older export may still hold: a restore skips them.
+  @skipped ~w(auth_recovery_codes auth_policies secrets)
+  @password_key "auth.admin_password_hash"
+  @second_factor_prefix "auth.totp."
+  @login_protection_prefix "auth.rate_limit."
+  @protection_keys ~w(auth.trust_proxy_headers telegram.chat_id telegram.owner_user_id
+                      discord.channel_id discord.owner_user_id)
 
   @doc "The tables an export holds, parents before the tables that reference them."
   @spec tables() :: [String.t()]
@@ -24,6 +38,43 @@ defmodule AlexClaw.Database.DataSet do
   @doc "Tables never exported and never replaced by a restore."
   @spec excluded() :: [String.t()]
   def excluded, do: @excluded
+
+  @doc "Excluded tables an older export may hold, which a restore skips rather than refuses."
+  @spec skipped() :: [String.t()]
+  def skipped, do: @skipped
+
+  @doc """
+  Whether the setting `key` is the admin's identity: the password's hash or
+  the second factor's state. Never exported, never restored.
+  """
+  @spec identity_setting?(String.t()) :: boolean()
+  def identity_setting?(@password_key), do: true
+
+  def identity_setting?(key) when is_binary(key),
+    do: String.starts_with?(key, @second_factor_prefix)
+
+  def identity_setting?(_key), do: false
+
+  @doc """
+  Whether the setting `key` is kept by a restore and left out of an export:
+  the admin's identity (`identity_setting?/1`), the login protection
+  (`auth.rate_limit.*`, `auth.trust_proxy_headers`) and the gateway owners
+  (the owner chats and users).
+  """
+  @spec kept_setting?(String.t()) :: boolean()
+  def kept_setting?(key) when is_binary(key),
+    do:
+      identity_setting?(key) or String.starts_with?(key, @login_protection_prefix) or
+        key in @protection_keys
+
+  def kept_setting?(_key), do: false
+
+  @doc "The kept rows of `settings` (`kept_setting?/1`), as an SQL condition and its parameters."
+  @spec kept_settings() :: {String.t(), list()}
+  def kept_settings,
+    do:
+      {"(key = $1 OR starts_with(key, $2) OR starts_with(key, $3) OR key = ANY($4))",
+       [@password_key, @second_factor_prefix, @login_protection_prefix, @protection_keys]}
 
   @doc "`[{name, type}]` for `table`, in column order."
   @spec columns(String.t()) :: [{String.t(), String.t()}]

@@ -27,6 +27,11 @@ defmodule AlexClaw.DataCase do
       Sandbox.stop_owner(pid)
     end)
 
+    # Values resolved by earlier tests are masked from then on (Secrets.Mask),
+    # in every text: one test's weak value would mangle another's. Each test
+    # starts with none remembered.
+    forget_masked_values()
+
     # Ensure ETS tables exist for Config and LLM usage
     ensure_ets_table(:alexclaw_config)
     ensure_ets_table(:alexclaw_llm_usage)
@@ -60,5 +65,10 @@ defmodule AlexClaw.DataCase do
 
     {:ok, setting} = AlexClaw.Config.set(key, value, type: type, category: category)
     setting
+  end
+
+  defp forget_masked_values do
+    if :ets.whereis(:alexclaw_secret_mask) != :undefined,
+      do: :ets.delete_all_objects(:alexclaw_secret_mask)
   end
 end

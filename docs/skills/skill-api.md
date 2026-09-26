@@ -1,8 +1,11 @@
 # Skill API Reference
 
 `AlexClaw.Skills.SkillAPI` is the interface dynamic skills use to reach the rest
-of the system. Every function takes the calling module as its first argument and
-checks that module's declared permissions before doing anything.
+of the system. Every function takes the calling module as its first argument — a
+skill passes `__MODULE__`. The permissions checked are those of the skill
+actually running in the process: a call that names another module is refused
+with `{:error, :permission_denied}` and recorded as a denial, and code that is
+not running as a skill has no permissions at all.
 
 A call whose permission was not declared in `permissions/0` returns
 `{:error, :permission_denied}` and is written to the authorization audit log.
@@ -31,7 +34,7 @@ parse what comes back.
 
 ```elixir
 # Options: headers, params, json, form, body, receive_timeout, retry,
-# max_retries, retry_delay, redirect, max_redirects
+# max_retries, retry_delay, redirect, max_redirects, secret_headers
 {:ok, %Req.Response{body: body}} = SkillAPI.http_get(MySkill, "https://example.com")
 
 {:ok, response} = SkillAPI.http_post(MySkill, url, json: %{q: "search term"})
@@ -47,6 +50,23 @@ Any other option returns `{:error, :option_not_allowed}`: options such as
 host check lives in the transport. A URL whose host is internal (loopback,
 private, link-local, CGNAT) or does not resolve returns
 `{:error, :blocked_host}`, and the check is repeated on every redirect hop.
+
+`secret_headers` is the one place a credential is attached: a map of header
+name to a placeholder the step was given for one of its own secret config
+keys (`{{secret:NAME}}`, standing alone). Each header is set as the request is
+sent, and only if its host is the one the secret is bound to; otherwise the
+call returns `{:error, {:credential_refused, message}}`. A placeholder in the
+URL, in `headers` or in a body is sent as written.
+
+XML is read with `parse_xml/2`, which needs no permission. It refuses any
+document that declares a document type or an entity
+(`{:error, :doctype_refused}`), so nothing is expanded or fetched, and returns
+plain maps that pattern matching can walk:
+
+```elixir
+{:ok, %{name: "rss", children: [channel]}} = SkillAPI.parse_xml(MySkill, body)
+# each element: %{name: "item", attributes: %{"k" => "v"}, text: "…", children: [...]}
+```
 
 ## Memory Operations
 
@@ -111,8 +131,9 @@ it goes.
 
 **Secrets are not readable through this function.** A key marked `sensitive`
 returns `{:error, :sensitive}`, and so does a key the configuration cache does
-not know — absence is not proof that a key is safe. API tokens and the TOTP
-secret cannot be reached this way.
+not know — absence is not proof that a key is safe. Secret settings — API
+tokens, bot tokens, OAuth secrets — are kept in OpenBao and cannot be reached
+this way.
 
 If a skill needs to authenticate somewhere, give it the capability rather than
 the credential: a configured resource it can name, or a core skill that holds
@@ -143,9 +164,9 @@ and ask for a request to be made against it; it cannot read the secret out.
 
 **Four core skills cannot be invoked this way**: `shell`, `coder`, `db_backup`
 and `web_automation` return `{:error, :privileged_skill}` for every caller, and
-the attempt is recorded as a denial. They are gated by two-factor authentication
-where a gateway dispatches them, and a skill-to-skill call was not passing that
-gate. Call them as their own workflow step instead.
+the attempt is recorded as a denial. `shell`, `db_backup` and `web_automation`
+run only as workflow steps in a run the scheduler starts, or one the admin UI
+starts with a 2FA code; `coder` is reached only through the Forge page.
 
 The capability token is attenuated on each hop: a child skill receives a subset
 of the caller's permissions, never more. Chains are limited to depth 3.
@@ -160,26 +181,51 @@ of the caller's permissions, never more. Chains are limited to depth 3.
 {:ok, stats} = SkillAPI.skill_outcome_stats(MySkill, "web_fetch")
 ```
 
-## Skill and Workflow Management
+## Workflow Results
 
-These are administrative and rarely belong in an ordinary skill.
+A skill operates AlexClaw; it does not author it. SkillAPI has no function that
+writes, reads, loads or unloads a skill file, or that creates, changes or starts
+a workflow, and no permission grants one. Skills are loaded and workflows built
+and started in the admin UI. A skill may read the result of a workflow run:
 
 ```elixir
-# Skill files (requires :skill_write)
-:ok = SkillAPI.write_skill(MySkill, "generated.ex", source)
-{:ok, source} = SkillAPI.read_skill(MySkill, "generated.ex")
-
-# Registry (requires :skill_manage)
-{:ok, info} = SkillAPI.load_skill(MySkill, "generated.ex")
-:ok = SkillAPI.unload_skill(MySkill, "generated")
-{:ok, info} = SkillAPI.reload_skill(MySkill, "generated")
-
-# Workflows (requires :workflow_manage)
-{:ok, workflow} = SkillAPI.create_workflow(MySkill, attrs)
-{:ok, step} = SkillAPI.add_workflow_step(MySkill, workflow.id, step_attrs)
-{:ok, result} = SkillAPI.run_workflow(MySkill, workflow.id)
+# Requires :workflow_read
 {:ok, run} = SkillAPI.get_workflow_result(MySkill, run_id)
 ```
+
+## Computation
+
+```elixir
+# Concurrency, bounded (no permission of its own; calls inside fun are checked as the skill's)
+{:ok, results} = SkillAPI.parallel_map(MySkill, urls, &fetch/1, max_concurrency: 4, timeout: 30_000)
+# an element that crashes or times out becomes {:error, {:exit, reason}} in its place
+
+# A loaded module's documentation, as Code.fetch_docs/1 returns it (no permission)
+{:ok, docs} = SkillAPI.module_docs(MySkill, Enum)
+
+# A prompt built for the chosen provider's context window (requires :llm)
+{:ok, text} = SkillAPI.llm_complete_fitted(MySkill, fn budget -> build(budget) end, tier: :local)
+```
+
+`max_concurrency` defaults to 4 and is at most 8
+(`{:error, :too_much_concurrency}` above it); `timeout` is per element and
+defaults to 30 seconds.
+
+## What a skill's source may call
+
+Besides `SkillAPI` and `AlexClaw.Skills.Helpers`, a dynamic skill may call
+`Enum`, `Map`, `MapSet`, `List`, `Keyword`, `Tuple`, `Stream`, `Range`,
+`Access`, `String`, `Integer`, `Float`, `Regex`, `Jason`, `Base`, `URI`,
+`Date`, `Time`, `DateTime`, `NaiveDateTime`, `Floki`, `:math`, Logger's level
+functions, and single functions elsewhere: `System.monotonic_time`,
+`Process.sleep`, `Exception.message`, `:crypto.hash`, and `Path`'s pure name
+functions (`basename`, `dirname`, `extname`, `join`, `relative`,
+`relative_to`, `rootname`, `split`, `type`). Functions that create atoms
+(`String.to_atom`, `List.to_atom`) and `spawn`, `send` and `apply` are refused.
+`SweetXml` is not available; XML is read with `parse_xml/2`. The check runs on
+the syntax tree at every load and every boot; a skill that fails it does not
+load, and no approval changes that. The full rule is in
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md#dynamic-skill-loading).
 
 ## Permission Model
 
@@ -188,7 +234,7 @@ else is rejected at load with `unknown_permissions`.
 
 | Permission | Operations |
 |---|---|
-| `:llm` | `llm_complete`, `system_prompt` |
+| `:llm` | `llm_complete`, `llm_complete_fitted`, `system_prompt` |
 | `:web_read` | `http_get`, `http_post`, `http_request` |
 | `:gateway_send` | `send_message`, `send_html`, `send_telegram`, `send_telegram_html` |
 | `:telegram_send` | accepted in place of `:gateway_send` for older skills |
@@ -199,24 +245,26 @@ else is rejected at load with `unknown_permissions`.
 | `:config_read` | `config_get` — sensitive keys are refused |
 | `:resources_read` | `list_resources`, `get_resource` — credentials are redacted |
 | `:skill_invoke` | `run_skill` — excluding the four privileged core skills |
-| `:skill_write` | `write_skill`, `read_skill` |
-| `:skill_manage` | `load_skill`, `unload_skill`, `reload_skill` |
-| `:workflow_manage` | `create_workflow`, `add_workflow_step`, `run_workflow`, `get_workflow_result` |
+| `:workflow_read` | `get_workflow_result` |
 
 ### Permissions and unattended loading
 
-A skill generated by Coder or Forge loads without a two-factor code only if it
-stays inside a fixed set of permissions: `:llm`, `:web_read`, `:memory_read`,
-`:knowledge_read`, `:resources_read` and `:gateway_send`. `:config_read` and
-`:skill_invoke` are outside it, and `:web_read` combined with any private read
-is refused as a pair, because reading and then posting is an exfiltration path.
+A skill generated on the Forge page loads without a 2FA code only if it is
+contained and stays inside a fixed set of permissions: `:llm`, `:web_read`,
+`:memory_read`, `:knowledge_read`, `:resources_read` and `:gateway_send`.
+`:config_read`, `:skill_invoke`, `:workflow_read` and the write permissions are
+outside it, and `:web_read` combined with any private read (`:memory_read`,
+`:knowledge_read`, `:resources_read`) is refused as a pair, because reading and
+then posting is an exfiltration path.
 
-Anything above that ceiling waits for a TOTP code. This applies to generated
-code only — a hand-written skill's boundary is the code entered to load it.
+Above that ceiling, a 2FA code approves the permissions; the approval screen
+names the risky ones. A code never approves calls outside the containment
+allowlist — that holds for uploaded skills too.
 
-!!! warning "AST detection"
-    Dynamic skills that call `http_get`, `http_post`, or `http_request` (or
-    directly use `Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`) must declare
-    `def external, do: true`. The registry AST-scans source at load time and
-    rejects skills with undeclared HTTP/socket calls. See
+!!! warning "External calls"
+    Dynamic skills that call `http_get`, `http_post` or `http_request` must
+    declare `def external, do: true`; the registry scans the source at load
+    time and rejects a skill that makes those calls without it. Calling an
+    HTTP or socket library directly (`Req`, `HTTPoison`, `Finch`, `Tesla`,
+    `:gen_tcp`) is outside containment, and such a skill does not load. See
     [Writing Skills](writing-skills.md#external-skills).

@@ -7,22 +7,23 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 | Variable | Description |
 |---|---|
 | `DATABASE_PASSWORD` | PostgreSQL password |
-| `SECRET_KEY_BASE` | Phoenix session/encryption secret (min 64 bytes) |
-| `ADMIN_PASSWORD` | Web UI login password |
-| `TELEGRAM_BOT_TOKEN` | *Seeded.* Telegram bot token from @BotFather |
+| `SECRET_KEY_BASE` | Signs sessions and capability tokens, and keys the TOTP replay guard (min 64 bytes). Keep it unchanged when upgrading from 0.3.x until the first start of 0.4.0 has run |
+| `ADMIN_PASSWORD` | The first admin password: required until the first login, which stores its hash; ignored afterwards |
 
 ## Telegram
 
 | Variable | Description |
 |---|---|
-| `TELEGRAM_CHAT_ID` | *Seeded.* Optional: when empty, the chat is detected from the first message sent to the bot |
+| `TELEGRAM_CHAT_ID` | *Seeded.* Optional: the chat the bot answers in. Empty, it is set on the Config page (`telegram.chat_id`), with `telegram.owner_user_id`; with either blank the bot answers nothing |
 
 ## LLM Providers (at least one)
 
+The Gemini and Anthropic API keys are not environment variables: they are set
+on the Config page (`llm.gemini_api_key`, `llm.anthropic_api_key`) and kept in
+OpenBao.
+
 | Variable | Description |
 |---|---|
-| `GEMINI_API_KEY` | *Seeded.* Google Gemini API key (free tier available) |
-| `ANTHROPIC_API_KEY` | *Seeded.* Anthropic Claude API key |
 | `OLLAMA_ENABLED` | *Seeded.* `true` to enable Ollama |
 | `OLLAMA_HOST` | *Seeded.* Ollama API URL (e.g., `http://host.docker.internal:11434`) |
 | `OLLAMA_MODEL` | *Seeded.* Default Ollama model (default `llama3.2`) |
@@ -35,9 +36,10 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 | Variable | Description |
 |---|---|
 | `GOOGLE_OAUTH_CLIENT_ID` | *Seeded.* OAuth client ID |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | *Seeded.* OAuth client secret |
-| `GOOGLE_OAUTH_REFRESH_TOKEN` | *Seeded.* Refresh token, if one was obtained outside AlexClaw |
 | `GOOGLE_OAUTH_REDIRECT_URI` | *Seeded.* OAuth redirect URI |
+
+The client secret (`google.oauth.client_secret`) is set on the Config page and
+the refresh token by the authorization flow; both are kept in OpenBao.
 
 ## Web Automator (optional)
 
@@ -46,13 +48,21 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 | `COMPOSE_PROFILES` | — | Docker Compose's own variable, not read by AlexClaw. `web-automation` makes `docker compose up` build and start the sidecar with the rest of the stack |
 | `WEB_AUTOMATOR_ENABLED` | `false` | *Seeded.* Lets AlexClaw call the web-automator sidecar |
 | `WEB_AUTOMATOR_HOST` | `http://web-automator:6900` | *Seeded.* The sidecar's API URL |
-| `WEB_AUTOMATOR_TOKEN` | — | Shared bearer token, read by both AlexClaw and the sidecar at start; not stored. Without it the sidecar refuses every request and AlexClaw sends none. Generate with `openssl rand -hex 32` |
+| `WEB_AUTOMATOR_TOKEN_FILE` | set by compose | Where the shared bearer token is: a file the `automator-token-init` service generates at the first start into a volume only AlexClaw and the sidecar mount, read-only. Not set by an operator. Without the file the sidecar refuses every request and AlexClaw sends none |
+
+## OpenBao
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENBAO_UNSEAL_DIR` | `./openbao/unseal` | Host directory holding `key`, OpenBao's 32-byte unseal key, mounted read-only into the `openbao` service only. It must exist before the first start. See [OpenBao](../architecture/openbao.md) |
+
+`OPENBAO_ADDR` and `OPENBAO_BOOTSTRAP_DIR` are set by the compose file.
 
 ## Discord (optional)
 
 Discord has no environment variables. Set `discord.enabled`,
-`discord.bot_token` and `discord.channel_id` in **Admin > Config** and restart
-the container.
+`discord.bot_token`, `discord.channel_id` and `discord.owner_user_id` in
+**Admin > Config** and restart the container.
 
 ## Database
 
@@ -71,8 +81,8 @@ The database name is set by the compose file, not by an environment variable.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SECRET_KEY_BASE` | — | Session and encryption key (required) |
-| `ADMIN_PASSWORD` | — | Admin UI password (required) |
+| `SECRET_KEY_BASE` | — | Session signing key (required) |
+| `ADMIN_PASSWORD` | — | The first admin password: required until the first login, which stores its hash; ignored afterwards |
 | `SKILLS_DIR` | `/app/skills` | Where dynamic skill files live |
 | `ADMIN_PORT` | `5001` | Host port the admin UI is published on |
 | `ADMIN_BIND` | `127.0.0.1` | Host interface the admin UI is published on. `0.0.0.0` for every interface; see [Reverse Proxy](../deployment/reverse-proxy.md) before doing so |
@@ -91,7 +101,8 @@ The database name is set by the compose file, not by an environment variable.
 
 | Variable | Default | Description |
 |---|---|---|
-| `BACKUP_DIR` | `./backups` | Host path for database backups |
+| `BACKUP_DIR` | `./backups` | Host path the db_backup skill writes database backups to (mounted into AlexClaw) |
+| `OPENBAO_BACKUP_DIR` | `~/backups` (through `make backup-openbao`; `./openbao-backups` when compose runs the service directly) | Host path for OpenBao snapshots. Never `BACKUP_DIR` or a directory inside it, which AlexClaw mounts; the backup command refuses them |
 
 ## Post-Boot Provider Options
 

@@ -1,19 +1,35 @@
 defmodule AlexClaw.MCP.ServerPolicyTest do
+  @moduledoc """
+  MCP restriction policies (mcp_restriction), since 0.4.0 (S5b).
+
+  MCP offers only `workflow:<name>` tools now — enabled, unprotected
+  workflows — so restriction policies match those. The seeded denies for
+  `skill:shell`, `skill:coder`, `skill:db_backup` and `skill:web_automation`
+  guarded tools that no longer exist; a rule that protects nothing makes a
+  reader believe something is protected, so they are removed.
+  """
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
   alias AlexClaw.Auth.{Policy, PolicyEngine}
   alias AlexClaw.MCP.Server
-  alias AlexClaw.Repo
+  alias AlexClaw.{Repo, Workflows}
   alias Anubis.Server.Frame
 
-  # The denies come from the migration, not from this file — asserting against the
-  # real seeded rows is the point. PolicyEngine caches in persistent_term, so the
-  # cache is reloaded around every test that touches policies.
+  # PolicyEngine caches in persistent_term, so the cache is reloaded around
+  # every test that touches policies.
   setup do
+    # A workflow tool that is not denied starts a real run in its own process.
+    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
     PolicyEngine.reload_policies()
     on_exit(fn -> PolicyEngine.reload_policies() end)
-    :ok
+
+    suffix = System.unique_integer([:positive])
+
+    {:ok, wf} =
+      Workflows.create_workflow(%{name: "policy-search-#{suffix}", enabled: true})
+
+    %{tool: "workflow:#{wf.name}", wf: wf}
   end
 
   defp insert_policy(attrs) do
@@ -22,13 +38,17 @@ defmodule AlexClaw.MCP.ServerPolicyTest do
     policy
   end
 
+  defp restricted?(tool) do
+    inspect(Server.handle_tool_call(tool, %{"input" => ""}, Frame.new())) =~ "MCP restriction"
+  end
+
   describe "mcp_restriction is a valid rule type" do
     test "the changeset accepts it" do
       changeset =
         Policy.changeset(%Policy{}, %{
-          name: "deny shell",
+          name: "deny a workflow",
           rule_type: "mcp_restriction",
-          config: %{"tool_pattern" => "skill:shell"}
+          config: %{"tool_pattern" => "workflow:nightly"}
         })
 
       assert changeset.valid?
@@ -36,69 +56,43 @@ defmodule AlexClaw.MCP.ServerPolicyTest do
 
     test "an unknown rule type is still rejected" do
       changeset =
-        Policy.changeset(%Policy{}, %{
-          name: "nonsense",
-          rule_type: "not_a_rule",
-          config: %{}
-        })
+        Policy.changeset(%Policy{}, %{name: "nonsense", rule_type: "not_a_rule", config: %{}})
 
       refute changeset.valid?
     end
   end
 
-  describe "seeded denies" do
-    test "every seeded tool is refused over MCP" do
-      for tool <- ~w(skill:shell skill:coder skill:db_backup skill:web_automation) do
-        assert {:error, error, _frame} = Server.handle_tool_call(tool, %{}, Frame.new())
-        assert inspect(error) =~ "MCP restriction"
-        assert inspect(error) =~ tool
-      end
-    end
-
-    test "the seeded policies are present and enabled" do
-      seeded =
+  describe "the old seeded skill denies" do
+    test "are gone: no policy names a skill: tool" do
+      skill_rules =
         Policy
         |> Repo.all()
-        |> Enum.filter(&(&1.rule_type == "mcp_restriction" and &1.enabled))
+        |> Enum.filter(&(&1.rule_type == "mcp_restriction"))
         |> Enum.map(& &1.config["tool_pattern"])
+        |> Enum.filter(&(is_binary(&1) and String.starts_with?(&1, "skill:")))
 
-      for tool <- ~w(skill:shell skill:coder skill:db_backup skill:web_automation) do
-        assert tool in seeded
-      end
-    end
-
-    test "disabling the policy lifts the denial" do
-      Repo.update_all(
-        Ecto.Query.from(p in Policy, where: p.name == "MCP deny skill:shell"),
-        set: [enabled: false]
-      )
-
-      PolicyEngine.reload_policies()
-
-      # The call now reaches the skill itself, which refuses for its own reason.
-      assert {:reply, response, _frame} = Server.handle_tool_call("skill:shell", %{}, Frame.new())
-      refute inspect(response) =~ "MCP restriction"
-      assert inspect(response) =~ "shell_disabled"
-    end
-
-    test "a skill with no deny policy is not stopped by the policy gate" do
-      refute match?(
-               {:error, %{message: "MCP restriction" <> _}, _},
-               Server.handle_tool_call("skill:web_search", %{"query" => ""}, Frame.new())
-             )
+      assert skill_rules == [],
+             "dead rules for tools that no longer exist: #{inspect(skill_rules)}"
     end
   end
 
-  describe "match mode" do
-    test "exact does not block a different tool sharing the prefix" do
-      assert {:error, error, _frame} =
-               Server.handle_tool_call("skill:shell_helper", %{}, Frame.new())
-
-      # Rejected as an unknown skill, not by the seeded exact-match policy.
-      refute inspect(error) =~ "MCP restriction"
+  describe "matching a workflow tool" do
+    test "with no policy, the tool is not stopped by the policy gate", %{tool: tool} do
+      refute restricted?(tool)
     end
 
-    test "contains blocks any tool containing the pattern" do
+    test "exact blocks the named tool and not one sharing its prefix", %{tool: tool} do
+      insert_policy(%{
+        name: "deny exact",
+        rule_type: "mcp_restriction",
+        config: %{"tool_pattern" => tool <> "-other", "action" => "deny", "match" => "exact"},
+        enabled: true
+      })
+
+      refute restricted?(tool)
+    end
+
+    test "contains blocks any tool containing the pattern", %{tool: tool} do
       insert_policy(%{
         name: "deny anything search",
         rule_type: "mcp_restriction",
@@ -106,13 +100,10 @@ defmodule AlexClaw.MCP.ServerPolicyTest do
         enabled: true
       })
 
-      assert {:error, error, _frame} =
-               Server.handle_tool_call("skill:web_search", %{}, Frame.new())
-
-      assert inspect(error) =~ "MCP restriction"
+      assert restricted?(tool)
     end
 
-    test "a policy with no match key still behaves as contains" do
+    test "a policy with no match key still behaves as contains", %{tool: tool} do
       insert_policy(%{
         name: "legacy deny",
         rule_type: "mcp_restriction",
@@ -120,24 +111,38 @@ defmodule AlexClaw.MCP.ServerPolicyTest do
         enabled: true
       })
 
-      assert {:error, error, _frame} =
-               Server.handle_tool_call("skill:web_search", %{}, Frame.new())
-
-      assert inspect(error) =~ "MCP restriction"
+      assert restricted?(tool)
     end
 
-    test "action other than deny does not block" do
+    test "action other than deny does not block", %{tool: tool} do
       insert_policy(%{
         name: "audit only",
         rule_type: "mcp_restriction",
-        config: %{"tool_pattern" => "skill:web_search", "action" => "audit", "match" => "exact"},
+        config: %{"tool_pattern" => tool, "action" => "audit", "match" => "exact"},
         enabled: true
       })
 
-      refute match?(
-               {:error, %{message: "MCP restriction" <> _}, _},
-               Server.handle_tool_call("skill:web_search", %{"query" => ""}, Frame.new())
-             )
+      refute restricted?(tool)
+    end
+
+    test "disabling the policy lifts the denial", %{tool: tool} do
+      policy =
+        insert_policy(%{
+          name: "deny then lift",
+          rule_type: "mcp_restriction",
+          config: %{"tool_pattern" => tool, "action" => "deny", "match" => "exact"},
+          enabled: true
+        })
+
+      assert restricted?(tool)
+
+      Repo.update_all(Ecto.Query.from(p in Policy, where: p.id == ^policy.id),
+        set: [enabled: false]
+      )
+
+      PolicyEngine.reload_policies()
+
+      refute restricted?(tool)
     end
   end
 end

@@ -64,7 +64,8 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     "web_fetch" => AlexClaw.Skills.WebFetch,
     "web_search_fetch" => AlexClaw.Skills.WebSearchFetch,
     "rss_fetch" => AlexClaw.Skills.RssFetch,
-    "llm_score" => AlexClaw.Skills.LlmScore
+    "llm_score" => AlexClaw.Skills.LlmScore,
+    "skill_source_indexer" => AlexClaw.Skills.SkillSourceIndexer
   }
 
   # --- Client API (backward-compatible) ---
@@ -102,9 +103,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   @doc """
-  The config keys registered skills declare secret, stored encrypted
-  (`AlexClaw.Encrypted.StepConfig`). The core skills' keys are known before
-  this process starts, so a step read during boot is still decrypted.
+  The config keys registered skills declare secret: a step holds each as a
+  reference to a secret in OpenBao (`AlexClaw.Workflows.StepSecrets`). The
+  core skills' keys are known before this process starts.
   """
   @spec secret_config_keys() :: [String.t()]
   def secret_config_keys do
@@ -288,9 +289,10 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @doc """
   Re-run the boot load of persisted dynamic skills.
 
-  Every skill approved by containment is judged again against the current
+  Every dynamic skill, whoever approved it, is judged again against the current
   allowlist, so an allowlist tightened in a release takes effect without waiting
-  for a restart. Skills approved by a TOTP code are not re-judged.
+  for a restart. A code approves a skill's permissions, not calls outside the
+  allowlist (0.4.0 S6).
   """
   @spec reload_persisted() :: :ok
   def reload_persisted do
@@ -504,6 +506,16 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  # A name that has since become a core skill (skill_source_indexer, 0.4.0 S6)
+  # stays the core skill's: the persisted one would replace it in the table.
+  defp load_persisted_skill(%{name: name} = skill, _full_path)
+       when is_map_key(@core_skills, name) do
+    Logger.warning(
+      "Dynamic skill #{skill.name} not loaded: a core skill has that name now, " <>
+        "and runs in its place."
+    )
+  end
+
   defp load_persisted_skill(skill, full_path) do
     verify_and_load(File.exists?(full_path), skill, full_path)
   end
@@ -527,34 +539,9 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   end
 
   defp checksum_matched(true, skill, full_path) do
-    containment_checked(recheck_containment(skill, full_path), skill, full_path)
-  end
-
-  # A skill approved by containment was never seen by a human. The allowlist it was
-  # judged against can change between releases, so the judgement is made again on
-  # every boot rather than trusted from the database.
-  defp recheck_containment(%{approval: "containment"}, full_path) do
-    with {:ok, source} <- File.read(full_path),
-         {:ok, ast} <- parse_source(source) do
-      CallPolicy.contained?(ast)
-    end
-  end
-
-  defp recheck_containment(_skill, _full_path), do: :ok
-
-  defp containment_checked(:ok, skill, full_path) do
     full_path
     |> compile_and_validate()
     |> register_compiled(skill)
-  end
-
-  defp containment_checked({:error, violations}, skill, _full_path) do
-    Logger.warning(
-      "Dynamic skill #{skill.name} was approved by containment but no longer qualifies: " <>
-        "#{inspect(violations)}"
-    )
-
-    notify_load_failure(skill.name, {:not_contained, violations})
   end
 
   defp register_compiled({:error, reason}, skill) do
@@ -838,31 +825,98 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   @doc """
   Compile a staged file far enough to judge it, then remove it from the VM again.
 
-  Returns the module and permissions it declares, plus a containment verdict from
-  `CallPolicy`. Compiling is safe here because the AST gate refuses anything that
-  would execute at compile time; the module is purged afterwards either way, so
+  Returns the module and permissions it declares, plus two verdicts from
+  `CallPolicy`: `contained:` — whether it may load unattended (its calls and its
+  permissions) — and `calls:` — whether its calls stay inside the allowlist,
+  which every dynamic skill must, whoever approves it. A skill whose calls are
+  contained but whose permissions are not can still be approved with a code.
+  Compiling is safe here because the AST gate refuses anything that would
+  execute at compile time; the module is purged afterwards either way, so
   nothing stays resident on the strength of this check alone.
   """
   @spec vet_pending(String.t()) ::
           {:ok,
-           %{module: module(), permissions: [atom()], contained: :ok | {:error, [String.t()]}}}
+           %{
+             module: module(),
+             permissions: [atom()],
+             contained: :ok | {:error, [String.t()]},
+             calls: :ok | {:error, [String.t()]}
+           }}
           | {:error, term()}
   def vet_pending(file_name) do
     with :ok <- validate_skill_filename(file_name),
          path = Path.join(pending_dir(), file_name),
          {:ok, source} <- read_pending(path),
          {:ok, ast} <- parse_source(source),
-         {:ok, module, permissions} <- compile_and_validate(path) do
+         {:ok, module, permissions} <- compile_and_validate(path, :unjudged) do
       purge_module(module)
 
       {:ok,
        %{
          module: module,
          permissions: permissions,
-         contained: unattended_verdict(ast, permissions)
+         contained: unattended_verdict(ast, permissions),
+         calls: CallPolicy.contained?(ast)
        }}
     end
   end
+
+  @doc """
+  What the person asked to approve a staged file is told: the permissions it
+  declares, a sentence for each risky one or risky pairing
+  (`CallPolicy.risks/1`), and — since a code does not approve them — any calls
+  outside the allowlist.
+
+  Read from the source, never compiled: compiling the file would replace the
+  loaded module of the skill it updates.
+  """
+  @spec describe_pending(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def describe_pending(file_name) do
+    with :ok <- validate_skill_filename(file_name),
+         {:ok, source} <- read_pending(Path.join(pending_dir(), file_name)),
+         {:ok, ast} <- parse_source(source) do
+      {:ok, approval_text(declared_permissions(ast), CallPolicy.contained?(ast))}
+    end
+  end
+
+  defp approval_text(permissions, calls) do
+    sentences =
+      [permissions_sentence(permissions) | risk_sentences(permissions)] ++ calls_sentence(calls)
+
+    Enum.join(sentences, " ")
+  end
+
+  defp permissions_sentence(:unknown),
+    do: "Permissions: not declared as a plain list; they are read when it loads."
+
+  defp permissions_sentence([]), do: "Permissions: none."
+  defp permissions_sentence(permissions), do: "Permissions: #{Enum.join(permissions, ", ")}."
+
+  defp risk_sentences(:unknown), do: []
+  defp risk_sentences(permissions), do: CallPolicy.risks(permissions)
+
+  defp calls_sentence(:ok), do: []
+
+  defp calls_sentence({:error, violations}),
+    do: [
+      "It calls outside the contained set, which a code does not approve, " <>
+        "so it will not load: #{Enum.join(violations, ", ")}."
+    ]
+
+  # `def permissions, do: [...]` with a literal list of atoms, or :unknown.
+  defp declared_permissions(ast) do
+    {_ast, found} = Macro.prewalk(ast, :unknown, &permissions_node/2)
+    found
+  end
+
+  defp permissions_node({:def, _meta, [{:permissions, _fmeta, args}, [do: list]]} = node, _acc)
+       when args in [nil, []] and is_list(list),
+       do: {node, literal_atoms(Enum.all?(list, &is_atom/1), list)}
+
+  defp permissions_node(node, acc), do: {node, acc}
+
+  defp literal_atoms(true, list), do: list
+  defp literal_atoms(false, _list), do: :unknown
 
   @doc """
   Whether generation may take over the name `skill_name`.
@@ -934,18 +988,31 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  # Every dynamic skill is contained, whoever approved it (0.4.0 S6, THREAT_MODEL
+  # P9): a code approves the permissions a skill declares, never calls outside the
+  # allowlist. Loading and every boot judge it here, against the current allowlist.
+  defp compile_and_validate(full_path), do: compile_and_validate(full_path, :contained)
+
   # The file is vetted as a syntax tree before anything is compiled. Code.compile_file/1
   # defines every module in the file and runs its body, so a file could quietly replace
   # AlexClaw.Auth.PolicyEngine alongside a well-behaved skill, or act at compile time.
-  defp compile_and_validate(full_path) do
+  defp compile_and_validate(full_path, judge) do
     with {:ok, source} <- File.read(full_path),
          {:ok, ast} <- parse_source(source),
          {:ok, expected} <- single_dynamic_module(ast),
          :ok <- validate_file_shape(ast),
-         :ok <- validate_compile_time_deps(ast) do
+         :ok <- validate_compile_time_deps(ast),
+         :ok <- judged(judge, ast) do
       compile_vetted(ast, full_path, expected)
     end
   end
+
+  # vet_pending/1 compiles to read the module and reports the verdict itself.
+  defp judged(:unjudged, _ast), do: :ok
+  defp judged(:contained, ast), do: not_contained(CallPolicy.contained?(ast))
+
+  defp not_contained(:ok), do: :ok
+  defp not_contained({:error, violations}), do: {:error, {:not_contained, violations}}
 
   defp parse_source(source) do
     case Code.string_to_quoted(source) do
@@ -1076,10 +1143,14 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     statement |> Macro.to_string() |> String.slice(0, 60)
   end
 
-  # import and require both bring a module's macros into scope, and a macro call
-  # expands at compile time wherever it appears — including inside a function body.
-  # So the target is checked across the whole file, not only the module body.
-  @allowed_compile_time_modules [Logger, AlexClaw.Skills.Helpers, SweetXml]
+  # No import at all (Kernel's defaults aside): after an import, the module's
+  # functions are local calls, which the containment check (remote calls) does
+  # not see — `import Logger` then `configure/1` passed the Logger rule. Every
+  # call to another module is written as a remote call, and checked.
+  # require brings macros into scope and no functions: Logger's level functions
+  # are macros, so `require Logger` is the one require allowed. Either is
+  # checked across the whole file, since a macro expands wherever it is called.
+  @allowed_requires [Logger]
 
   defp validate_compile_time_deps(ast) do
     {_ast, errors} = Macro.prewalk(ast, [], &collect_dep_error/2)
@@ -1100,8 +1171,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
 
   defp collect_dep_error(node, errors), do: {node, errors}
 
-  defp dep_error(_directive, module, errors) when module in @allowed_compile_time_modules,
-    do: errors
+  defp dep_error(:require, module, errors) when module in @allowed_requires, do: errors
 
   defp dep_error(directive, nil, errors),
     do: [{:forbidden_construct, "#{directive} of an unresolvable module"} | errors]
@@ -1239,12 +1309,16 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  # Aliases are resolved as containment resolves them (CallPolicy): an aliased
+  # SkillAPI.http_get is the same call as the one written in full.
   defp find_external_calls(ast) do
+    aliases = CallPolicy.aliases(ast)
+
     {_ast, found} =
       Macro.prewalk(ast, [], fn
         # Module.function(...) calls — e.g. Req.get(...)
         {{:., _, [{:__aliases__, _, mod_parts}, func]}, _, _args} = node, acc ->
-          module = Module.concat(mod_parts)
+          module = CallPolicy.resolve(mod_parts, aliases)
 
           if {module, func} in @external_indicators do
             {node, [{module, func} | acc]}

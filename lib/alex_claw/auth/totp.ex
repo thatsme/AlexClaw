@@ -318,9 +318,11 @@ defmodule AlexClaw.Auth.TOTP do
   @spec verify(String.t()) :: boolean()
   def verify(code), do: check(code) == :ok
 
-  defp carried_over({:error, reason}) when reason in [:vault_unavailable, :forbidden],
-    do: {:error, :unavailable}
-
+  # A key from before 0.4.0 that could not be imported — OpenBao unreachable,
+  # or the row still as 0.3.x encrypted it, which only the boot upgrade opens
+  # — leaves nothing to compare a code against: unavailable, not a wrong code,
+  # so it is not counted against the locks (S8 M11).
+  defp carried_over({:error, _reason}), do: {:error, :unavailable}
   defp carried_over(_imported_or_none), do: :ok
 
   defp enrolled(nil), do: {:error, :invalid_code}

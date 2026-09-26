@@ -345,9 +345,28 @@ defmodule AlexClaw.Config.SecretUpgrade do
     end)
   end
 
-  defp report(%{moved: [], fingerprinted: [], records_moved: [], failed: []}), do: :ok
+  @doc """
+  Log what an upgrade's `result` says: what moved, what did not and why, and
+  a second factor that could not be carried over (S8 M11).
+  """
+  @spec report(result()) :: :ok
+  def report(result) do
+    report_moves(result)
+    report_second_factor(Map.get(result, :totp))
+  end
 
-  defp report(%{
+  defp report_second_factor({:error, reason}) do
+    Logger.error(
+      "The second factor was NOT carried over to OpenBao (#{inspect(reason)}). " <>
+        "Codes are answered as unavailable until it is; it is tried again at the next start."
+    )
+  end
+
+  defp report_second_factor(_imported_or_none), do: :ok
+
+  defp report_moves(%{moved: [], fingerprinted: [], records_moved: [], failed: []}), do: :ok
+
+  defp report_moves(%{
          moved: moved,
          fingerprinted: fingerprinted,
          records_moved: records,

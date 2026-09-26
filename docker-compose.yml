@@ -381,7 +381,7 @@ services:
       # Not BACKUP_DIR: that is the db_backup skill's directory, which AlexClaw
       # mounts. The snapshots go where AlexClaw never sees them.
       - type: bind
-        source: ${OPENBAO_BACKUP_DIR:-./backups/openbao}
+        source: ${OPENBAO_BACKUP_DIR:-./openbao-backups}
         target: /backups
     networks:
       vault:

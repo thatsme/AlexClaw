@@ -130,6 +130,11 @@ defmodule AlexClaw.OpenBaoBackupTest do
       assert backups =~ "OPENBAO_BACKUP_DIR"
       refute backups =~ ~r/\$\{BACKUP_DIR/
       refute backups in sources(services()["alexclaw-prod"])
+
+      # The default, when compose is run without the script, is not under the
+      # default BACKUP_DIR (./backups) either.
+      [_, default] = Regex.run(~r/:-([^}]+)\}/, backups)
+      refute default == "./backups" or String.starts_with?(default, "./backups/")
     end
 
     # A restore stages the snapshot in /tmp; the root filesystem is read-only.
@@ -168,6 +173,26 @@ defmodule AlexClaw.OpenBaoBackupTest do
     test "refuses to write into the directory AlexClaw mounts", %{script: script} do
       assert script =~ "OPENBAO_BACKUP_DIR"
       assert script =~ ~r/BACKUP_DIR.*refus|refus.*BACKUP_DIR/s
+    end
+
+    # Run for real: a directory inside BACKUP_DIR is refused, before any
+    # container starts.
+    @tag :tmp_dir
+    test "refuses a directory inside the one AlexClaw mounts", %{tmp_dir: tmp} do
+      skill_dir = Path.join(tmp, "skill")
+      File.mkdir_p!(Path.join(skill_dir, "openbao"))
+
+      {out, status} =
+        System.cmd("sh", [@script, "probe"],
+          env: [
+            {"BACKUP_DIR", skill_dir},
+            {"OPENBAO_BACKUP_DIR", Path.join(skill_dir, "openbao")}
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert status == 2, out
+      assert out =~ "refused"
     end
 
     test "leaves the snapshot readable by its owner only", %{script: script} do

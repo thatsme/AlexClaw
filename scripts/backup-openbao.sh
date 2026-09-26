@@ -26,15 +26,31 @@ stamp=$(date +%Y%m%d-%H%M%S)
 BACKUP_NAME="openbao-${stamp}-${reason}.snap"
 target="$OPENBAO_BACKUP_DIR/$BACKUP_NAME"
 
-# BACKUP_DIR (the environment's, else .env's) is the db_backup skill's
-# directory, which AlexClaw mounts: a snapshot written there would be readable
-# by AlexClaw. Refused.
+# BACKUP_DIR (the environment's, else .env's, else compose's default
+# ./backups) is the db_backup skill's directory, which AlexClaw mounts: a
+# snapshot written there, or anywhere below it, would be readable by AlexClaw.
+# Refused, before anything is created.
 skill_dir="${BACKUP_DIR:-$(sed -n 's/^BACKUP_DIR=//p' .env 2>/dev/null | tail -1)}"
-if [ -n "$skill_dir" ] && [ -d "$skill_dir" ] && [ -d "$OPENBAO_BACKUP_DIR" ] &&
-  [ "$(cd "$skill_dir" && pwd -P)" = "$(cd "$OPENBAO_BACKUP_DIR" && pwd -P)" ]; then
-  echo "backup-openbao: refused: OPENBAO_BACKUP_DIR is BACKUP_DIR, which AlexClaw mounts; choose another directory" >&2
-  exit 2
-fi
+skill_dir="${skill_dir:-./backups}"
+
+# The absolute path of $1, resolving the part of it that exists.
+absolute() {
+  dir=$1 rest=""
+  while [ ! -d "$dir" ]; do
+    rest="/$(basename "$dir")$rest"
+    dir=$(dirname "$dir")
+  done
+  printf '%s%s\n' "$(cd "$dir" && pwd -P)" "$rest"
+}
+
+mounted=$(absolute "$skill_dir")
+snapshots=$(absolute "$OPENBAO_BACKUP_DIR")
+case "$snapshots/" in
+  "$mounted"/*)
+    echo "backup-openbao: refused: OPENBAO_BACKUP_DIR ($snapshots) is BACKUP_DIR or inside it, which AlexClaw mounts; choose another directory" >&2
+    exit 2
+    ;;
+esac
 
 mkdir -p "$OPENBAO_BACKUP_DIR"
 export OPENBAO_BACKUP_DIR

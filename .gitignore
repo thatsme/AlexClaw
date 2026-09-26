@@ -87,3 +87,6 @@ __pycache__/
 
 # Build directory and test records kept between targeted test runs
 /.test-cache/
+
+# OpenBao snapshots when compose runs openbao-backup without scripts/backup-openbao.sh.
+/openbao-backups/

@@ -42,7 +42,8 @@ defmodule AlexClaw.Workflows.Launch do
     do: Workflow.protected?(workflow) or privileged_steps(workflow) != []
 
   @doc """
-  The privileged skills among `workflow`'s steps, each named once. Such a
+  The privileged skills among `workflow`'s steps — a step's own skill, or the
+  `fallback_skill` it runs when its circuit is open — each named once. Such a
   step runs only in a run the admin UI starts with a code, or the scheduler
   (S8 M7): the page asks for a code, as for a protected workflow, and any
   other entry point is refused up front.
@@ -50,10 +51,16 @@ defmodule AlexClaw.Workflows.Launch do
   @spec privileged_steps(Workflow.t()) :: [String.t()]
   def privileged_steps(%Workflow{steps: steps}) when is_list(steps) do
     steps
-    |> Enum.map(& &1.skill)
+    |> Enum.flat_map(&step_skills/1)
     |> Enum.filter(&(&1 in Invoke.privileged_skills()))
     |> Enum.uniq()
   end
 
   def privileged_steps(_not_loaded), do: []
+
+  defp step_skills(%{skill: skill, config: %{"fallback_skill" => fallback}})
+       when is_binary(fallback),
+       do: [skill, fallback]
+
+  defp step_skills(%{skill: skill}), do: [skill]
 end

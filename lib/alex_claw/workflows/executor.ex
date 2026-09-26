@@ -438,13 +438,14 @@ defmodule AlexClaw.Workflows.Executor do
     |> run_checked(module, step)
   end
 
-  # The step's secret references, and its resources', resolved for the hosts
-  # they are bound to: the skill gets the values; the run's recorded
-  # definition, its results and the logs only ever held the references.
+  # The step's secret references, and its resources', as placeholders: the
+  # skill never holds a value. The names go with the run, so that only those
+  # placeholders are filled at send, each for the host its request goes to
+  # (AlexClaw.Net.Credentials).
   defp with_secrets(:ok, step, args) do
-    with {:ok, config} <- StepSecrets.resolved(step.skill, args.config),
-         {:ok, resources} <- ResourceSecrets.resolved_all(args.resources) do
-      {:ok, %{args | config: config, resources: resources}}
+    with {:ok, config, step_names} <- StepSecrets.for_skill(step.skill, args.config),
+         {:ok, resources, resource_names} <- ResourceSecrets.for_skill_all(args.resources) do
+      {:ok, %{args | config: config, resources: resources}, step_names ++ resource_names}
     end
   end
 
@@ -452,14 +453,14 @@ defmodule AlexClaw.Workflows.Executor do
 
   defp run_checked({:error, reason}, _module, _step), do: {:error, reason}
 
-  defp run_checked({:ok, args}, module, step) do
+  defp run_checked({:ok, args, secrets}, module, step) do
     skill_type = SkillRegistry.get_type(module) || :dynamic
     token = mint_step_token(module, skill_type)
     if token, do: Process.put(:auth_token, token)
 
     step.skill
     |> CircuitBreaker.call(fn ->
-      SafeExecutor.run(module, args, skill_type, token, safe_opts(step))
+      SafeExecutor.run(module, args, skill_type, token, [secrets: secrets] ++ safe_opts(step))
     end)
     |> normalize_result()
     |> maybe_sanitize(step.skill)

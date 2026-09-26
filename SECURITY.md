@@ -478,7 +478,10 @@ The MCP key is not stored at all: see
 `metadata["auth"]["value"]`; and every fill value of a recording, or of a Web
 Automation step's inline recipe, including logins attached to a recording.
 - Fill values are bound to the recipe's **origin** (`scheme://host[:port]`),
-  and a play resolves them for that origin only.
+  and a play resolves them for that origin only. Each login fill carries that
+  origin to the web automator, which types it only while the page is on it: a
+  page that navigated or was redirected elsewhere fails the play, and nothing
+  is typed.
 - The credential headers are Authorization, Proxy-Authorization, Cookie and
   X-API-Key, and any header whose name contains `token`, `key`, `secret` or
   `auth`. Other headers stay as they are.
@@ -488,8 +491,16 @@ Automation step's inline recipe, including logins attached to a recording.
   values, the recipe's origin.
 - Moving a step or resource to another host while keeping the credential is
   refused. The credential has to be entered again for the new host.
-- The executor resolves it for that host when the step runs, and hands the
-  skill the value. Run records, exports and MCP show a placeholder.
+- A skill never holds the value. The step and its resources reach it with a
+  placeholder, `{{secret:NAME}}`, and the HTTP layer fills the placeholder as
+  the request is sent: resolved for the host the request actually goes to,
+  and only for a secret that step was given. A request whose URL, input or
+  redirect would take the credential to another host is refused, as is a
+  placeholder naming a secret the step was not given.
+- A request that carries a credential (a filled placeholder, or an LLM
+  provider's key and headers) is not followed across a redirect to another
+  host; the redirect is refused.
+- Run records, exports and MCP show a placeholder.
 - Deleting a step, workflow or resource deletes its secrets. Duplicating a
   workflow copies them.
 

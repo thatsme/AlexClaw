@@ -10,10 +10,10 @@ defmodule AlexClaw.Resources.ResourceSecrets do
   the value was entered: the discovered API base (`metadata["discovery"]
   ["base_url"]`) when there is one, as `api_request` uses it, else the
   resource's `url`. Moving the resource to another host with the credential
-  kept is refused. At run time the executor resolves it for that host (`resolved/1`)
-  and the skill gets the value; nothing else does.
+  kept is refused. At run time the skill gets a placeholder (`for_skill/1`); the
+  value is attached at send, for the host the request actually goes to
+  (`AlexClaw.Net.Credentials`).
   """
-  alias AlexClaw.Secrets
   alias AlexClaw.Secrets.Owned
   alias AlexClaw.WebAutomation.Recording
 
@@ -93,22 +93,25 @@ defmodule AlexClaw.Resources.ResourceSecrets do
   end
 
   @doc """
-  The resource with its credential resolved for the host it is bound to: what
-  the executor hands a skill. The use is audited. A credential or a login
-  still held as a value (0.3.x, not yet moved by the upgrade) is refused.
+  What the executor hands a skill: the resource with its credential and its
+  recording's logins replaced by placeholders
+  (`AlexClaw.Secrets.Owned.placeholder/1`), and the names of those secrets.
+  The skill never holds a value: the credential is attached at send, for the
+  host the request goes to (`AlexClaw.Net.Credentials`). A credential or a
+  login still held as a value (0.3.x, not yet moved by the upgrade) is refused.
   """
-  @spec resolved(struct()) :: {:ok, struct()} | {:error, term()}
-  def resolved(%{metadata: metadata, url: url} = resource) do
-    with :ok <- all_moved(resource, Map.merge(fields(metadata), Recording.fields(metadata))) do
-      case references(metadata) do
-        map when map == %{} ->
-          {:ok, resource}
+  @spec for_skill(struct()) :: {:ok, struct(), [String.t()]} | {:error, term()}
+  def for_skill(%{metadata: metadata} = resource) do
+    fields = Map.merge(fields(metadata), Recording.fields(metadata))
 
-        %{@path => name} ->
-          resource |> resolve(name, destination(url, metadata)) |> with_value(resource)
-      end
+    with :ok <- all_moved(resource, fields) do
+      {given, names} = Owned.with_placeholders(metadata || %{}, fields)
+      {:ok, %{resource | metadata: given_metadata(metadata, given)}, names}
     end
   end
+
+  defp given_metadata(nil, _given), do: nil
+  defp given_metadata(_metadata, given), do: given
 
   defp all_moved(resource, fields), do: moved_for(Owned.all_moved(fields), resource)
 
@@ -117,29 +120,22 @@ defmodule AlexClaw.Resources.ResourceSecrets do
   defp moved_for({:error, _path}, resource),
     do: {:error, {:secret, "resource #{resource.name}", :not_moved}}
 
-  defp resolve(_resource, _name, nil), do: {:error, :no_destination}
-  defp resolve(_resource, name, destination), do: Secrets.resolve(name, for: destination)
-
-  defp with_value({:ok, value}, resource),
-    do: {:ok, %{resource | metadata: put_in(resource.metadata, @path, value)}}
-
-  defp with_value({:error, reason}, resource),
-    do: {:error, {:secret, "resource #{resource.name}", reason}}
-
-  @doc "Every resource in `resources`, resolved (`resolved/1`); the first failure stops."
-  @spec resolved_all([struct()] | nil) :: {:ok, [struct()] | nil} | {:error, term()}
-  def resolved_all(resources) when is_list(resources) do
-    Enum.reduce_while(resources, {:ok, []}, fn resource, {:ok, acc} ->
-      case resolved(resource) do
-        {:ok, resolved} -> {:cont, {:ok, [resolved | acc]}}
+  @doc "Every resource in `resources` as a skill is given it (`for_skill/1`), and all their secret names; the first failure stops."
+  @spec for_skill_all([struct()] | nil) ::
+          {:ok, [struct()] | nil, [String.t()]} | {:error, term()}
+  def for_skill_all(resources) when is_list(resources) do
+    resources
+    |> Enum.reduce_while({:ok, [], []}, fn resource, {:ok, acc, names} ->
+      case for_skill(resource) do
+        {:ok, given, more} -> {:cont, {:ok, [given | acc], names ++ more}}
         error -> {:halt, error}
       end
     end)
     |> reversed()
   end
 
-  def resolved_all(resources), do: {:ok, resources}
+  def for_skill_all(resources), do: {:ok, resources, []}
 
-  defp reversed({:ok, list}), do: {:ok, Enum.reverse(list)}
+  defp reversed({:ok, list, names}), do: {:ok, Enum.reverse(list), names}
   defp reversed(error), do: error
 end

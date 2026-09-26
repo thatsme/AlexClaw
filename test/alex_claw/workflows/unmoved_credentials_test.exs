@@ -20,7 +20,7 @@ defmodule AlexClaw.Workflows.UnmovedCredentialsTest do
     config = %{"bot_token" => Legacy.seal("123:legacy"), "chat_id" => "1"}
 
     assert {:error, {:secret, "bot_token", :not_moved}} =
-             StepSecrets.resolved("telegram_notify", config)
+             StepSecrets.for_skill("telegram_notify", config)
   end
 
   test "a resource's credential that is still a value is refused" do
@@ -31,11 +31,11 @@ defmodule AlexClaw.Workflows.UnmovedCredentialsTest do
     }
 
     assert {:error, {:secret, "resource legacy api", :not_moved}} =
-             ResourceSecrets.resolved(resource)
+             ResourceSecrets.for_skill(resource)
   end
 
   test "a step with no credential value is untouched" do
-    assert {:ok, %{"chat_id" => "1"}} =
-             StepSecrets.resolved("telegram_notify", %{"chat_id" => "1"})
+    assert {:ok, %{"chat_id" => "1"}, []} =
+             StepSecrets.for_skill("telegram_notify", %{"chat_id" => "1"})
   end
 end

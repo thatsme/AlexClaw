@@ -21,12 +21,11 @@ defmodule AlexClaw.Workflows.StepSecrets do
       (`origin:<scheme>://<host>[:<port>]`);
     * any other skill: the host of the step's `url`.
 
-  A step with a credential and no such host is refused. At run time the
-  executor resolves the references for the same host (`resolved/2`), and the
-  skill gets the values; nothing else does.
+  A step with a credential and no such host is refused. At run time the skill
+  gets placeholders, never values (`for_skill/2`); the value is attached at
+  send, for the host the request actually goes to (`AlexClaw.Net.Credentials`).
   """
   alias AlexClaw.Config
-  alias AlexClaw.Secrets
   alias AlexClaw.Secrets.Owned
   alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.SkillRegistry
@@ -135,33 +134,28 @@ defmodule AlexClaw.Workflows.StepSecrets do
   end
 
   @doc """
-  `config` with each reference replaced by its value, resolved for the step's
-  destination: what the executor hands the skill. Every use is audited. A
-  credential still held as a value (0.3.x, not yet moved by the upgrade) is
-  refused, never handed over.
+  What the executor hands the skill: `config` with each reference replaced by
+  its placeholder (`AlexClaw.Secrets.Owned.placeholder/1`), and the names of
+  the secrets the step is given. The skill never holds a value: a request
+  carrying a placeholder has it filled at send, for the host it goes to
+  (`AlexClaw.Net.Credentials`). A credential still held as a value (0.3.x, not
+  yet moved by the upgrade) is refused, never handed over.
   """
-  @spec resolved(String.t(), map() | nil) :: {:ok, map() | nil} | {:error, term()}
-  def resolved(skill, config) do
-    with :ok <- all_moved(Owned.all_moved(fields(skill, config))),
-         do: resolved_references(skill, config)
-  end
+  @spec for_skill(String.t(), map() | nil) ::
+          {:ok, map() | nil, [String.t()]} | {:error, term()}
+  def for_skill(_skill, nil), do: {:ok, nil, []}
 
-  defp resolved_references(skill, config) do
-    skill
-    |> references(config)
-    |> Enum.reduce_while({:ok, config}, fn {path, name}, {:ok, acc} ->
-      case resolve(name, destination(skill, config)) do
-        {:ok, value} -> {:cont, {:ok, Owned.put(acc, path, value)}}
-        {:error, reason} -> {:halt, {:error, {:secret, List.last(path), reason}}}
-      end
-    end)
+  def for_skill(skill, config) do
+    fields = fields(skill, config)
+
+    with :ok <- all_moved(Owned.all_moved(fields)) do
+      {given, names} = Owned.with_placeholders(config, fields)
+      {:ok, given, names}
+    end
   end
 
   defp all_moved(:ok), do: :ok
   defp all_moved({:error, path}), do: {:error, {:secret, List.last(path), :not_moved}}
-
-  defp resolve(_name, nil), do: {:error, :no_destination}
-  defp resolve(name, destination), do: Secrets.resolve(name, for: destination)
 
   defp secret_keys(skill) when is_binary(skill) do
     case SkillRegistry.resolve(skill) do

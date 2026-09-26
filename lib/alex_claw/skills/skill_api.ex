@@ -14,7 +14,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   alias AlexClaw.ControlPlane
   alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway.Router
-  alias AlexClaw.Net.HostGuard
+  alias AlexClaw.Net.{Credentials, HostGuard}
   alias AlexClaw.Workflows.SkillRegistry
 
   # A skill operates AlexClaw; it never authors it. Nothing here writes a
@@ -28,7 +28,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @element_timeout 30_000
 
   # What a SkillAPI call made from a parallel_map/4 element is authorised by.
-  @auth_keys [:auth_token, :auth_chain_depth, :auth_workflow_run_id, :auth_skill]
+  @auth_keys [:auth_token, :auth_chain_depth, :auth_workflow_run_id, :auth_skill, :auth_secrets]
 
   @type permission_result :: :ok | {:error, :permission_denied}
   @type skill_mod :: module()
@@ -257,6 +257,7 @@ defmodule AlexClaw.Skills.SkillAPI do
       |> Req.new()
       |> Req.Request.put_new_header("user-agent", @default_user_agent)
       |> HostGuard.attach()
+      |> Credentials.attach()
       |> Req.request()
       |> refusal_as_reason()
     end
@@ -269,6 +270,10 @@ defmodule AlexClaw.Skills.SkillAPI do
   end
 
   defp refusal_as_reason({:error, %HostGuard.BlockedError{reason: reason}}), do: {:error, reason}
+
+  defp refusal_as_reason({:error, %Credentials.Refused{} = refused}),
+    do: {:error, {:credential_refused, Exception.message(refused)}}
+
   defp refusal_as_reason(result), do: result
 
   # --- Config ---

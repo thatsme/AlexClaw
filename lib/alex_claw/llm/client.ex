@@ -8,6 +8,17 @@ defmodule AlexClaw.LLM.Client do
 
   alias AlexClaw.Config
   alias AlexClaw.LLM.{Provider, ProviderSecrets}
+  alias AlexClaw.Net.Credentials
+
+  # A provider call carries its key (and any custom headers): a redirect to
+  # another host is refused rather than followed with them (S8 H7).
+  defp post_credentialed(opts) do
+    opts
+    |> Keyword.put(:method, :post)
+    |> Req.new()
+    |> Credentials.guard_redirects(credentialed: true)
+    |> Req.request()
+  end
 
   # --- API Key Resolution ---
 
@@ -169,7 +180,7 @@ defmodule AlexClaw.LLM.Client do
   end
 
   defp do_gemini_request(request, body, retries) do
-    case Req.post([json: body] ++ request) do
+    case post_credentialed([json: body] ++ request) do
       {:ok,
        %{
          status: 200,
@@ -229,7 +240,7 @@ defmodule AlexClaw.LLM.Client do
     body = %{model: model, max_tokens: 4096, messages: [%{role: "user", content: prompt}]}
     body = if system, do: Map.put(body, :system, system), else: body
 
-    case Req.post(url, json: body, headers: headers) do
+    case post_credentialed(url: url, json: body, headers: headers) do
       {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
         {:ok, text}
 
@@ -283,8 +294,8 @@ defmodule AlexClaw.LLM.Client do
       url = "#{p.host}/v1/chat/completions"
       body = openai_body(p.model, p.options || %{}, chat_messages(prompt, system))
 
-      url
-      |> Req.post(json: body, headers: openai_headers(headers, api_key), receive_timeout: timeout)
+      [url: url, json: body, headers: openai_headers(headers, api_key), receive_timeout: timeout]
+      |> post_credentialed()
       |> openai_response()
     end
   end
@@ -357,7 +368,7 @@ defmodule AlexClaw.LLM.Client do
       outputDimensionality: 768
     }
 
-    case Req.post(url, json: body, headers: [{"x-goog-api-key", api_key}]) do
+    case post_credentialed(url: url, json: body, headers: [{"x-goog-api-key", api_key}]) do
       {:ok, %{status: 200, body: %{"embedding" => %{"values" => values}}}} when is_list(values) ->
         {:ok, values}
 
@@ -403,7 +414,7 @@ defmodule AlexClaw.LLM.Client do
 
     body = %{model: model, input: text}
 
-    case Req.post(url, json: body, headers: headers, receive_timeout: 600_000) do
+    case post_credentialed(url: url, json: body, headers: headers, receive_timeout: 600_000) do
       {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vector} | _]}}}
       when is_list(vector) ->
         {:ok, vector}

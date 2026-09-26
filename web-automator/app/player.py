@@ -12,12 +12,35 @@ import os
 import re
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from patchright.async_api import Page, BrowserContext
 
 from .egress import REFUSED_HEADER
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin_of(url: str) -> str:
+    """scheme://host[:port] of `url`, lower-cased, the port only when it is not
+    the scheme's default: the form AlexClaw binds a login to."""
+    parts = urlsplit(url or "")
+    scheme = (parts.scheme or "").lower()
+    host = (parts.hostname or "").lower()
+    port = parts.port
+    if port is None or port == _DEFAULT_PORTS.get(scheme):
+        return f"{scheme}://{host}"
+    return f"{scheme}://{host}:{port}"
+
+
+def _on_origin(page: Page, selector: str, origin: Optional[str]) -> None:
+    """A fill that carries an origin types a login: it is typed only on a page
+    of that origin. A page that navigated or was redirected elsewhere fails the
+    run, naming the selector, never the value."""
+    if origin is not None and _origin_of(page.url) != _origin_of(origin):
+        raise RuntimeError(f"fill {selector} refused: the page is not on the login's origin")
 
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/tmp/downloads")
 
@@ -95,9 +118,20 @@ class Player:
                 raise RuntimeError(f"selector {selector} not found")
             await asyncio.sleep(0.25)
 
-    async def _fill(self, page: Page, selector: str, value: str, input_type: str | None, timeout_s: float):
+    async def _fill(
+        self,
+        page: Page,
+        selector: str,
+        value: str,
+        input_type: str | None,
+        timeout_s: float,
+        origin: str | None = None,
+    ):
         """Fill a form field. Any failure fails the run; the error names the
-        selector and the exception's type, never the value."""
+        selector and the exception's type, never the value. A login (a fill
+        with an origin) is typed only while the page is on that origin: it is
+        checked before the field is looked up and again just before typing."""
+        _on_origin(page, selector, origin)
         if input_type == "date":
             value = self._format_date_value(value, selector)
 
@@ -107,6 +141,7 @@ class Player:
             await el.click()
             await asyncio.sleep(0.3)
             await page.keyboard.press("Control+a")
+            _on_origin(page, selector, origin)
             await page.keyboard.type(value, delay=50 if input_type == "date" else 100)
             await asyncio.sleep(0.5)
         except Exception as e:
@@ -429,7 +464,9 @@ class Player:
         if action == "navigate":
             await self._navigate(page, step["url"])
         elif action == "fill":
-            await self._fill(page, selector, step.get("value", ""), step.get("input_type"), timeout_s)
+            await self._fill(
+                page, selector, step.get("value", ""), step.get("input_type"), timeout_s, step.get("origin")
+            )
         elif action == "select":
             await self._select(page, selector, step.get("value", ""), timeout_s)
         elif action == "check":

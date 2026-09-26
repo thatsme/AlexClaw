@@ -11,12 +11,15 @@ defmodule AlexClaw.WebAutomation.Recording do
   (`origin:<scheme>://<host>[:<port>]` of its `url`), and puts the reference
   in the slot. `resolved/1` hands back the recipe with every reference
   replaced by its value, resolved for that origin: what a play sends to the
-  sidecar. A recipe moved to another site does not get the login.
+  sidecar, each login fill marked with its `origin`, so the sidecar types it
+  only on a page of that origin. A recipe moved to another site does not get
+  the login.
 
   A fill value that is a reference is stored like any other value in a
   recipe; the contract (`AlexClaw.WebAutomation.Recipe`) is checked on a copy
   with each login blank, since a login's value is text only once resolved.
   """
+  alias AlexClaw.Auth.SafeExecutor
   alias AlexClaw.Secrets
   alias AlexClaw.Secrets.Owned
   alias AlexClaw.WebAutomation.Recipe
@@ -147,8 +150,11 @@ defmodule AlexClaw.WebAutomation.Recording do
 
   @doc """
   `recipe` with every login replaced by its value, resolved for the recipe's
-  origin: what a play sends to the sidecar. A slot still empty is
-  `{:error, {:login_required, selectors}}`; a login bound to another origin is
+  origin, and marked with that origin: what a play sends to the sidecar, which
+  types a login only on a page of that origin (S8 H2/H3). A slot still empty
+  is `{:error, {:login_required, selectors}}`; a login bound to another origin,
+  or one the running step was not given
+  (`AlexClaw.Auth.SafeExecutor.secret_allowed?/1`), is
   `{:error, {:not_bound, selector}}`. Every use is audited.
   """
   @spec resolved(map()) ::
@@ -165,17 +171,33 @@ defmodule AlexClaw.WebAutomation.Recording do
     destination = destination(recipe, nil)
 
     recipe
-    |> references()
+    |> fields()
+    |> logins()
     |> Enum.reduce_while({:ok, recipe}, fn {path, name}, {:ok, acc} ->
       case resolve(name, destination) do
-        {:ok, value} -> {:cont, {:ok, Owned.put(acc, path, value)}}
-        {:error, reason} -> {:halt, refused(reason, selector_at(recipe, path))}
+        {:ok, value} ->
+          {:cont, {:ok, acc |> Owned.put(path, value) |> with_origin(path, destination)}}
+
+        {:error, reason} ->
+          {:halt, refused(reason, selector_at(recipe, path))}
       end
     end)
   end
 
+  # A play's logins: references when it is played from the admin UI, the
+  # placeholders the step was given when it runs in a workflow.
+  defp logins(fields), do: Map.merge(Owned.references(fields), Owned.given(fields))
+
   defp resolve(_name, nil), do: {:error, :not_bound}
-  defp resolve(name, destination), do: Secrets.resolve(name, for: destination)
+
+  defp resolve(name, destination),
+    do: given(SafeExecutor.secret_allowed?(name), name, destination)
+
+  defp given(false, _name, _destination), do: {:error, :not_bound}
+  defp given(true, name, destination), do: Secrets.resolve(name, for: destination)
+
+  defp with_origin(recipe, path, "origin:" <> origin),
+    do: Owned.put(recipe, List.replace_at(path, -1, "origin"), origin)
 
   defp refused(:not_bound, selector), do: {:error, {:not_bound, selector}}
   defp refused(reason, selector), do: {:error, {:login_unavailable, selector, reason}}

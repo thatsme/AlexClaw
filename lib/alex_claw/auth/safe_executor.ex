@@ -22,6 +22,8 @@ defmodule AlexClaw.Auth.SafeExecutor do
 
   # The running skill's identity, in the process running it (S9, S8 C1).
   @identity :auth_skill
+  # The secrets the running step was given placeholders for (S9, S8 H2/H3).
+  @secrets :auth_secrets
 
   @doc """
   Execute a skill module with the given args and capability token.
@@ -42,8 +44,8 @@ defmodule AlexClaw.Auth.SafeExecutor do
   defp execute(false, module, _args, _type, _token, _opts),
     do: {:error, {:unavailable, Skill.unavailable_reason(module, skill_name(module))}}
 
-  defp execute(true, module, args, :core, _token, _opts),
-    do: as_skill(module, fn -> module.run(args) end)
+  defp execute(true, module, args, :core, _token, opts),
+    do: as_skill(module, fn -> given(opts[:secrets], fn -> module.run(args) end) end)
 
   defp execute(true, module, args, :dynamic, token, opts) do
     timeout = opts[:timeout] || @default_timeout
@@ -57,6 +59,7 @@ defmodule AlexClaw.Auth.SafeExecutor do
         Process.put(:auth_workflow_run_id, workflow_run_id)
         Process.put(:auth_chain_depth, chain_depth)
         Process.put(@identity, module)
+        Process.put(@secrets, MapSet.new(opts[:secrets] || []))
 
         module.run(args)
       end)
@@ -99,6 +102,33 @@ defmodule AlexClaw.Auth.SafeExecutor do
 
   defp restore_identity(nil), do: Process.delete(@identity)
   defp restore_identity(previous), do: Process.put(@identity, previous)
+
+  @doc """
+  Whether the running step was given a placeholder for the secret `name`
+  (`AlexClaw.Net.Credentials` fills only those). Code that is not running a
+  skill — the admin UI replaying a recording, AlexClaw's own calls — has no
+  such set, and is not limited by it.
+  """
+  @spec secret_allowed?(String.t()) :: boolean()
+  def secret_allowed?(name), do: allowed?(Process.get(@secrets), name)
+
+  defp allowed?(nil, _name), do: true
+  defp allowed?(given, name), do: MapSet.member?(given, name)
+
+  # A core skill runs in the caller's process: its set is put in place for
+  # run/1 and the caller's put back after.
+  defp given(names, fun) do
+    previous = Process.put(@secrets, MapSet.new(names || []))
+
+    try do
+      fun.()
+    after
+      restore_secrets(previous)
+    end
+  end
+
+  defp restore_secrets(nil), do: Process.delete(@secrets)
+  defp restore_secrets(previous), do: Process.put(@secrets, previous)
 
   defp skill_name(module), do: module |> Module.split() |> List.last() |> Macro.underscore()
 end

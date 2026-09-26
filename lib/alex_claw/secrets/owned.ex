@@ -35,6 +35,9 @@ defmodule AlexClaw.Secrets.Owned do
   @typedoc "A planned save: the plan, the destination, the names no longer referenced."
   @type secrets :: {plan(), destination(), [String.t()]}
 
+  @placeholder ~r/\{\{secret:([a-z0-9_]{2,64})\}\}/
+  @placeholder_whole ~r/\A\{\{secret:([a-z0-9_]{2,64})\}\}\z/
+
   @doc "A reference to the secret `name`, as a record stores it."
   @spec reference(String.t()) :: map()
   def reference(name), do: %{"secret" => name}
@@ -54,6 +57,62 @@ defmodule AlexClaw.Secrets.Owned do
         into: %{},
         do: {path, name}
       )
+
+  @doc """
+  The secrets among `fields` as a skill was given them — a placeholder
+  (`placeholder/1`) standing alone as a field's value — as path => secret
+  name. Only for what a run hands over: a stored record holds references
+  (`references/1`), never placeholders.
+  """
+  @spec given(%{path() => term()}) :: %{path() => String.t()}
+  def given(fields) do
+    fields
+    |> Enum.flat_map(fn {path, value} -> value |> placeholder_name() |> named(path) end)
+    |> Map.new()
+  end
+
+  defp named(nil, _path), do: []
+  defp named(name, path), do: [{path, name}]
+
+  defp placeholder_name("{{secret:" <> _ = value),
+    do: whole_placeholder(Regex.run(@placeholder_whole, value))
+
+  defp placeholder_name(_value), do: nil
+
+  defp whole_placeholder([_whole, name]), do: name
+  defp whole_placeholder(nil), do: nil
+
+  @doc """
+  What a skill is given for the secret `name`: `{{secret:NAME}}`. It stands
+  for the value until the request that carries it is sent
+  (`AlexClaw.Net.Credentials`); the skill never holds the value.
+  """
+  @spec placeholder(String.t()) :: String.t()
+  def placeholder(name), do: "{{secret:" <> name <> "}}"
+
+  @doc "The secret names the placeholders in `text` stand for."
+  @spec placeholder_names(String.t()) :: [String.t()]
+  def placeholder_names(text) when is_binary(text),
+    do: @placeholder |> Regex.scan(text, capture: :all_but_first) |> List.flatten()
+
+  @doc "`text` with each placeholder replaced by the value `values` holds for its name."
+  @spec fill_placeholders(String.t(), %{String.t() => String.t()}) :: String.t()
+  def fill_placeholders(text, values) when is_binary(text),
+    do: Regex.replace(@placeholder, text, fn whole, name -> Map.get(values, name, whole) end)
+
+  def fill_placeholders(other, _values), do: other
+
+  @doc """
+  `record` with each reference among `fields` replaced by its placeholder, and
+  the names — what a skill is given: never a value.
+  """
+  @spec with_placeholders(map(), %{path() => term()}) :: {map(), [String.t()]}
+  def with_placeholders(record, fields) do
+    refs = references(fields)
+
+    {Enum.reduce(refs, record, fn {path, name}, acc -> put(acc, path, placeholder(name)) end),
+     Map.values(refs)}
+  end
 
   @doc """
   `:ok` when every credential field holds a reference or nothing; else

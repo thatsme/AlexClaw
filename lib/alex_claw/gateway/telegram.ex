@@ -12,6 +12,7 @@ defmodule AlexClaw.Gateway.Telegram do
 
   alias AlexClaw.{Config, Message}
   alias AlexClaw.Gateway.Telegram.Token
+  alias AlexClaw.Net.Credentials
   alias AlexClaw.Secrets.Mask
 
   # --- Behaviour callbacks ---
@@ -317,7 +318,7 @@ defmodule AlexClaw.Gateway.Telegram do
     text = fit(text)
     request = Map.merge(%{chat_id: chat_id, text: text, parse_mode: parse_mode}, send_options)
 
-    case Req.post(url, json: request) do
+    case post_json(url, request) do
       {:ok, %{status: 200}} ->
         :ok
 
@@ -341,6 +342,15 @@ defmodule AlexClaw.Gateway.Telegram do
     end
   end
 
+  # A step's own bot token reaches it as a placeholder; it is filled at send,
+  # only for the Bot API host it is bound to (AlexClaw.Net.Credentials).
+  defp post_json(url, request) do
+    [method: :post, url: url, json: request]
+    |> Req.new()
+    |> Credentials.attach()
+    |> Req.request()
+  end
+
   # A 401 says the token that was used is not valid. When that is the held
   # token, it is resolved again on next use; a step's own token says nothing
   # about the held one.
@@ -350,7 +360,7 @@ defmodule AlexClaw.Gateway.Telegram do
   defp invalidated(false), do: :ok
 
   defp send_plain(url, request) do
-    case Req.post(url, json: request) do
+    case post_json(url, request) do
       {:ok, %{status: 200}} ->
         :ok
 

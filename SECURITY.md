@@ -243,8 +243,11 @@ skills, and skills execute normally within workflows.
 
 ## Telegram Gateway Security
 
-AlexClaw only responds to messages from the configured `TELEGRAM_CHAT_ID`.
-Messages from any other chat ID are silently ignored.
+AlexClaw only responds to messages from the owner: the user
+`telegram.owner_user_id`, in the chat `telegram.chat_id`, both set in the
+admin UI. In a group only that user's messages count; messages from any other
+chat or user are ignored, and with no owner user set nothing is answered.
+Discord works the same way (`discord.owner_user_id` in `discord.channel_id`).
 Do not share your bot token — anyone with the token can send commands
 if they know or guess your chat ID.
 

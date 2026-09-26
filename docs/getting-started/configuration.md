@@ -34,6 +34,10 @@ These must be set in `.env` before first boot:
 | `CLUSTER_COOKIE` | Erlang distribution cookie (`openssl rand -base64 32`) |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 
+Then set **`telegram.owner_user_id`** (your Telegram user ID) on the Config
+page: only that user's messages in the chat are answered, and with it blank
+nothing is.
+
 ## LLM Providers
 
 At least one LLM provider is required. The Gemini (free tier available) and
@@ -56,7 +60,8 @@ Discord is **not** configured by environment variable. Set these in
 |---|---|
 | `discord.enabled` | Enable the Discord gateway |
 | `discord.bot_token` | Discord bot token |
-| `discord.channel_id` | Command channel ID — auto-detected on the first message if blank |
+| `discord.channel_id` | Command channel ID, set in the admin UI; a message never makes its channel the owner |
+| `discord.owner_user_id` | The owner's Discord user ID: only their messages in the channel are answered; blank answers nothing |
 | `discord.node` | In a cluster, the single node that runs the bot. Blank means any node |
 
 ## Config Categories

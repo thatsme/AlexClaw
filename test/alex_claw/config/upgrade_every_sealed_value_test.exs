@@ -64,6 +64,7 @@ defmodule AlexClaw.Config.UpgradeEverySealedValueTest do
     headers = config(id)["headers"]
     assert %{"secret" => name} = headers["X-Password"]
     assert Secrets.value_matches?(name, "hunter2-legacy")
-    assert headers["Accept"] == "application/json"
+    assert %{"secret" => accept} = headers["Accept"]
+    assert Secrets.value_matches?(accept, "application/json")
   end
 end

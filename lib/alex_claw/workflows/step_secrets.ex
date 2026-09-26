@@ -5,9 +5,8 @@ defmodule AlexClaw.Workflows.StepSecrets do
 
   A step's credential fields are the keys its skill declares secret
   (`c:AlexClaw.Skill.secret_config_keys/0`). A declared key that holds a map
-  is a set of headers: only the entries named like a credential are secret
-  (`credential_header?/1`), and the others stay as they are. For any other
-  map, every entry is secret.
+  (a set of headers, say) has every entry secret: a header's name says
+  nothing reliable about its value, so none is guessed (S9 fix review, M1).
 
   A `web_automation` step's inline recipe (`steps`, `extra_steps`) has one
   more kind of credential field: each fill's value
@@ -29,19 +28,6 @@ defmodule AlexClaw.Workflows.StepSecrets do
   alias AlexClaw.Secrets.Owned
   alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.SkillRegistry
-
-  @credential_headers ~w(authorization proxy-authorization cookie x-api-key)
-  @credential_pattern ~r/token|key|secret|auth|password|passwd|session|cookie|credential/i
-
-  @doc """
-  Whether the header `name` carries a credential: Authorization,
-  Proxy-Authorization, Cookie and X-API-Key, and any header whose name
-  contains `token`, `key`, `secret`, `auth`, `password`, `passwd`,
-  `session`, `cookie` or `credential` (case does not matter).
-  """
-  @spec credential_header?(String.t()) :: boolean()
-  def credential_header?(name) when is_binary(name),
-    do: String.downcase(name) in @credential_headers or Regex.match?(@credential_pattern, name)
 
   @doc "The credential fields of a `skill` step's `config`, as path => value."
   @spec fields(String.t() | nil, map() | nil) :: %{Owned.path() => term()}
@@ -137,8 +123,8 @@ defmodule AlexClaw.Workflows.StepSecrets do
   @doc """
   What the executor hands the skill: `config` with each reference replaced by
   its placeholder (`AlexClaw.Secrets.Owned.placeholder/1`), and the names of
-  the secrets the step is given. The skill never holds a value: a request
-  carrying a placeholder has it filled at send, for the host it goes to
+  the secrets the step is given. The skill never holds a value: it is
+  attached at send, in a declared slot, for the host the request goes to
   (`AlexClaw.Net.Credentials`). A credential still held as a value (0.3.x, not
   yet moved by the upgrade) is refused, never handed over.
   """
@@ -180,11 +166,8 @@ defmodule AlexClaw.Workflows.StepSecrets do
   defp key_fields(key, value) when is_map(value) do
     if Owned.reference?(value),
       do: [{[key], value}],
-      else: for({entry, v} <- value, entry_secret?(key, entry), do: {[key, entry], v})
+      else: for({entry, v} <- value, do: {[key, entry], v})
   end
 
   defp key_fields(key, value), do: [{[key], value}]
-
-  defp entry_secret?("headers", name), do: credential_header?(name)
-  defp entry_secret?(_key, _name), do: true
 end

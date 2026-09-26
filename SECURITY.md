@@ -484,7 +484,7 @@ The MCP key is not stored at all: see
 [MCP Server Authentication](#mcp-server-authentication).
 
 **Credentials in steps and resources:** a Telegram Notify step's own
-`bot_token`; an API Request step's credential headers; a resource's
+`bot_token`; every header of an API Request step; a resource's
 `metadata["auth"]["value"]`; and every fill value of a recording, or of a Web
 Automation step's inline recipe, including logins attached to a recording.
 - Fill values are bound to the recipe's **origin** (`scheme://host[:port]`),
@@ -492,10 +492,9 @@ Automation step's inline recipe, including logins attached to a recording.
   origin to the web automator, which types it only while the page is on it: a
   page that navigated or was redirected elsewhere fails the play, and nothing
   is typed.
-- The credential headers are Authorization, Proxy-Authorization, Cookie and
-  X-API-Key, and any header whose name contains `token`, `key`, `secret`,
-  `auth`, `password`, `passwd`, `session`, `cookie` or `credential`. Other
-  headers stay as they are.
+- Every header value is a secret, whatever the header's name: a name says
+  nothing reliable about the value, so none is guessed. An LLM provider's
+  headers are kept the same way.
 - Each is a secret the step or resource owns, and its row keeps a reference.
 - It is bound to the host it is sent to **when it is entered**: the step's URL,
   the Telegram API, the resource's API base (else its URL), or, for fill

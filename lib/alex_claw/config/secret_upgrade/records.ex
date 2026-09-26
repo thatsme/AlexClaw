@@ -179,8 +179,7 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
     error
   end
 
-  # Every sealed string in a credential field, decrypted (a sealed header map
-  # also held the headers that are not credentials). A value that does not
+  # Every sealed string in a credential field, decrypted. A value that does not
   # decrypt stops this record: it is reported, and the row left as it was.
   defp opened(config, fields) do
     fields

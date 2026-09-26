@@ -77,7 +77,7 @@ defmodule AlexClaw.StepAndResourceSecretsTest do
       raw = stored_config(step.id)
       refute raw =~ @value, "the credential is stored in the step config"
       assert raw =~ ~s("secret")
-      assert raw =~ "application/json", "a non-credential header stays as it is"
+      refute raw =~ "application/json", "every header is a secret (S9 fix review, M1)"
 
       [name] = Regex.run(~r/"secret":\s*"([^"]+)"/, raw, capture: :all_but_first)
       assert Secrets.get(name).binding == ["host:localhost"]

@@ -27,6 +27,8 @@ defmodule AlexClaw.Config.Seeder do
      true},
     {"discord.channel_id", "", "string", "discord",
      "Discord channel ID for commands (auto-detected on first message)", false},
+    {"discord.owner_user_id", "", "string", "discord",
+     "Discord user ID of the owner: only their messages in the channel are answered", false},
     {"discord.node", "", "string", "discord",
      "Cluster: only this node runs the Discord bot. Empty = cluster-wide (any node)", false},
 

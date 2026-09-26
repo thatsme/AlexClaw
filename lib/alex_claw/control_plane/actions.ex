@@ -32,7 +32,7 @@ defmodule AlexClaw.ControlPlane.Actions do
   alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.{SchedulerSync, Workflow, WorkflowStep}
 
-  @gateway_owners ~w(telegram.chat_id discord.channel_id)
+  @gateway_owners ~w(telegram.chat_id discord.channel_id discord.owner_user_id)
 
   # The changes: one database write each, in the transaction with its row.
   @changes [

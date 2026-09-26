@@ -25,10 +25,12 @@ defmodule AlexClaw.Dispatcher do
   alias Workflows.{SkillRegistry, Workflow}
 
   @doc """
-  Handle a message from a gateway. Only the owner chat is answered — for
-  Telegram `telegram.chat_id`, for Discord `discord.channel_id` — which is set
-  in the admin UI (`:set_gateway_owner`). With no owner set, every message is
-  ignored; a message never makes its chat the owner.
+  Handle a message from a gateway. Only the owner is answered, as set in the
+  admin UI (`:set_gateway_owner`): for Telegram the chat `telegram.chat_id`;
+  for Discord the user `discord.owner_user_id` in the channel
+  `discord.channel_id` — a channel has members, and any of them could
+  otherwise command the agent (S8 M10). With no owner set, every message is
+  ignored; a message never makes its chat, or its sender, the owner.
   """
   @spec dispatch(Message.t() | term()) :: :ok | :ignored | term()
   def dispatch(%Message{} = msg), do: msg |> owner?() |> routed(msg)
@@ -41,13 +43,18 @@ defmodule AlexClaw.Dispatcher do
     :ignored
   end
 
+  defp owner?(%Message{gateway: :discord, chat_id: chat_id, user_id: user_id}),
+    do:
+      owner_chat?(Config.get("discord.channel_id"), chat_id) and
+        owner_chat?(Config.get("discord.owner_user_id"), user_id)
+
   defp owner?(%Message{chat_id: chat_id, gateway: gateway}),
     do: owner_chat?(Config.get(owner_key(gateway)), chat_id)
 
-  defp owner_key(:discord), do: "discord.channel_id"
   defp owner_key(_gateway), do: "telegram.chat_id"
 
   defp owner_chat?(owner, _chat_id) when owner in [nil, ""], do: false
+  defp owner_chat?(_owner, nil), do: false
   defp owner_chat?(owner, chat_id), do: to_string(owner) == to_string(chat_id)
 
   defp route(%Message{text: "/start" <> _} = msg) do

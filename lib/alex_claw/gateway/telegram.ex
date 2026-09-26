@@ -276,6 +276,7 @@ defmodule AlexClaw.Gateway.Telegram do
     %Message{
       text: msg["text"],
       chat_id: msg["chat"]["id"],
+      user_id: get_in(msg, ["from", "id"]),
       from: get_in(msg, ["from", "first_name"]),
       timestamp: DateTime.utc_now(),
       raw: update,

@@ -131,6 +131,7 @@ defmodule AlexClaw.Gateway.Discord do
     %Message{
       text: msg.content,
       chat_id: msg.channel_id,
+      user_id: msg.author.id,
       from: msg.author.username,
       timestamp: DateTime.utc_now(),
       raw: %{discord_message: msg},

@@ -96,46 +96,100 @@ network.
 `openbao-init` configures OpenBao once and then revokes the root token, so a
 release that needs another secrets engine or a wider policy cannot apply it by
 itself. A root token is generated for the change with the recovery key, used
-for it, and revoked. The token is printed to the terminal and stored nowhere.
+for it, and revoked. It lives only in a shell variable: it is never printed and
+stored nowhere.
 
-1. Open a shell in the OpenBao container and point the CLI at it:
+**Why the procedure opens an endpoint for its duration.** With no token left,
+the only way to a root token is the recovery key through the unauthenticated
+`sys/generate-root/*` endpoints. OpenBao (2.5.3 and later) disables them by
+default — the listener's `disable_unauthed_generate_root_endpoints`, which
+AlexClaw's `config.hcl` leaves on — because anyone who can reach the API could
+otherwise start or cancel an attempt. Its replacement, `sys/generate-root-token/*`,
+needs a token, which is exactly what is missing. So the procedure turns the
+option off for its duration, and back on at the end. The OpenBao CLI's
+`bao operator generate-root` uses the authenticated endpoints only (its
+`-generate-otp` and `-decode` too), so the steps call the API with `bao write`
+and decode the token in the shell. Verified end to end on OpenBao 2.6.3.
+
+1. **Open the endpoints.** In `openbao/config.hcl`, add this line inside the
+   `listener "tcp"` block, and restart OpenBao:
+
+    ```hcl
+      disable_unauthed_generate_root_endpoints = false
+    ```
+
+    ```bash
+    docker compose up -d --no-deps --force-recreate openbao
+    ```
+
+2. **Open a shell in the OpenBao container** and point the CLI at it:
 
     ```bash
     docker compose exec openbao sh
     export BAO_ADDR=https://openbao:8200 BAO_CACERT=/openbao/tls/ca.pem
     ```
 
-2. Generate a root token. The first command prints a nonce and a one-time
-   password; the second asks for the recovery key and prints an encoded
-   token; the third decodes it:
+3. **Generate the root token.** A one-time password is made locally; the
+   attempt returns a nonce; the recovery key completes it and returns the
+   token encoded with the password; the shell decodes it. Replace
+   `<recovery key>` — it is not echoed anywhere else:
 
-    ```bash
-    bao operator generate-root -init
-    bao operator generate-root -nonce=<nonce>
-    bao operator generate-root -decode=<encoded token> -otp=<one-time password>
+    ```sh
+    field() { sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" | head -1; }
+    decode() {
+      enc=$1; while [ $(( ${#enc} % 4 )) -ne 0 ]; do enc="$enc="; done
+      set -- $(printf %s "$2" | od -An -tu1)
+      for b in $(printf %s "$enc" | base64 -d | od -An -tu1); do
+        printf "\\$(printf %03o $(( b ^ $1 )))"; shift
+      done
+    }
+    otp=$(head -c 200 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 26)
+    nonce=$(bao write -format=json sys/generate-root/attempt otp="$otp" | field nonce)
+    enc=$(bao write -format=json sys/generate-root/update key='<recovery key>' nonce="$nonce" | field encoded_token)
+    export BAO_TOKEN=$(decode "$enc" "$otp")
+    bao token lookup | grep policies          # [root]
     ```
 
-3. Apply the change with that token. The policy is replaced as a whole, so it
-   is written in full, as `configure()` in `openbao/init.sh` has it for the
-   release being installed:
+    `bao read sys/generate-root/attempt` shows an attempt in progress;
+    `bao delete sys/generate-root/attempt` cancels an abandoned one.
 
-    ```bash
-    export BAO_TOKEN=<root token>
+4. **Apply the change.** The policy is replaced as a whole, so it is written in
+   full, as `configure()` in `openbao/init.sh` has it for the release being
+   installed:
+
+    ```sh
     bao secrets enable totp            # for example: an engine the release adds
     bao policy write alexclaw - <<'POLICY'
     ...the policy from openbao/init.sh...
     POLICY
     ```
 
-4. Revoke the token and leave:
+5. **Revoke the token and leave:**
 
-    ```bash
+    ```sh
     bao token revoke -self
-    unset BAO_TOKEN
+    unset BAO_TOKEN otp nonce enc
     exit
     ```
 
-An abandoned attempt is cancelled with `bao operator generate-root -cancel`.
+6. **Close the endpoints.** Remove the line from `openbao/config.hcl` (or
+   `git checkout openbao/config.hcl`) and restart OpenBao:
+
+    ```bash
+    docker compose up -d --no-deps --force-recreate openbao
+    ```
+
+    Check that they are closed again — the answer is `405 unsupported
+    operation`:
+
+    ```bash
+    docker compose exec openbao sh -c \
+      'BAO_ADDR=https://openbao:8200 BAO_CACERT=/openbao/tls/ca.pem bao read sys/generate-root/attempt'
+    ```
+
+Until step 6, anyone who can reach OpenBao's API on the `vault` network can
+start or cancel a root-token attempt (not complete one: that takes the
+recovery key). Keep the window short.
 
 An upgrade whose release notes say it changes OpenBao's engines or policy
 needs this procedure once, after the new images are in place and before

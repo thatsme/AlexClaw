@@ -10,6 +10,7 @@ defmodule AlexClaw.Skills.SkillAPIHostGuardTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
+  alias AlexClaw.Auth.SafeExecutor
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.SkillRegistry
 
@@ -42,9 +43,16 @@ defmodule AlexClaw.Skills.SkillAPIHostGuardTest do
   describe "internal hosts are refused before any request" do
     test "loopback, by address and by name", %{module: mod, port: port} do
       for url <- ["http://127.0.0.1:#{port}/", "http://localhost:#{port}/"] do
-        assert {:error, :blocked_host} = SkillAPI.http_get(mod, url)
-        assert {:error, :blocked_host} = SkillAPI.http_post(mod, url, json: %{"a" => 1})
-        assert {:error, :blocked_host} = SkillAPI.http_request(mod, :put, url)
+        assert {:error, :blocked_host} =
+                 SafeExecutor.as_skill(mod, fn -> SkillAPI.http_get(mod, url) end)
+
+        assert {:error, :blocked_host} =
+                 SafeExecutor.as_skill(mod, fn ->
+                   SkillAPI.http_post(mod, url, json: %{"a" => 1})
+                 end)
+
+        assert {:error, :blocked_host} =
+                 SafeExecutor.as_skill(mod, fn -> SkillAPI.http_request(mod, :put, url) end)
       end
     end
 
@@ -57,13 +65,17 @@ defmodule AlexClaw.Skills.SkillAPIHostGuardTest do
             "http://alexclaw-prod:5001/",
             "http://host.docker.internal:4000/"
           ] do
-        assert {:error, :blocked_host} = SkillAPI.http_get(mod, url), url
+        assert {:error, :blocked_host} =
+                 SafeExecutor.as_skill(mod, fn -> SkillAPI.http_get(mod, url) end),
+               url
       end
     end
 
     test "the cloud metadata address", %{module: mod} do
       assert {:error, :blocked_host} =
-               SkillAPI.http_get(mod, "http://169.254.169.254/latest/meta-data/")
+               SafeExecutor.as_skill(mod, fn ->
+                 SkillAPI.http_get(mod, "http://169.254.169.254/latest/meta-data/")
+               end)
     end
   end
 
@@ -83,7 +95,9 @@ defmodule AlexClaw.Skills.SkillAPIHostGuardTest do
         ] do
       test "#{name}", %{module: mod, port: port} do
         assert {:error, :option_not_allowed} =
-                 SkillAPI.http_get(mod, "http://127.0.0.1:#{port}/", unquote(Macro.escape(opt)))
+                 SafeExecutor.as_skill(mod, fn ->
+                   SkillAPI.http_get(mod, "http://127.0.0.1:#{port}/", unquote(Macro.escape(opt)))
+                 end)
       end
     end
   end
@@ -102,13 +116,21 @@ defmodule AlexClaw.Skills.SkillAPIHostGuardTest do
         ] do
       test "#{inspect(opts)}", %{module: mod, port: port} do
         assert {:error, :blocked_host} =
-                 SkillAPI.http_get(mod, "http://127.0.0.1:#{port}/", unquote(Macro.escape(opts)))
+                 SafeExecutor.as_skill(mod, fn ->
+                   SkillAPI.http_get(
+                     mod,
+                     "http://127.0.0.1:#{port}/",
+                     unquote(Macro.escape(opts))
+                   )
+                 end)
       end
     end
   end
 
   test "a skill without :web_read is still refused on permission first" do
     assert {:error, :permission_denied} =
-             SkillAPI.http_get(FakeModule, "http://127.0.0.1/")
+             SafeExecutor.as_skill(FakeModule, fn ->
+               SkillAPI.http_get(FakeModule, "http://127.0.0.1/")
+             end)
   end
 end

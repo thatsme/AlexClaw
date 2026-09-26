@@ -61,6 +61,8 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   @chunk_separator "\n---\n"
 
+  @coder AlexClaw.Skills.Coder
+
   @spec system_prompt() :: String.t()
   def system_prompt, do: @system_prompt
 
@@ -71,10 +73,13 @@ defmodule AlexClaw.Skills.CodeGenerator do
     chunks = gather_knowledge_chunks(goal, context_source)
     build = &fitted_prompt(goal, skill_name, chunks, error_context, &1)
 
-    AlexClaw.Skills.Coder
-    |> SkillAPI.llm_complete_fitted(build, llm_opts(provider))
+    as_coder(fn -> SkillAPI.llm_complete_fitted(@coder, build, llm_opts(provider)) end)
     |> load_response(skill_name)
   end
+
+  # The generator runs in the Forge's process, not as a skill: it calls
+  # SkillAPI as the Coder skill, said explicitly (SafeExecutor.as_skill/2).
+  defp as_coder(fun), do: SafeExecutor.as_skill(@coder, fun)
 
   @doc """
   The attempt after a failed one. Code that failed is repaired: the model gets
@@ -90,8 +95,7 @@ defmodule AlexClaw.Skills.CodeGenerator do
   def retry_step(goal, skill_name, _context_source, provider, {reason, code}) do
     prompt = repair_prompt(goal, skill_name, code, error_to_hint(reason))
 
-    AlexClaw.Skills.Coder
-    |> SkillAPI.llm_complete(prompt, llm_opts(provider))
+    as_coder(fn -> SkillAPI.llm_complete(@coder, prompt, llm_opts(provider)) end)
     |> load_response(skill_name)
   end
 
@@ -472,11 +476,9 @@ defmodule AlexClaw.Skills.CodeGenerator do
 
   @spec search_kb(String.t(), non_neg_integer(), keyword()) :: [map()]
   defp search_kb(query, limit, opts) do
-    case SkillAPI.knowledge_search(
-           AlexClaw.Skills.Coder,
-           query,
-           Keyword.merge([limit: limit], opts)
-         ) do
+    case as_coder(fn ->
+           SkillAPI.knowledge_search(@coder, query, Keyword.merge([limit: limit], opts))
+         end) do
       {:ok, entries} -> entries
       _ -> []
     end

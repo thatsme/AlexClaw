@@ -2,7 +2,7 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.{SafeExecutor, TOTP}
   alias AlexClaw.Config
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.SkillRegistry
@@ -40,7 +40,8 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
                     google.oauth.client_secret google.oauth.refresh_token) do
         Config.set(key, "SECRET-#{key}", type: "string", category: "test", sensitive: true)
 
-        assert {:error, :sensitive} = SkillAPI.config_get(skill, key),
+        assert {:error, :sensitive} =
+                 SafeExecutor.as_skill(skill, fn -> SkillAPI.config_get(skill, key) end),
                "#{key} was served to a dynamic skill"
       end
     end
@@ -48,17 +49,26 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
     test "the TOTP secret is refused", %{skill: skill} do
       Config.set("auth.totp.secret", "JBSWY3DPEHPK3PXP", type: "string", category: "auth")
 
-      assert {:error, :sensitive} = SkillAPI.config_get(skill, "auth.totp.secret")
+      assert {:error, :sensitive} =
+               SafeExecutor.as_skill(skill, fn ->
+                 SkillAPI.config_get(skill, "auth.totp.secret")
+               end)
     end
 
     test "an unknown key is refused rather than assumed safe", %{skill: skill} do
-      assert {:error, :sensitive} = SkillAPI.config_get(skill, "never.seeded.key")
+      assert {:error, :sensitive} =
+               SafeExecutor.as_skill(skill, fn ->
+                 SkillAPI.config_get(skill, "never.seeded.key")
+               end)
     end
 
     test "non-sensitive settings still read", %{skill: skill} do
       Config.set("skills.rss.max_items", "7", type: "integer", category: "skills")
 
-      assert {:ok, 7} = SkillAPI.config_get(skill, "skills.rss.max_items")
+      assert {:ok, 7} =
+               SafeExecutor.as_skill(skill, fn ->
+                 SkillAPI.config_get(skill, "skills.rss.max_items")
+               end)
     end
   end
 
@@ -122,7 +132,8 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
     end
 
     test "get_resource strips the auth block", %{skill: skill, resource: resource} do
-      {:ok, read} = SkillAPI.get_resource(skill, resource.id)
+      {:ok, read} =
+        SafeExecutor.as_skill(skill, fn -> SkillAPI.get_resource(skill, resource.id) end)
 
       refute Map.has_key?(read.metadata, "auth")
       refute inspect(read) =~ "SECRET-TOKEN"
@@ -138,13 +149,15 @@ defmodule AlexClaw.Skills.SecretsIsolationTest do
     end
 
     test "list_resources redacts too", %{skill: skill} do
-      {:ok, resources} = SkillAPI.list_resources(skill, %{type: "api"})
+      {:ok, resources} =
+        SafeExecutor.as_skill(skill, fn -> SkillAPI.list_resources(skill, %{type: "api"}) end)
 
       refute inspect(resources) =~ "SECRET-TOKEN"
     end
 
     test "non-credential metadata survives", %{skill: skill, resource: resource} do
-      {:ok, read} = SkillAPI.get_resource(skill, resource.id)
+      {:ok, read} =
+        SafeExecutor.as_skill(skill, fn -> SkillAPI.get_resource(skill, resource.id) end)
 
       assert get_in(read.metadata, ["discovery", "base_url"]) == "https://api.example.com"
     end

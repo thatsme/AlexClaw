@@ -10,7 +10,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   """
   require Logger
 
-  alias AlexClaw.Auth.{AuthContext, PolicyEngine}
+  alias AlexClaw.Auth.{AuditLog, AuthContext, PolicyEngine, SafeExecutor}
   alias AlexClaw.ControlPlane
   alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway.Router
@@ -28,7 +28,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   @element_timeout 30_000
 
   # What a SkillAPI call made from a parallel_map/4 element is authorised by.
-  @auth_keys [:auth_token, :auth_chain_depth, :auth_workflow_run_id]
+  @auth_keys [:auth_token, :auth_chain_depth, :auth_workflow_run_id, :auth_skill]
 
   @type permission_result :: :ok | {:error, :permission_denied}
   @type skill_mod :: module()
@@ -427,13 +427,30 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   # --- Permission check ---
 
-  defp check_permission(skill_module, permission) do
-    permissions = SkillRegistry.get_permissions(skill_module)
-    ctx = AuthContext.build(skill_module, permission, permissions)
+  # The identity is the skill running in this process, as SafeExecutor
+  # recorded it — never the module a call names (S8 C1). A call naming another
+  # module is refused and audited; code that is not a running skill has no
+  # identity, and is refused.
+  defp check_permission(skill_module, permission),
+    do: checked_as(SafeExecutor.running_skill(), skill_module, permission)
+
+  defp checked_as(nil, _named, _permission), do: {:error, :permission_denied}
+
+  defp checked_as(running, running, permission) do
+    permissions = SkillRegistry.get_permissions(running)
+    ctx = AuthContext.build(running, permission, permissions)
 
     case PolicyEngine.evaluate(ctx, permissions) do
       :allow -> :ok
       {:deny, _reason} -> {:error, :permission_denied}
     end
+  end
+
+  defp checked_as(running, named, permission) do
+    running
+    |> AuthContext.build(permission, SkillRegistry.get_permissions(running))
+    |> AuditLog.log_deny("named #{inspect(named)} while running as #{inspect(running)}")
+
+    {:error, :permission_denied}
   end
 end

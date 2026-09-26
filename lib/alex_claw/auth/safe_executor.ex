@@ -20,6 +20,9 @@ defmodule AlexClaw.Auth.SafeExecutor do
 
   @default_timeout 30_000
 
+  # The running skill's identity, in the process running it (S9, S8 C1).
+  @identity :auth_skill
+
   @doc """
   Execute a skill module with the given args and capability token.
 
@@ -39,7 +42,8 @@ defmodule AlexClaw.Auth.SafeExecutor do
   defp execute(false, module, _args, _type, _token, _opts),
     do: {:error, {:unavailable, Skill.unavailable_reason(module, skill_name(module))}}
 
-  defp execute(true, module, args, :core, _token, _opts), do: module.run(args)
+  defp execute(true, module, args, :core, _token, _opts),
+    do: as_skill(module, fn -> module.run(args) end)
 
   defp execute(true, module, args, :dynamic, token, opts) do
     timeout = opts[:timeout] || @default_timeout
@@ -52,6 +56,7 @@ defmodule AlexClaw.Auth.SafeExecutor do
         if token, do: Process.put(:auth_token, token)
         Process.put(:auth_workflow_run_id, workflow_run_id)
         Process.put(:auth_chain_depth, chain_depth)
+        Process.put(@identity, module)
 
         module.run(args)
       end)
@@ -65,6 +70,35 @@ defmodule AlexClaw.Auth.SafeExecutor do
         {:error, :skill_timeout}
     end
   end
+
+  @doc """
+  The skill running in this process, as recorded when it was started here —
+  what `AlexClaw.Skills.SkillAPI` checks a call against — or nil when no skill
+  is running. A skill cannot set it: nothing that passes containment writes
+  the process dictionary.
+  """
+  @spec running_skill() :: module() | nil
+  def running_skill, do: Process.get(@identity)
+
+  @doc """
+  Run `fun` as the skill `module`: for core code that calls SkillAPI on a
+  skill's behalf outside a run (the code generator, as the Coder skill). Not
+  reachable from a skill: this module is outside the contained set. The
+  previous identity is put back afterwards.
+  """
+  @spec as_skill(module(), (-> result)) :: result when result: term()
+  def as_skill(module, fun) when is_atom(module) and is_function(fun, 0) do
+    previous = Process.put(@identity, module)
+
+    try do
+      fun.()
+    after
+      restore_identity(previous)
+    end
+  end
+
+  defp restore_identity(nil), do: Process.delete(@identity)
+  defp restore_identity(previous), do: Process.put(@identity, previous)
 
   defp skill_name(module), do: module |> Module.split() |> List.last() |> Macro.underscore()
 end

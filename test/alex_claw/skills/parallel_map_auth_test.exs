@@ -13,7 +13,7 @@ defmodule AlexClaw.Skills.ParallelMapAuthTest do
   use AlexClaw.DataCase, async: false
   @moduletag :integration
 
-  alias AlexClaw.Auth.CapabilityToken
+  alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
   alias AlexClaw.Skills.SkillAPI
   alias AlexClaw.Workflows.SkillRegistry
 
@@ -44,6 +44,10 @@ defmodule AlexClaw.Skills.ParallelMapAuthTest do
     :ok
   end
 
+  # SkillAPI checks the running skill (S9): the probe runs as itself, as
+  # SafeExecutor would start it, and its tasks must inherit that identity too.
+  defp as_probe(fun), do: SafeExecutor.as_skill(@module, fun)
+
   defp read_in_parallel,
     do:
       SkillAPI.parallel_map(
@@ -54,13 +58,15 @@ defmodule AlexClaw.Skills.ParallelMapAuthTest do
       )
 
   test "a declared permission is granted inside parallel_map, as outside" do
-    assert {:ok, "value"} = SkillAPI.config_get(@module, "probe.key")
-    assert {:ok, [{:ok, "value"}, {:ok, "value"}]} = read_in_parallel()
+    assert {:ok, "value"} = as_probe(fn -> SkillAPI.config_get(@module, "probe.key") end)
+    assert {:ok, [{:ok, "value"}, {:ok, "value"}]} = as_probe(&read_in_parallel/0)
   end
 
   test "a permission the skill does not declare is refused inside parallel_map" do
     assert {:ok, [{:error, :permission_denied}, {:error, :permission_denied}]} =
-             SkillAPI.parallel_map(@module, [1, 2], fn _ -> SkillAPI.memory_recent(@module) end)
+             as_probe(fn ->
+               SkillAPI.parallel_map(@module, [1, 2], fn _ -> SkillAPI.memory_recent(@module) end)
+             end)
   end
 
   # The token was attenuated to :llm by whoever invoked this skill: the
@@ -68,18 +74,20 @@ defmodule AlexClaw.Skills.ParallelMapAuthTest do
   test "a caller's attenuated token still binds inside parallel_map" do
     Process.put(:auth_token, CapabilityToken.mint([:llm]))
 
-    assert {:error, :permission_denied} = SkillAPI.config_get(@module, "probe.key")
+    assert {:error, :permission_denied} =
+             as_probe(fn -> SkillAPI.config_get(@module, "probe.key") end)
 
     assert {:ok, [{:error, :permission_denied}, {:error, :permission_denied}]} =
-             read_in_parallel()
+             as_probe(&read_in_parallel/0)
   end
 
   test "a caller's chain depth still binds inside parallel_map" do
     Process.put(:auth_chain_depth, 1_000)
 
-    assert {:error, :permission_denied} = SkillAPI.config_get(@module, "probe.key")
+    assert {:error, :permission_denied} =
+             as_probe(fn -> SkillAPI.config_get(@module, "probe.key") end)
 
     assert {:ok, [{:error, :permission_denied}, {:error, :permission_denied}]} =
-             read_in_parallel()
+             as_probe(&read_in_parallel/0)
   end
 end

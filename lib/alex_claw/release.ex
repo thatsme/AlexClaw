@@ -3,6 +3,7 @@ defmodule AlexClaw.Release do
   Release tasks for running migrations and seeding in production.
   Called from entrypoint.sh before the app starts.
   """
+  alias AlexClaw.Auth.TOTP
   alias AlexClaw.Database.Roles
 
   @app :alex_claw
@@ -70,6 +71,30 @@ defmodule AlexClaw.Release do
   defp eval_seed(seed_path, true) do
     IO.puts("First boot detected — seeding example workflows...")
     Code.eval_file(seed_path)
+  end
+
+  @doc """
+  Turn the admin's second factor off, for when the authenticator and every
+  recovery code are lost: `make reset-2fa` (scripts/reset-2fa.sh) runs this
+  inside the running node (`bin/alex_claw rpc`). 2FA off, its key deleted in
+  OpenBao, every recovery code removed, an audit row written; then a
+  warning. Anyone who can run it already has a shell on the host.
+  """
+  @spec reset_second_factor() :: :ok | {:error, term()}
+  def reset_second_factor, do: reset_said(TOTP.reset_by_operator())
+
+  defp reset_said(:ok) do
+    IO.puts("""
+    WARNING: the second factor is off. The admin's authenticator key was
+    deleted from OpenBao and every recovery code was removed.
+    Until 2FA is set up again (Services page), the admin UI is read-only and
+    nothing that needs a code can run. The reset is recorded in the audit log.
+    """)
+  end
+
+  defp reset_said({:error, reason} = error) do
+    IO.puts("The second factor was NOT reset: #{inspect(reason)}. Nothing was changed.")
+    error
   end
 
   @spec rollback(module(), integer()) :: {:ok, [integer()], [Ecto.Migration.t()]}

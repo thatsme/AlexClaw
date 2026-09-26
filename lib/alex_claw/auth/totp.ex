@@ -18,7 +18,7 @@ defmodule AlexClaw.Auth.TOTP do
 
   import AlexClaw.Skills.Helpers, only: [blank?: 1]
 
-  alias AlexClaw.Auth.RecoveryCodes
+  alias AlexClaw.Auth.{AuditLog, RecoveryCodes}
   alias AlexClaw.Config
   alias AlexClaw.Config.Setting
   alias AlexClaw.{Repo, Vault}
@@ -203,6 +203,35 @@ defmodule AlexClaw.Auth.TOTP do
     Logger.info("2FA disabled (#{factor})")
     {:ok, factor}
   end
+
+  @doc """
+  Turn the second factor off with no code: for when the authenticator and
+  every recovery code are lost. Reached only from the host, through
+  `AlexClaw.Release.reset_second_factor/0` (`make reset-2fa`), never from a
+  page, a chat, MCP or a skill. The same database change as a disable,
+  recovery codes wiped, with an audit row in the same transaction; then
+  `disabled/0` tells the cache and deletes the key in OpenBao.
+  """
+  @spec reset_by_operator() :: :ok | {:error, term()}
+  def reset_by_operator do
+    fn ->
+      {:ok, :operator_reset} = disabled_in_database({:ok, :operator_reset})
+
+      :ok =
+        AuditLog.record_action(
+          "operator",
+          :operator,
+          :reset_second_factor,
+          "write",
+          "second factor reset from the host: 2FA off, its key and every recovery code removed"
+        )
+    end
+    |> Repo.transaction()
+    |> reset_committed()
+  end
+
+  defp reset_committed({:ok, :ok}), do: disabled()
+  defp reset_committed({:error, _reason} = error), do: error
 
   @doc """
   What follows a disable once it is committed (`disable_by/1`): the cache is

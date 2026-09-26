@@ -9,10 +9,13 @@ defmodule AlexClaw.Database.Restore do
   the tables, their columns and their types come from the live catalog, and a
   file that disagrees with it is refused before anything changes.
 
-  The audit log, the logins and the migrator's bookkeeping are never touched —
-  see `AlexClaw.Database.DataSet`. Every other table is emptied and refilled
-  from the file in one transaction, so a restore that fails part-way leaves
-  the data as it was. Sequences are set past the restored rows.
+  The audit log, the logins, the recovery codes and the migrator's
+  bookkeeping are never touched — see `AlexClaw.Database.DataSet`. Nor is the
+  admin's identity in `settings` (the password's hash, the second factor's
+  state): a restore keeps this installation's, skips the file's copies, and
+  its result says so. Every other table is emptied and refilled from the
+  file in one transaction, so a restore that fails part-way leaves the data
+  as it was. Sequences are set past the restored rows.
 
   It is challenged per action, never covered by an elevation window, and
   audited on both sides: a row before anything runs — no restore without it —
@@ -112,10 +115,18 @@ defmodule AlexClaw.Database.Restore do
   def load(data) do
     with {:ok, plan} <- plan(data),
          :ok <- references_known(plan),
+         {plan, skipped} = without_identity(plan, data),
          {:ok, count} <- Repo.transaction(fn -> replace(plan) end, timeout: :infinity) do
-      {:ok, "Restore completed: #{count} rows in #{length(plan)} tables"}
+      {:ok, "Restore completed: #{count} rows in #{length(plan)} tables. " <> kept(skipped)}
     end
   end
+
+  defp kept(0),
+    do:
+      "Kept from this installation, not restored: the admin password, the second factor and the recovery codes."
+
+  defp kept(skipped),
+    do: kept(0) <> " The file's copies (#{skipped} rows) were skipped."
 
   # --- Checking the file ---
 
@@ -157,7 +168,7 @@ defmodule AlexClaw.Database.Restore do
     do: {:error, "The export was made on schema #{schema}, newer than this database's #{current}"}
 
   defp known_tables(names) do
-    case names -- DataSet.tables() do
+    case names -- (DataSet.tables() ++ DataSet.skipped()) do
       [] ->
         :ok
 
@@ -334,10 +345,44 @@ defmodule AlexClaw.Database.Restore do
 
   defp decoded_map(_value), do: %{}
 
+  # --- Keeping the admin's identity ---
+
+  # The file's identity rows are skipped: its settings rows for the password
+  # and the second factor, and the recovery codes an older export carried.
+  defp without_identity(plan, data) do
+    {Enum.map(plan, &identity_dropped/1),
+     count_identity(plan) + skipped_rows(data["tables"], DataSet.skipped())}
+  end
+
+  defp identity_dropped({"settings", live, rows}),
+    do: {"settings", live, Enum.reject(rows, &identity_row?(live, &1))}
+
+  defp identity_dropped(entry), do: entry
+
+  defp count_identity(plan) do
+    Enum.reduce(plan, 0, fn
+      {"settings", live, rows}, n -> n + Enum.count(rows, &identity_row?(live, &1))
+      _entry, n -> n
+    end)
+  end
+
+  defp identity_row?(live, row), do: DataSet.identity_setting?(row_map(live, row)["key"])
+
+  defp skipped_rows(tables, skipped) do
+    tables
+    |> Map.take(skipped)
+    |> Enum.map(fn {_table, entry} -> entry |> Map.get("rows", []) |> length() end)
+    |> Enum.sum()
+  end
+
   # --- Replacing the data ---
 
   defp replace(plan) do
-    Repo.query!("TRUNCATE " <> Enum.map_join(DataSet.tables(), ", ", &DataSet.quote_name/1))
+    Repo.query!(
+      "TRUNCATE " <> Enum.map_join(DataSet.tables() -- ["settings"], ", ", &DataSet.quote_name/1)
+    )
+
+    clear_settings(plan)
 
     count =
       Enum.reduce(plan, 0, fn {table, columns, rows}, total ->
@@ -347,6 +392,33 @@ defmodule AlexClaw.Database.Restore do
     Enum.each(plan, fn {table, columns, _rows} -> reset_sequences(table, columns) end)
     count
   end
+
+  # Every setting goes but the admin's identity, which is kept, its rows moved
+  # past the file's ids so none of the file's collides with one of them.
+  defp clear_settings(plan) do
+    {identity, params} = DataSet.identity_settings()
+    Repo.query!("DELETE FROM settings WHERE NOT " <> identity, params)
+    Repo.query!("UPDATE settings SET id = id + $1", [highest_id(plan)])
+  end
+
+  defp highest_id(plan) do
+    plan
+    |> Enum.find_value([], fn
+      {"settings", live, rows} -> Enum.map(rows, &row_map(live, &1)["id"])
+      _entry -> nil
+    end)
+    |> Enum.map(&integer_or_zero/1)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  defp integer_or_zero(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} -> n
+      _other -> 0
+    end
+  end
+
+  defp integer_or_zero(_value), do: 0
 
   defp insert(_table, _columns, []), do: 0
 

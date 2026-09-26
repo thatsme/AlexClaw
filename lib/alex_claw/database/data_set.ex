@@ -2,9 +2,13 @@ defmodule AlexClaw.Database.DataSet do
   @moduledoc """
   What an export holds and a restore replaces, read from the live catalog.
 
-  The application's data is every table except three: the audit log, which is
+  The application's data is every table except four: the audit log, which is
   append-only and never replaced; the logins, which belong to whoever is signed
-  in now; and the migrator's bookkeeping. Table names, column names and column
+  in now; the recovery codes, which are the admin's identity; and the
+  migrator's bookkeeping. The admin's identity in `settings` — the password's
+  hash and the second factor's rows (`identity_setting?/1`) — is left out the
+  same way: an export does not carry it and a restore keeps this
+  installation's. Table names, column names and column
   types all come from the database's own catalog. A restore file supplies
   values and nothing else — no name, type or statement of it is ever used.
   """
@@ -12,7 +16,11 @@ defmodule AlexClaw.Database.DataSet do
   alias AlexClaw.Database.Roles
   alias AlexClaw.Repo
 
-  @excluded ~w(auth_audit_log admin_sessions schema_migrations)
+  @excluded ~w(auth_audit_log admin_sessions auth_recovery_codes schema_migrations)
+  # Excluded tables an older export may still hold: a restore skips them.
+  @skipped ~w(auth_recovery_codes)
+  @password_key "auth.admin_password_hash"
+  @second_factor_prefix "auth.totp."
 
   @doc "The tables an export holds, parents before the tables that reference them."
   @spec tables() :: [String.t()]
@@ -24,6 +32,27 @@ defmodule AlexClaw.Database.DataSet do
   @doc "Tables never exported and never replaced by a restore."
   @spec excluded() :: [String.t()]
   def excluded, do: @excluded
+
+  @doc "Excluded tables an older export may hold, which a restore skips rather than refuses."
+  @spec skipped() :: [String.t()]
+  def skipped, do: @skipped
+
+  @doc """
+  Whether the setting `key` is the admin's identity: the password's hash or
+  the second factor's state. Never exported, never restored.
+  """
+  @spec identity_setting?(String.t()) :: boolean()
+  def identity_setting?(@password_key), do: true
+
+  def identity_setting?(key) when is_binary(key),
+    do: String.starts_with?(key, @second_factor_prefix)
+
+  def identity_setting?(_key), do: false
+
+  @doc "The identity rows of `settings`, as an SQL condition and its parameters."
+  @spec identity_settings() :: {String.t(), [String.t()]}
+  def identity_settings,
+    do: {"(key = $1 OR starts_with(key, $2))", [@password_key, @second_factor_prefix]}
 
   @doc "`[{name, type}]` for `table`, in column order."
   @spec columns(String.t()) :: [{String.t(), String.t()}]

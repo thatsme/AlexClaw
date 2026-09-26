@@ -82,7 +82,10 @@ the application, and the values are inserted through parameterised queries,
 each cast to its column's type. Table names, column names and types come from
 the live database, never from the file, and a file that disagrees with the
 schema in any way is refused before anything changes. The audit log and the
-current sign-ins are never touched. A full restore — schema and audit log
+current sign-ins are never touched, and neither is the admin's identity: the
+password's hash, the second factor and the recovery codes are kept from the
+running installation, whatever the file holds, and the result says so. An
+export does not carry them. A full restore — schema and audit log
 included — is an operator step with the database owner's credentials (see
 [Database Backups](#database-backups)).
 

@@ -23,6 +23,7 @@ defmodule AlexClaw.Secrets.MaskingTest do
   alias AlexClaw.Database.DataExport
   alias AlexClaw.Gateway.Router
   alias AlexClaw.{RecordingGateway, Secrets, Workflows}
+  alias AlexClaw.Secrets.Mask
   alias AlexClaw.Webhooks.GitHubSecret
   alias AlexClaw.Workflows.{Executor, SkillOutcome, WorkflowRun}
   alias Ecto.Adapters.SQL.Sandbox
@@ -110,6 +111,14 @@ defmodule AlexClaw.Secrets.MaskingTest do
 
     assert log =~ "[secret]"
     refute log =~ value
+  end
+
+  test "an error struct that quotes a resolved value is masked, and stays that struct" do
+    value = resolved_value()
+
+    masked = Mask.mask({:error, %Req.TransportError{reason: {:bad, value}}})
+
+    assert {:error, %Req.TransportError{reason: {:bad, "[secret]"}}} = masked
   end
 
   test "a message sent to a gateway is masked" do

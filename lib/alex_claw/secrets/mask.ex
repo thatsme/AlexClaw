@@ -70,6 +70,10 @@ defmodule AlexClaw.Secrets.Mask do
   defp masked(tuple, values) when is_tuple(tuple),
     do: tuple |> Tuple.to_list() |> masked(values) |> List.to_tuple()
 
+  # A struct keeps its type: its fields are masked, its keys are atoms.
+  defp masked(%_{} = struct, values),
+    do: Map.merge(struct, struct |> Map.from_struct() |> masked(values))
+
   defp masked(%{} = map, values),
     do: Map.new(map, fn {k, v} -> {masked(k, values), masked(v, values)} end)
 

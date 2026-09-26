@@ -68,7 +68,7 @@ defmodule AlexClaw.Gateway.Telegram do
     opts
     |> Keyword.get_lazy(:bot_token, &get_token/0)
     |> bot_token()
-    |> deliver_with(chat_id, text, Keyword.get(opts, :send_options, %{}))
+    |> deliver_with(chat_id, Mask.mask(text), Keyword.get(opts, :send_options, %{}))
   end
 
   # A step's own bot token reaches it as a placeholder: a declared slot, the

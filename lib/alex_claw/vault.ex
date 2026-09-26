@@ -26,6 +26,8 @@ defmodule AlexClaw.Vault do
 
   require Logger
 
+  alias AlexClaw.Secrets.Mask
+
   @type error :: :not_found | :forbidden | :invalid | :vault_unavailable
 
   @transit_key "alexclaw"
@@ -131,9 +133,30 @@ defmodule AlexClaw.Vault do
   def init(config), do: {:ok, initial_state(config), {:continue, :login}}
 
   # A crash report or :sys.get_status/1 shows the state: never the token
-  # (S8 M13).
+  # (S8 M13). A crash report also shows the message being handled and the
+  # debug log, which can carry a value being written, a TOTP secret being
+  # imported or a code being checked — not yet known to the mask: only the
+  # kind of call is kept. The reason is masked (S9 fix review).
   @impl true
-  def format_status(status), do: Map.update(status, :state, nil, &hidden_token/1)
+  def format_status(status) do
+    status
+    |> Map.update(:state, nil, &hidden_token/1)
+    |> hidden(:message, &call_kind/1)
+    |> hidden(:log, fn log -> Enum.map(log, &logged_kind/1) end)
+    |> hidden(:reason, &Mask.mask/1)
+  end
+
+  defp hidden(status, key, fun) when is_map_key(status, key), do: Map.update!(status, key, fun)
+  defp hidden(status, _key, _fun), do: status
+
+  defp call_kind(message) when is_tuple(message) and tuple_size(message) > 0,
+    do: {elem(message, 0), :redacted}
+
+  defp call_kind(message) when is_atom(message), do: message
+  defp call_kind(_message), do: :redacted
+
+  defp logged_kind({direction, message}), do: {direction, call_kind(message)}
+  defp logged_kind(_entry), do: :redacted
 
   defp hidden_token(%{token: nil} = state), do: state
   defp hidden_token(%{} = state), do: %{state | token: :redacted}

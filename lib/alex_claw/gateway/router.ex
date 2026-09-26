@@ -25,7 +25,7 @@ defmodule AlexClaw.Gateway.Router do
 
   @spec send_photo(term(), binary(), String.t(), keyword()) :: :ok | {:error, term()}
   def send_photo(chat_id, photo_data, caption, opts \\ []) do
-    resolve_gateway(opts).send_photo(chat_id, photo_data, caption)
+    resolve_gateway(opts).send_photo(chat_id, photo_data, Mask.mask(caption))
   end
 
   @doc "Send a message to all active gateways (for system-level notifications)."

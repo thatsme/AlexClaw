@@ -95,7 +95,7 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   # sealed in the config is parked (S8 M1).
   defp move({:step, id, workflow_id, skill, config}, opts) do
     fields = StepSecrets.fields(skill, config)
-    destination = StepSecrets.destination(skill, config)
+    destination = StepSecrets.destination(skill, config, workflow_id)
 
     with {:ok, config} <- opened(config, fields),
          {:ok, plan} <-

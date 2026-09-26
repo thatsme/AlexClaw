@@ -130,8 +130,7 @@ defmodule AlexClaw.Skills.ApiRequest do
     input = args[:input]
     resources = args[:resources] || []
 
-    api_resource = find_api_resource(resources)
-    config = enrich_config(config, api_resource)
+    config = enrich_config(config, api_resource(resources))
 
     method = String.upcase(config["method"] || "GET")
     url = interpolate(config["url"] || "", input)
@@ -149,11 +148,15 @@ defmodule AlexClaw.Skills.ApiRequest do
     end
   end
 
-  defp find_api_resource(resources) when is_list(resources) do
-    Enum.find(resources, fn r -> r.type == "api" and r.enabled end)
-  end
+  @doc """
+  The API resource a step addresses through `{base_url}` or `path`: the first
+  enabled resource of type `api` among `resources`, or nil.
+  """
+  @spec api_resource([struct()] | term()) :: struct() | nil
+  def api_resource(resources) when is_list(resources),
+    do: Enum.find(resources, fn r -> r.type == "api" and r.enabled end)
 
-  defp find_api_resource(_), do: nil
+  def api_resource(_resources), do: nil
 
   defp enrich_config(config, nil), do: config
 

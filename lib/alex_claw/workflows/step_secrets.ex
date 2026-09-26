@@ -18,16 +18,20 @@ defmodule AlexClaw.Workflows.StepSecrets do
     * `telegram_notify`: the Telegram API's host (`:telegram_api_base`);
     * `web_automation`: the origin of the recipe's `url`
       (`origin:<scheme>://<host>[:<port>]`);
+    * `api_request` addressed through its workflow's API resource (a
+      `{base_url}` URL, or a `path`): that resource's host;
     * any other skill: the host of the step's `url`.
 
   A step with a credential and no such host is refused. At run time the skill
   gets placeholders, never values (`for_skill/2`); the value is attached at
   send, for the host the request actually goes to (`AlexClaw.Net.Credentials`).
   """
-  alias AlexClaw.Config
+  alias AlexClaw.{Config, Repo}
+  alias AlexClaw.Resources.ResourceSecrets
   alias AlexClaw.Secrets.Owned
+  alias AlexClaw.Skills.ApiRequest
   alias AlexClaw.WebAutomation.Recording
-  alias AlexClaw.Workflows.SkillRegistry
+  alias AlexClaw.Workflows.{SkillRegistry, Workflow}
 
   @doc "The credential fields of a `skill` step's `config`, as path => value."
   @spec fields(String.t() | nil, map() | nil) :: %{Owned.path() => term()}
@@ -50,12 +54,52 @@ defmodule AlexClaw.Workflows.StepSecrets do
   @spec references(String.t() | nil, map() | nil) :: %{Owned.path() => String.t()}
   def references(skill, config), do: skill |> fields(config) |> Owned.references()
 
-  @doc "The destination a `skill` step's credentials are bound to, or nil when it has none."
-  @spec destination(String.t() | nil, map() | nil) :: String.t() | nil
-  def destination("telegram_notify", _config), do: Config.secret_binding("telegram.bot_token")
-  def destination("web_automation", config), do: Recording.destination(config, nil)
-  def destination(_skill, config) when is_map(config), do: Owned.url_binding(config["url"])
-  def destination(_skill, _config), do: nil
+  @doc """
+  The destination a `skill` step's credentials are bound to, or nil when it
+  has none. An `api_request` step addressed through its workflow's API
+  resource — a `{base_url}` URL, or a `path` — sends to that resource: its
+  credentials are bound to the resource's host, as `api_request` addresses
+  it, found through `workflow_id`.
+  """
+  @spec destination(String.t() | nil, map() | nil, integer() | nil) :: String.t() | nil
+  def destination(skill, config, workflow_id \\ nil)
+
+  def destination("telegram_notify", _config, _workflow_id),
+    do: Config.secret_binding("telegram.bot_token")
+
+  def destination("web_automation", config, _workflow_id), do: Recording.destination(config, nil)
+
+  def destination("api_request", config, workflow_id) when is_map(config),
+    do: config |> resource_addressed?() |> api_destination(config, workflow_id)
+
+  def destination(_skill, config, _workflow_id) when is_map(config),
+    do: Owned.url_binding(config["url"])
+
+  def destination(_skill, _config, _workflow_id), do: nil
+
+  defp resource_addressed?(%{"url" => url}) when is_binary(url) and url != "",
+    do: String.contains?(url, "{base_url}")
+
+  defp resource_addressed?(%{"path" => path}) when is_binary(path), do: true
+  defp resource_addressed?(_config), do: false
+
+  defp api_destination(false, config, _workflow_id), do: Owned.url_binding(config["url"])
+  defp api_destination(true, _config, nil), do: nil
+
+  defp api_destination(true, _config, workflow_id) do
+    Workflow
+    |> Repo.get(workflow_id)
+    |> Repo.preload(:resources)
+    |> resource_destination()
+  end
+
+  defp resource_destination(nil), do: nil
+
+  defp resource_destination(workflow),
+    do: workflow.resources |> ApiRequest.api_resource() |> bound_to()
+
+  defp bound_to(nil), do: nil
+  defp bound_to(resource), do: ResourceSecrets.destination(resource.url, resource.metadata)
 
   @doc """
   Plan the credentials of a step being saved from `changeset`, against the
@@ -71,8 +115,9 @@ defmodule AlexClaw.Workflows.StepSecrets do
   def plan(changeset, old_skill, old_config) do
     skill = Ecto.Changeset.get_field(changeset, :skill)
     config = Ecto.Changeset.get_field(changeset, :config) || %{}
-    destination = destination(skill, config)
-    prefix = "step_#{Ecto.Changeset.get_field(changeset, :workflow_id)}"
+    workflow_id = Ecto.Changeset.get_field(changeset, :workflow_id)
+    destination = destination(skill, config, workflow_id)
+    prefix = "step_#{workflow_id}"
 
     skill
     |> fields(config)

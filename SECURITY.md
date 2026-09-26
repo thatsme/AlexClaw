@@ -502,8 +502,9 @@ Automation step's inline recipe, including logins attached to a recording.
   headers are kept the same way.
 - Each is a secret the step or resource owns, and its row keeps a reference.
 - It is bound to the host it is sent to **when it is entered**: the step's URL,
-  the Telegram API, the resource's API base (else its URL), or, for fill
-  values, the recipe's origin.
+  the Telegram API, the resource's API base (else its URL) — also for an API
+  Request step addressed through its workflow's API resource (`{base_url}`
+  or a `path`) — or, for fill values, the recipe's origin.
 - Moving a step or resource to another host while keeping the credential is
   refused. The credential has to be entered again for the new host.
 - A skill never holds the value. The step and its resources reach it with a

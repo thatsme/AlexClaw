@@ -52,8 +52,12 @@ defmodule AlexClaw.Auth.AdminPassword do
   """
   @spec authenticate(String.t()) :: :ok | {:error, :invalid_password | :no_admin_password}
   def authenticate(password) when is_binary(password),
-    do: authenticated(stored(), configured(), password)
+    do: authenticated(stored_state(), configured(), password)
 
+  # A hash row that cannot be read refuses every login (S8 M15): it never
+  # reopens login to ADMIN_PASSWORD. Only an installation with no row at all
+  # uses the variable.
+  defp authenticated(:unreadable, _configured, _password), do: {:error, :invalid_password}
   defp authenticated(nil, nil, _password), do: {:error, :no_admin_password}
 
   defp authenticated(nil, configured, password) do
@@ -74,14 +78,24 @@ defmodule AlexClaw.Auth.AdminPassword do
     end
   end
 
-  @doc "The stored hash, or nil before the first login."
+  @doc "The stored hash, or nil before the first login (or when the row cannot be read)."
   @spec stored() :: String.t() | nil
   def stored do
-    case Repo.get_by(Setting, key: @key) do
-      %Setting{value: "$pbkdf2-sha256$" <> _ = hash} -> hash
-      _none -> nil
+    case stored_state() do
+      hash when is_binary(hash) -> hash
+      _none_or_unreadable -> nil
     end
   end
+
+  # The hash; nil when there is no row; :unreadable for a row that holds
+  # anything else than a well-formed hash.
+  defp stored_state, do: readable(Repo.get_by(Setting, key: @key))
+
+  defp readable(nil), do: nil
+  defp readable(%Setting{value: value}), do: well_formed(value, decode(value || ""))
+
+  defp well_formed(hash, {:ok, _iterations, _salt, _key}), do: hash
+  defp well_formed(_value, :error), do: :unreadable
 
   @doc "Store `hash` as the admin password's."
   @spec store(String.t()) :: :ok
@@ -107,7 +121,11 @@ defmodule AlexClaw.Auth.AdminPassword do
   when it changes (`AlexClaw.Auth.Sessions`).
   """
   @spec current() :: String.t()
-  def current, do: stored() || "env:" <> (configured() || "")
+  def current, do: current(stored_state())
+
+  defp current(hash) when is_binary(hash), do: hash
+  defp current(:unreadable), do: "unreadable"
+  defp current(nil), do: "env:" <> (configured() || "")
 
   defp derive(password, salt, iterations),
     do: :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, @key_bytes)

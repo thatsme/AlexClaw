@@ -27,6 +27,7 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   alias AlexClaw.{Cluster, Config, ControlPlane, LLM, Memory, Repo, Resources, Workflows}
   alias AlexClaw.ControlPlane.{Context, Effects}
+  alias AlexClaw.Database.DataSet
   alias AlexClaw.MCP.Key
   alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.{SchedulerSync, Workflow, WorkflowStep}
@@ -83,7 +84,17 @@ defmodule AlexClaw.ControlPlane.Actions do
          do: unprotected(Workflow.protected?(workflow))
   end
 
+  # The admin's identity (the password's hash, auth.totp.*) is written only by
+  # its own flows — login, second-factor setup — never as a setting, from any
+  # entry point (S8 M15).
+  def admissible(action, %{key: key}, _context)
+      when action in [:set_setting, :set_secret, :set_gateway_owner],
+      do: not_identity(DataSet.identity_setting?(key))
+
   def admissible(_action, _params, _context), do: :ok
+
+  defp not_identity(false), do: :ok
+  defp not_identity(true), do: {:error, :identity_setting}
 
   defp registered(nil), do: {:error, :node_not_registered}
   defp registered(_node), do: :ok

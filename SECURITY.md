@@ -34,7 +34,11 @@ There is no anonymous access to any admin functionality.
 
 Authentication is configured via the `ADMIN_PASSWORD` environment variable
 (see `.env.example`). `ADMIN_PASSWORD` is always required — if it is not set,
-the login page will show an error and no access is granted.
+the login page will show an error and no access is granted. The first login
+stores the password's salted hash; from then on the variable is ignored. A
+stored hash that cannot be read refuses every login: it never falls back to
+the variable. The hash and the second factor's settings are written only by
+login and second-factor setup, never as settings, from any entry point.
 
 ---
 

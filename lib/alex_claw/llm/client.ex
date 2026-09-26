@@ -31,27 +31,35 @@ defmodule AlexClaw.LLM.Client do
   @anthropic_url "https://api.anthropic.com/v1/messages"
 
   @doc """
-  The API key for a provider's completion calls: its own, or else its type's
-  secret setting, resolved for the host the call goes to.
+  The API key for a provider's completion calls: its own, or, when it has
+  none, its type's secret setting, resolved for the host the call goes to. An
+  own key that cannot be resolved gives "" — never the type's key.
   """
   @spec resolve_api_key(Provider.t()) :: String.t()
   def resolve_api_key(%Provider{type: type} = p), do: resolve_api_key(p, completion_host(type))
 
   defp resolve_api_key(%Provider{type: type} = p, destination),
-    do: own_key(p) || setting_api_key(type, destination) || ""
+    do: p |> own_key() |> or_type_key(type, destination)
+
+  # A provider with no key of its own uses its type's; one whose own key cannot
+  # be resolved gets none (S8 M15): the call fails as unconfigured rather than
+  # going out under another key.
+  defp or_type_key({:ok, key}, _type, _destination) when is_binary(key), do: key
+  defp or_type_key({:ok, nil}, type, destination), do: setting_api_key(type, destination) || ""
+  defp or_type_key(:unresolved, _type, _destination), do: ""
 
   # The provider's own key, from OpenBao for its host. A failure to resolve it
-  # is logged by name and falls back as a missing key would.
+  # is logged by name.
   defp own_key(%Provider{} = p), do: own_key(ProviderSecrets.resolved(p), p)
 
-  defp own_key({:ok, key, _headers}, _p), do: key
+  defp own_key({:ok, key, _headers}, _p), do: {:ok, key}
 
   defp own_key({:error, reason}, p) do
     Logger.warning(
       "LLM provider #{p.name}: its API key could not be resolved (#{inspect(reason)})"
     )
 
-    nil
+    :unresolved
   end
 
   @doc """

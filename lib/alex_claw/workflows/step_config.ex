@@ -18,6 +18,8 @@ defmodule AlexClaw.Workflows.StepConfig do
   `on_missing_skill`.
   """
 
+  alias AlexClaw.Auth.SafeExecutor
+
   @executor_fields %{
     "timeout_ms" => %{type: :integer, required: false},
     "on_circuit_open" => %{type: :string, required: false},
@@ -50,7 +52,7 @@ defmodule AlexClaw.Workflows.StepConfig do
   @spec available?(module(), map() | nil) :: boolean()
   def available?(skill, config) do
     Code.ensure_loaded(skill)
-    availability(skill, config || %{})
+    SafeExecutor.as_target(skill, fn -> availability(skill, config || %{}) end)
   end
 
   defp availability(skill, config) do

@@ -17,6 +17,9 @@ defmodule AlexClaw.Skill do
   route; so a skill never reports its own failure as success or as "nothing
   found".
   """
+
+  alias AlexClaw.Auth.SafeExecutor
+
   @callback run(args :: map()) ::
               {:ok, result :: any(), branch :: atom()}
               | {:ok, result :: any()}
@@ -104,6 +107,9 @@ defmodule AlexClaw.Skill do
 
   defp declared(true, skill, :error_routes, _default), do: skill.error_routes()
   defp declared(true, skill, :empty_routes, _default), do: skill.empty_routes()
-  defp declared(true, skill, :unavailable_reason, _default), do: skill.unavailable_reason()
+  # Asked as the skill itself, whoever asks (AlexClaw.Auth.SafeExecutor.as_target/2).
+  defp declared(true, skill, :unavailable_reason, _default),
+    do: SafeExecutor.as_target(skill, &skill.unavailable_reason/0)
+
   defp declared(false, _skill, _callback, default), do: default
 end

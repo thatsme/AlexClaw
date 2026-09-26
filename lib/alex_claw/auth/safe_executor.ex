@@ -100,6 +100,16 @@ defmodule AlexClaw.Auth.SafeExecutor do
     end
   end
 
+  @doc """
+  Run `fun` as the skill `module`, with no secrets: for asking a skill about
+  itself (`available?`, `unavailable_reason/0`) from whatever process wants
+  to know, a skill that runs another included. Its SkillAPI calls are checked
+  as `module`'s, never the asker's (S9 fix review, C1). The asker's identity
+  and allow-list are put back afterwards.
+  """
+  @spec as_target(module(), (-> result)) :: result when result: term()
+  def as_target(module, fun), do: as_skill(module, fn -> with_secrets([], fun) end)
+
   defp restore_identity(nil), do: Process.delete(@identity)
   defp restore_identity(previous), do: Process.put(@identity, previous)
 

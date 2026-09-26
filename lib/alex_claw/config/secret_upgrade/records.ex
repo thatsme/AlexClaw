@@ -200,7 +200,27 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
 
   defp moved(_values, nil, _prefix, _kind, _opts), do: {:error, :no_destination}
 
+  # 0.3.x kept whatever JSON a field held (S8 M12): a number or a boolean is
+  # carried over as its text; a list or an object cannot be one credential,
+  # and its record is reported and left as it was.
   defp moved(values, destination, prefix, kind, opts) do
+    texts = Map.new(values, fn {path, value} -> {path, as_text(value)} end)
+    with :ok <- all_text(texts), do: move_values(texts, destination, prefix, kind, opts)
+  end
+
+  defp as_text(value) when is_number(value) or is_boolean(value), do: to_string(value)
+  defp as_text(value), do: value
+
+  defp all_text(values) do
+    values
+    |> Enum.find(fn {_path, value} -> not is_binary(value) end)
+    |> text_or_field()
+  end
+
+  defp text_or_field(nil), do: :ok
+  defp text_or_field({path, _value}), do: {:error, {:not_text, List.last(path)}}
+
+  defp move_values(values, destination, prefix, kind, opts) do
     plan =
       Map.new(values, fn {path, value} -> {path, {:store, Owned.name(prefix, path), value}} end)
 

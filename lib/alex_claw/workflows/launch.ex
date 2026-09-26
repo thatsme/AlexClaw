@@ -39,12 +39,21 @@ defmodule AlexClaw.Workflows.Launch do
   """
   @spec needs_code?(Workflow.t()) :: boolean()
   def needs_code?(%Workflow{} = workflow),
-    do: Workflow.protected?(workflow) or privileged_step?(workflow.steps)
+    do: Workflow.protected?(workflow) or privileged_steps(workflow) != []
 
-  # A privileged step runs only in a run the admin UI starts with a code
-  # (or the scheduler): the page asks for one, as for a protected workflow.
-  defp privileged_step?(steps) when is_list(steps),
-    do: Enum.any?(steps, &(&1.skill in Invoke.privileged_skills()))
+  @doc """
+  The privileged skills among `workflow`'s steps, each named once. Such a
+  step runs only in a run the admin UI starts with a code, or the scheduler
+  (S8 M7): the page asks for a code, as for a protected workflow, and any
+  other entry point is refused up front.
+  """
+  @spec privileged_steps(Workflow.t()) :: [String.t()]
+  def privileged_steps(%Workflow{steps: steps}) when is_list(steps) do
+    steps
+    |> Enum.map(& &1.skill)
+    |> Enum.filter(&(&1 in Invoke.privileged_skills()))
+    |> Enum.uniq()
+  end
 
-  defp privileged_step?(_not_loaded), do: false
+  def privileged_steps(_not_loaded), do: []
 end

@@ -30,7 +30,7 @@ defmodule AlexClaw.ControlPlane.Actions do
   alias AlexClaw.Database.DataSet
   alias AlexClaw.MCP.Key
   alias AlexClaw.WebAutomation.Recording
-  alias AlexClaw.Workflows.{SchedulerSync, Workflow, WorkflowStep}
+  alias AlexClaw.Workflows.{Launch, SchedulerSync, Workflow, WorkflowStep}
 
   @gateway_owners ~w(telegram.chat_id telegram.owner_user_id discord.channel_id discord.owner_user_id)
 
@@ -71,17 +71,23 @@ defmodule AlexClaw.ControlPlane.Actions do
   @doc """
   Whether this request may be performed at all, beyond the catalogue: checked
   before anything is written or started, so a refusal leaves no run behind.
+  A run of a workflow with a privileged step is refused from every entry
+  point but the admin UI, `{:error, {:privileged_steps, skills}}`: only the
+  admin UI's code, or the scheduler, can make it privileged.
   Another node (`:cluster`) may run a workflow only when it is registered,
   the workflow's first step is the `receive_from_workflow` gate, that gate's
   `allowed_nodes` names it (empty allows no one), and the workflow is not
   protected.
   """
-  @spec admissible(atom(), map(), Context.t()) :: :ok | {:error, atom()}
-  def admissible(:run_workflow, %{workflow_id: id}, %Context{entry_point: :cluster, node: node}) do
-    with :ok <- registered(Cluster.get_by_name(node)),
-         {:ok, workflow} <- Workflows.get_workflow(id),
-         :ok <- gate_allows(first_step(workflow.steps), node),
-         do: unprotected(Workflow.protected?(workflow))
+  @spec admissible(atom(), map(), Context.t()) :: :ok | {:error, atom() | tuple()}
+  def admissible(
+        action,
+        %{workflow_id: id} = params,
+        %Context{entry_point: entry_point} = context
+      )
+      when action in [:run_workflow, :run_protected_workflow] and entry_point != :admin_ui do
+    with :ok <- unprivileged(Workflows.get_workflow(id)),
+         do: admissible_run(action, params, context)
   end
 
   # The admin's identity (the password's hash, auth.totp.*) is written only by
@@ -92,6 +98,27 @@ defmodule AlexClaw.ControlPlane.Actions do
       do: not_identity(DataSet.identity_setting?(key))
 
   def admissible(_action, _params, _context), do: :ok
+
+  # A run with a privileged step can be privileged only when the admin UI
+  # starts it with a code, or the scheduler (S8 M7): from anywhere else it is
+  # refused before it starts, naming the steps — no step of it runs.
+  defp unprivileged({:ok, workflow}), do: no_privileged_steps(Launch.privileged_steps(workflow))
+  defp unprivileged({:error, _not_found}), do: :ok
+
+  defp no_privileged_steps([]), do: :ok
+  defp no_privileged_steps(skills), do: {:error, {:privileged_steps, skills}}
+
+  defp admissible_run(:run_workflow, %{workflow_id: id}, %Context{
+         entry_point: :cluster,
+         node: node
+       }) do
+    with :ok <- registered(Cluster.get_by_name(node)),
+         {:ok, workflow} <- Workflows.get_workflow(id),
+         :ok <- gate_allows(first_step(workflow.steps), node),
+         do: unprotected(Workflow.protected?(workflow))
+  end
+
+  defp admissible_run(_action, _params, _context), do: :ok
 
   defp not_identity(false), do: :ok
   defp not_identity(true), do: {:error, :identity_setting}

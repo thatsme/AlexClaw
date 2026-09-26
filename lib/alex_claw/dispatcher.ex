@@ -22,7 +22,7 @@ defmodule AlexClaw.Dispatcher do
   alias AlexClaw.SkillSupervisor
 
   alias AlexClaw.Workflows
-  alias Workflows.{SkillRegistry, Workflow}
+  alias Workflows.{Launch, SkillRegistry, Workflow}
 
   @doc """
   Handle a message from a gateway. Only the owner is answered, as set in the
@@ -585,6 +585,9 @@ defmodule AlexClaw.Dispatcher do
   defp answer_code({:error, :not_chat_approvable}, msg),
     do: reply("That can only be approved in the admin UI.", msg)
 
+  defp answer_code({:error, {:privileged_steps, skills}}, msg),
+    do: reply(privileged_refusal("This workflow", skills), msg)
+
   defp answer_code({:error, :invalid_code}, msg),
     do: reply("Invalid code. Try again (2 minutes remaining).", msg)
 
@@ -771,9 +774,18 @@ defmodule AlexClaw.Dispatcher do
     )
   end
 
+  # A run with a privileged step is refused before the chat is asked for
+  # anything: no code from a chat can make it privileged (S8 M7).
   defp run_workflow(workflow, _input, msg) do
-    launch_workflow(workflow, msg, AlexClaw.Workflows.Workflow.protected?(workflow))
+    workflow = Repo.preload(workflow, :steps)
+    launch_unless_privileged(Launch.privileged_steps(workflow), workflow, msg)
   end
+
+  defp launch_unless_privileged([], workflow, msg),
+    do: launch_workflow(workflow, msg, Workflow.protected?(workflow))
+
+  defp launch_unless_privileged(skills, workflow, msg),
+    do: started({:error, {:privileged_steps, skills}}, workflow, msg)
 
   defp launch_workflow(workflow, msg, true) do
     msg
@@ -808,9 +820,19 @@ defmodule AlexClaw.Dispatcher do
   defp started({:error, :workflow_disabled}, workflow, msg),
     do: Gateway.send_message("Workflow '#{workflow.name}' is disabled.", gateway: msg.gateway)
 
+  defp started({:error, {:privileged_steps, skills}}, workflow, msg),
+    do: Gateway.send_message(privileged_refusal(workflow.name, skills), gateway: msg.gateway)
+
   defp started({:error, reason}, workflow, msg) do
     Gateway.send_message("Workflow '#{workflow.name}' was not started: #{inspect(reason)}",
       gateway: msg.gateway
     )
+  end
+
+  # A run with a privileged step is refused outside the admin UI (S8 M7):
+  # the reply names the steps and where the run can be started.
+  defp privileged_refusal(name, skills) do
+    "#{name} has a #{Enum.join(skills, ", ")} step: it runs only when started " <>
+      "from the admin UI with a code, or by its schedule. It was not started."
   end
 end

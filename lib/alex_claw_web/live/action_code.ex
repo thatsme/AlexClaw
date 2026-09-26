@@ -20,6 +20,8 @@ defmodule AlexClawWeb.Live.ActionCode do
   alias AlexClaw.Auth.{Challenge, Gate, Principal}
   alias AlexClaw.ControlPlane
   alias AlexClaw.ControlPlane.Context
+  alias AlexClaw.Workflows
+  alias AlexClaw.Workflows.Launch
   alias Phoenix.LiveView.Socket
 
   @code_refusals [:invalid_code, :locked_session, :locked_instance, :not_configured, :unavailable]
@@ -43,10 +45,22 @@ defmodule AlexClawWeb.Live.ActionCode do
      assign(socket, :action_code, %{open?: true, description: description, message: nil})}
   end
 
+  # A chat's code cannot make a run privileged (S8 M7): a run with a
+  # privileged step is approved here only, and the chat is not asked.
   defp prompt_gateways(:run_protected_workflow, %{workflow_id: id}, description),
-    do: Gate.request(%{type: :run_workflow, workflow_id: id}, description)
+    do: id |> Workflows.get_workflow() |> prompt_unless_privileged(id, description)
 
   defp prompt_gateways(_action, _params, _description), do: :ok
+
+  defp prompt_unless_privileged({:ok, workflow}, id, description),
+    do: prompt_chat(Launch.privileged_steps(workflow), id, description)
+
+  defp prompt_unless_privileged({:error, _not_found}, _id, _description), do: :ok
+
+  defp prompt_chat([], id, description),
+    do: Gate.request(%{type: :run_workflow, workflow_id: id}, description)
+
+  defp prompt_chat(_privileged, _id, _description), do: :ok
 
   @doc "Check a typed code and, if it holds, perform the waiting action."
   @spec submit(Socket.t(), String.t()) :: {:noreply, Socket.t()}

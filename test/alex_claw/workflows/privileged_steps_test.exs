@@ -116,15 +116,15 @@ defmodule AlexClaw.Workflows.PrivilegedStepsTest do
     Challenge.create(chat, %{type: :run_workflow, workflow_id: wf.id})
     context = Context.gateway(chat, NimbleTOTP.verification_code(secret))
 
-    assert {:ok, {:started, _}} =
+    assert {:error, {:privileged_steps, ["shell"]}} =
              ControlPlane.perform(
                :run_protected_workflow,
                %{workflow_id: wf.id, privileged: true},
                context
              )
 
-    run = await_run(wf.id)
-    assert inspect(run.error) =~ "privileged_step", inspect(run.error)
+    AlexClaw.TaskDrain.drain()
+    refute Repo.exists?(from(r in WorkflowRun, where: r.workflow_id == ^wf.id))
   end
 
   defp await_run(workflow_id, tries \\ 100) do

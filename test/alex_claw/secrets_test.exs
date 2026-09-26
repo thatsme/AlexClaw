@@ -25,8 +25,10 @@ defmodule AlexClaw.SecretsTest do
 
   import Ecto.Query
 
-  alias AlexClaw.Secrets
   alias AlexClaw.Auth.AuditEntry
+  alias AlexClaw.{Secrets, Workflows}
+  alias AlexClaw.Workflows.{Executor, SkillOutcome, WorkflowRun}
+  alias Ecto.Adapters.SQL.Sandbox
 
   @value "secret-value-#{System.unique_integer([:positive])}"
 
@@ -133,10 +135,17 @@ defmodule AlexClaw.SecretsTest do
       assert Secrets.get(secret.name).rotated_at
     end
 
+    # A run writes the tables a value could leak into — the run's results,
+    # the skills' outcomes, the audit log — and here the API it calls echoes
+    # the credential back (S8: this test once ran no workflow at all).
     test "no table AlexClaw owns contains the value" do
       secret = define()
       :ok = Secrets.put_value(secret.name, @value)
       {:ok, _} = Secrets.resolve(secret.name, for: "connection:erp")
+      run_echoing_the_value()
+
+      assert Repo.aggregate(WorkflowRun, :count) > 0
+      assert Repo.aggregate(SkillOutcome, :count) > 0
 
       tables =
         Repo.query!(
@@ -150,6 +159,34 @@ defmodule AlexClaw.SecretsTest do
         %{rows: rows} = Repo.query!("SELECT row_to_json(t)::text FROM \"#{table}\" t")
         refute Enum.any?(rows, fn [json] -> json =~ @value end), "the value is stored in #{table}"
       end
+    end
+
+    defp run_echoing_the_value do
+      Sandbox.mode(AlexClaw.Repo, {:shared, self()})
+      bypass = Bypass.open()
+
+      Bypass.expect_once(bypass, "GET", "/echo", fn conn ->
+        [auth] = Plug.Conn.get_req_header(conn, "authorization")
+        Plug.Conn.resp(conn, 200, "you sent: " <> auth)
+      end)
+
+      {:ok, wf} =
+        Workflows.create_workflow(%{
+          name: "scan #{System.unique_integer()}",
+          enabled: true
+        })
+
+      {:ok, _step} =
+        Workflows.add_step(wf, %{
+          name: "Echo",
+          skill: "api_request",
+          config: %{
+            "url" => "http://localhost:#{bypass.port}/echo",
+            "headers" => %{"Authorization" => "Bearer " <> @value}
+          }
+        })
+
+      {:ok, _run} = Executor.run(wf.id)
     end
 
     test "setting a value for a secret that is not defined is refused" do

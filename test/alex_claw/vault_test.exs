@@ -34,6 +34,21 @@ defmodule AlexClaw.VaultTest do
 
   defp path, do: "alexclaw/test-#{System.unique_integer([:positive])}"
 
+  # What OpenBao answers AlexClaw's own token at `url`: the status alone.
+  defp as_alexclaw(method, url) do
+    %{req: req, token: token} = :sys.get_state(Vault)
+    body = if method == :post, do: [json: %{}], else: []
+
+    {:ok, %Req.Response{status: status}} =
+      req
+      |> Req.merge(
+        [method: method, url: url, headers: [{"x-vault-token", token}], retry: false] ++ body
+      )
+      |> Req.request()
+
+    status
+  end
+
   describe "the application's client" do
     test "is logged in" do
       assert Vault.status() == :ok
@@ -54,6 +69,29 @@ defmodule AlexClaw.VaultTest do
     test "anything outside alexclaw/ is refused by OpenBao" do
       assert {:error, :forbidden} = Vault.read("other-app/secret")
       assert {:error, :forbidden} = Vault.write("other-app/secret", %{"x" => "y"})
+    end
+
+    # S8 M2: one path outside the prefix proved little. AlexClaw's own token,
+    # asked through the client's own connection, at the paths an attacker
+    # holding it would try.
+    for {what, method, url} <- [
+          {"generate a TOTP code", :get, "/v1/totp/code/admin"},
+          {"read its AppRole", :get, "/v1/auth/approle/role/alexclaw"},
+          {"mint a secret id", :post, "/v1/auth/approle/role/alexclaw/secret-id"},
+          {"read the policies", :get, "/v1/sys/policy/alexclaw"},
+          {"list the audit devices", :get, "/v1/sys/audit"},
+          {"read a secret's metadata", :get, "/v1/secret/metadata/alexclaw/secrets/x"},
+          {"decrypt with transit", :post, "/v1/transit/decrypt/alexclaw"},
+          {"encrypt with transit", :post, "/v1/transit/encrypt/alexclaw"},
+          {"look itself up (default policy)", :get, "/v1/auth/token/lookup-self"}
+        ] do
+      test "the token cannot #{what}" do
+        assert as_alexclaw(unquote(method), unquote(url)) == 403
+      end
+    end
+
+    test "the token can renew itself" do
+      assert as_alexclaw(:post, "/v1/auth/token/renew-self") == 200
     end
 
     test "no value reaches the log" do

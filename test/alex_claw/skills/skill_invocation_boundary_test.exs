@@ -53,6 +53,32 @@ defmodule AlexClaw.Skills.SkillInvocationBoundaryTest do
     end
   end
 
+  describe "who calls the sink" do
+    # S9 (S8 M6): the reasoning loop called SafeExecutor.run/5 itself, outside
+    # the door, and every test above still passed. The callers are named: each
+    # is behind the door or is the door's own runner.
+    @sink_callers %{
+      "lib/alex_claw/workflows/executor.ex" =>
+        "A workflow's steps, and the circuit-breaker fallback: runs started through the door.",
+      "lib/alex_claw/skills/invoke.ex" =>
+        "run_skill and run_privileged_skill, the door's runners.",
+      "lib/alex_claw/skills/code_generator.ex" =>
+        "The Forge's trial run of generated code, inside generate_skill."
+    }
+
+    @call ~r/(\bSafeExecutor\.run\(|\|>\s*SafeExecutor\.run\(|&SafeExecutor\.run\/)/
+
+    test "only the named callers call SafeExecutor.run" do
+      callers =
+        for path <- Path.wildcard("lib/**/*.ex"),
+            path != @sink,
+            Enum.any?(code_lines(path), fn {line, _} -> Regex.match?(@call, line) end),
+            do: path
+
+      assert Enum.sort(callers) == Enum.sort(Map.keys(@sink_callers))
+    end
+  end
+
   describe "nothing but the sink calls a skill's run/1" do
     # A variable holding a skill module, then .run( — how the fallback did it,
     # and how Skills.Invoke did it (target_module). Any name ending in mod or

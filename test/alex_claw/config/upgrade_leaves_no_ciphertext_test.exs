@@ -91,6 +91,15 @@ defmodule AlexClaw.Config.UpgradeLeavesNoCiphertextTest do
       "chat_id" => "1"
     })
 
+    # What 0.3.x sealed beyond a skill's own credentials (S8 M1): another
+    # skill's key, and a header map's every value.
+    Legacy.insert_step(workflow.id, "rss_collector", %{"bot_token" => "123:other-skill"})
+
+    Legacy.insert_step(workflow.id, "api_request", %{
+      "url" => "https://api.example.com/x",
+      "headers" => %{"X-Password" => "pw-legacy", "Accept" => "application/json"}
+    })
+
     assert ciphertext_left() > 0
     assert {:ok, _report} = SecretUpgrade.run()
     assert ciphertext_left() == 0

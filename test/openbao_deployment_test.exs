@@ -170,6 +170,19 @@ defmodule AlexClaw.OpenBaoDeploymentTest do
       assert hcl =~ ~r/audit\s+"file"|audit\s*\{[^}]*type\s*=\s*"file"/s
     end
 
+    # S8: the declaration alone proved nothing about OpenBao. Initialisation
+    # asks OpenBao, with the root token, and gives AlexClaw no access unless
+    # the device is on; the test stack runs it before every suite.
+    test "initialisation refuses to give AlexClaw access unless the audit device is on" do
+      init = File.read!("openbao/init.sh")
+      [configure] = Regex.run(~r/configure\(\) \{.*?\n\}\n\nrevoke_root/s, init)
+
+      assert configure =~ ~r/bao audit list[^\n]*\n?[^\n]*"alexclaw\/"[^\n]*\|\|\s*\n?\s*fail/
+
+      assert :binary.match(configure, "bao audit list") <
+               :binary.match(configure, "bao auth enable approle")
+    end
+
     test "no removed or unsafe fields", %{hcl: hcl} do
       refute hcl =~ "disable_mlock"
       refute hcl =~ ~r/ui\s*=\s*true/

@@ -62,9 +62,41 @@ defmodule AlexClawWeb.AdminLive.ElevationInvariantTest do
     for page <- @control_plane do
       source = File.read!("lib/alex_claw_web/live/admin_live/#{page}.ex")
 
-      assert source =~ "Elevation.perform(" or source =~ "Elevation.gated(",
+      assert door_calls(source) > 0,
              "#{page}.ex no longer changes anything through the door"
     end
+  end
+
+  # Calls to Elevation.perform or Elevation.gated in the code itself: a
+  # mention in a comment, a doc or a string does not count (S8: the check was
+  # once a text match, which any of those satisfied).
+  defp door_calls(source) do
+    {_ast, count} =
+      source
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk(0, fn
+        {{:., _, [{:__aliases__, _, [:Elevation]}, fun]}, _, _} = node, n
+        when fun in [:perform, :gated] ->
+          {node, n + 1}
+
+        node, n ->
+          {node, n}
+      end)
+
+    count
+  end
+
+  test "a mention of the door in a comment or a string is not a call to it" do
+    assert door_calls("""
+           defmodule Probe do
+             # Elevation.perform(socket, :x, %{}, [])
+             @doc "Elevation.gated(socket, ...)"
+             def f, do: "Elevation.perform("
+           end
+           """) == 0
+
+    assert door_calls("defmodule P do\n def f(s), do: Elevation.perform(s, :x, %{}, [])\nend") ==
+             1
   end
 
   test "every allow-listed write still exists" do

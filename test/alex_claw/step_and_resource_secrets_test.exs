@@ -13,8 +13,9 @@ defmodule AlexClaw.StepAndResourceSecretsTest do
     MOMENT IT IS ENTERED. Unlike settings, it does not follow a later edit:
     changing the host with the old credential kept is refused — moving a
     credential to a new destination is always a deliberate re-entry;
-  - at run time the executor resolves the reference for that host and hands
-    the skill the value; nothing else ever sees it;
+  - at run time the skill gets a placeholder, and the value is attached as
+    the request is sent, for that host only (since S9, S8 H2/H3:
+    credentials_at_send_test.exs); nothing else ever sees it;
   - a URL carrying user:password is refused outright.
   The upgrade carries existing values over like settings (the hard
   requirement).

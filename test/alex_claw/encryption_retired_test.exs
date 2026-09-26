@@ -34,8 +34,12 @@ defmodule AlexClaw.EncryptionRetiredTest do
   defp naming(pattern), do: for(path <- sources(), code_lines(path) =~ pattern, do: path)
 
   describe "only the upgrade decrypts" do
-    test "the decrypt-only module is the one place that runs AES-GCM" do
-      assert naming(~r/crypto_one_time_aead/) == [@legacy]
+    # Every way :crypto offers to run a cipher, and Plug's MessageEncryptor —
+    # not the one function the retired module happened to use (S8).
+    @ciphers ~r/crypto_one_time_aead|crypto_one_time|crypto_init|crypto_update|crypto_final|crypto_dyn_iv|block_(en|de)crypt|stream_(en|de)crypt|(public|private)_(en|de)crypt|MessageEncryptor/
+
+    test "the decrypt-only module is the one place that runs a cipher" do
+      assert naming(@ciphers) == [@legacy]
     end
 
     test "only the boot upgrade calls it" do

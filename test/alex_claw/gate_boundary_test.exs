@@ -11,6 +11,16 @@ defmodule AlexClaw.GateBoundaryTest do
   controllers. S5b adds the gateway dispatcher, the gateways, MCP and SkillAPI:
   they may still RUN things, but only by asking ControlPlane (run_workflow,
   run_protected_workflow, run_skill).
+
+  Since S9 (S8's review of this test): the privileged list includes the
+  control plane's own runners and what they call (`Actions.run`,
+  `Effects.run`, `Invoke.run*`, `SafeExecutor.run`, `Elevation.grant`,
+  `AdminPassword.store`, `RunApproval.grant`, `Owned.*`); a call is found
+  as a call, a capture (`&Mod.fun/n`), an MFA tuple or an `apply`, under any
+  namespace prefix; an entry point may not rename a module (`alias ..., as:`);
+  the reasoning loop and the webhooks are entry points too. What a text scan
+  cannot see — a call through a helper module that is not an entry point —
+  is not covered here.
   """
   use ExUnit.Case, async: true
   @moduletag :unit
@@ -38,7 +48,16 @@ defmodule AlexClaw.GateBoundaryTest do
     "WebAutomation" => ~w(record play stop_recording),
     "Executor" => ~w(run launch run_with_initial_input run_remote_trigger),
     "Launch" => ~w(start),
-    "Recording" => ~w(attach_login)
+    "Recording" => ~w(attach_login),
+    # S9: the door's own runners, and what they reach
+    "Actions" => ~w(run),
+    "Effects" => ~w(run),
+    "Invoke" => ~w(run run_privileged),
+    "SafeExecutor" => ~w(run),
+    "Elevation" => ~w(grant),
+    "AdminPassword" => ~w(store),
+    "RunApproval" => ~w(grant),
+    "Owned" => ~w(store_all saved delete copy)
   }
 
   @entry_points [
@@ -51,16 +70,24 @@ defmodule AlexClaw.GateBoundaryTest do
     "lib/alex_claw/mcp/**/*.ex",
     "lib/alex_claw/skills/skill_api.ex",
     # S5c: another node's requests arrive here
-    "lib/alex_claw/cluster/**/*.ex"
+    "lib/alex_claw/cluster/**/*.ex",
+    # S9: the model's choices, and inbound webhooks
+    "lib/alex_claw/reasoning/**/*.ex",
+    "lib/alex_claw/webhooks/**/*.ex"
   ]
 
+  # A call, a pipe or a capture (`Mod.fun(`, `|> Mod.fun`, `&Mod.fun/2`), an
+  # MFA tuple (`{Mod, :fun, args}`) or an apply (`apply(Mod, :fun, args)`),
+  # with or without the module's namespace.
   defp pattern do
     alternatives =
-      for {mod, funs} <- @privileged, fun <- funs, do: "#{mod}\\.#{fun}\\("
+      for {mod, funs} <- @privileged, fun <- funs do
+        "\\b#{mod}\\.#{fun}\\b(?![?!])|[{(]\\s*(?:[A-Z][\\w.]*\\.)?#{mod},\\s*:#{fun}\\b"
+      end
 
     # Direct Repo writes from an entry point are a bypass too (policies.ex did it).
     Regex.compile!(
-      "\\b(" <> Enum.join(alternatives ++ ["Repo\\.(insert|update|delete)"], "|") <> ")"
+      "(" <> Enum.join(alternatives ++ ["\\bRepo\\.(insert|update|delete)"], "|") <> ")"
     )
   end
 
@@ -70,8 +97,19 @@ defmodule AlexClaw.GateBoundaryTest do
   # an MCP client can knock on.
   @not_entry_points %{
     "lib/alex_claw/mcp/key.ex" =>
-      "The MCP key's implementation, reached only through ControlPlane (generate_mcp_key)."
+      "The MCP key's implementation, reached only through ControlPlane (generate_mcp_key).",
+    "lib/alex_claw/reasoning/supervisor.ex" => "Starts the loop's processes; runs nothing."
   }
+
+  # One call in one file that is allowed, each with its reason: the elevation
+  # is not a catalogue action, it is the window the catalogue reads.
+  @allowed_calls %{
+    {"lib/alex_claw_web/live/elevation.ex", "Elevation.grant"} =>
+      "The elevation itself: granted only after CodeEntry.verify/3 accepted the code."
+  }
+
+  defp allowed?(path, line),
+    do: Enum.any?(Map.keys(@allowed_calls), fn {file, call} -> path == file and line =~ call end)
 
   defp files do
     @entry_points
@@ -104,10 +142,25 @@ defmodule AlexClaw.GateBoundaryTest do
   test "the pattern recognises what it is for" do
     re = pattern()
     assert Regex.match?(re, "Workflows.create_workflow(attrs)")
+    assert Regex.match?(re, "|> Executor.run()")
+    assert Regex.match?(re, "fun = &SafeExecutor.run/5")
+    assert Regex.match?(re, "{AlexClaw.Workflows.Executor, :run, [id]}")
+    assert Regex.match?(re, "apply(Invoke, :run, [caller, skill, args])")
+    assert Regex.match?(re, "AlexClaw.Auth.Elevation.grant(sid)")
+    refute Regex.match?(re, "Elevation.granted?(sid)")
     assert Regex.match?(re, "Config.persist(key, value, opts)")
     assert Regex.match?(re, "Repo.insert(changeset)")
     refute Regex.match?(re, "Workflows.get_workflow(id)")
     refute Regex.match?(re, "Config.get(key)")
+  end
+
+  test "no entry point renames a module (alias ..., as:), which would hide a call" do
+    offenders =
+      for path <- files(),
+          File.read!(path) =~ ~r/^\s*alias [^\n]*,\s*as:/m,
+          do: path
+
+    assert offenders == []
   end
 
   test "no entry point calls a privileged function directly" do
@@ -118,6 +171,7 @@ defmodule AlexClaw.GateBoundaryTest do
           {line, n} <- path |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           not String.starts_with?(String.trim_leading(line), "#"),
           Regex.match?(re, line),
+          not allowed?(path, line),
           do: "#{path}:#{n}: #{String.trim(line)}"
 
     assert offenders == [],

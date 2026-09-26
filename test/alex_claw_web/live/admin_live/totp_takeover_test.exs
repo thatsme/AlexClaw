@@ -33,7 +33,7 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
 
     AlexClaw.Config.set("auth.totp.enabled", "false", type: "boolean", category: "auth")
     AlexClaw.Config.delete("auth.totp.secret")
-    AlexClaw.Config.delete("auth.totp.pending_secret")
+    AlexClaw.Config.delete("auth.totp.pending")
     AlexClaw.Config.delete("auth.totp.last_used_at")
 
     # 2FA on, with a known secret. TOTP.setup/0 returns the raw secret bytes;
@@ -82,18 +82,14 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
     test "a new setup is refused while 2FA is on", %{secret: secret} do
       assert {:error, :already_enabled} = TOTP.setup()
       assert still_active?(secret)
-      refute AlexClaw.Config.get("auth.totp.pending_secret")
+      refute AlexClaw.Config.get("auth.totp.pending")
     end
 
     test "a confirm cannot replace the active secret", %{secret: secret} do
-      # Even with a pending secret planted by some other path.
+      # Even with the pending marker planted by some other path (S8: this
+      # planted auth.totp.pending_secret, which nothing has read since S6).
       planted = NimbleTOTP.secret()
-
-      AlexClaw.Config.set("auth.totp.pending_secret", Base.encode32(planted, padding: false),
-        type: "string",
-        category: "auth",
-        sensitive: true
-      )
+      AlexClaw.Config.set("auth.totp.pending", "true", type: "string", category: "auth")
 
       assert {:error, _} = TOTP.confirm_setup(NimbleTOTP.verification_code(planted))
       assert still_active?(secret)
@@ -122,7 +118,7 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
       html = render_click(view, "setup_2fa", %{})
 
       assert still_active?(ctx.secret)
-      refute AlexClaw.Config.get("auth.totp.pending_secret")
+      refute AlexClaw.Config.get("auth.totp.pending")
       refute html =~ "data:image/png;base64,"
       assert html =~ ~r/already/i
     end
@@ -147,7 +143,7 @@ defmodule AlexClawWeb.AdminLive.TotpTakeoverTest do
       assert Enum.any?(sent, &(&1 =~ ~r/admin UI/i))
       # A base32 TOTP secret: 16+ characters of A-Z2-7.
       refute Enum.any?(sent, &(&1 =~ ~r/\b[A-Z2-7]{16,}\b/))
-      refute AlexClaw.Config.get("auth.totp.pending_secret")
+      refute AlexClaw.Config.get("auth.totp.pending")
     end
 
     test "/setup 2fa leaves the active factor as it was", %{secret: secret} do

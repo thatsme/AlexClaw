@@ -31,12 +31,13 @@ defmodule AlexClaw.Workflows.StepSecrets do
   alias AlexClaw.Workflows.SkillRegistry
 
   @credential_headers ~w(authorization proxy-authorization cookie x-api-key)
-  @credential_pattern ~r/token|key|secret|auth/i
+  @credential_pattern ~r/token|key|secret|auth|password|passwd|session|cookie|credential/i
 
   @doc """
   Whether the header `name` carries a credential: Authorization,
   Proxy-Authorization, Cookie and X-API-Key, and any header whose name
-  contains `token`, `key`, `secret` or `auth` (case does not matter).
+  contains `token`, `key`, `secret`, `auth`, `password`, `passwd`,
+  `session`, `cookie` or `credential` (case does not matter).
   """
   @spec credential_header?(String.t()) :: boolean()
   def credential_header?(name) when is_binary(name),

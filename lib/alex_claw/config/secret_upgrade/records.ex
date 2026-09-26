@@ -14,6 +14,8 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   leaves the row exactly as it was, deletes what was stored for it, is
   reported by the record, and is tried again at the next start.
   """
+  require Logger
+
   alias AlexClaw.LLM.ProviderSecrets
   alias AlexClaw.{Repo, Secrets}
   alias AlexClaw.Resources.ResourceSecrets
@@ -47,7 +49,7 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
       Repo.query!("SELECT id, workflow_id, skill, config FROM workflow_steps ORDER BY id")
 
     for [id, workflow_id, skill, config] <- rows,
-        values?(StepSecrets.fields(skill, config)),
+        values?(StepSecrets.fields(skill, config)) or sealed_paths(config, []) != [],
         do: {:step, id, workflow_id, skill, config}
   end
 
@@ -89,17 +91,22 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   def label({:resource, id, _url, _metadata}), do: "resource #{id}"
   def label({:provider, id, _type, _host, _api_key, _headers}), do: "provider #{id}"
 
+  # The skill's credentials move as its credentials; anything else 0.3.x left
+  # sealed in the config is parked (S8 M1).
   defp move({:step, id, workflow_id, skill, config}, opts) do
-    with {:ok, config} <- opened(config, StepSecrets.fields(skill, config)) do
+    fields = StepSecrets.fields(skill, config)
+    destination = StepSecrets.destination(skill, config)
+
+    with {:ok, config} <- opened(config, fields),
+         {:ok, plan} <-
+           config
+           |> values(fields)
+           |> moved_if_any(destination, "step_#{workflow_id}", &StepSecrets.kind/1, opts) do
       config
-      |> values(StepSecrets.fields(skill, config))
-      |> moved(
-        StepSecrets.destination(skill, config),
-        "step_#{workflow_id}",
-        &StepSecrets.kind/1,
-        opts
-      )
-      |> rewritten(config, "UPDATE workflow_steps SET config = $2 WHERE id = $1", id)
+      |> Owned.referenced(plan)
+      |> parked_sealed("parked_step_#{id}", opts)
+      |> undone_unless_parked(plan)
+      |> rewritten(%{}, "UPDATE workflow_steps SET config = $2 WHERE id = $1", id)
     end
   end
 
@@ -277,6 +284,87 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   end
 
   defp provider_rewritten(error, _id), do: error
+
+  defp moved_if_any(values, _destination, _prefix, _kind, _opts) when values == %{},
+    do: {:ok, %{}}
+
+  defp moved_if_any(values, destination, prefix, kind, opts),
+    do: moved(values, destination, prefix, kind, opts)
+
+  # --- What 0.3.x sealed outside the skill's credentials (S8 M1) ---
+
+  # 0.3.x sealed every key any skill declared secret, in every step. Such a
+  # value is not this skill's credential: like a custom sensitive setting it
+  # goes to OpenBao bound to nothing it can be sent to, its field is emptied,
+  # and it is named in the log, to be declared or deleted.
+  @parked "inbound:carried_over"
+
+  defp parked_sealed(config, prefix, opts) do
+    config
+    |> sealed_paths([])
+    |> Enum.reduce_while({:ok, config, []}, fn {path, sealed}, {:ok, acc, names} ->
+      path |> parked_one(sealed, prefix, opts) |> parked_into(path, acc, names)
+    end)
+  end
+
+  defp parked_one(path, sealed, prefix, opts) do
+    name = Owned.name(prefix, path)
+
+    with {:ok, value} <- Legacy03.decrypt(sealed),
+         {:ok, _secret} <- define_parked(name, path),
+         :ok <- Secrets.put_value(name, value, opts) do
+      {:ok, name}
+    end
+  end
+
+  defp define_parked(name, path),
+    do:
+      Secrets.define(%{
+        name: name,
+        kind: "other",
+        binding: [@parked],
+        description:
+          "#{Enum.join(path, ".")} of a step, carried over by the 0.4.0 upgrade: declare it or delete it"
+      })
+
+  defp parked_into({:ok, name}, path, config, names),
+    do: {:cont, {:ok, Owned.put(config, path, ""), [name | names]}}
+
+  defp parked_into(error, _path, _config, names) do
+    Owned.delete(names)
+    {:halt, error}
+  end
+
+  defp undone_unless_parked({:ok, config, names}, _plan) do
+    Enum.each(names, fn name ->
+      Logger.warning(
+        "A step held a value 0.3.x stored encrypted outside its skill's credentials; " <>
+          "it is now the OpenBao secret #{name}, sent nowhere. Declare it or delete it."
+      )
+    end)
+
+    {:ok, {:config, config}}
+  end
+
+  defp undone_unless_parked(error, plan) do
+    plan |> Enum.map(fn {_path, {:store, name, _value}} -> name end) |> Owned.delete()
+    error
+  end
+
+  defp sealed_paths("enc:" <> _ = sealed, path), do: [{Enum.reverse(path), sealed}]
+
+  defp sealed_paths(map, path) when is_map(map),
+    do: Enum.flat_map(map, fn {key, value} -> sealed_paths(value, [key | path]) end)
+
+  defp sealed_paths(list, path) when is_list(list),
+    do: list |> Enum.with_index() |> Enum.flat_map(fn {v, i} -> sealed_paths(v, [i | path]) end)
+
+  defp sealed_paths(_value, _path), do: []
+
+  defp rewritten({:ok, {:config, config}}, _record, sql, id) do
+    Repo.query!(sql, [id, config])
+    :ok
+  end
 
   defp rewritten({:ok, plan}, record, sql, id) do
     Repo.query!(sql, [id, Owned.referenced(record, plan)])

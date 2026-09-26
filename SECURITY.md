@@ -490,8 +490,9 @@ Automation step's inline recipe, including logins attached to a recording.
   page that navigated or was redirected elsewhere fails the play, and nothing
   is typed.
 - The credential headers are Authorization, Proxy-Authorization, Cookie and
-  X-API-Key, and any header whose name contains `token`, `key`, `secret` or
-  `auth`. Other headers stay as they are.
+  X-API-Key, and any header whose name contains `token`, `key`, `secret`,
+  `auth`, `password`, `passwd`, `session`, `cookie` or `credential`. Other
+  headers stay as they are.
 - Each is a secret the step or resource owns, and its row keeps a reference.
 - It is bound to the host it is sent to **when it is entered**: the step's URL,
   the Telegram API, the resource's API base (else its URL), or, for fill

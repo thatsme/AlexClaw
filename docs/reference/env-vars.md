@@ -101,7 +101,8 @@ The database name is set by the compose file, not by an environment variable.
 
 | Variable | Default | Description |
 |---|---|---|
-| `BACKUP_DIR` | `./backups` | Host path for database backups |
+| `BACKUP_DIR` | `./backups` | Host path the db_backup skill writes database backups to (mounted into AlexClaw) |
+| `OPENBAO_BACKUP_DIR` | `~/backups` (through `make backup-openbao`) | Host path for OpenBao snapshots. Never the same as `BACKUP_DIR`, which AlexClaw mounts; the backup command refuses it |
 
 ## Post-Boot Provider Options
 

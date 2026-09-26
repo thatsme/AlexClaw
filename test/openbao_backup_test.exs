@@ -120,6 +120,18 @@ defmodule AlexClaw.OpenBaoBackupTest do
              "openbao-backup must mount the credentials read-only"
     end
 
+    # BACKUP_DIR is the db_backup skill's directory, which AlexClaw mounts: the
+    # snapshots go somewhere AlexClaw never sees.
+    test "openbao-backup writes where AlexClaw mounts nothing" do
+      [backups] =
+        for %{"target" => "/backups", "source" => src} <- services()["openbao-backup"]["volumes"],
+            do: src
+
+      assert backups =~ "OPENBAO_BACKUP_DIR"
+      refute backups =~ ~r/\$\{BACKUP_DIR/
+      refute backups in sources(services()["alexclaw-prod"])
+    end
+
     # A restore stages the snapshot in /tmp; the root filesystem is read-only.
     test "openbao has a writable /tmp, so a snapshot can be restored" do
       tmpfs =
@@ -151,6 +163,11 @@ defmodule AlexClaw.OpenBaoBackupTest do
     test "writes next to the database backups, named like them", %{script: script} do
       assert script =~ "backups"
       assert script =~ ~r/openbao-\$\{?stamp\}?-\$\{?reason\}?\.snap/
+    end
+
+    test "refuses to write into the directory AlexClaw mounts", %{script: script} do
+      assert script =~ "OPENBAO_BACKUP_DIR"
+      assert script =~ ~r/BACKUP_DIR.*refus|refus.*BACKUP_DIR/s
     end
 
     test "leaves the snapshot readable by its owner only", %{script: script} do

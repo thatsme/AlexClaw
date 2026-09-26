@@ -204,8 +204,10 @@ records whose credentials are gone.
 
 **What a backup is.** `make backup-openbao REASON=<reason>`
 (`scripts/backup-openbao.sh`) writes a raft snapshot to
-`~/backups/openbao-<timestamp>-<reason>.snap` (`BACKUP_DIR` to change the
-directory), beside the database dumps, readable by its owner only (mode 600).
+`~/backups/openbao-<timestamp>-<reason>.snap` (`OPENBAO_BACKUP_DIR` to change
+the directory), beside the database dumps, readable by its owner only (mode
+600). It refuses `BACKUP_DIR`, the db_backup skill's directory: AlexClaw mounts
+that one.
 It is checked before the command reports success: the snapshot is a gzipped
 archive holding `meta.json`, `state.bin` and their `SHA256SUMS`, and the sums
 must hold.

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Backs up OpenBao: a raft snapshot, next to the database backups and named
-# like them — $BACKUP_DIR (default ~/backups)/openbao-<timestamp>-<reason>.snap
-# — readable by its owner only, and checked before this says it is done.
+# like them — $OPENBAO_BACKUP_DIR (default ~/backups)/
+# openbao-<timestamp>-<reason>.snap — readable by its owner only, and checked
+# before this says it is done. Never into BACKUP_DIR, which AlexClaw mounts.
 #
 #   scripts/backup-openbao.sh [reason]        (make backup-openbao REASON=…)
 #
@@ -20,15 +21,25 @@ case "$reason" in
   *[!A-Za-z0-9_-]*) echo "backup-openbao: the reason may hold letters, digits, - and _ only" >&2; exit 2 ;;
 esac
 
-BACKUP_DIR="${BACKUP_DIR:-$HOME/backups}"
+OPENBAO_BACKUP_DIR="${OPENBAO_BACKUP_DIR:-$HOME/backups}"
 stamp=$(date +%Y%m%d-%H%M%S)
 BACKUP_NAME="openbao-${stamp}-${reason}.snap"
-target="$BACKUP_DIR/$BACKUP_NAME"
+target="$OPENBAO_BACKUP_DIR/$BACKUP_NAME"
 
-mkdir -p "$BACKUP_DIR"
-export BACKUP_DIR BACKUP_NAME
+# BACKUP_DIR (the environment's, else .env's) is the db_backup skill's
+# directory, which AlexClaw mounts: a snapshot written there would be readable
+# by AlexClaw. Refused.
+skill_dir="${BACKUP_DIR:-$(sed -n 's/^BACKUP_DIR=//p' .env 2>/dev/null | tail -1)}"
+if [ -n "$skill_dir" ] && [ -d "$skill_dir" ] && [ -d "$OPENBAO_BACKUP_DIR" ] &&
+  [ "$(cd "$skill_dir" && pwd -P)" = "$(cd "$OPENBAO_BACKUP_DIR" && pwd -P)" ]; then
+  echo "backup-openbao: refused: OPENBAO_BACKUP_DIR is BACKUP_DIR, which AlexClaw mounts; choose another directory" >&2
+  exit 2
+fi
 
-docker compose --profile backup run --rm --no-deps openbao-backup
+mkdir -p "$OPENBAO_BACKUP_DIR"
+export OPENBAO_BACKUP_DIR
+
+docker compose --profile backup run --rm --no-deps -e BACKUP_NAME="$BACKUP_NAME" openbao-backup
 
 # Checked here too: the file is where it should be, not empty, and owner-only.
 [ -s "$target" ] || { echo "backup-openbao: $target is missing or empty" >&2; exit 1; }

@@ -373,13 +373,15 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: "no"
+    # BACKUP_NAME is given by the script (docker compose run -e).
     environment:
       OPENBAO_ADDR: https://openbao:8200
-      BACKUP_NAME: ${BACKUP_NAME:-}
     volumes:
       - openbao_backup:/credentials:ro
+      # Not BACKUP_DIR: that is the db_backup skill's directory, which AlexClaw
+      # mounts. The snapshots go where AlexClaw never sees them.
       - type: bind
-        source: ${BACKUP_DIR:-./backups}
+        source: ${OPENBAO_BACKUP_DIR:-./backups/openbao}
         target: /backups
     networks:
       vault:

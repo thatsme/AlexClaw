@@ -201,6 +201,20 @@ defmodule AlexClaw.Skills.CallPolicy do
 
   # --- Alias resolution ---
 
+  @doc """
+  The aliases `ast` declares, as last segment => module — the one alias
+  resolution every load-time scan of a skill uses (containment here, the
+  external-call scan in `AlexClaw.Workflows.SkillRegistry`). Only the plain
+  `alias A.B.C` form is understood; `as:` and the brace form are refused by
+  containment rather than resolved.
+  """
+  @spec aliases(Macro.t()) :: %{atom() => module()}
+  def aliases(ast), do: collect_aliases(ast)
+
+  @doc "The module the alias parts of a remote call name, given `aliases/1`."
+  @spec resolve([atom()], %{atom() => module()}) :: module()
+  def resolve(parts, aliases), do: resolve_alias(parts, aliases)
+
   # Only the plain `alias A.B.C` form is understood. `as:` and the brace form are
   # reported as violations rather than resolved, so nothing slips through a shape
   # this checker does not model.

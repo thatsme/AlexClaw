@@ -1309,12 +1309,16 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     end
   end
 
+  # Aliases are resolved as containment resolves them (CallPolicy): an aliased
+  # SkillAPI.http_get is the same call as the one written in full.
   defp find_external_calls(ast) do
+    aliases = CallPolicy.aliases(ast)
+
     {_ast, found} =
       Macro.prewalk(ast, [], fn
         # Module.function(...) calls — e.g. Req.get(...)
         {{:., _, [{:__aliases__, _, mod_parts}, func]}, _, _args} = node, acc ->
-          module = Module.concat(mod_parts)
+          module = CallPolicy.resolve(mod_parts, aliases)
 
           if {module, func} in @external_indicators do
             {node, [{module, func} | acc]}

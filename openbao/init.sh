@@ -15,7 +15,10 @@
 #    secret/ (one version per secret) and transit with key "alexclaw", write
 #    the policy, create the
 #    AppRole bound to AlexClaw's address, write role_id and secret_id to the
-#    bootstrap mount, print the recovery key once, and revoke the root token.
+#    bootstrap mount; write the snapshot-only `backup` policy and AppRole,
+#    bound to the backup service's address, with its credentials on the
+#    backup mount (never AlexClaw's); print the recovery key once, and revoke
+#    the root token.
 #    Outside the test stack this needs an operator at a terminal, who confirms
 #    the keys are saved offline.
 set -eu
@@ -23,9 +26,13 @@ set -eu
 : "${OPENBAO_ADDR:?OPENBAO_ADDR is not set}"
 : "${OPENBAO_HOSTNAME:?OPENBAO_HOSTNAME is not set}"
 : "${ALEXCLAW_ADDRESS:?ALEXCLAW_ADDRESS is not set}"
+: "${BACKUP_ADDRESS:?BACKUP_ADDRESS is not set}"
 
 TLS=/openbao/tls
 BOOTSTRAP=/bootstrap
+# The backup's own credentials: mounted by this service and the backup service
+# only, never by AlexClaw.
+BACKUP_CREDENTIALS=/backup-credentials
 # OpenBao's user, and the group it shares with AlexClaw's user.
 BAO_UID=100
 SHARED_GID=1000
@@ -57,6 +64,7 @@ make_certificates() {
   install -o root -g "$SHARED_GID" -m 0444 "$work/server.pem" "$TLS/server.pem"
   install -o root -g "$SHARED_GID" -m 0444 "$work/ca.pem" "$TLS/ca.pem"
   install -o root -g "$SHARED_GID" -m 0444 "$work/ca.pem" "$BOOTSTRAP/ca.pem"
+  install -o root -g root -m 0444 "$work/ca.pem" "$BACKUP_CREDENTIALS/ca.pem"
 
   # /tmp is this container's tmpfs: the CA key goes with it.
   rm -rf "$work"
@@ -169,6 +177,39 @@ POLICY
   rm -rf "$work"
   unset role_id secret_id
   say "AppRole bound to $ALEXCLAW_ADDRESS; role_id and secret_id written to the bootstrap mount"
+
+  configure_backup
+}
+
+# The backup: a raft snapshot, taken by a credential that can do nothing else
+# and that AlexClaw never holds — AlexClaw must not be able to copy its own
+# vault. Used only by the on-demand `openbao-backup` service.
+configure_backup() {
+  bao policy write backup - >/dev/null <<'POLICY'
+path "sys/storage/raft/snapshot" {
+  capabilities = ["read"]
+}
+POLICY
+
+  bao write auth/approle/role/backup \
+    token_policies=backup \
+    token_no_default_policy=true \
+    secret_id_bound_cidrs="$BACKUP_ADDRESS/32" \
+    token_bound_cidrs="$BACKUP_ADDRESS/32" \
+    token_ttl=5m token_max_ttl=15m token_num_uses=1 \
+    secret_id_ttl=0 secret_id_num_uses=0 >/dev/null
+
+  role_id=$(bao read -field=role_id auth/approle/role/backup/role-id)
+  secret_id=$(bao write -f -field=secret_id auth/approle/role/backup/secret-id)
+
+  work=$(mktemp -d)
+  printf '%s' "$role_id" > "$work/role_id"
+  printf '%s' "$secret_id" > "$work/secret_id"
+  install -o root -g root -m 0400 "$work/role_id" "$BACKUP_CREDENTIALS/role_id"
+  install -o root -g root -m 0400 "$work/secret_id" "$BACKUP_CREDENTIALS/secret_id"
+  rm -rf "$work"
+  unset role_id secret_id
+  say "backup AppRole bound to $BACKUP_ADDRESS; its credentials written to the backup mount"
 }
 
 revoke_root() {

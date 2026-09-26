@@ -8,6 +8,8 @@ USER root
 # changing silently: bump the pin with the base image.
 RUN apk add --no-cache openssl=3.5.8-r0
 COPY init.sh /usr/local/bin/openbao-init
-RUN chmod 0555 /usr/local/bin/openbao-init
+# The on-demand snapshot (the `openbao-backup` service runs this image).
+COPY backup.sh /usr/local/bin/openbao-backup
+RUN chmod 0555 /usr/local/bin/openbao-init /usr/local/bin/openbao-backup
 
 ENTRYPOINT ["/usr/local/bin/openbao-init"]

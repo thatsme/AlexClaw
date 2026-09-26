@@ -278,6 +278,9 @@ services:
     image: openbao/openbao:2.6.3@sha256:a60afafda36337abe833c4a63894bf1095098f29abea4091e7e555a33dd52889
     user: "100:1000"
     read_only: true
+    # A snapshot restore stages the file here; nothing else is written to it.
+    tmpfs:
+      - /tmp
     cap_drop:
       - ALL
     security_opt:
@@ -337,9 +340,11 @@ services:
       OPENBAO_ADDR: https://openbao:8200
       OPENBAO_HOSTNAME: openbao
       ALEXCLAW_ADDRESS: 10.213.63.10
+      BACKUP_ADDRESS: 10.213.63.11
     volumes:
       - openbao_tls:/openbao/tls
       - openbao_bootstrap:/bootstrap
+      - openbao_backup:/backup-credentials
     networks:
       - vault
     healthcheck:
@@ -347,6 +352,38 @@ services:
       interval: 1s
       timeout: 2s
       retries: 60
+
+  # On demand only (profile "backup", started by scripts/backup-openbao.sh): a
+  # raft snapshot of OpenBao into the host's backups directory, taken with the
+  # backup AppRole — which may read a snapshot and nothing else. Its
+  # credentials are on openbao_backup, which AlexClaw never mounts: AlexClaw
+  # cannot copy its own vault.
+  openbao-backup:
+    image: alexclaw-openbao-init:latest
+    build:
+      context: ./openbao
+      dockerfile: init.Dockerfile
+    profiles: ["backup"]
+    entrypoint: ["/usr/local/bin/openbao-backup"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    environment:
+      OPENBAO_ADDR: https://openbao:8200
+      BACKUP_NAME: ${BACKUP_NAME:-}
+    volumes:
+      - openbao_backup:/credentials:ro
+      - type: bind
+        source: ${BACKUP_DIR:-./backups}
+        target: /backups
+    networks:
+      vault:
+        ipv4_address: 10.213.63.11
 
 networks:
   default:
@@ -377,3 +414,4 @@ volumes:
   openbao_data:
   openbao_tls:
   openbao_bootstrap:
+  openbao_backup:

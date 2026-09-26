@@ -196,6 +196,100 @@ needs this procedure once, after the new images are in place and before
 AlexClaw is started on them. The test stack's OpenBao is initialised afresh
 on every run, so it always has the current engines and policy.
 
+## Backing up and restoring OpenBao
+
+Every secret AlexClaw uses lives in OpenBao; the database holds only
+references to them. A database backup without an OpenBao backup restores
+records whose credentials are gone.
+
+**What a backup is.** `make backup-openbao REASON=<reason>`
+(`scripts/backup-openbao.sh`) writes a raft snapshot to
+`~/backups/openbao-<timestamp>-<reason>.snap` (`BACKUP_DIR` to change the
+directory), beside the database dumps, readable by its owner only (mode 600).
+It is checked before the command reports success: the snapshot is a gzipped
+archive holding `meta.json`, `state.bin` and their `SHA256SUMS`, and the sums
+must hold.
+
+The snapshot is taken by the one-shot `openbao-backup` service (compose
+profile `backup`, never started by `docker compose up`) with the `backup`
+AppRole. Its policy grants one thing, reading a snapshot, and its token is
+single-use, lives five minutes, and is bound to the backup service's address.
+Its credentials are on the `openbao_backup` volume, which only `openbao-init`
+and `openbao-backup` mount: AlexClaw cannot take a snapshot of its own vault,
+and its own token is refused at the snapshot endpoints.
+
+**What a backup does not hold.** The snapshot holds OpenBao's data, encrypted
+with the unseal key. It does **not** hold the unseal key (the file `key` in
+`OPENBAO_UNSEAL_DIR`) or the recovery key. Without the same unseal key file
+the snapshot cannot be opened; without the recovery key no root token can be
+made for it. Keep both offline, apart from the snapshots.
+
+**Restoring.** A snapshot is restored into a running, initialised OpenBao
+that uses the **same unseal key file** — the deployment it was taken from, or
+a new one set up with that key file. Verified end to end on OpenBao 2.6.3.
+
+1. If the deployment is new: make the unseal key file a copy of the original
+   (not a new one), start OpenBao and initialise it as in "First start".
+   Its new recovery key is needed for step 2 only.
+
+2. Make a root token as in "Changing an engine or the policy after the first
+   start", steps 1–3, with the recovery key of the OpenBao running **now**,
+   and restore the snapshot. The snapshot file is mounted into the
+   container read-only, for example with an override file:
+
+    ```yaml
+    # restore.yml
+    services:
+      openbao:
+        volumes:
+          - /path/to/backups:/restore:ro
+    ```
+
+    ```bash
+    docker compose -f docker-compose.yml -f restore.yml up -d --no-deps --force-recreate openbao
+    ```
+
+    Then, in the OpenBao container, with the root token in `BAO_TOKEN`:
+
+    ```sh
+    bao operator raft snapshot restore -force /restore/openbao-<timestamp>-<reason>.snap
+    ```
+
+    OpenBao is now the snapshot's, unsealed by the same key file. The token
+    used for the restore no longer exists, and the snapshot's **recovery key**
+    — the original one — is the one that counts from here.
+
+3. When the deployment is new, its credential volumes hold the credentials of
+   the OpenBao that was replaced: AlexClaw and the backup cannot log in.
+   Re-issue them. With the endpoints still open, start a shell in the
+   `openbao-init` container (it mounts both volumes):
+
+    ```bash
+    docker compose -f docker-compose.yml -f restore.yml run --rm --no-deps --entrypoint sh openbao-init
+    ```
+
+    make a root token there with the **original** recovery key (the same
+    commands as step 3 of the root-token procedure), then:
+
+    ```sh
+    issue() {   # role, directory, group, mode
+      work=$(mktemp -d)
+      bao read -field=role_id "auth/approle/role/$1/role-id" > "$work/role_id"
+      bao write -f -field=secret_id "auth/approle/role/$1/secret-id" > "$work/secret_id"
+      install -o root -g "$3" -m "$4" "$work/role_id" "$2/role_id"
+      install -o root -g "$3" -m "$4" "$work/secret_id" "$2/secret_id"
+      rm -rf "$work"
+    }
+    issue alexclaw /bootstrap 1000 0440
+    issue backup /backup-credentials root 0400
+    bao token revoke -self
+    exit
+    ```
+
+4. Close the endpoints (step 6 of the root-token procedure), without the
+   override, and start AlexClaw. `make backup-openbao REASON=after-restore`
+   confirms the restored OpenBao answers the backup credential.
+
 ## When OpenBao is unavailable
 
 AlexClaw keeps running. Every read, write, encryption or decryption returns

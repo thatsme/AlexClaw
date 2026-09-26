@@ -119,7 +119,7 @@ defmodule AlexClaw.OpenBaoDeploymentTest do
 
         allowed =
           if unquote(file) == @compose,
-            do: ["openbao", "openbao-init", "alexclaw-prod"],
+            do: ["openbao", "openbao-init", "openbao-backup", "alexclaw-prod"],
             else: ["openbao-test", "openbao-test-init", "test-elixir"]
 
         assert Enum.sort(members) -- allowed == [],

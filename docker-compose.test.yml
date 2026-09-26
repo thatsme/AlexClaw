@@ -123,10 +123,12 @@ services:
       OPENBAO_ADDR: https://openbao-test:8200
       OPENBAO_HOSTNAME: openbao-test
       ALEXCLAW_ADDRESS: 10.213.64.10
+      BACKUP_ADDRESS: 10.213.64.11
       OPENBAO_INIT_UNATTENDED: "1"
     volumes:
       - ./.openbao-test/tls:/openbao/tls
       - ./.openbao-test/bootstrap:/bootstrap
+      - ./.openbao-test/backup:/backup-credentials
     networks:
       - vault
     healthcheck:

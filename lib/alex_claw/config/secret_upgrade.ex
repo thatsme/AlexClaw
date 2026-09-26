@@ -113,6 +113,10 @@ defmodule AlexClaw.Config.SecretUpgrade do
     {:ok, result}
   end
 
+  # What the upgrade writes is carried exactly as 0.3.x held it, whitespace
+  # included: it was in use as it is (S9 fix review).
+  defp carried(vault), do: [vault: vault, exact: true]
+
   defp pending(nil), do: :nothing
   defp pending(%Setting{value: value}) when value in [nil, ""], do: :nothing
 
@@ -212,7 +216,7 @@ defmodule AlexClaw.Config.SecretUpgrade do
   end
 
   defp custom_by_status(custom, :ok, vault) do
-    results = Enum.map(custom, &{&1.key, parked(&1, vault: vault)})
+    results = Enum.map(custom, &{&1.key, parked(&1, carried(vault))})
 
     %{
       moved: for({key, {:ok, name}} <- results, do: {key, name}),
@@ -273,7 +277,7 @@ defmodule AlexClaw.Config.SecretUpgrade do
         "Moved to OpenBao as the secret #{name} by the 0.4.0 upgrade: declare it or delete it"
     }
 
-  defp records_by_status(records, :ok, vault), do: Records.move_all(records, vault: vault)
+  defp records_by_status(records, :ok, vault), do: Records.move_all(records, carried(vault))
 
   defp records_by_status(records, {:error, reason}, _vault),
     do: %{moved: [], failed: Enum.map(records, &{Records.label(&1), {:vault, reason}})}
@@ -285,7 +289,7 @@ defmodule AlexClaw.Config.SecretUpgrade do
     do: Enum.map(pending, fn {key, _move} -> {key, {:error, {:vault, reason}}} end)
 
   defp move(%Setting{key: key} = setting, vault),
-    do: move(SecretSettings.recognised_only?(key), setting, vault: vault)
+    do: move(SecretSettings.recognised_only?(key), setting, carried(vault))
 
   # A recognised-only key: its fingerprint replaces it. Computed twice and
   # compared before the row is touched, as a moved value is read back: the key

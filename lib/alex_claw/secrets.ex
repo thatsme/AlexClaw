@@ -110,14 +110,18 @@ defmodule AlexClaw.Secrets do
   @doc """
   Set the value of the secret `name` in OpenBao, and stamp `rotated_at`.
 
-  Options: `vault:` — the `AlexClaw.Vault` server to use.
+  A value with surrounding whitespace or a control character is refused as
+  it is entered (`{:error, :malformed_value}`, S8 H8). Options: `vault:` — the
+  `AlexClaw.Vault` server to use; `exact: true` — carry the value as it is,
+  for the boot upgrade, which moves values 0.3.x already used and must not
+  change or lose them.
   """
   @spec put_value(String.t(), String.t(), keyword()) :: :ok | {:error, error()}
   def put_value(name, value, opts \\ []) when is_binary(name) and is_binary(value) do
     result =
       with {:ok, secret} <- fetch(name),
            :ok <- non_empty(value),
-           :ok <- well_formed(value),
+           :ok <- well_formed(value, Keyword.get(opts, :exact, false)),
            :ok <- Vault.write(path(name), %{"value" => value}, server: vault(opts)),
            {:ok, _secret} <- Repo.update(Secret.rotated(secret)) do
         :ok
@@ -211,7 +215,9 @@ defmodule AlexClaw.Secrets do
   # A value with surrounding whitespace or a control character (other than an
   # inner newline or tab: a PEM key, a JSON credential) could only fail where it
   # is sent, and the failure would quote it (S8 H8): it is refused on entry.
-  defp well_formed(value) do
+  defp well_formed(_value, true), do: :ok
+
+  defp well_formed(value, false) do
     if value == String.trim(value) and not String.match?(value, ~r/[\x00-\x08\x0b-\x1f\x7f]/),
       do: :ok,
       else: {:error, :malformed_value}

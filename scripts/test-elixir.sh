@@ -4,7 +4,8 @@
 # a log kept in TEST_LOG_DIR (default local-docs/test-logs) and a progress line
 # every 30 seconds.
 #
-# Without arguments it runs the whole suite on the freshly built test image.
+# Without arguments it runs the whole suite on the freshly built test image —
+# only as a gate, through scripts/gate-elixir.sh (GATE=1); otherwise it refuses.
 # The run records the failed tests and, when none failed, the baseline for
 # `mix test --stale`. It then keeps the image's build directory with those
 # records in .test-cache/elixir (untracked).
@@ -113,10 +114,17 @@ stopped() {
   exit 124
 }
 
+# The whole suite is for gates only (.claude/rules/20-tests.md): it runs when
+# scripts/gate-elixir.sh asks for it (GATE=1), and is refused otherwise.
+if [ "$#" -eq 0 ] && [ "${GATE:-}" != "1" ]; then
+  echo "full suite = gate only: use make gate-elixir, or FILES=… / make test-failed" >&2
+  exit 2
+fi
+
 open_log elixir
 mkdir -p "$DUMP_DIR" "$CACHE_DIR"
 if [ "$#" -eq 0 ]; then
-  note "Whole suite on the fresh image; its build is kept in $CACHE_DIR."
+  note "GATE: whole suite on the fresh image; its build is kept in $CACHE_DIR."
   rm -rf "${CACHE_DIR:?}" && mkdir -p "$CACHE_DIR"
   set -- sh -c "$FULL_RUN"
 else

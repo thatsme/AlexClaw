@@ -23,7 +23,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The whole suite is for gates only (.claude/rules/20-tests.md): without an
+# argument it runs when scripts/gate-python.sh asks for it (GATE=1).
+if [ "$#" -eq 0 ] && [ "${GATE:-}" != "1" ]; then
+  echo "full suite = gate only: use make gate-python, or pass the pytest command to run" >&2
+  exit 2
+fi
+
 open_log python
+if [ "$#" -eq 0 ]; then note "GATE: whole Python suite."; fi
 
 $COMPOSE build --quiet test-python >>"$LOG" 2>&1 &
 build=$!

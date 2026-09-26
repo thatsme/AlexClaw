@@ -1,11 +1,11 @@
 # First Run
 
-After completing [Installation](installation.md) and starting the stack, here's what to expect.
+After completing [Installation](installation.md) — including OpenBao's initialisation — and starting the stack, here's what to expect.
 
 ## What Happens on First Boot
 
-1. **Database migrations** — creates all tables (settings, workflows, resources, knowledge, memory, etc.)
-2. **Config seeding** — environment variables are written to the `settings` table
+1. **Database migrations** — the one-shot `migrate` job creates all tables (settings, workflows, resources, knowledge, memory, etc.)
+2. **Config seeding** — environment variables are written to the `settings` table. Secret settings (bot tokens, API keys) are never seeded: they are entered on the Config page and kept in OpenBao
 3. **Default LLM providers** — Gemini, Claude, Ollama, and LM Studio providers are created (disabled if no API key set)
 4. **Default workflows** — example workflows are seeded (Tech News Digest, Web Research, etc.)
 5. **Default RSS feeds** — a set of news and tech feeds are created as resources
@@ -13,7 +13,13 @@ After completing [Installation](installation.md) and starting the stack, here's 
 
 ## Access the Admin UI
 
-Open [http://localhost:5001](http://localhost:5001) in your browser and log in with the `ADMIN_PASSWORD` you set in `.env`.
+Open [http://localhost:5001](http://localhost:5001) in your browser and log in with the `ADMIN_PASSWORD` you set in `.env`. The first login stores the password's hash; from then on the variable is ignored.
+
+Until a second factor exists the admin UI is read-only. Set 2FA up under
+**Services → Two-factor authentication**, store the recovery codes, then
+unlock editing with a code and set, on the Config page, the Telegram bot
+token, `telegram.chat_id`, `telegram.owner_user_id` and an LLM API key. On the
+LLM page, enable the providers that use that key.
 
 The dashboard shows:
 
@@ -24,7 +30,7 @@ The dashboard shows:
 
 ## Test Telegram
 
-Send `/ping` to your bot — you should receive `pong` back.
+Send `/ping` to your bot — the answer is `pong` once the bot token, `telegram.chat_id` and `telegram.owner_user_id` are set. Messages from any other chat or user are ignored.
 
 Try a few more commands:
 
@@ -58,15 +64,18 @@ This invokes the `web_search` skill — searches DuckDuckGo, fetches top results
 
 ## Configure MCP (Optional)
 
-If you want to connect AI clients (Claude Code, Cursor):
+To connect an MCP client:
 
-1. Go to **Admin > Config** and open the **MCP** group
+1. Go to **Admin > Config**, unlock editing, and open the **MCP** group
 2. Click **Generate** and copy the key: it is shown once
 3. Configure your client — see [MCP Client Setup](../mcp/client-setup.md)
+
+An MCP client reads AlexClaw's data and runs enabled workflows that do not require 2FA; it changes nothing.
 
 ## Next Steps
 
 - [Configuration](configuration.md) — fine-tune settings via the Admin UI
 - [Built-in Skills](../skills/builtin.md) — explore all available skills
 - [Writing Custom Skills](../skills/writing-skills.md) — create your own
-- [MCP Server](../mcp/overview.md) — connect AI clients
+- [MCP Server](../mcp/overview.md) — connect MCP clients
+- [OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao) — back up OpenBao beside the database

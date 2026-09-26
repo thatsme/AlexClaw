@@ -67,7 +67,7 @@ nav:
     - Writing Custom Skills: skills/writing-skills.md
     - Dynamic Hot-Loading: skills/hot-loading.md
     - Skill API Reference: skills/skill-api.md
-    - Coder — Autonomous Generation: skills/coder.md
+    - Forge — Skill Generation: skills/coder.md
   - MCP Server:
     - Overview: mcp/overview.md
     - Authentication: mcp/authentication.md
@@ -86,6 +86,7 @@ nav:
     - Multi-Node Swarm: deployment/clustering.md
     - Reverse Proxy & TLS: deployment/reverse-proxy.md
     - VPS Hardening: deployment/vps.md
+    - Upgrading to 0.4.0: deployment/upgrade-0.4.0.md
     - Upgrading to 0.3.34: deployment/upgrade-0.3.34.md
     - Rotating SECRET_KEY_BASE: deployment/rotate-secret-key-base.md
   - Reference:

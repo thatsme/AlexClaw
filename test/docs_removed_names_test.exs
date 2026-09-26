@@ -46,13 +46,7 @@ defmodule AlexClaw.DocsRemovedNamesTest do
 
   @exempt ["docs/reference/changelog.md"]
 
-  @pending_review [
-    "README.md",
-    "INSTALLATION.md",
-    "docs/getting-started/installation.md",
-    "docs/getting-started/first-run.md",
-    "docs/getting-started/configuration.md"
-  ]
+  @pending_review []
 
   @root_docs ~w(ALEXCLAW_ARCHITECTURE.md CLA.md CODE_OF_CONDUCT.md CODING_CONVENTIONS.md
                 CONTRIBUTING.md INSTALLATION.md README.md ROADMAP.md SECURITY.md SELF_AWARENESS.md)

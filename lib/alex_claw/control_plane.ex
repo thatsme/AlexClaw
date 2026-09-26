@@ -320,7 +320,7 @@ defmodule AlexClaw.ControlPlane do
 
     case audit(context, action, "allow", reason) do
       :ok -> Actions.run(action, params)
-      {:error, _reason} -> {:error, :audit_failed}
+      {:error, _reason} -> deny(action, params, context, :audit_failed)
     end
   end
 
@@ -381,7 +381,10 @@ defmodule AlexClaw.ControlPlane do
   defp coded({:ok, {:refused, why}}, action, params, context),
     do: deny(action, params, context, why)
 
-  defp coded({:error, _reason} = failed, _action, _params, _context), do: failed
+  # The code held, and the change was undone after it — its row could not be
+  # written, or the action failed: the refusal is recorded now, on its own.
+  defp coded({:error, reason}, action, params, context),
+    do: deny(action, params, context, reason)
 
   defp audit(%Context{identity: identity, entry_point: entry_point}, action, decision, reason),
     do: AuditLog.record_action(identity, entry_point, action, decision, reason)
@@ -391,11 +394,16 @@ defmodule AlexClaw.ControlPlane do
       identity,
       entry_point,
       action,
-      "#{refusal(why, entry_point)} — #{reason(action, params, context)}"
+      "#{as_text(refusal(why, entry_point))} — #{reason(action, params, context)}"
     )
 
     {:error, why}
   end
+
+  # A refusal's reason may be any term: a row is text.
+  defp as_text(why) when is_binary(why), do: why
+  defp as_text(why) when is_atom(why), do: Atom.to_string(why)
+  defp as_text(why), do: inspect(why)
 
   # With no second factor configured the admin UI cannot elevate at all: the
   # row says so, since the way out differs.

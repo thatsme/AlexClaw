@@ -102,8 +102,11 @@ defmodule AlexClaw.Auth.AuditLog do
   @spec log_action_refusal(String.t(), atom(), atom(), String.t()) :: :ok
   def log_action_refusal(caller, entry_point, action, reason) do
     Logger.warning("#{action} by #{caller} refused: #{reason}", auth: :denied)
-    insert_entry(action_row(caller, entry_point, action, "deny", reason))
+    insert_entry(action_row(caller, entry_point, action, "deny", storable(reason)))
   end
+
+  # A refusal is written whatever it quotes: PostgreSQL stores no NUL in text.
+  defp storable(reason), do: String.replace(reason, "\u0000", "\\0")
 
   # The admin UI's rows keep the caller type they have always had.
   defp caller_type(:admin_ui), do: "admin"

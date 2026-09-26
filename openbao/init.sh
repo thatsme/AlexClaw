@@ -107,17 +107,15 @@ path "secret/data/alexclaw/*" {
   capabilities = ["create", "read", "update"]
 }
 
+# The token renews itself before it expires; with no default policy on it,
+# this is the one self-service path it needs.
+path "auth/token/renew-self" {
+  capabilities = ["update"]
+}
+
 # Deleting a secret destroys every version and its metadata.
 path "secret/metadata/alexclaw/*" {
   capabilities = ["delete"]
-}
-
-path "transit/encrypt/alexclaw" {
-  capabilities = ["update"]
-}
-
-path "transit/decrypt/alexclaw" {
-  capabilities = ["update"]
 }
 
 # The MCP key is kept as an HMAC under this key: recognised, never stored.
@@ -144,8 +142,10 @@ path "totp/code/admin" {
 POLICY
 
   bao auth enable approle >/dev/null
+  # Only what the alexclaw policy grants: no default policy on its tokens.
   bao write auth/approle/role/alexclaw \
     token_policies=alexclaw \
+    token_no_default_policy=true \
     secret_id_bound_cidrs="$ALEXCLAW_ADDRESS/32" \
     token_bound_cidrs="$ALEXCLAW_ADDRESS/32" \
     token_ttl=1h token_max_ttl=24h \

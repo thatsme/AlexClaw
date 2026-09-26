@@ -61,16 +61,6 @@ defmodule AlexClaw.Vault do
   @spec delete(String.t(), keyword()) :: :ok | {:error, error()}
   def delete(path, opts \\ []) when is_binary(path), do: call(opts, {:delete, path})
 
-  @doc "Encrypt `plaintext` with OpenBao's transit key; AlexClaw never holds the key."
-  @spec encrypt(binary(), keyword()) :: {:ok, String.t()} | {:error, error()}
-  def encrypt(plaintext, opts \\ []) when is_binary(plaintext),
-    do: call(opts, {:encrypt, plaintext})
-
-  @doc "Decrypt a ciphertext `encrypt/2` made."
-  @spec decrypt(String.t(), keyword()) :: {:ok, binary()} | {:error, error()}
-  def decrypt(ciphertext, opts \\ []) when is_binary(ciphertext),
-    do: call(opts, {:decrypt, ciphertext})
-
   @doc """
   HMAC-SHA256 of `input` under OpenBao's transit key, as OpenBao writes it
   (`vault:v<n>:<base64>`); AlexClaw never holds the key, so the result cannot
@@ -290,22 +280,6 @@ defmodule AlexClaw.Vault do
     s.req
     |> request(s.token, :post, kv_path(path), %{data: data})
     |> outcome(:write, path, fn _body -> :ok end)
-  end
-
-  defp perform(s, {:encrypt, plaintext}) do
-    s.req
-    |> request(s.token, :post, "/v1/transit/encrypt/#{@transit_key}", %{
-      plaintext: Base.encode64(plaintext)
-    })
-    |> outcome(:encrypt, @transit_key, fn %{"data" => %{"ciphertext" => c}} -> {:ok, c} end)
-  end
-
-  defp perform(s, {:decrypt, ciphertext}) do
-    s.req
-    |> request(s.token, :post, "/v1/transit/decrypt/#{@transit_key}", %{ciphertext: ciphertext})
-    |> outcome(:decrypt, @transit_key, fn %{"data" => %{"plaintext" => p}} ->
-      {:ok, Base.decode64!(p)}
-    end)
   end
 
   defp perform(s, {:hmac, input}) do

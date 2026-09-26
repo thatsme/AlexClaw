@@ -11,7 +11,8 @@ defmodule AlexClaw.VaultTest do
     bootstrap mount) and holds the token in memory only;
   - it reads and writes only under `secret/alexclaw/`; anything else is
     refused BY OPENBAO (the policy), not by AlexClaw's own code;
-  - transit encrypts and decrypts with a key AlexClaw never holds;
+  - transit computes and checks HMACs with a key AlexClaw never holds; it
+    no longer encrypts or decrypts for AlexClaw (S8 M2: nothing needs it);
   - OpenBao unreachable, or presenting a certificate the configured CA did
     not sign, is `{:error, reason}` — never a crash, never a retry that hides it;
   - no value ever reaches a log;
@@ -55,17 +56,6 @@ defmodule AlexClaw.VaultTest do
       assert {:error, :forbidden} = Vault.write("other-app/secret", %{"x" => "y"})
     end
 
-    test "transit: a round trip, and a ciphertext that does not contain the value" do
-      assert {:ok, ciphertext} = Vault.encrypt(@value)
-      assert String.starts_with?(ciphertext, "vault:v")
-      refute ciphertext =~ @value
-      assert {:ok, @value} = Vault.decrypt(ciphertext)
-    end
-
-    test "transit: a ciphertext that was not made by OpenBao is refused" do
-      assert {:error, _} = Vault.decrypt("vault:v1:not-a-real-ciphertext")
-    end
-
     test "no value reaches the log" do
       p = path()
 
@@ -73,8 +63,6 @@ defmodule AlexClaw.VaultTest do
         capture_log(fn ->
           Vault.write(p, %{"password" => @value})
           Vault.read(p)
-          {:ok, c} = Vault.encrypt(@value)
-          Vault.decrypt(c)
         end)
 
       refute log =~ @value

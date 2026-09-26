@@ -242,8 +242,10 @@ defmodule AlexClaw.ControlPlane do
   defp wired(true), do: :ok
   defp wired(false), do: {:error, :not_wired}
 
-  defp verified(%Context{verified: true}), do: :ok
-  defp verified(%Context{}), do: {:error, :unverified_context}
+  defp verified(context), do: verified_context(Context.verified?(context))
+
+  defp verified_context(true), do: :ok
+  defp verified_context(false), do: {:error, :unverified_context}
 
   # A code is offered only to an action and entry point that call for one; it
   # is verified in the action's own transaction (`run/4`).

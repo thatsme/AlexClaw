@@ -2,6 +2,7 @@ defmodule AlexClaw.Application do
   @moduledoc "OTP application supervisor for AlexClaw."
   use Application
 
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Database.PrivilegeCheck
   alias AlexClaw.Secrets.Mask
 
@@ -15,6 +16,10 @@ defmodule AlexClaw.Application do
     # The content sanitizer's injection patterns, read once. Unreadable, the
     # start stops here rather than running with fewer defences than shipped.
     AlexClaw.ContentSanitizer.load_patterns!()
+
+    # The key control-plane contexts are sealed with, made for this start only
+    # (AlexClaw.ControlPlane.Context; S8 M5).
+    Context.init_key()
 
     # Every value resolved from OpenBao is masked in every log line, crash
     # reports included (AlexClaw.Secrets.Mask; S8 H1, H8). The table it reads

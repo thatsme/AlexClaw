@@ -600,7 +600,7 @@ module runs its body. The following protections are in place:
 - **One module per file** — the file's top level must be exactly one `defmodule` and nothing else. A file carrying a second module could previously replace a core module such as `AlexClaw.Auth.PolicyEngine` in the running VM, and a statement outside the module ran at compile time
 - **Namespace enforcement** — module must be `AlexClaw.Skills.Dynamic.*`, checked on the syntax tree before compiling
 - **No compile-time execution** — the module body is limited to `def`, `defp`, `@`, `alias`, `require` and `import`. Attributes must be literals or `~w`/`~s`/`~r` sigils; `@on_load`, `@after_compile`, `@before_compile`, `@on_definition`, `@compile`, `use`, and `unquote` are rejected
-- **Restricted compile-time dependencies** — `import` and `require` are limited to `Logger`, `AlexClaw.Skills.Helpers` and `SweetXml`, anywhere in the file. Both bring macros into scope, and a macro expands at compile time wherever it is called, including inside a function body
+- **Restricted compile-time dependencies** — `import` and `require` are limited to `Logger` and `AlexClaw.Skills.Helpers`, anywhere in the file. Both bring macros into scope, and a macro expands at compile time wherever it is called, including inside a function body
 - **Behaviour validation** — module must export `run/1`
 - **Permission sandbox** — skills declare permissions; `SkillAPI` enforces them at runtime. Undeclared permissions return `{:error, :permission_denied}`
 - **Privileged skills are unreachable from another skill** — `SkillAPI.run_skill/3` refuses `shell`, `coder`, `db_backup` and `web_automation` for every caller, dynamic or core, and logs the attempt as a denial. Those four are 2FA-gated at the dispatcher; called skill-to-skill they were not passing that gate, so the route is closed rather than gated
@@ -642,9 +642,10 @@ it lists the filesystem (`wildcard`) or reads the working and home directories
 a variable, `apply/2`, `apply/3`), `spawn`, `send`, atom creation from runtime
 data (`String.to_atom/1`, `List.to_atom/1`, `Jason.decode` with any `keys:` other
 than `:strings`), and any alias form that cannot be resolved statically
-(`alias ..., as:`, `A.{B, C}`). `SweetXml` is deliberately absent: it is
-macro-heavy and its parse options decide entity handling, which this checker
-cannot inspect — hand-written skills may still import it.
+(`alias ..., as:`, `A.{B, C}`). `SweetXml` is deliberately absent, as a call and as an import: once imported,
+its functions are local calls the checker does not see, and its parse options
+decide entity handling. A skill reads XML with `SkillAPI.parse_xml/2`, which
+refuses any document type or entity declaration and returns plain maps.
 
 **The permissions it declares are capped too.** Containment bounds which modules
 the code may call; it cannot bound what `SkillAPI` does on the skill's behalf,

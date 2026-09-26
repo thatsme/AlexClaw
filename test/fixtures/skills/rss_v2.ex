@@ -6,7 +6,6 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
   """
   @behaviour AlexClaw.Skill
 
-  import SweetXml
   alias AlexClaw.Skills.SkillAPI
 
   @max_items_to_score 20
@@ -150,24 +149,31 @@ defmodule AlexClaw.Skills.Dynamic.RssV2 do
   end
 
   defp parse_rss(feed_name, xml) when is_binary(xml) do
-    xml
-    |> xpath(~x"//item"l,
-      title: ~x"./title/text()"s,
-      link: ~x"./link/text()"s,
-      description: ~x"./description/text()"s,
-      pub_date: ~x"./pubDate/text()"s,
-      dc_date: ~x"./dc:date/text()"s
-    )
-    |> Enum.map(fn item ->
-      # Use dc:date as fallback when pubDate is empty (RSS 1.0 / RDF feeds like NIST NVD)
-      pub_date = if item.pub_date == "", do: item.dc_date, else: item.pub_date
-      item |> Map.put(:pub_date, pub_date) |> Map.delete(:dc_date) |> Map.put(:feed, feed_name)
-    end)
-  rescue
-    _ -> []
-  catch
-    :exit, _ -> []
+    case SkillAPI.parse_xml(__MODULE__, xml) do
+      {:ok, doc} -> doc |> items() |> Enum.map(&rss_item(&1, feed_name))
+      {:error, _} -> []
+    end
   end
+
+  defp items(%{name: "item"} = item), do: [item]
+  defp items(%{children: children}), do: Enum.flat_map(children, &items/1)
+
+  defp rss_item(%{children: children}, feed_name) do
+    field = fn name -> Enum.find_value(children, "", &text_of(&1, name)) end
+    # Use dc:date as fallback when pubDate is empty (RSS 1.0 / RDF feeds like NIST NVD)
+    pub_date = if field.("pubDate") == "", do: field.("dc:date"), else: field.("pubDate")
+
+    %{
+      title: field.("title"),
+      link: field.("link"),
+      description: field.("description"),
+      pub_date: pub_date,
+      feed: feed_name
+    }
+  end
+
+  defp text_of(%{name: name, text: text}, name), do: text
+  defp text_of(_child, _name), do: nil
 
   # --- Dedup ---
 

@@ -1146,7 +1146,10 @@ defmodule AlexClaw.Workflows.SkillRegistry do
   # import and require both bring a module's macros into scope, and a macro call
   # expands at compile time wherever it appears — including inside a function body.
   # So the target is checked across the whole file, not only the module body.
-  @allowed_compile_time_modules [Logger, AlexClaw.Skills.Helpers, SweetXml]
+  # SweetXml is not here: once imported, its functions are local calls the
+  # checker does not see, and its parse options decide entity handling. A
+  # skill reads XML through SkillAPI.parse_xml/2 (S9 fix review).
+  @allowed_compile_time_modules [Logger, AlexClaw.Skills.Helpers]
 
   defp validate_compile_time_deps(ast) do
     {_ast, errors} = Macro.prewalk(ast, [], &collect_dep_error/2)

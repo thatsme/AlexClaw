@@ -15,6 +15,7 @@ defmodule AlexClaw.Skills.SkillAPI do
   alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway.Router
   alias AlexClaw.Net.{Credentials, HostGuard}
+  alias AlexClaw.Skills.SafeXml
   alias AlexClaw.Workflows.SkillRegistry
 
   # A skill operates AlexClaw; it never authors it. Nothing here writes a
@@ -428,6 +429,16 @@ defmodule AlexClaw.Skills.SkillAPI do
 
   defp element({:ok, value}), do: value
   defp element({:exit, reason}), do: {:error, {:exit, reason}}
+
+  @doc """
+  `xml` as plain maps, `%{name:, attributes:, text:, children:}`, with no
+  entity resolved: a document that declares a document type or an entity is
+  `{:error, :doctype_refused}`, one that does not parse `{:error, :invalid_xml}`
+  (`AlexClaw.Skills.SafeXml`). The one way a contained skill reads XML.
+  """
+  @spec parse_xml(skill_mod(), String.t()) ::
+          {:ok, SafeXml.element()} | {:error, :doctype_refused | :invalid_xml}
+  def parse_xml(_skill_module, xml), do: SafeXml.parse(xml)
 
   @doc """
   A loaded module's documentation, as `Code.fetch_docs/1` returns it

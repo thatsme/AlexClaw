@@ -31,7 +31,7 @@ parse what comes back.
 
 ```elixir
 # Options: headers, params, json, form, body, receive_timeout, retry,
-# max_retries, retry_delay, redirect, max_redirects
+# max_retries, retry_delay, redirect, max_redirects, secret_headers
 {:ok, %Req.Response{body: body}} = SkillAPI.http_get(MySkill, "https://example.com")
 
 {:ok, response} = SkillAPI.http_post(MySkill, url, json: %{q: "search term"})
@@ -47,6 +47,23 @@ Any other option returns `{:error, :option_not_allowed}`: options such as
 host check lives in the transport. A URL whose host is internal (loopback,
 private, link-local, CGNAT) or does not resolve returns
 `{:error, :blocked_host}`, and the check is repeated on every redirect hop.
+
+`secret_headers` is the one place a credential is attached: a map of header
+name to a placeholder the step was given for one of its own secret config
+keys (`{{secret:NAME}}`, standing alone). Each header is set as the request is
+sent, and only if its host is the one the secret is bound to; otherwise the
+call returns `{:error, {:credential_refused, message}}`. A placeholder in the
+URL, in `headers` or in a body is sent as written.
+
+XML is read with `parse_xml/2`, which needs no permission. It refuses any
+document that declares a document type or an entity
+(`{:error, :doctype_refused}`), so nothing is expanded or fetched, and returns
+plain maps that pattern matching can walk:
+
+```elixir
+{:ok, %{name: "rss", children: [channel]}} = SkillAPI.parse_xml(MySkill, body)
+# each element: %{name: "item", attributes: %{"k" => "v"}, text: "…", children: [...]}
+```
 
 ## Memory Operations
 

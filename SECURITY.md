@@ -503,14 +503,20 @@ Automation step's inline recipe, including logins attached to a recording.
 - Moving a step or resource to another host while keeping the credential is
   refused. The credential has to be entered again for the new host.
 - A skill never holds the value. The step and its resources reach it with a
-  placeholder, `{{secret:NAME}}`, and the HTTP layer fills the placeholder as
-  the request is sent: resolved for the host the request actually goes to,
-  and only for a secret that step was given. A request whose URL, input or
-  redirect would take the credential to another host is refused, as is a
-  placeholder naming a secret the step was not given.
-- A request that carries a credential (a filled placeholder, or an LLM
-  provider's key and headers) is not followed across a redirect to another
-  host; the redirect is refused.
+  placeholder, `{{secret:NAME}}`. The HTTP layer attaches a value only in a
+  declared slot: a step's configured headers and its resource's auth header
+  (API Request), a step's own bot token (Telegram Notify), a header a skill
+  names in `:secret_headers` (`SkillAPI.http_request`), an LLM provider's key
+  and headers. No text is searched for placeholders: one in a URL, a body, a
+  message or a step's input is sent as written.
+- A slot is filled only for a secret the step was given, resolved for the
+  host the request actually goes to. A step is given its own secrets; a
+  resource's credential only to the skills that attach it in a slot (API
+  Request, Web Automation). A process running no step is given none. A
+  request whose URL, input or redirect would take the credential to another
+  host is refused, as is a slot naming a secret the step was not given.
+- A request that carries a credential is not followed across a redirect to
+  another host; the redirect is refused.
 - Run records, exports and MCP show a placeholder.
 - Deleting a step, workflow or resource deletes its secrets. Duplicating a
   workflow copies them.

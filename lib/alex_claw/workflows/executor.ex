@@ -454,13 +454,15 @@ defmodule AlexClaw.Workflows.Executor do
   end
 
   # The step's secret references, and its resources', as placeholders: the
-  # skill never holds a value. The names go with the run, so that only those
-  # placeholders are filled at send, each for the host its request goes to
-  # (AlexClaw.Net.Credentials).
+  # skill never holds a value. The names go with the run as its allow-list:
+  # only those are attached, in a declared slot, each for the host its request
+  # goes to (AlexClaw.Net.Credentials). A resource's credential is on it only
+  # for a skill that attaches it in a declared slot.
   defp with_secrets(:ok, step, args) do
     with {:ok, config, step_names} <- StepSecrets.for_skill(step.skill, args.config),
          {:ok, resources, resource_names} <- ResourceSecrets.for_skill_all(args.resources) do
-      {:ok, %{args | config: config, resources: resources}, step_names ++ resource_names}
+      {:ok, %{args | config: config, resources: resources},
+       step_names ++ ResourceSecrets.given_to(step.skill, resource_names)}
     end
   end
 

@@ -1,21 +1,28 @@
 defmodule AlexClaw.Net.Credentials do
   @moduledoc """
-  Attaches credentials to a request at send, for the host it actually goes
-  to (S8 H2, H3, H7; THREAT_MODEL P5).
+  Attaches credentials to a request at send, in declared slots only, for the
+  host it actually goes to (S8 H2, H3, H7; S9 fix review N1; THREAT_MODEL P5).
 
   A skill never holds a credential: its step config and its resources carry
   placeholders, `{{secret:NAME}}` (`AlexClaw.Secrets.Owned.placeholder/1`).
-  `attach/1` adds the last request step before the network, which fills each
-  placeholder in the URL, the headers and the body:
-    * only a placeholder the running step was given
-      (`AlexClaw.Auth.SafeExecutor.secret_allowed?/1`) — a skill naming
-      another secret is refused;
-    * resolved for `host:<the request's host>` — the binding is checked here,
-      at send, against where the request goes, whatever built its URL.
-  A request that carries a credential — filled here, or set by AlexClaw's own
-  code and marked with `guard_redirects/1` — is not followed to another host:
-  such a redirect is refused, whatever the header (Req strips only
-  `Authorization`).
+  No text is ever searched for them — a placeholder in a URL, a body, a
+  message or a step's input is sent as written. A value is attached only in a
+  slot the caller declares:
+
+    * `attach/2` — named request headers, each given a placeholder standing
+      alone (a step's configured headers and its resource's auth header in
+      `api_request`; a skill's `:secret_headers` in `SkillAPI.http_request/4`);
+    * `resolved/2` — one placeholder for one URL, where the API puts its
+      credential in the path (a `telegram_notify` step's own bot token).
+
+  Each is filled only if the running step was given that secret
+  (`AlexClaw.Auth.SafeExecutor.secret_allowed?/1`; a process with no
+  allow-list gets none) and is resolved for `host:<the request's host>`: the
+  binding is checked here, at send, against where the request goes, whatever
+  built its URL. A request that carries a credential — attached here, or set
+  by AlexClaw's own code and marked with `guard_redirects/2` — is not
+  followed to another host: such a redirect is refused, whatever the header
+  (Req strips only `Authorization`).
 
   A refusal is `AlexClaw.Net.Credentials.Refused`, which names the secret and
   the host, never a value.
@@ -36,13 +43,41 @@ defmodule AlexClaw.Net.Credentials do
       do: "credential #{name} refused for #{host}: #{inspect(reason)}"
   end
 
-  @doc "`request` with its placeholders filled at send, and its redirects guarded."
-  @spec attach(Req.Request.t()) :: Req.Request.t()
-  def attach(%Req.Request{} = request) do
+  @typedoc "Declared header slots: header name => a placeholder standing alone."
+  @type slots :: %{optional(String.t()) => String.t()} | [{String.t(), String.t()}]
+
+  @doc """
+  `request` with each header in `slots` set at send to the value its
+  placeholder stands for, and its redirects guarded. Nothing else in the
+  request is filled.
+  """
+  @spec attach(Req.Request.t(), slots()) :: Req.Request.t()
+  def attach(%Req.Request{} = request, slots \\ %{}) do
     request
+    |> Req.Request.put_private(:credential_slots, Enum.to_list(slots))
     |> Req.Request.append_request_steps(fill_credentials: &fill/1)
     |> guard_redirects()
   end
+
+  @doc """
+  The value `placeholder` stands for, for the host of `url`: for a credential
+  the API takes in the URL itself. The same checks as `attach/2`; a refusal
+  is `{:error, %Refused{}}`.
+  """
+  @spec resolved(String.t(), String.t()) :: {:ok, String.t()} | {:error, Exception.t()}
+  def resolved(placeholder, url) when is_binary(placeholder) and is_binary(url) do
+    host = URI.parse(url).host
+
+    placeholder
+    |> slot_name()
+    |> value_for(host)
+    |> resolved_as(host)
+  end
+
+  defp resolved_as({:ok, _value} = ok, _host), do: ok
+
+  defp resolved_as({:error, name, reason}, host),
+    do: {:error, %Refused{name: name, host: host, reason: reason}}
 
   @doc """
   `request` refusing a redirect to another host once it carries a credential.
@@ -59,66 +94,48 @@ defmodule AlexClaw.Net.Credentials do
   # --- request step ---
 
   defp fill(%Req.Request{} = request) do
-    request
-    |> placeholders()
-    |> filled(request)
-  end
-
-  defp placeholders(request) do
-    [URI.to_string(request.url), body_text(request.body) | header_values(request)]
-    |> Enum.flat_map(&Owned.placeholder_names/1)
-    |> Enum.uniq()
-  end
-
-  defp header_values(request),
-    do: for({_name, values} <- request.headers, value <- List.wrap(values), do: value)
-
-  defp body_text(body) when is_binary(body), do: body
-  defp body_text(body) when is_list(body), do: IO.iodata_to_binary(body)
-  defp body_text(_body), do: ""
-
-  defp filled([], request), do: request
-
-  defp filled(names, request) do
     host = request.url.host
 
-    names
-    |> Enum.reduce_while({:ok, %{}}, fn name, {:ok, values} ->
-      name |> value_for(host) |> collected(name, values)
+    request
+    |> Req.Request.get_private(:credential_slots, [])
+    |> Enum.reduce_while({:ok, []}, fn {header, placeholder}, {:ok, acc} ->
+      placeholder |> slot_name() |> value_for(host) |> collected(header, acc)
     end)
-    |> substituted(request, host)
+    |> filled(request, host)
   end
 
-  defp value_for(name, host), do: allowed(SafeExecutor.secret_allowed?(name), name, host)
+  # A slot holds a placeholder standing alone, or it is refused.
+  defp slot_name(placeholder), do: {placeholder, Owned.placeholder_name(placeholder)}
 
-  defp allowed(false, _name, _host), do: {:error, :not_given}
-  defp allowed(true, name, host), do: Secrets.resolve(name, for: "host:" <> to_string(host))
+  # The slot's text is not echoed: it is not a placeholder, so it may be anything.
+  defp value_for({_placeholder, nil}, _host), do: {:error, "(slot)", :not_a_placeholder}
 
-  defp collected({:ok, value}, name, values), do: {:cont, {:ok, Map.put(values, name, value)}}
-  defp collected({:error, reason}, name, _values), do: {:halt, {:error, name, reason}}
+  defp value_for({_placeholder, name}, host),
+    do: name |> SafeExecutor.secret_allowed?() |> allowed(name, host)
 
-  defp substituted({:error, name, reason}, request, host),
-    do: {request, %Refused{name: name, host: host, reason: reason}}
+  defp allowed(false, name, _host), do: {:error, name, :not_given}
 
-  defp substituted({:ok, values}, request, _host) do
-    fill_in = &Owned.fill_placeholders(&1, values)
+  defp allowed(true, name, host),
+    do: name |> Secrets.resolve(for: "host:" <> to_string(host)) |> named(name)
 
-    %{
-      request
-      | url: request.url |> URI.to_string() |> fill_in.() |> URI.parse(),
-        headers:
-          Map.new(request.headers, fn {k, vs} -> {k, Enum.map(List.wrap(vs), fill_in)} end),
-        body: filled_body(request.body, fill_in)
-    }
+  defp named({:ok, value}, _name), do: {:ok, value}
+  defp named({:error, reason}, name), do: {:error, name, reason}
+
+  defp collected({:ok, value}, header, acc), do: {:cont, {:ok, [{header, value} | acc]}}
+  defp collected({:error, name, reason}, _header, _acc), do: {:halt, {:error, name, reason}}
+
+  defp filled({:ok, []}, request, _host), do: request
+
+  defp filled({:ok, headers}, request, _host) do
+    headers
+    |> Enum.reduce(request, fn {header, value}, acc ->
+      Req.Request.put_header(acc, header, value)
+    end)
     |> Req.Request.put_private(:credentialed, true)
   end
 
-  defp filled_body(body, fill_in) when is_binary(body), do: fill_in.(body)
-
-  defp filled_body(body, fill_in) when is_list(body),
-    do: body |> IO.iodata_to_binary() |> fill_in.()
-
-  defp filled_body(body, _fill_in), do: body
+  defp filled({:error, name, reason}, request, host),
+    do: {request, %Refused{name: name, host: host, reason: reason}}
 
   # --- response step ---
 

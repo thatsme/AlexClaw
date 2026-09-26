@@ -45,7 +45,7 @@ defmodule AlexClaw.Auth.SafeExecutor do
     do: {:error, {:unavailable, Skill.unavailable_reason(module, skill_name(module))}}
 
   defp execute(true, module, args, :core, _token, opts),
-    do: as_skill(module, fn -> given(opts[:secrets], fn -> module.run(args) end) end)
+    do: as_skill(module, fn -> with_secrets(opts[:secrets] || [], fn -> module.run(args) end) end)
 
   defp execute(true, module, args, :dynamic, token, opts) do
     timeout = opts[:timeout] || @default_timeout
@@ -104,21 +104,27 @@ defmodule AlexClaw.Auth.SafeExecutor do
   defp restore_identity(previous), do: Process.put(@identity, previous)
 
   @doc """
-  Whether the running step was given a placeholder for the secret `name`
-  (`AlexClaw.Net.Credentials` fills only those). Code that is not running a
-  skill — the admin UI replaying a recording, AlexClaw's own calls — has no
-  such set, and is not limited by it.
+  Whether the running step was given the secret `name`
+  (`AlexClaw.Net.Credentials` and `AlexClaw.WebAutomation.Recording` attach
+  only those). A process with no allow-list gets none (S9 fix review N1): code
+  of AlexClaw's own that needs a secret by name states which, with
+  `with_secrets/2`.
   """
   @spec secret_allowed?(String.t()) :: boolean()
   def secret_allowed?(name), do: allowed?(Process.get(@secrets), name)
 
-  defp allowed?(nil, _name), do: true
+  defp allowed?(nil, _name), do: false
   defp allowed?(given, name), do: MapSet.member?(given, name)
 
-  # A core skill runs in the caller's process: its set is put in place for
-  # run/1 and the caller's put back after.
-  defp given(names, fun) do
-    previous = Process.put(@secrets, MapSet.new(names || []))
+  @doc """
+  Run `fun` with `names` as this process's allow-list, and put the previous
+  one back afterwards: for a core skill's run, and for AlexClaw's own code that
+  attaches secrets it names (the admin UI replaying a recording). Not
+  reachable from a skill: this module is outside the contained set.
+  """
+  @spec with_secrets([String.t()], (-> result)) :: result when result: term()
+  def with_secrets(names, fun) when is_list(names) and is_function(fun, 0) do
+    previous = Process.put(@secrets, MapSet.new(names))
 
     try do
       fun.()

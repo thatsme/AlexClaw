@@ -112,6 +112,7 @@ defmodule AlexClaw.Skills.ApiRequest do
   require Logger
 
   alias AlexClaw.Net.Credentials
+  alias AlexClaw.Secrets.Owned
 
   @methods %{
     "GET" => :get,
@@ -191,15 +192,17 @@ defmodule AlexClaw.Skills.ApiRequest do
   defp merge_auth_headers(config, _metadata), do: config
 
   # The request is built and sent through the step that attaches credentials
-  # at send (AlexClaw.Net.Credentials): the step's and its resource's are
-  # placeholders here, filled only for the host the request actually goes to.
-  defp execute_request(method, url, headers, body) do
+  # at send (AlexClaw.Net.Credentials). Its declared slots are the configured
+  # headers and the resource's auth header: each one whose value is a
+  # placeholder is filled there, for the host the request actually goes to,
+  # and nowhere else — the URL and the body, input included, are sent as written.
+  defp execute_request(method, url, {headers, slots}, body) do
     Logger.info("ApiRequest #{method} #{loggable(url)}", skill: :api_request)
 
     [method: Map.fetch!(@methods, method), url: url, headers: headers, receive_timeout: 30_000]
     |> Keyword.merge(body_opts(method, body))
     |> Req.new()
-    |> Credentials.attach()
+    |> Credentials.attach(slots)
     |> Req.request()
     |> request_result()
   end
@@ -268,13 +271,15 @@ defmodule AlexClaw.Skills.ApiRequest do
     |> String.replace("{input}", str)
   end
 
-  defp parse_headers(nil), do: []
-
+  # {plain headers, credential slots}: a header whose value is a placeholder
+  # is a slot, filled at send.
   defp parse_headers(headers) when is_map(headers) do
-    Enum.map(headers, fn {k, v} -> {to_string(k), to_string(v)} end)
+    headers
+    |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+    |> Enum.split_with(fn {_k, v} -> is_nil(Owned.placeholder_name(v)) end)
   end
 
-  defp parse_headers(_), do: []
+  defp parse_headers(_headers), do: {[], []}
 
   defp json_or_body(""), do: []
 

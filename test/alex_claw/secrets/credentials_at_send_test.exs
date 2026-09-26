@@ -155,7 +155,7 @@ defmodule AlexClaw.Secrets.CredentialsAtSendTest do
         def external, do: true
         @impl true
         def run(%{url: url, name: name}) do
-          AlexClaw.Skills.SkillAPI.http_get(__MODULE__, url, headers: [{"x-token", "{{secret:" <> name <> "}}"}])
+          AlexClaw.Skills.SkillAPI.http_get(__MODULE__, url, secret_headers: %{"x-token" => "{{secret:" <> name <> "}}"})
         end
       end
       """)

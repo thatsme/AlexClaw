@@ -233,9 +233,17 @@ defmodule AlexClaw.Skills.SkillAPI do
   ]
 
   @doc """
-  HTTP GET. Options: #{inspect(@http_options)}; any other option returns
-  `{:error, :option_not_allowed}`. A URL whose host is internal, or does not
-  resolve, returns `{:error, :blocked_host}` — on every redirect hop too.
+  HTTP GET. Options: #{inspect(@http_options)}, and `:secret_headers`; any
+  other option returns `{:error, :option_not_allowed}`. A URL whose host is
+  internal, or does not resolve, returns `{:error, :blocked_host}` — on every
+  redirect hop too.
+
+  `:secret_headers` (header name => a placeholder the step was given, standing
+  alone) is the one place a credential is attached: each header is set at
+  send to the secret's value, if the secret is bound to the request's host
+  (`AlexClaw.Net.Credentials`); otherwise the request is refused,
+  `{:error, {:credential_refused, message}}`. A placeholder anywhere else —
+  URL, `:headers`, body — is sent as written.
   """
   @spec http_get(skill_mod(), String.t(), keyword()) ::
           {:ok, Req.Response.t()} | {:error, http_error()}
@@ -250,6 +258,8 @@ defmodule AlexClaw.Skills.SkillAPI do
   @spec http_request(skill_mod(), atom(), String.t(), keyword()) ::
           {:ok, Req.Response.t()} | {:error, http_error()}
   def http_request(skill_module, method, url, opts \\ []) do
+    {slots, opts} = Keyword.pop(opts, :secret_headers, %{})
+
     with :ok <- check_permission(skill_module, :web_read),
          :ok <- check_http_options(opts) do
       [method: method, url: url]
@@ -257,7 +267,7 @@ defmodule AlexClaw.Skills.SkillAPI do
       |> Req.new()
       |> Req.Request.put_new_header("user-agent", @default_user_agent)
       |> HostGuard.attach()
-      |> Credentials.attach()
+      |> Credentials.attach(slots)
       |> Req.request()
       |> refusal_as_reason()
     end

@@ -7,7 +7,7 @@ defmodule AlexClaw.ControlPlane.Effects do
   nothing else calls these.
   """
 
-  alias AlexClaw.Auth.RunApproval
+  alias AlexClaw.Auth.{RunApproval, SafeExecutor}
   alias AlexClaw.Config.SecretUpgrade
   alias AlexClaw.Database.{DataExport, Dump, Restore}
   alias AlexClaw.Google.OAuth
@@ -139,10 +139,12 @@ defmodule AlexClaw.ControlPlane.Effects do
 
   def run(:record, %{url: url}), do: %{"url" => url} |> WebAutomation.record() |> played()
 
+  # The recording's own logins, and no other secret, are this replay's
+  # allow-list (AlexClaw.Auth.SafeExecutor.with_secrets/2).
   def run(:replay, %{resource_id: id}) do
     with {:ok, resource} <- Resources.get_resource(id),
          :ok <- automation(resource),
-         do: resource |> replay_config() |> WebAutomation.play([]) |> played()
+         do: resource |> replay_config() |> replayed() |> played()
   end
 
   # --- the Google connection: the authorisation is issued to one signed-in
@@ -218,6 +220,13 @@ defmodule AlexClaw.ControlPlane.Effects do
   defp automation(_resource), do: {:error, :not_an_automation}
 
   # A resource's own url fills in for a config that does not carry one.
+  defp replayed(config) do
+    config
+    |> Recording.references()
+    |> Map.values()
+    |> SafeExecutor.with_secrets(fn -> WebAutomation.play(config, []) end)
+  end
+
   defp replay_config(%{url: url, metadata: metadata}) when is_binary(url),
     do: fill_url(metadata || %{}, url)
 

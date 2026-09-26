@@ -67,14 +67,26 @@ defmodule AlexClaw.Gateway.Telegram do
   def deliver(chat_id, text, opts \\ []) do
     opts
     |> Keyword.get_lazy(:bot_token, &get_token/0)
+    |> bot_token()
     |> deliver_with(chat_id, text, Keyword.get(opts, :send_options, %{}))
   end
 
-  defp deliver_with(token, _chat_id, _text, _send_options) when token in [nil, ""],
+  # A step's own bot token reaches it as a placeholder: a declared slot, the
+  # token's place in the URL, resolved for the Bot API's host
+  # (AlexClaw.Net.Credentials), and only for a step given it.
+  defp bot_token("{{secret:" <> _ = placeholder),
+    do: Credentials.resolved(placeholder, api_url("", ""))
+
+  defp bot_token(token), do: {:ok, token}
+
+  defp deliver_with({:ok, token}, _chat_id, _text, _send_options) when token in [nil, ""],
     do: {:error, :telegram_not_configured}
 
-  defp deliver_with(token, chat_id, text, send_options),
+  defp deliver_with({:ok, token}, chat_id, text, send_options),
     do: do_send(token, chat_id, text, "HTML", send_options)
+
+  defp deliver_with({:error, refused}, _chat_id, _text, _send_options),
+    do: {:error, {:credential_refused, Exception.message(refused)}}
 
   @doc """
   The URL of a Bot API `method` for `token`. The base is the
@@ -343,12 +355,12 @@ defmodule AlexClaw.Gateway.Telegram do
     end
   end
 
-  # A step's own bot token reaches it as a placeholder; it is filled at send,
-  # only for the Bot API host it is bound to (AlexClaw.Net.Credentials).
+  # The token is in the URL: a redirect to another host would carry it
+  # (AlexClaw.Net.Credentials). Nothing in the message is ever filled.
   defp post_json(url, request) do
     [method: :post, url: url, json: request]
     |> Req.new()
-    |> Credentials.attach()
+    |> Credentials.guard_redirects(credentialed: true)
     |> Req.request()
   end
 

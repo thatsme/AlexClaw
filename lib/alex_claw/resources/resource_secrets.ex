@@ -11,13 +11,18 @@ defmodule AlexClaw.Resources.ResourceSecrets do
   ["base_url"]`) when there is one, as `api_request` uses it, else the
   resource's `url`. Moving the resource to another host with the credential
   kept is refused. At run time the skill gets a placeholder (`for_skill/1`); the
-  value is attached at send, for the host the request actually goes to
-  (`AlexClaw.Net.Credentials`).
+  value is attached at send, in the resource's auth header only, for the host
+  the request actually goes to (`AlexClaw.Net.Credentials`), and only for a
+  skill that attaches it there (`given_to/2`).
   """
   alias AlexClaw.Secrets.Owned
   alias AlexClaw.WebAutomation.Recording
 
   @path ["auth", "value"]
+
+  # The skills that attach a resource's secrets in a declared slot: the auth
+  # header (api_request), a recording's logins (web_automation).
+  @attached_by ~w(api_request web_automation)
 
   @doc "The credential fields of `metadata`, as path => value."
   @spec fields(map() | nil) :: %{Owned.path() => term()}
@@ -119,6 +124,15 @@ defmodule AlexClaw.Resources.ResourceSecrets do
 
   defp moved_for({:error, _path}, resource),
     do: {:error, {:secret, "resource #{resource.name}", :not_moved}}
+
+  @doc """
+  The resource secrets `names` a `skill` step may have attached: all of them
+  for a skill that attaches them in a declared slot (api_request's auth
+  header, web_automation's logins), none for any other (S9 fix review H3).
+  """
+  @spec given_to(String.t() | nil, [String.t()]) :: [String.t()]
+  def given_to(skill, names) when skill in @attached_by, do: names
+  def given_to(_skill, _names), do: []
 
   @doc "Every resource in `resources` as a skill is given it (`for_skill/1`), and all their secret names; the first failure stops."
   @spec for_skill_all([struct()] | nil) ::

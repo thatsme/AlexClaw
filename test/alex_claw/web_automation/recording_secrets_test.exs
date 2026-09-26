@@ -29,12 +29,19 @@ defmodule AlexClaw.WebAutomation.RecordingSecretsTest do
   @moduletag :integration
   @moduletag :vault
 
+  alias AlexClaw.Auth.SafeExecutor
   alias AlexClaw.{Secrets, Workflows}
+  alias AlexClaw.Skills.WebAutomation
   alias AlexClaw.WebAutomation.Recording
 
   @url "https://portal.example.com/login"
   @origin "origin:https://portal.example.com"
   @password "typed-password-#{System.unique_integer([:positive])}"
+
+  # A process has no secret unless it is given one (S9 fix review N1): the
+  # recipe's own logins, as the admin UI's replay grants them.
+  defp as_owner(recipe, fun),
+    do: SafeExecutor.with_secrets(Map.values(Recording.references(recipe)), fun)
 
   defp captured do
     [
@@ -80,7 +87,7 @@ defmodule AlexClaw.WebAutomation.RecordingSecretsTest do
       {:ok, recipe} = Recording.to_recipe(@url, captured())
       {:ok, recipe} = Recording.attach_login(recipe, "#pw", @password)
 
-      assert {:ok, resolved} = Recording.resolved(recipe)
+      assert {:ok, resolved} = as_owner(recipe, fn -> Recording.resolved(recipe) end)
       assert Enum.at(resolved["steps"], 1)["value"] == @password
       assert Enum.at(resolved["steps"], 0)["value"] == "alex"
     end
@@ -165,7 +172,7 @@ defmodule AlexClaw.WebAutomation.RecordingSecretsTest do
       {:ok, recipe} = Recording.attach_login(recipe, "#pw", @password)
 
       assert {:ok, _, :on_success} =
-               AlexClaw.Skills.WebAutomation.play(recipe, [], deadline_ms: 5_000)
+               as_owner(recipe, fn -> WebAutomation.play(recipe, [], deadline_ms: 5_000) end)
 
       assert_receive {:played, %{"config" => config}}
       assert Enum.at(config["steps"], 1)["value"] == @password
@@ -197,7 +204,7 @@ defmodule AlexClaw.WebAutomation.RecordingSecretsTest do
       {:ok, resource} = AlexClaw.Resources.get_resource(res_id)
       recipe = Map.take(resource.metadata, ["url", "steps"])
 
-      assert {:ok, resolved} = Recording.resolved(recipe)
+      assert {:ok, resolved} = as_owner(recipe, fn -> Recording.resolved(recipe) end)
       assert Enum.map(resolved["steps"], & &1["value"]) == ["alex", @password]
     end
   end

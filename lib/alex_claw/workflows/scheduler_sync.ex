@@ -22,6 +22,15 @@ defmodule AlexClaw.Workflows.SchedulerSync do
     GenServer.cast(__MODULE__, :sync)
   end
 
+  @doc """
+  What the scheduler's job for `workflow` runs: the workflow, as a run that
+  may run privileged steps — the scheduler is one of the two starters allowed
+  to (S8 M7; the other is the admin UI with a code).
+  """
+  @spec task_for(Workflow.t()) :: {module(), atom(), list()}
+  def task_for(%Workflow{id: id}),
+    do: {AlexClaw.Workflows.Executor, :run, [id, [privileged: true]]}
+
   # --- Callbacks ---
 
   @impl true
@@ -65,7 +74,7 @@ defmodule AlexClaw.Workflows.SchedulerSync do
             AlexClaw.Scheduler.new_job()
             |> Quantum.Job.set_name(job_name)
             |> Quantum.Job.set_schedule(cron)
-            |> Quantum.Job.set_task({AlexClaw.Workflows.Executor, :run, [workflow.id]})
+            |> Quantum.Job.set_task(task_for(workflow))
 
           AlexClaw.Scheduler.add_job(job)
 

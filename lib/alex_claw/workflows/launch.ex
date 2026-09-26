@@ -10,6 +10,7 @@ defmodule AlexClaw.Workflows.Launch do
   them, the other was a way around it.
   """
 
+  alias AlexClaw.Skills.Invoke
   alias AlexClaw.Workflows.Workflow
 
   @doc """
@@ -37,5 +38,13 @@ defmodule AlexClaw.Workflows.Launch do
   `Workflow.protected?/1`.
   """
   @spec needs_code?(Workflow.t()) :: boolean()
-  def needs_code?(%Workflow{} = workflow), do: Workflow.protected?(workflow)
+  def needs_code?(%Workflow{} = workflow),
+    do: Workflow.protected?(workflow) or privileged_step?(workflow.steps)
+
+  # A privileged step runs only in a run the admin UI starts with a code
+  # (or the scheduler): the page asks for one, as for a protected workflow.
+  defp privileged_step?(steps) when is_list(steps),
+    do: Enum.any?(steps, &(&1.skill in Invoke.privileged_skills()))
+
+  defp privileged_step?(_not_loaded), do: false
 end

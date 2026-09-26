@@ -53,13 +53,13 @@ defmodule AlexClaw.ControlPlane.Effects do
          do: start(workflow, params)
   end
 
-  def run(:run_protected_workflow, %{workflow_id: id}) do
+  def run(:run_protected_workflow, %{workflow_id: id} = params) do
     with {:ok, workflow} <- Workflows.get_workflow(id),
          :ok <- runnable(workflow) do
       approval = RunApproval.grant(id)
 
       Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
-        Executor.run(id, approval: approval)
+        Executor.run(id, approval: approval, privileged: Map.get(params, :privileged) == true)
       end)
 
       {:ok, {:started, workflow}}

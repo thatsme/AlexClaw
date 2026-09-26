@@ -215,7 +215,7 @@ defmodule AlexClaw.ControlPlane do
   """
   @spec perform(action(), map(), Context.t()) :: {:ok, term()} | {:error, term()}
   def perform(action, params, %Context{} = context) do
-    params = scoped(params, context)
+    params = scoped(params, action, context)
 
     case admitted(action, params, context) do
       {:ok, proven} -> run(Actions.kind(action), action, params, proven)
@@ -232,12 +232,23 @@ defmodule AlexClaw.ControlPlane do
          do: {:ok, proven}
   end
 
-  # A cluster request runs as coming from the node the context names — the
-  # verified caller — whatever the params say.
-  defp scoped(params, %Context{entry_point: :cluster, node: node}),
+  # Whether a run may run privileged steps is the entry point's, never the
+  # caller's to say (S8 M7): only the admin UI's code-approved run. A cluster
+  # request runs as coming from the node the context names — the verified
+  # caller — whatever the params say.
+  defp scoped(params, action, context) do
+    params
+    |> Map.put(:privileged, privileged_run?(action, context))
+    |> from_node(context)
+  end
+
+  defp privileged_run?(:run_protected_workflow, %Context{entry_point: :admin_ui}), do: true
+  defp privileged_run?(_action, _context), do: false
+
+  defp from_node(params, %Context{entry_point: :cluster, node: node}),
     do: Map.put(params, :from_node, node)
 
-  defp scoped(params, _context), do: params
+  defp from_node(params, _context), do: params
 
   defp wired(true), do: :ok
   defp wired(false), do: {:error, :not_wired}

@@ -17,9 +17,12 @@ defmodule AlexClaw.Workflows.Executor do
   alias AlexClaw.Resources.ResourceSecrets
   alias AlexClaw.Secrets.Mask
   alias AlexClaw.Skill
-  alias AlexClaw.Skills.CircuitBreaker
+  alias AlexClaw.Skills.{CircuitBreaker, Invoke}
   alias AlexClaw.Workflows
   alias AlexClaw.Workflows.{Registry, SkillRegistry, StepConfig, StepSecrets, Workflow}
+
+  # Whether the run in this process may run privileged steps (S8 M7).
+  @privileged_run :privileged_run
 
   @doc """
   Run a workflow by ID. Creates a run record and walks the step graph.
@@ -27,6 +30,11 @@ defmodule AlexClaw.Workflows.Executor do
   A workflow that requires 2FA runs only with `opts[:approval]`, a live
   `AlexClaw.Auth.RunApproval` for it, consumed here; otherwise
   `{:error, :approval_required}` and no run is created.
+
+  A privileged step (`AlexClaw.Skills.Invoke.privileged_skills/0`) runs only
+  in a run started with `opts[:privileged]` — by the scheduler, or by the
+  admin UI with a code (S8 M7); otherwise that step fails with
+  `{:privileged_step, skill}` and the skill does not run.
   """
   @spec run(integer(), keyword()) ::
           {:ok, AlexClaw.Workflows.WorkflowRun.t()}
@@ -72,6 +80,10 @@ defmodule AlexClaw.Workflows.Executor do
   defp launch(%Workflow{enabled: false}, _data, _opts), do: {:error, :workflow_disabled}
 
   defp launch(workflow, data, opts) do
+    # The run executes in this process: whether it may run privileged steps
+    # is set for it here, every time (S8 M7).
+    Process.put(@privileged_run, Keyword.get(opts, :privileged) == true)
+
     workflow
     |> approval(Keyword.get(opts, :approval))
     |> approved(workflow, data)
@@ -428,6 +440,9 @@ defmodule AlexClaw.Workflows.Executor do
     |> run_available(module, step, args)
   end
 
+  defp privileged_allowed?(skill),
+    do: skill not in Invoke.privileged_skills() or Process.get(@privileged_run) == true
+
   defp run_available(false, module, step, _args),
     do: {:error, {:unavailable, Skill.unavailable_reason(module, step.skill)}}
 
@@ -454,6 +469,16 @@ defmodule AlexClaw.Workflows.Executor do
   defp run_checked({:error, reason}, _module, _step), do: {:error, reason}
 
   defp run_checked({:ok, args, secrets}, module, step) do
+    step.skill
+    |> privileged_allowed?()
+    |> run_permitted({args, secrets}, module, step)
+  end
+
+  # Last before the skill runs: a step that is unavailable or misconfigured
+  # fails with that reason first (S8 M7).
+  defp run_permitted(false, _args, _module, step), do: {:error, {:privileged_step, step.skill}}
+
+  defp run_permitted(true, {args, secrets}, module, step) do
     skill_type = SkillRegistry.get_type(module) || :dynamic
     token = mint_step_token(module, skill_type)
     if token, do: Process.put(:auth_token, token)
@@ -517,7 +542,16 @@ defmodule AlexClaw.Workflows.Executor do
 
   # The fallback runs as any skill does: through SafeExecutor, with its own
   # token, and refused if it is not available.
-  defp run_fallback({:ok, fallback}, _fallback_name, args) do
+  defp run_fallback({:ok, fallback}, fallback_name, args) do
+    fallback_name
+    |> privileged_allowed?()
+    |> fallback_permitted(fallback, fallback_name, args)
+  end
+
+  defp fallback_permitted(false, _fallback, fallback_name, _args),
+    do: {:error, {:privileged_step, fallback_name}}
+
+  defp fallback_permitted(true, fallback, _fallback_name, args) do
     skill_type = SkillRegistry.get_type(fallback) || :dynamic
 
     fallback

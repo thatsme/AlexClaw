@@ -293,11 +293,20 @@ defmodule AlexClaw.Auth.AuditLog do
   @doc """
   Record an attempt to resolve a secret: its name, the destination asked for
   and the outcome. Allowed and refused alike, and never the value
-  (`AlexClaw.Secrets.resolve/2`).
+  (`AlexClaw.Secrets.resolve/2`). Written before the value is handed out, and
+  says whether it was: `{:error, reason}` when the row could not be written,
+  and the value then is not handed out (S8 M4).
   """
-  @spec log_secret_resolve(String.t(), String.t(), :ok | {:error, atom()}) :: :ok
-  def log_secret_resolve(name, destination, outcome) do
-    secret_entry("secret.resolve", outcome, "secret #{name} for #{destination}")
+  @spec record_secret_resolve(String.t(), String.t(), :ok | {:error, atom()}) ::
+          :ok | {:error, term()}
+  def record_secret_resolve(name, destination, outcome) do
+    {decision, what} = secret_decision(outcome, "secret #{name} for #{destination}")
+
+    "secret.resolve"
+    |> secret_row(decision, what)
+    |> Mask.mask()
+    |> stamp()
+    |> record()
   end
 
   @doc "Record an attempt to set a secret's value: its name and the outcome, never the value."
@@ -331,14 +340,37 @@ defmodule AlexClaw.Auth.AuditLog do
     secret_entry("secret.delete", outcome, "secret #{name}: deleted")
   end
 
-  defp secret_entry(permission, :ok, what) do
-    Logger.debug("#{what}: allowed", auth: :secrets)
-    insert_entry(secret_row(permission, "allow", what))
+  defp secret_entry(permission, outcome, what) do
+    {decision, reason} = secret_decision(outcome, what)
+    permission |> secret_row(decision, reason) |> insert_apart()
   end
 
-  defp secret_entry(permission, {:error, reason}, what) do
+  defp secret_decision(:ok, what) do
+    Logger.debug("#{what}: allowed", auth: :secrets)
+    {"allow", what}
+  end
+
+  defp secret_decision({:error, reason}, what) do
     Logger.warning("#{what}: refused (#{reason})", auth: :secrets)
-    insert_entry(secret_row(permission, "deny", "#{what} — refused: #{reason}"))
+    {"deny", "#{what} — refused: #{reason}"}
+  end
+
+  # A secret changes in OpenBao, which no rollback undoes; so its row must not
+  # be undone either. Inside a transaction it is written from a task, on a
+  # connection of its own (S8 M4); outside one, here.
+  defp insert_apart(attrs), do: insert_apart(attrs, Repo.in_transaction?())
+
+  defp insert_apart(attrs, false), do: insert_entry(attrs)
+
+  defp insert_apart(attrs, true) do
+    entry = attrs |> Mask.mask() |> stamp()
+
+    {:ok, _pid} =
+      Task.Supervisor.start_child(AlexClaw.TaskSupervisor, fn ->
+        entry |> write() |> kept(entry)
+      end)
+
+    :ok
   end
 
   defp secret_row(permission, decision, reason) do

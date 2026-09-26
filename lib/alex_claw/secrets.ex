@@ -26,6 +26,7 @@ defmodule AlexClaw.Secrets do
           | :no_value
           | :empty_value
           | :malformed_value
+          | :audit_failed
           | Vault.error()
 
   @topic "secrets"
@@ -166,9 +167,16 @@ defmodule AlexClaw.Secrets do
         read_value(name, vault(opts))
       end
 
-    AuditLog.log_secret_resolve(name, destination, outcome(result))
-    remembered(result)
+    name
+    |> AuditLog.record_secret_resolve(destination, outcome(result))
+    |> handed_out(result)
+    |> remembered()
   end
+
+  # A value is handed out only once its use is recorded (S8 M4).
+  defp handed_out(:ok, result), do: result
+  defp handed_out({:error, _reason}, {:ok, _value}), do: {:error, :audit_failed}
+  defp handed_out({:error, _reason}, refused), do: refused
 
   @doc """
   Whether OpenBao holds exactly `value` for the secret `name` — a read-back

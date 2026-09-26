@@ -284,14 +284,15 @@ defmodule AlexClaw.ControlPlane do
   defp run(:change, action, params, context) do
     reason = reason(action, params, context)
 
-    with {:ok, result} <-
-           transact(
-             fn -> audit(context, action, "write", reason) end,
-             fn -> Actions.run(action, params) end
-           ) do
-      Actions.after_commit(action, params, result, context)
-      {:ok, result}
-    end
+    committed(
+      transact(
+        fn -> audit(context, action, "write", reason) end,
+        fn -> Actions.run(action, params) end
+      ),
+      action,
+      params,
+      context
+    )
   end
 
   # An effect for a code: the code is checked first, then the row, then the
@@ -311,6 +312,23 @@ defmodule AlexClaw.ControlPlane do
       {:error, _reason} -> {:error, :audit_failed}
     end
   end
+
+  defp committed({:ok, result}, action, params, context) do
+    Actions.after_commit(action, params, result, context)
+    {:ok, result}
+  end
+
+  # The change and its row were rolled back together: what was refused, and
+  # why, is recorded now, on its own (S8 M4).
+  defp committed({:error, reason} = failed, action, params, context) do
+    deny(action, params, context, failed_reason(reason))
+    failed
+  end
+
+  defp failed_reason(%Ecto.Changeset{} = changeset),
+    do: "invalid: #{inspect(Ecto.Changeset.traverse_errors(changeset, &elem(&1, 0)))}"
+
+  defp failed_reason(reason), do: reason
 
   # The admin UI's code is the session's authenticator code (or, where the
   # action says so, the action's own check). A gateway's is the answer to the

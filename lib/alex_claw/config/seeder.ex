@@ -198,8 +198,10 @@ defmodule AlexClaw.Config.Seeder do
      "Maximum total LLM calls per reasoning session", false},
     {"reasoning.time_budget_seconds", "900", "integer", "reasoning",
      "Maximum wall-clock time in seconds (default 15 minutes)", false},
+    # No skill that writes to the user's accounts: the plan comes from a model
+    # reading fetched text (S9 fix review, M6).
     {"reasoning.skill_whitelist",
-     ~s(["web_search","web_fetch","web_search_fetch","research","llm_transform","google_calendar","google_tasks","rss_fetch"]),
+     ~s(["web_search","web_fetch","web_search_fetch","research","llm_transform","google_calendar","rss_fetch"]),
      "json", "reasoning", "Skills the reasoning loop may invoke (JSON array of skill names)",
      false},
     {"reasoning.stuck_threshold", "3", "integer", "reasoning",

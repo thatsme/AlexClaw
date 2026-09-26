@@ -288,6 +288,10 @@ defmodule AlexClaw.ControlPlane.Actions do
     Sessions.disconnect(socket_ids)
   end
 
+  # Disabled in the database as the code was checked; the cache and OpenBao
+  # follow only once that is committed (S8 M17).
+  def after_commit(:disable_second_factor, _params, _result, _context), do: TOTP.disabled()
+
   def after_commit(_action, _params, _result, _context), do: :ok
 
   @doc """

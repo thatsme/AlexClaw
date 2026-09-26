@@ -164,6 +164,7 @@ defmodule AlexClaw.Auth.TOTPEngineTest do
       secret = enrol()
 
       assert {:ok, :totp} = TOTP.disable_by(code(secret, -30))
+      :ok = TOTP.disabled()
       assert {:error, :not_found} = Vault.totp_key("admin")
       refute TOTP.enabled?()
     end

@@ -125,9 +125,17 @@ defmodule AlexClaw.Auth.TOTP do
     end
   end
 
-  @doc "Abandon an enrolment waiting for its first code: its key is deleted in OpenBao."
-  @spec cancel_setup() :: {:ok, :cancelled}
-  def cancel_setup do
+  @doc """
+  Abandon an enrolment waiting for its first code: its key is deleted in
+  OpenBao. Refused with `{:error, :already_enabled}` while 2FA is on: the key
+  then is the enabled factor's, whatever pending marker is left (S8 M9).
+  """
+  @spec cancel_setup() :: {:ok, :cancelled} | {:error, :already_enabled}
+  def cancel_setup, do: cancel_when(enabled?())
+
+  defp cancel_when(true), do: {:error, :already_enabled}
+
+  defp cancel_when(false) do
     cancelled(recorded(@pending_marker))
     {:ok, :cancelled}
   end
@@ -145,7 +153,7 @@ defmodule AlexClaw.Auth.TOTP do
   """
   @spec disable(String.t()) :: :ok | {:error, :invalid_code}
   def disable(code) do
-    with {:ok, _factor} <- disable_by(code), do: :ok
+    with {:ok, _factor} <- disable_by(code), do: disabled()
   end
 
   @doc """
@@ -154,15 +162,20 @@ defmodule AlexClaw.Auth.TOTP do
 
   The code is verified here — replay protection for an authenticator code, a
   recovery code spent — so no caller can turn the second factor off by
-  forgetting to check it. Turning it off deletes the key in OpenBao and wipes
-  every recovery code: with no second factor they unlock nothing.
+  forgetting to check it. Turning it off wipes every recovery code: with no
+  second factor they unlock nothing.
+
+  Only the database changes here, so that it can run in a transaction that may
+  still roll back (the control plane's, whose audit row comes after): a
+  rollback leaves 2FA on everywhere (S8 M17). Once committed, `disabled/0`
+  tells the cache and deletes the key in OpenBao.
   """
   @spec disable_by(String.t()) :: {:ok, :totp | :recovery_code} | {:error, :invalid_code}
   def disable_by(code) when is_binary(code) do
     code
     |> normalize()
     |> factor()
-    |> disabled()
+    |> disabled_in_database()
   end
 
   defp factor(code), do: authenticator_or_recovery(check(code), code)
@@ -173,20 +186,32 @@ defmodule AlexClaw.Auth.TOTP do
   defp recovery({:ok, _remaining}), do: {:ok, :recovery_code}
   defp recovery({:error, _reason}), do: {:error, :invalid_code}
 
-  defp disabled({:error, :invalid_code} = refused), do: refused
+  @disable_keys [@key_marker, @pending_marker, @legacy_secret, @last_used_key]
 
-  defp disabled({:ok, factor}) do
-    Config.set("auth.totp.enabled", "false",
-      type: "boolean",
-      category: "auth",
-      description: "2FA enabled"
-    )
+  defp disabled_in_database({:error, :invalid_code} = refused), do: refused
 
-    for key <- [@key_marker, @pending_marker, @legacy_secret, @last_used_key], do: unmark(key)
-    deleted_key(Vault.totp_delete(@key))
+  defp disabled_in_database({:ok, factor}) do
+    {:ok, _setting} =
+      Config.persist("auth.totp.enabled", "false",
+        type: "boolean",
+        category: "auth",
+        description: "2FA enabled"
+      )
+
+    for key <- @disable_keys, do: {:ok, _removed} = Config.remove(key)
     RecoveryCodes.discard()
     Logger.info("2FA disabled (#{factor})")
     {:ok, factor}
+  end
+
+  @doc """
+  What follows a disable once it is committed (`disable_by/1`): the cache is
+  told, and the key is deleted in OpenBao. Safe to repeat.
+  """
+  @spec disabled() :: :ok
+  def disabled do
+    Enum.each(["auth.totp.enabled" | @disable_keys], &Config.publish/1)
+    deleted_key(Vault.totp_delete(@key))
   end
 
   # The markers are gone, so nothing asks OpenBao for this key again; a key

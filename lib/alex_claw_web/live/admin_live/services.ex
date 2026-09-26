@@ -66,8 +66,7 @@ defmodule AlexClawWeb.AdminLive.Services do
   end
 
   def handle_event("cancel_2fa_setup", _params, socket) do
-    {:ok, _removed} = set_up_step(socket, %{step: :cancel})
-    {:noreply, assign(socket, totp_setup: nil, totp_message: nil)}
+    {:noreply, cancelled_setup(set_up_step(socket, %{step: :cancel}), socket)}
   end
 
   # Turning 2FA off is the one thing an elevation must never cover: a window
@@ -413,6 +412,12 @@ defmodule AlexClawWeb.AdminLive.Services do
         "Two-factor authentication is already on. Turn it off first to set it up again."
     )
   end
+
+  defp cancelled_setup({:ok, :cancelled}, socket),
+    do: assign(socket, totp_setup: nil, totp_message: nil)
+
+  # 2FA is on: there is no enrolment to cancel, and its key stays.
+  defp cancelled_setup({:error, :already_enabled} = refused, socket), do: set_up(refused, socket)
 
   defp disabled({:ok, :disabled}, socket) do
     {:ok, _closed} = Sessions.close_others(sid(socket), "two-factor authentication disabled")

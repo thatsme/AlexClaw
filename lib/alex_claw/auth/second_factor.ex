@@ -85,6 +85,16 @@ defmodule AlexClaw.Auth.SecondFactor do
   """
   @callback carry_over(keyword()) :: :imported | :none | {:error, term()}
 
+  @doc """
+  Turn the second factor off with no code, for when the admin has lost every
+  way to give one: reached only from the host (`make reset-2fa`, through
+  `AlexClaw.Release.reset_second_factor/0`). Removes what the factor holds,
+  its recovery codes included, and records the reset in the audit log.
+  """
+  @callback reset() :: :ok | {:error, term()}
+
+  @optional_callbacks reset: 0
+
   @doc "The configured implementation."
   @spec impl() :: module()
   def impl do

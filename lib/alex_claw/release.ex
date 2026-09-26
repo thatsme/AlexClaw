@@ -3,7 +3,7 @@ defmodule AlexClaw.Release do
   Release tasks for running migrations and seeding in production.
   Called from entrypoint.sh before the app starts.
   """
-  alias AlexClaw.Auth.TOTP
+  alias AlexClaw.Auth.SecondFactor
   alias AlexClaw.Database.Roles
 
   @app :alex_claw
@@ -81,7 +81,7 @@ defmodule AlexClaw.Release do
   warning. Anyone who can run it already has a shell on the host.
   """
   @spec reset_second_factor() :: :ok | {:error, term()}
-  def reset_second_factor, do: reset_said(TOTP.reset_by_operator())
+  def reset_second_factor, do: reset_said(SecondFactor.impl().reset())
 
   defp reset_said(:ok) do
     IO.puts("""

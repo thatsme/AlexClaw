@@ -42,6 +42,9 @@ defmodule AlexClaw.Auth.SecondFactor.Totp do
   @impl true
   def carry_over(opts), do: TOTP.import_legacy(opts)
 
+  @impl true
+  def reset, do: TOTP.reset_by_operator()
+
   defp accepted(:ok, _secret, _method), do: {:ok, :totp}
 
   # The authenticator cannot answer — OpenBao unreachable, or a key from

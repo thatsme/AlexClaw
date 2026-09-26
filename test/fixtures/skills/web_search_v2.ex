@@ -5,7 +5,8 @@ defmodule AlexClaw.Skills.Dynamic.WebSearchV2 do
   """
   @behaviour AlexClaw.Skill
 
-  alias AlexClaw.Skills.{Helpers, SkillAPI}
+  alias AlexClaw.Skills.Helpers
+  alias AlexClaw.Skills.SkillAPI
 
   @max_results 3
   @max_page_length 3_000

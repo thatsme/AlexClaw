@@ -5,7 +5,8 @@ defmodule AlexClaw.Skills.Dynamic.WebBrowseV2 do
   """
   @behaviour AlexClaw.Skill
 
-  alias AlexClaw.Skills.{Helpers, SkillAPI}
+  alias AlexClaw.Skills.Helpers
+  alias AlexClaw.Skills.SkillAPI
 
   @max_content_length 8_000
 

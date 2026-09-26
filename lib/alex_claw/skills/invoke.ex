@@ -20,10 +20,15 @@ defmodule AlexClaw.Skills.Invoke do
   @spec privileged_skills() :: [String.t()]
   def privileged_skills, do: @privileged_skills
 
-  @doc "Run the skill `skill_name` with `args` for `caller`: its `run/1` result."
-  @spec run(module(), String.t(), map()) ::
+  @doc """
+  Run the skill `skill_name` with `args` for `caller`: its `run/1` result.
+  `opts` go to `AlexClaw.Auth.SafeExecutor.run/5` (`timeout:`).
+  """
+  @spec run(module(), String.t(), map(), keyword()) ::
           {:ok, term()} | {:ok, term(), atom()} | {:error, term()}
-  def run(caller, skill_name, _args) when skill_name in @privileged_skills do
+  def run(caller, skill_name, args, opts \\ [])
+
+  def run(caller, skill_name, _args, _opts) when skill_name in @privileged_skills do
     AuditLog.log_deny(
       AuthContext.build(caller, :skill_invoke, SkillRegistry.get_permissions(caller)),
       "cross-skill invocation of privileged skill '#{skill_name}'"
@@ -32,21 +37,21 @@ defmodule AlexClaw.Skills.Invoke do
     {:error, :privileged_skill}
   end
 
-  def run(_caller, skill_name, args),
-    do: skill_name |> SkillRegistry.resolve() |> invoke(skill_name, args)
+  def run(_caller, skill_name, args, opts),
+    do: skill_name |> SkillRegistry.resolve() |> invoke(skill_name, args, opts)
 
   @doc "Run the privileged skill `skill_name` with `args` (`:run_privileged_skill`)."
   @spec run_privileged(String.t(), map()) ::
           {:ok, term()} | {:ok, term(), atom()} | {:error, term()}
   def run_privileged(skill_name, args) when skill_name in @privileged_skills,
-    do: skill_name |> SkillRegistry.resolve() |> invoke(skill_name, args)
+    do: skill_name |> SkillRegistry.resolve() |> invoke(skill_name, args, [])
 
   def run_privileged(_skill_name, _args), do: {:error, :not_privileged}
 
-  defp invoke({:error, :unknown_skill}, skill_name, _args),
+  defp invoke({:error, :unknown_skill}, skill_name, _args, _opts),
     do: {:error, {:unknown_skill, skill_name}}
 
-  defp invoke({:ok, target_module}, _skill_name, args) do
+  defp invoke({:ok, target_module}, _skill_name, args, opts) do
     depth = Process.get(:auth_chain_depth, 0)
     Process.put(:auth_chain_depth, depth + 1)
 
@@ -60,7 +65,7 @@ defmodule AlexClaw.Skills.Invoke do
         args,
         SkillRegistry.get_type(target_module) || :dynamic,
         Process.get(:auth_token),
-        []
+        opts
       )
     after
       Process.put(:auth_chain_depth, depth)

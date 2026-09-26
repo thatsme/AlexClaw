@@ -1,13 +1,19 @@
 defmodule AlexClaw.Reasoning.SkillExecutor do
   @moduledoc """
-  Executes skills within the reasoning loop, following the same security path
-  as the workflow executor: whitelist → resolve → token → execute → sanitize.
+  Executes skills within the reasoning loop: whitelist → resolve → token →
+  the control plane's door → sanitize.
+
+  The model chooses the skill and the whitelist narrows the choice; the run
+  itself is `:run_skill`, performed through `AlexClaw.ControlPlane.perform/3`
+  as the system (S8 M6): it is audited like any other, and a privileged skill
+  is refused there (`AlexClaw.Skills.Invoke`), whitelisted or not.
   """
 
   require Logger
 
-  alias AlexClaw.Auth.{CapabilityToken, SafeExecutor}
-  alias AlexClaw.ContentSanitizer
+  alias AlexClaw.Auth.CapabilityToken
+  alias AlexClaw.{ContentSanitizer, ControlPlane}
+  alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Workflows.SkillRegistry
 
@@ -23,14 +29,12 @@ defmodule AlexClaw.Reasoning.SkillExecutor do
       Process.put(:auth_chain_depth, 0)
       if token, do: Process.put(:auth_token, token)
 
-      safe_opts = [timeout: timeout]
+      params = %{caller: __MODULE__, skill: skill_name, args: args, opts: [timeout: timeout]}
 
-      result =
-        CircuitBreaker.call(skill_name, fn ->
-          SafeExecutor.run(module, args, skill_type, token, safe_opts)
-        end)
-
-      result
+      skill_name
+      |> CircuitBreaker.call(fn ->
+        ControlPlane.perform(:run_skill, params, Context.system("reasoning"))
+      end)
       |> normalize_result()
       |> maybe_sanitize(skill_name)
       |> extract_text()

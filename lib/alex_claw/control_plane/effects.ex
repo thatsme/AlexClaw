@@ -66,8 +66,8 @@ defmodule AlexClaw.ControlPlane.Effects do
     end
   end
 
-  def run(:run_skill, %{caller: caller, skill: skill, args: args}),
-    do: Invoke.run(caller, skill, args)
+  def run(:run_skill, %{caller: caller, skill: skill, args: args} = params),
+    do: Invoke.run(caller, skill, args, Map.get(params, :opts, []))
 
   def run(:run_privileged_skill, %{skill: skill, args: args}),
     do: Invoke.run_privileged(skill, args)

@@ -91,9 +91,10 @@ defmodule AlexClaw.Database.DataExport do
     {"SELECT #{fields} FROM #{DataSet.quote_name(table)}" <> where <> order_by(order), params}
   end
 
-  # The admin's identity is never exported: a restore would not use it.
+  # The rows that protect this installation are never exported: a restore
+  # would not use them (DataSet.kept_setting?/1).
   defp without_identity("settings") do
-    {condition, params} = DataSet.identity_settings()
+    {condition, params} = DataSet.kept_settings()
     {" WHERE NOT " <> condition, params}
   end
 

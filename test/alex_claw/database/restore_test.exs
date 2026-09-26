@@ -461,7 +461,7 @@ defmodule AlexClaw.Database.RestoreTest do
 
   test "the exported tables leave out the audit log, the sign-ins, the recovery codes and the migrator's" do
     assert Enum.sort(DataSet.excluded()) ==
-             ~w(admin_sessions auth_audit_log auth_recovery_codes schema_migrations)
+             ~w(admin_sessions auth_audit_log auth_policies auth_recovery_codes schema_migrations secrets)
 
     refute Enum.any?(DataSet.excluded(), &(&1 in DataSet.tables()))
     assert Map.keys(export()["tables"]) |> Enum.sort() == Enum.sort(DataSet.tables())

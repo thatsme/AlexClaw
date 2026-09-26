@@ -9,11 +9,13 @@ defmodule AlexClaw.Database.Restore do
   the tables, their columns and their types come from the live catalog, and a
   file that disagrees with it is refused before anything changes.
 
-  The audit log, the logins, the recovery codes and the migrator's
-  bookkeeping are never touched — see `AlexClaw.Database.DataSet`. Nor is the
-  admin's identity in `settings` (the password's hash, the second factor's
-  state): a restore keeps this installation's, skips the file's copies, and
-  its result says so. Every other table is emptied and refilled from the
+  The audit log, the logins, the recovery codes, the secret catalogue, the
+  authorisation policies and the migrator's bookkeeping are never touched —
+  see `AlexClaw.Database.DataSet`. Nor are the settings that protect this
+  installation (the admin's identity, the login protection, the gateway
+  owners): a restore keeps this installation's, skips the file's copies, and
+  its result says so. Once it is done, every other admin session is signed
+  out and the cached settings and policies are read again. Every other table is emptied and refilled from the
   file in one transaction, so a restore that fails part-way leaves the data
   as it was. Sequences are set past the restored rows.
 
@@ -25,14 +27,16 @@ defmodule AlexClaw.Database.Restore do
   is refused whole, before anything is written: since 0.4.0 nothing decrypts
   such a value outside the boot upgrade, so it is restored into 0.3.x and
   upgraded. Every reference a step or resource holds
-  to a secret must name one the file's catalogue (`secrets`) holds, or the
-  file is refused, naming the table and the secret.
+  to a secret must name one this installation's catalogue (`secrets`) holds,
+  or the file is refused, naming the table and the secret: the file never
+  says where a secret may be sent.
 
   A full backup, schema and audit log included, is restored by an operator
   with the database owner's credentials; see the upgrade guide.
   """
 
-  alias AlexClaw.Auth.{AuditLog, Principal}
+  alias AlexClaw.Auth.{AuditLog, PolicyEngine, Principal, Sessions}
+  alias AlexClaw.Config
   alias AlexClaw.Database.{DataExport, DataSet}
   alias AlexClaw.Repo
   alias AlexClaw.Resources.ResourceSecrets
@@ -78,8 +82,19 @@ defmodule AlexClaw.Database.Restore do
     result = path |> read() |> loaded()
     discard(path)
     AuditLog.record_admin_outcome(session, "#{detail} — #{message(result)}", Principal.current())
-    result
+    settled(result, session)
   end
+
+  # The data changed under every page and cache: the other sessions are signed
+  # out, and what is cached is read again.
+  defp settled({:ok, _message} = done, session) do
+    {:ok, _closed} = Sessions.close_others_than(session, "database restored")
+    Config.reload()
+    PolicyEngine.reload_policies()
+    done
+  end
+
+  defp settled(failed, _session), do: failed
 
   defp restore({:error, _reason}, path, _session, _detail) do
     discard(path)
@@ -123,7 +138,9 @@ defmodule AlexClaw.Database.Restore do
 
   defp kept(0),
     do:
-      "Kept from this installation, not restored: the admin password, the second factor and the recovery codes."
+      "Kept from this installation, not restored: the admin password, the second factor, " <>
+        "the recovery codes, the login protection, the gateway owners, the secret catalogue " <>
+        "and the authorisation policies."
 
   defp kept(skipped),
     do: kept(0) <> " The file's copies (#{skipped} rows) were skipped."
@@ -295,11 +312,11 @@ defmodule AlexClaw.Database.Restore do
   # --- Secret references ---
 
   # A step or resource holds references to secrets (AlexClaw.Secrets.Owned);
-  # the restore replaces the catalogue with the file's. A reference to a name
-  # the file's catalogue does not hold would never resolve: refused, naming
-  # the table and the secret.
+  # the restore keeps this installation's catalogue. A reference to a name it
+  # does not hold would never resolve: refused, naming the table and the secret.
   defp references_known(plan) do
-    catalogue = MapSet.new(column_values(plan, "secrets", "name"))
+    %{rows: rows} = Repo.query!("SELECT name FROM secrets")
+    catalogue = rows |> List.flatten() |> MapSet.new()
 
     plan
     |> Enum.flat_map(&references/1)
@@ -310,9 +327,7 @@ defmodule AlexClaw.Database.Restore do
   defp unknown_reference(nil), do: :ok
 
   defp unknown_reference({table, name}),
-    do:
-      {:error,
-       "#{table}: references the secret #{name}, which the export's catalogue does not hold"}
+    do: {:error, "#{table}: references the secret #{name}, which this installation does not hold"}
 
   defp references({"workflow_steps" = table, live, rows}) do
     for row <- rows,
@@ -366,7 +381,7 @@ defmodule AlexClaw.Database.Restore do
     end)
   end
 
-  defp identity_row?(live, row), do: DataSet.identity_setting?(row_map(live, row)["key"])
+  defp identity_row?(live, row), do: DataSet.kept_setting?(row_map(live, row)["key"])
 
   defp skipped_rows(tables, skipped) do
     tables
@@ -393,10 +408,10 @@ defmodule AlexClaw.Database.Restore do
     count
   end
 
-  # Every setting goes but the admin's identity, which is kept, its rows moved
-  # past the file's ids so none of the file's collides with one of them.
+  # Every setting goes but the kept ones (DataSet.kept_setting?/1), their rows
+  # moved past the file's ids so none of the file's collides with one of them.
   defp clear_settings(plan) do
-    {identity, params} = DataSet.identity_settings()
+    {identity, params} = DataSet.kept_settings()
     Repo.query!("DELETE FROM settings WHERE NOT " <> identity, params)
     Repo.query!("UPDATE settings SET id = id + $1", [highest_id(plan)])
   end

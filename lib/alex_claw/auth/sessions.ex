@@ -30,7 +30,7 @@ defmodule AlexClaw.Auth.Sessions do
 
   import Ecto.Query
 
-  alias AlexClaw.Auth.{AdminPassword, AdminSession}
+  alias AlexClaw.Auth.{AdminPassword, AdminSession, Principal}
   alias AlexClaw.{ControlPlane, Repo}
 
   @max_age_seconds 8 * 60 * 60
@@ -113,6 +113,24 @@ defmodule AlexClaw.Auth.Sessions do
   end
 
   @doc """
+  End every login except the one whose fingerprint is `print`
+  (`AlexClaw.Auth.Elevation.fingerprint/1`), for work that knows its session
+  only by fingerprint (a restore). Recorded as an outcome of `reason`.
+  """
+  @spec close_others_than(String.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def close_others_than(print, reason) when is_binary(print) do
+    requester = %{session: print, principal: Principal.current()}
+
+    with {:ok, socket_ids} <-
+           ControlPlane.outcome_for(requester, "other admin sessions signed out: #{reason}", fn ->
+             remove(others_than(print))
+           end) do
+      disconnect(socket_ids)
+      {:ok, length(socket_ids)}
+    end
+  end
+
+  @doc """
   Delete every login and answer the socket ids of their pages. The database
   only: for use inside `ControlPlane.gated/4`, with `disconnect/1` after commit.
   """
@@ -167,6 +185,12 @@ defmodule AlexClaw.Auth.Sessions do
   end
 
   # --- Internals ---
+
+  defp others_than(print),
+    do:
+      from(s in AdminSession,
+        where: fragment("left(encode(?, 'hex'), 16)", s.token_hash) != ^print
+      )
 
   defp others(nil), do: AdminSession
   defp others(keep), do: from(s in AdminSession, where: s.token_hash != ^hash(keep))

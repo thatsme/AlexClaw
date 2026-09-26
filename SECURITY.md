@@ -86,10 +86,15 @@ the application, and the values are inserted through parameterised queries,
 each cast to its column's type. Table names, column names and types come from
 the live database, never from the file, and a file that disagrees with the
 schema in any way is refused before anything changes. The audit log and the
-current sign-ins are never touched, and neither is the admin's identity: the
-password's hash, the second factor and the recovery codes are kept from the
+current sign-ins are never touched, and neither is what protects the
+installation: the admin's identity (the password's hash, the second factor,
+the recovery codes), the login protection (`auth.rate_limit.*`,
+`auth.trust_proxy_headers`), the gateway owners, the secrets catalogue — where
+each secret may be sent — and the authorisation policies are kept from the
 running installation, whatever the file holds, and the result says so. An
-export does not carry them. A full restore — schema and audit log
+export does not carry them. A step or resource in the file may reference only
+a secret the installation holds. Once a restore is done, every other admin
+session is signed out and cached settings and policies are read again. A full restore — schema and audit log
 included — is an operator step with the database owner's credentials (see
 [Database Backups](#database-backups)).
 
@@ -580,8 +585,8 @@ one of whose underscore-separated parts is `token`, `key`, `apikey`,
 dynamic skill that does not is refused at load. Seeded cloud providers read
 their key from its setting rather than holding a copy.
 
-**Export Data** carries no credential: the file holds references and the
-secrets catalogue (names and bindings), never a value. A restore refuses a
+**Export Data** carries no credential: the file holds references, never a
+value, and not the secrets catalogue, which a restore keeps. A restore refuses a
 file holding values 0.3.x encrypted: such a file is restored into 0.3.x and
 upgraded.
 

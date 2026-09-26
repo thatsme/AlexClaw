@@ -53,6 +53,16 @@ defmodule AlexClaw.Config do
     load_all_into_ets()
   end
 
+  @doc """
+  Read every setting again into the cache, dropping what the database no
+  longer holds: after the data was replaced under it (a restore).
+  """
+  @spec reload() :: :ok
+  def reload do
+    :ets.delete_all_objects(@table)
+    load_all_into_ets()
+  end
+
   defp load_all_into_ets do
     case Repo.all(Setting) do
       entries when is_list(entries) ->

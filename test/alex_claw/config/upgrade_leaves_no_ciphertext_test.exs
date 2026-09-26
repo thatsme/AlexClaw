@@ -31,6 +31,11 @@ defmodule AlexClaw.Config.UpgradeLeavesNoCiphertextTest do
   alias AlexClaw.{Secrets, Workflows}
   alias AlexClawTest.Legacy
 
+  # OpenBao keeps what earlier tests stored; the upgrade never overwrites it.
+  setup do
+    Legacy.clear_declared_secrets()
+  end
+
   defp ciphertext_left do
     [
       "SELECT count(*) FROM settings WHERE value LIKE 'enc:%'",
@@ -131,10 +136,12 @@ defmodule AlexClaw.Config.UpgradeLeavesNoCiphertextTest do
       Legacy.insert_setting("custom.service_token", "tok-custom", encrypted: true)
 
       assert {:ok, report} = SecretUpgrade.run()
-      assert report.custom_moved == [{"custom.service_token", "setting_custom_service_token"}]
 
-      assert %{binding: ["inbound:carried_over"]} = Secrets.get("setting_custom_service_token")
-      assert Secrets.value_matches?("setting_custom_service_token", "tok-custom")
+      assert [{"custom.service_token", "parked_custom_service_token_" <> _ = parked}] =
+               report.custom_moved
+
+      assert %{binding: ["inbound:carried_over"]} = Secrets.get(parked)
+      assert Secrets.value_matches?(parked, "tok-custom")
       assert setting_value("custom.service_token") == ""
     end
 

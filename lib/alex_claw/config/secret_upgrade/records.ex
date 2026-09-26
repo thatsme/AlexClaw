@@ -115,7 +115,8 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
   # The key and every header value, each bound to the provider's host; the row
   # gets references in `credentials`, and the legacy columns are emptied.
   defp move({:provider, id, type, host, api_key, headers}, opts) do
-    with {:ok, api_key} <- Legacy03.decrypt(api_key),
+    with :ok <- not_reentered(id),
+         {:ok, api_key} <- Legacy03.decrypt(api_key),
          {:ok, headers} <- Legacy03.decrypt_all(headers) do
       %{["api_key"] => api_key}
       |> Map.merge(Map.new(headers, fn {name, value} -> {["headers", name], value} end))
@@ -124,6 +125,22 @@ defmodule AlexClaw.Config.SecretUpgrade.Records do
       |> provider_rewritten(id)
     end
   end
+
+  # Credentials entered in 0.4.0 (after a first start that could not reach
+  # OpenBao) are kept: the 0.3.x key is not moved over them (S8 H6). Its
+  # columns stay as they were, and the conflict is reported.
+  defp not_reentered(id) do
+    %{rows: [[credentials]]} =
+      Repo.query!("SELECT credentials FROM llm_providers WHERE id = $1", [id])
+
+    credentials
+    |> ProviderSecrets.references()
+    |> Map.values()
+    |> reentered()
+  end
+
+  defp reentered([]), do: :ok
+  defp reentered(names), do: {:error, {:conflict, Enum.join(Enum.sort(names), ", ")}}
 
   defp resource_parts(metadata, url) do
     [

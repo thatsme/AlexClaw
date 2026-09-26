@@ -516,7 +516,12 @@ the first start, before the gateways:
 - each value is stored in OpenBao, read back and compared, and only then
   removed from its row;
 - a value that cannot be moved stays where it was and is tried again at the
-  next start.
+  next start;
+- a value already in OpenBao is never overwritten: when the secret a 0.3.x
+  value would move to holds another value, entered since (after a first start
+  that could not reach OpenBao), that value is kept, the 0.3.x row is left as
+  it was, and the conflict is logged by name. An LLM provider whose
+  credentials were entered again in 0.4.0 keeps them the same way.
 
 ## Encryption at Rest
 
@@ -546,7 +551,9 @@ credential is moved into OpenBao (read back and compared before its row is
 changed); the MCP key's fingerprint and the admin password's hash go back to
 their plain form; a setting the admin had added and marked sensitive is moved
 into OpenBao as a parked secret, sent nowhere, and named in the log to be
-declared or deleted. `SECRET_KEY_BASE` must not change until that first start
+declared or deleted. Parked secrets have their own names (`parked_…`, one per
+setting), so a parked setting never replaces a declared secret or another
+parked one. `SECRET_KEY_BASE` must not change until that first start
 has run. A value that cannot be moved stays in its row, is never used — a step
 or resource holding one refuses to run — and is tried again at the next start.
 

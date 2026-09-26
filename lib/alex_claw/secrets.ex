@@ -87,6 +87,26 @@ defmodule AlexClaw.Secrets do
   def list, do: Repo.all(from(s in Secret, order_by: s.name))
 
   @doc """
+  Set the value of the secret `name` only if it holds none yet: what moves a
+  value that was stored elsewhere (the 0.4.0 upgrade), which must never
+  replace one entered since. The same value already there is `:ok`; another
+  one is `{:error, :conflict}`, and nothing is written.
+
+  Options: `vault:` — the `AlexClaw.Vault` server to use.
+  """
+  @spec put_new_value(String.t(), String.t(), keyword()) :: :ok | {:error, :conflict | error()}
+  def put_new_value(name, value, opts \\ []) when is_binary(name) and is_binary(value) do
+    name
+    |> value_matches?(value, opts)
+    |> put_unless_other(name, value, opts)
+  end
+
+  defp put_unless_other(true, _name, _value, _opts), do: :ok
+  defp put_unless_other(false, _name, _value, _opts), do: {:error, :conflict}
+  defp put_unless_other({:error, :no_value}, name, value, opts), do: put_value(name, value, opts)
+  defp put_unless_other({:error, _reason} = error, _name, _value, _opts), do: error
+
+  @doc """
   Set the value of the secret `name` in OpenBao, and stamp `rotated_at`.
 
   Options: `vault:` — the `AlexClaw.Vault` server to use.

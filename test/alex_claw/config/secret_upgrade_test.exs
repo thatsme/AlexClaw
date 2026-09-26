@@ -28,6 +28,11 @@ defmodule AlexClaw.Config.SecretUpgradeTest do
   alias AlexClaw.Config.SecretUpgrade
   alias AlexClawTest.Legacy
 
+  # OpenBao keeps what earlier tests stored; the upgrade never overwrites it.
+  setup do
+    Legacy.clear_declared_secrets()
+  end
+
   @token "123456-legacy-token-#{System.unique_integer([:positive])}"
 
   defp db_value(key) do

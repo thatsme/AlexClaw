@@ -103,6 +103,21 @@ defmodule AlexClaw.Config.SecretSettings do
          do: Secrets.put_value(name, value, opts)
   end
 
+  @doc """
+  Store `value` as the secret behind `key` only if it holds none yet
+  (`AlexClaw.Secrets.put_new_value/3`): what the 0.4.0 upgrade moves, which
+  never replaces a value entered since. Another value there is
+  `{:error, :conflict}`.
+  """
+  @spec store_new(String.t(), String.t(), keyword()) ::
+          :ok | {:error, :conflict | Ecto.Changeset.t() | Secrets.error()}
+  def store_new(key, value, opts \\ []) do
+    name = secret_name(key)
+
+    with :ok <- catalogued(Secrets.get(name), key, name),
+         do: Secrets.put_new_value(name, value, opts)
+  end
+
   defp catalogued(nil, key, name) do
     %{name: name, description: "The #{key} setting", kind: kind(key), binding: bindings_for(key)}
     |> Secrets.define()

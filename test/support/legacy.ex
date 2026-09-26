@@ -22,8 +22,9 @@ defmodule AlexClawTest.Legacy do
   Since 0.4.0 (S7) the application holds no code that encrypts, so the seal
   is written out here, as 0.3.x's `AlexClaw.Config.Crypto` did it.
   """
-  alias AlexClaw.Config.Setting
+  alias AlexClaw.Config.{SecretSettings, Setting}
   alias AlexClaw.Repo
+  alias AlexClaw.Vault
 
   # The secret keys 0.3.x sealed in a step config.
   @step_secret_keys ["headers", "bot_token"]
@@ -182,6 +183,20 @@ defmodule AlexClawTest.Legacy do
 
     {1, [%{id: id}]} = Repo.insert_all("llm_providers", [row], returning: [:id])
     id
+  end
+
+  @doc """
+  Clear OpenBao's value for every declared secret setting. OpenBao is not
+  rolled back between tests as the database is, and since the upgrade never
+  overwrites a value OpenBao holds (S8 H5), a value an earlier test left
+  under a declared name would turn the next test's move into a conflict.
+  """
+  @spec clear_declared_secrets() :: :ok
+  def clear_declared_secrets do
+    for key <- SecretSettings.keys(),
+        do: Vault.delete("alexclaw/secrets/" <> SecretSettings.secret_name(key))
+
+    :ok
   end
 
   defp sealed(config),

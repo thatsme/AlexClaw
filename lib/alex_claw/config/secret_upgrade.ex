@@ -228,17 +228,26 @@ defmodule AlexClaw.Config.SecretUpgrade do
 
     with {:ok, value} <- plaintext(Legacy03.decrypt(stored)),
          :ok <- catalogued(Secrets.get(name), name, key),
-         :ok <- Secrets.put_value(name, value, opts),
+         :ok <- name |> Secrets.put_new_value(value, opts) |> conflict_named(name),
          :ok <- read_back(name, value, opts),
          {:ok, _setting} <- setting |> Ecto.Changeset.change(parked_row(name)) |> Repo.update() do
       {:ok, name}
     end
   end
 
+  # Parked settings have their own namespace, one name per key: never a
+  # declared secret's (`setting_…`), nor another custom key's, even when the
+  # keys differ only in case or punctuation, or past the length limit.
   defp parked_name(key) do
-    safe = key |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
-    String.slice("setting_" <> safe, 0, 64)
+    safe = key |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_") |> String.slice(0, 46)
+    tag = :sha256 |> :crypto.hash(key) |> Base.encode16(case: :lower) |> binary_part(0, 8)
+    "parked_" <> safe <> "_" <> tag
   end
+
+  # A name that already holds another value keeps it (S8 H5, H6): the 0.3.x
+  # row stays as it was, and the conflict is reported by name.
+  defp conflict_named({:error, :conflict}, name), do: {:error, {:conflict, name}}
+  defp conflict_named(result, _name), do: result
 
   defp catalogued(nil, name, key) do
     attrs = %{
@@ -291,9 +300,11 @@ defmodule AlexClaw.Config.SecretUpgrade do
   end
 
   defp move(false, %Setting{key: key, value: stored} = setting, opts) do
+    name = SecretSettings.secret_name(key)
+
     with {:ok, value} <- plaintext(Legacy03.decrypt(stored)),
-         :ok <- SecretSettings.store(key, value, opts),
-         :ok <- read_back(SecretSettings.secret_name(key), value, opts),
+         :ok <- key |> SecretSettings.store_new(value, opts) |> conflict_named(name),
+         :ok <- read_back(name, value, opts),
          {:ok, _setting} <- setting |> Ecto.Changeset.change(value: "") |> Repo.update() do
       :ok
     end
@@ -360,11 +371,17 @@ defmodule AlexClaw.Config.SecretUpgrade do
           "Kept as a fingerprint: #{Enum.join(fingerprinted, ", ")} (the key itself is dropped)"
         )
 
-    Enum.each(failed, fn {key, reason} ->
-      Logger.error(
-        "NOT moved to OpenBao: #{key} (#{inspect(reason)}). Its database copy is untouched; " <>
-          "the move is tried again at the next start."
-      )
-    end)
+    Enum.each(failed, fn {key, reason} -> Logger.error(not_moved(key, reason)) end)
   end
+
+  defp not_moved(key, {:conflict, name}),
+    do:
+      "NOT moved to OpenBao: #{key}. The secret #{name} already holds another value, " <>
+        "entered since, and it is kept. The 0.3.x value stays in its database row: " <>
+        "check which one is current, then clear the other."
+
+  defp not_moved(key, reason),
+    do:
+      "NOT moved to OpenBao: #{key} (#{inspect(reason)}). Its database copy is untouched; " <>
+        "the move is tried again at the next start."
 end

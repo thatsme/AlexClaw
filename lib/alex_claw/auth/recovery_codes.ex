@@ -173,10 +173,12 @@ defmodule AlexClaw.Auth.RecoveryCodes do
     [group(), group()] |> Enum.join("-")
   end
 
+  # From the operating system's generator (S8 M16): 32 symbols, so a byte
+  # modulo 32 picks each one without bias.
   defp group do
-    1..@group_size
-    |> Enum.map(fn _n -> Enum.random(@alphabet) end)
-    |> to_string()
+    for <<byte <- :crypto.strong_rand_bytes(@group_size)>>,
+      into: "",
+      do: <<Enum.at(@alphabet, rem(byte, length(@alphabet)))>>
   end
 
   defp digest(code), do: :sha256 |> :crypto.hash(code) |> Base.encode16(case: :lower)

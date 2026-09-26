@@ -85,6 +85,11 @@ defmodule AlexClaw.Database.Restore do
     settled(result, session)
   end
 
+  defp restore({:error, _reason}, path, _session, _detail) do
+    discard(path)
+    {:error, "The restore was not run: it could not be recorded in the audit log."}
+  end
+
   # The data changed under every page and cache: the other sessions are signed
   # out, and what is cached is read again.
   defp settled({:ok, _message} = done, session) do
@@ -95,11 +100,6 @@ defmodule AlexClaw.Database.Restore do
   end
 
   defp settled(failed, _session), do: failed
-
-  defp restore({:error, _reason}, path, _session, _detail) do
-    discard(path)
-    {:error, "The restore was not run: it could not be recorded in the audit log."}
-  end
 
   defp read(path) do
     with {:ok, body} <- read_file(File.read(path)), do: decoded(Jason.decode(body))
@@ -344,10 +344,6 @@ defmodule AlexClaw.Database.Restore do
   end
 
   defp references(_entry), do: []
-
-  defp column_values(plan, table, column) do
-    for {^table, live, rows} <- plan, row <- rows, do: row_map(live, row)[column]
-  end
 
   defp row_map(live, row), do: live |> Enum.map(&elem(&1, 0)) |> Enum.zip(row) |> Map.new()
 

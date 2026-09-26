@@ -15,6 +15,8 @@ defmodule AlexClaw.Config.Seeder do
     {"telegram.bot_token", "", "string", "telegram", "Telegram Bot API token", true},
     {"telegram.chat_id", &__MODULE__.env/1, "string", "telegram",
      "Telegram chat ID for notifications", false},
+    {"telegram.owner_user_id", "", "string", "telegram",
+     "Telegram user ID of the owner: only their messages in the chat are answered", false},
     {"telegram.poll_interval", "1000", "integer", "telegram", "Telegram polling interval in ms",
      false},
     {"telegram.node", "", "string", "telegram",

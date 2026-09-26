@@ -6,7 +6,7 @@ defmodule AlexClawWeb.AdminLive.Config do
   alias AlexClawWeb.AdminLive.Config.McpKeyPanel
   alias AlexClawWeb.Live.Elevation
 
-  @gateway_owners ~w(telegram.chat_id discord.channel_id discord.owner_user_id)
+  @gateway_owners ~w(telegram.chat_id telegram.owner_user_id discord.channel_id discord.owner_user_id)
 
   @impl true
   @spec mount(map(), map(), Phoenix.LiveView.Socket.t()) :: {:ok, Phoenix.LiveView.Socket.t()}

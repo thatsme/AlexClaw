@@ -26,10 +26,10 @@ defmodule AlexClaw.Dispatcher do
 
   @doc """
   Handle a message from a gateway. Only the owner is answered, as set in the
-  admin UI (`:set_gateway_owner`): for Telegram the chat `telegram.chat_id`;
-  for Discord the user `discord.owner_user_id` in the channel
-  `discord.channel_id` — a channel has members, and any of them could
-  otherwise command the agent (S8 M10). With no owner set, every message is
+  admin UI (`:set_gateway_owner`): the user `telegram.owner_user_id` in the
+  chat `telegram.chat_id`, the user `discord.owner_user_id` in the channel
+  `discord.channel_id` — a group or a channel has members, and any of them
+  could otherwise command the agent (S8 M10). With no owner set, every message is
   ignored; a message never makes its chat, or its sender, the owner.
   """
   @spec dispatch(Message.t() | term()) :: :ok | :ignored | term()
@@ -47,6 +47,11 @@ defmodule AlexClaw.Dispatcher do
     do:
       owner_chat?(Config.get("discord.channel_id"), chat_id) and
         owner_chat?(Config.get("discord.owner_user_id"), user_id)
+
+  defp owner?(%Message{gateway: :telegram, chat_id: chat_id, user_id: user_id}),
+    do:
+      owner_chat?(Config.get("telegram.chat_id"), chat_id) and
+        owner_chat?(Config.get("telegram.owner_user_id"), user_id)
 
   defp owner?(%Message{chat_id: chat_id, gateway: gateway}),
     do: owner_chat?(Config.get(owner_key(gateway)), chat_id)

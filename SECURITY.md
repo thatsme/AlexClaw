@@ -620,11 +620,15 @@ makes resolves to one of:
 
 > `SkillAPI`, `Skills.Helpers`, `Enum`, `Map`, `MapSet`, `List`, `Keyword`,
 > `Tuple`, `Stream`, `Range`, `Access`, `String`, `Integer`, `Float`, `Regex`,
-> `Jason`, `Base`, `URI`, `Path`, `Date`, `Time`, `DateTime`, `NaiveDateTime`,
-> `Logger`, `SweetXml`, `Floki`, `:math`
+> `Jason`, `Base`, `URI`, `Date`, `Time`, `DateTime`, `NaiveDateTime`,
+> `Logger`, `Floki`, `:math`
 
 plus calls to itself. `Logger` is limited to its level functions, since it also
-carries configuration and backend control. Refused: dynamic dispatch (a module in
+carries configuration and backend control. `Path` is limited to the functions
+that take names apart and put them together (`join`, `basename`, `dirname`,
+`extname`, `rootname`, `split`, `relative`, `relative_to`, `type`): the rest of
+it lists the filesystem (`wildcard`) or reads the working and home directories
+(`expand`, `absname`, `relative_to_cwd`). Refused: dynamic dispatch (a module in
 a variable, `apply/2`, `apply/3`), `spawn`, `send`, atom creation from runtime
 data (`String.to_atom/1`, `List.to_atom/1`, `Jason.decode` with any `keys:` other
 than `:strings`), and any alias form that cannot be resolved statically

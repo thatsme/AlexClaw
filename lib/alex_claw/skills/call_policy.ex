@@ -35,7 +35,6 @@ defmodule AlexClaw.Skills.CallPolicy do
     Jason,
     Base,
     URI,
-    Path,
     Date,
     Time,
     DateTime,
@@ -54,6 +53,11 @@ defmodule AlexClaw.Skills.CallPolicy do
     {List, :to_atom}
   ]
 
+  # Path takes names apart and puts them together; the rest of it reads the
+  # filesystem (wildcard/2) or the working and home directories (expand,
+  # absname, relative_to_cwd) (S8 M14).
+  @pure_path_functions ~w(basename dirname extname join relative relative_to rootname split type)a
+
   # Denied module, allowed function: each of these is harmless on its own, while
   # the rest of its module reaches the OS, the process dictionary, randomness
   # meant for keys, or other processes. Kernel.to_string/1 is what string
@@ -64,6 +68,7 @@ defmodule AlexClaw.Skills.CallPolicy do
     {Process, :sleep},
     {Exception, :message},
     {:crypto, :hash}
+    | for(fun <- @pure_path_functions, do: {Path, fun})
   ]
 
   @typespec_attributes [:spec, :type, :typep, :opaque, :callback, :macrocallback]

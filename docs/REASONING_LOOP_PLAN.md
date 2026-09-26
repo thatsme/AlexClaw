@@ -1,5 +1,7 @@
 # Reasoning Loop Engine — Implementation Plan
 
+Design record; the current behaviour is documented in [Reasoning Loop](architecture/reasoning-loop.md).
+
 ## Overview
 
 An autonomous reasoning loop for AlexClaw that can plan, execute, evaluate, and iterate
@@ -44,8 +46,9 @@ across phases. The working memory is the loop's "train of thought."
 - **PubSub** — real-time UI updates on every phase transition
 
 ### Security
-- **Forced `:local` tier** — hardcoded, not configurable
+- **Local tier by default** — `reasoning.llm_tier`, default `local`
 - **Skill whitelist** — frozen at session start from config
+- **Through the control plane** — each skill run is `:run_skill` performed by `ControlPlane.perform/3` as the system, audited; privileged skills are refused even if whitelisted
 - **No dynamic skill creation** — only `SkillRegistry.resolve`, never load/create
 - **Capability tokens** — minted per skill invocation, scoped permissions
 - **ContentSanitizer** — applied to all external skill outputs
@@ -231,7 +234,7 @@ and content volume. Complex web fetches or large LLM transform inputs can exceed
 - AlexClaw.Reasoning.PromptParser — defensive JSON extraction for local model output
 
 ### Phase 3: Skill Execution Wrapper
-- AlexClaw.Reasoning.SkillExecutor — whitelist → resolve → token → execute → sanitize
+- AlexClaw.Reasoning.SkillExecutor — whitelist → resolve → token → control plane (`:run_skill`) → sanitize
 
 ### Phase 4: Core Loop
 - AlexClaw.Reasoning.Loop (GenServer) — state machine, task-based LLM, PubSub, persistence

@@ -27,7 +27,7 @@ Node A (alexclaw@node1.local)        Node B (alexclaw@node2.local)
 
 1. Node A runs a workflow with a `send_to_workflow` step
 2. `send_to_workflow` calls Node B's `AlexClaw.Cluster.Manager` directly (a `GenServer.call` to `{Manager, node_b}`, 5s timeout). Node B takes the sender from the connection — the node of the calling process — never from a name the request carries
-3. Node B refuses the request, with an audit row and before any run starts, unless the sender is a registered node, step 1 of the enabled target workflow is `receive_from_workflow`, that step's `allowed_nodes` names the sender, and the workflow does not require 2FA
+3. Node B refuses the request, with an audit row and before any run starts, unless the sender is a registered node, step 1 of the enabled target workflow is `receive_from_workflow`, that step's `allowed_nodes` names the sender, the workflow does not require 2FA, and it has no privileged step (`shell`, `coder`, `db_backup`, `web_automation`)
 4. The target workflow is spawned via `Task.Supervisor`
 5. `receive_from_workflow` receives the data as input with `_source_node` in config, and checks `allowed_nodes` again
 

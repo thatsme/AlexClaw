@@ -65,8 +65,8 @@ Telegram gateway also handles each incoming update in isolation: an update whose
 handling fails is logged and acknowledged, never delivered again.
 
 **The OpenBao client under its own supervisor** — `AlexClaw.Vault.Supervisor`
-holds `AlexClaw.Vault`, which logs in to OpenBao and serves every secret read,
-write, encryption and decryption. OpenBao unreachable or sealed is a value its
+holds `AlexClaw.Vault`, which logs in to OpenBao and serves every secret read
+and write, every transit HMAC and every TOTP check. OpenBao unreachable or sealed is a value its
 callers receive (`{:error, :vault_unavailable}`), not a crash; a client that
 crashes repeatedly uses up this supervisor's restarts, and the root restarts
 the branch without touching any other child. See [OpenBao](openbao.md).
@@ -117,7 +117,7 @@ event is logged at error level in the process that tried to write it.
 `AlexClaw.Auth.AuditLoss` then tells the operator over the gateways: the first
 loss at once, later ones counted and sent together at most once a minute, so a
 database outage produces one notice a minute rather than one per audited
-action. It starts right after `TaskSupervisor`, before anything that audits.
+action. It starts right after the OpenBao client, before anything that audits.
 
 **A login is decided on the server.** Every live admin login is a row in
 `admin_sessions`, which every node reads: opened when the password is

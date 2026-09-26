@@ -14,6 +14,7 @@ configuration.
 | `alexclaw-prod` | Joins the `vault` network at a fixed address, the only one OpenBao's AppRole accepts. Mounts the bootstrap volume read-only. |
 
 The `vault` network (`10.213.63.0/24`) is internal: only these three services
+and the on-demand `openbao-backup` (see "Backing up and restoring OpenBao")
 join it, and it has no route out.
 
 ## What each side holds
@@ -66,6 +67,12 @@ is not running.
 
 Later starts find OpenBao initialised and change nothing.
 
+An installation upgraded from 0.3.x has no OpenBao yet: the same three steps
+apply. Its first start of 0.4.0 moves every credential it holds into OpenBao;
+if OpenBao was not yet initialised then, nothing moves and nothing is lost, and
+the move happens at the next start of AlexClaw
+(`docker compose restart alexclaw-prod`).
+
 ## AlexClaw's permissions
 
 The `alexclaw` policy allows exactly:
@@ -73,13 +80,16 @@ The `alexclaw` policy allows exactly:
 - create, read and update under `secret/data/alexclaw/*`;
 - delete under `secret/metadata/alexclaw/*` — deleting a secret destroys every
   version and its metadata;
-- encrypt, decrypt, HMAC and verify HMACs with the transit key `alexclaw` —
-  the MCP key and the recovery codes are kept as HMACs under it;
+- HMAC and HMAC verification with the transit key `alexclaw` — the MCP key
+  and the recovery codes are kept as HMACs under it; nothing is encrypted or
+  decrypted with it;
 - create, describe and delete the admin's TOTP key (`totp/keys/admin`), and
   validate a code against it (`totp/code/admin`, update only). Reading
   `totp/code/admin` would generate a code, so it is not granted: AlexClaw can
   check the admin's codes and never produce one. Describing the key returns
-  its settings, never the secret.
+  its settings, never the secret;
+- renew its own token (`auth/token/renew-self`). The AppRole's tokens carry
+  no `default` policy, so this is the one self-service path they have.
 
 The key-value store keeps one version per secret (`max_versions=1` on the
 `secret/` mount, which holds nothing else): a rotated value leaves no readable
@@ -90,6 +100,15 @@ of the `AlexClaw.Vault` process, lasts an hour, is renewed before it expires,
 and is replaced by a new login when renewal fails. The AppRole accepts a login,
 and its tokens are honoured, only from AlexClaw's address on the `vault`
 network.
+
+That address is written into OpenBao when it is initialised, from
+`ALEXCLAW_ADDRESS` of `openbao-init`. Changing it means changing that variable
+and `alexclaw-prod`'s `vault` address together and, on an initialised OpenBao,
+writing the `alexclaw` AppRole again with the new address in
+`secret_id_bound_cidrs` and `token_bound_cidrs` and the role's other parameters
+as `configure()` in `openbao/init.sh` sets them, with a root token made as in
+the next section. The `backup` AppRole is bound the same way, to
+`BACKUP_ADDRESS`, the address of the `openbao-backup` service.
 
 ## Changing an engine or the policy after the first start
 
@@ -206,8 +225,8 @@ records whose credentials are gone.
 (`scripts/backup-openbao.sh`) writes a raft snapshot to
 `~/backups/openbao-<timestamp>-<reason>.snap` (`OPENBAO_BACKUP_DIR` to change
 the directory), beside the database dumps, readable by its owner only (mode
-600). It refuses `BACKUP_DIR`, the db_backup skill's directory: AlexClaw mounts
-that one.
+600). It refuses `BACKUP_DIR`, the db_backup skill's directory, and any
+directory inside it: AlexClaw mounts that one.
 It is checked before the command reports success: the snapshot is a gzipped
 archive holding `meta.json`, `state.bin` and their `SHA256SUMS`, and the sums
 must hold.
@@ -294,9 +313,12 @@ a new one set up with that key file. Verified end to end on OpenBao 2.6.3.
 
 ## When OpenBao is unavailable
 
-AlexClaw keeps running. Every read, write, encryption or decryption returns
+AlexClaw keeps running. Every read, write, HMAC or TOTP call returns
 `{:error, :vault_unavailable}`, the client logs in again in the background, and
-a failure is logged with what failed — never a value.
+a failure is logged with what failed — never a value. Meanwhile no credential
+resolves (steps and gateways that need one fail), and no second-factor code can
+be checked, so the control plane cannot be unlocked and protected runs cannot
+be approved. The admin password still signs in: its hash is in the database.
 
 ## The test stack
 

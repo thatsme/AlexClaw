@@ -64,10 +64,10 @@ entry is read alone or listed:
 
 | Data | What MCP returns |
 |---|---|
-| Settings marked sensitive (API keys, bot tokens, OAuth secrets, the webhook secret, the MCP key, 2FA secrets) | `[REDACTED]` as the value, in `config/list` and in `config/<key>` alike. The key, type and category are still visible |
+| Secret settings (API keys, bot tokens, OAuth secrets, the webhook secret, the MCP key's fingerprint) | `[REDACTED]` as the value, in `config/list` and in `config/<key>` alike. The key, type and category are still visible |
 | A workflow step's secret config keys (a notify step's `bot_token`, an API step's `headers`) | `[REDACTED]`; the step's other config is returned as it is |
 | A resource's `auth` block (the header an API resource sends) | Not returned |
-| A password in a resource's URL (`user:password@host`) | Replaced: `https://REDACTED@host/…` |
+| A password in a resource's URL (`user:password@host`) | Refused when saved since 0.4.0; a row saved earlier is returned as `https://REDACTED@host/…` |
 | Values a web-automation recording captured, and those steps' descriptions | `[REDACTED]` |
 
 Skills reading resources through the skill API get the same redaction.

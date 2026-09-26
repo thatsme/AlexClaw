@@ -1,12 +1,12 @@
 # MCP Server
 
-AlexClaw implements a [Model Context Protocol](https://modelcontextprotocol.io/) server, allowing external AI clients to discover and invoke skills, run workflows, and browse internal data stores through a standardized protocol.
+AlexClaw implements a [Model Context Protocol](https://modelcontextprotocol.io/) server, allowing external AI clients to read AlexClaw's data and run its workflows through a standardized protocol. An MCP client operates AlexClaw; it cannot change it.
 
 ## What is MCP?
 
 MCP is an open protocol that enables AI assistants to interact with external tools and data sources. AlexClaw's MCP server exposes:
 
-- **Tools** — all registered skills and workflows, callable by name
+- **Tools** — enabled workflows that do not require 2FA, as `workflow:<name>`. There are no skill tools
 - **Resources** — knowledge base, memory, workflows, runs, config, and RSS feeds
 
 ## Supported Clients
@@ -29,17 +29,16 @@ MCP Client ──Bearer Token──> /mcp endpoint
                           Anubis StreamableHTTP Transport
                                 │
                           AlexClaw.MCP.Server
-                           ├── handle_tool_call  ──> PolicyEngine ──> SkillRegistry ──> Skill.run()
-                           ├── handle_resource_read ──> ResourceProvider ──> Context modules
-                           └── handle_info (PubSub) ──> tools/list_changed notification
+                           ├── handle_tool_call ──> PolicyEngine (mcp_restriction) ──> ControlPlane.perform(:run_workflow) ──> Executor
+                           └── handle_resource_read ──> ResourceProvider ──> Context modules
 ```
 
 ## Key Modules
 
 | Module | Role |
 |---|---|
-| `AlexClaw.MCP.Server` | Anubis server — init, tool calls, resource reads, PubSub |
-| `AlexClaw.MCP.ToolSchema` | Maps skills/workflows to MCP tool definitions (Peri format) |
+| `AlexClaw.MCP.Server` | Anubis server — init, tool calls, resource reads |
+| `AlexClaw.MCP.ToolSchema` | Maps enabled, unprotected workflows to MCP tool definitions |
 | `AlexClaw.MCP.ResourceProvider` | Routes resource URIs to context modules |
 | `AlexClawWeb.Plugs.McpAuth` | Bearer token validation |
 | `AlexClawWeb.Plugs.McpForward` | Runtime forwarder to Anubis StreamableHTTP Plug |

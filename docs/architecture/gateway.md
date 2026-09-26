@@ -21,12 +21,19 @@ Inbound traffic is normalised into `%AlexClaw.Message{}` carrying the text, the
 chat, and which gateway it arrived on. The dispatcher threads `gateway:` back
 through every reply, so an answer returns on the transport that asked.
 
+Only the owner is answered: the user `telegram.owner_user_id` in the chat
+`telegram.chat_id`, and the user `discord.owner_user_id` in the channel
+`discord.channel_id`, all set on the admin UI's Config page. In a group or a
+channel, other members' messages are ignored; with an owner setting blank,
+that gateway answers nothing. A message never makes its chat or its sender the
+owner.
+
 Discord is configured from **Admin > Config**, not from environment variables —
 see [Configuration](../getting-started/configuration.md). Which node runs which
 bot is covered in [Multi-Node Clustering](clustering.md).
 
-The MCP server is a separate entry point rather than a gateway: it exposes
-skills and workflows as tools to external AI clients. See
+The MCP server is a separate entry point rather than a gateway: it lets
+external AI clients read data and run workflows that do not require 2FA. See
 [Integrations](integrations.md).
 
 ## Dispatcher
@@ -41,29 +48,34 @@ Command families, rather than an exhaustive list — the
 | Family | Commands |
 |---|---|
 | Status | `/ping`, `/status`, `/help`, `/llm`, `/skills` |
-| Skills | `/skill list\|load\|unload\|reload\|create` |
 | Workflows | `/workflows`, `/run`, `/runs`, `/cancel`, `/rate` |
-| Research and web | `/research`, `/search`, `/web` — each also accepts `--tier` and `--provider` to save a default |
+| Research and web | `/research`, `/search`, `/web` — `--tier` and `--provider` with a query apply to that call only |
 | GitHub | `/github pr`, `/github commit` |
-| Generation | `/coder <goal>` |
-| Shell | `/shell <command>` |
-| Automation | `/record`, `/replay`, `/automate` |
-| Google | `/tasks`, `/task add`, `/tasklists`, `/connect google`, `/disconnect google` |
-| 2FA | `/confirm 2fa`; `/setup 2fa` and `/disable 2fa` are refused (2FA is set up and turned off in the admin UI only) |
+| Google | `/tasks`, `/task add`, `/tasklists` |
 | Anything else | The conversational skill |
 
-Larger families live in their own modules — `Dispatcher.SkillCommands`,
-`Dispatcher.AuthCommands`, `Dispatcher.AutomationCommands` — with
-`Dispatcher.CommandParser` handling the shared `--tier`/`--provider` grammar.
+A chat operates AlexClaw; it never authors it. `/skill`, `/coder`, `/shell`,
+`/record`, `/replay`, `/automate`, `/setup 2fa`, `/confirm 2fa`,
+`/disable 2fa`, `/connect` and `/disconnect` only answer where that is done in
+the admin UI. So does `--tier` followed by a tier and no query: default tiers
+and providers are set on the Config page; `/research --tier` or
+`/search --tier` alone shows the current default.
 
-**Several of these commands are gated by a second factor**, and are refused
-outright when it is not configured. `AlexClaw.Auth.Gate` is the single place
-that decides, so the admin UI and the gateway cannot disagree. Which commands,
-and what happens when 2FA is off, is stated in
-[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md).
+`Dispatcher.AuthCommands` answers the 2FA and connection commands and approves
+a protected run with a code; `Dispatcher.CommandParser` handles the shared
+`--tier`/`--provider` grammar.
+
+Every command that runs something — a skill or a workflow — is performed
+through `AlexClaw.ControlPlane.perform/3` from the gateway entry point, and
+audited. **One thing in a chat takes a second factor:** `/run` of a workflow
+marked `Requires 2FA`, which prompts for a code and is refused outright when
+2FA is not configured. A workflow with a privileged step is refused from a
+chat before any code is asked for. See
+[SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md#control-plane-elevation).
 
 ## Challenge responses
 
 A six-digit message arriving while a challenge is pending is treated as a
-response to it rather than as conversation. The challenge carries the action it
-authorises, so verifying the code executes the action that raised it.
+response to it rather than as conversation. The challenge names the protected
+run it was raised for, and the code approves that run and nothing else; the
+control plane verifies it when the run is performed.

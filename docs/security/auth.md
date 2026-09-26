@@ -4,16 +4,19 @@
 
 All routes except `/login`, `/health`, and `/mcp` require an authenticated session.
 
-- Password stored as `ADMIN_PASSWORD` environment variable (seeded to DB on first boot)
+- The first successful login checks `ADMIN_PASSWORD` and stores a salted
+  PBKDF2-HMAC-SHA256 hash (600,000 iterations); from then on the variable is
+  ignored. The hash is kept in the database, not in OpenBao, so login works
+  while OpenBao is unavailable. An unreadable hash refuses every login.
 - Each login is a row in the `admin_sessions` table, checked on every request and
   every LiveView connection, on whichever node serves it. The cookie holds an
   identifier; the table holds only its SHA-256.
 - A login lasts eight hours from sign-in, busy or idle.
-- Changing `ADMIN_PASSWORD` ends every login: each row records a keyed
-  fingerprint of the password it was opened with.
+- A new password hash ends every login: each row records a keyed
+  fingerprint of the hash it was opened with.
 - Logout ends that login and closes its open pages.
-- Redeeming a recovery code, or turning 2FA off, ends every other login. Turning
-  2FA off from a gateway ends all of them. Each is recorded in the audit log.
+- Redeeming a recovery code, or turning 2FA off, ends every other login. Each
+  is recorded in the audit log.
 - **Sign out everywhere** (Services page, needs editing unlocked) ends every
   login, including the one that asked.
 
@@ -44,22 +47,28 @@ Setting up is refused while 2FA is on: the active factor is replaced only by
 turning it off first, which takes a current code. The secret is never sent over
 a chat.
 
+The key is created and kept by OpenBao's TOTP engine, which checks every code;
+AlexClaw stores no part of it. Recovery codes are stored as HMACs under an
+OpenBao transit key. While OpenBao is unavailable, no code can be checked.
+
 ### Protected Operations
 
-When 2FA is enabled, these operations require TOTP verification:
+When 2FA is enabled, these operations need a code of their own:
 
 | Operation | Where |
 |---|---|
-| Skill load/unload/reload | Admin UI only (the code can be answered from Telegram/Discord) |
-| Shell command execution | `/shell` from Telegram/Discord |
-| Workflows marked "Requires 2FA" | Telegram/Discord **and** the Run button in the Admin UI |
-| Disabling 2FA | Admin UI only, Services page, with a current authenticator code or a recovery code |
+| Skill load and reload | Admin UI, Skills page |
+| Database restore | Admin UI, Database page |
+| Workflows marked "Requires 2FA" | the Run button in the Admin UI, or `/run` on Telegram/Discord |
+| Workflows with a `shell`, `coder`, `db_backup` or `web_automation` step | the Run button in the Admin UI (never a chat); a schedule runs them without one |
+| Disabling 2FA, generating recovery codes | Admin UI only, Services page; disabling takes a current authenticator code or a recovery code |
+
+Every other change — configuration, providers, resources, workflows, skill
+unload, recordings — needs an elevation: one code, good for fifteen minutes.
 
 These **fail closed**: when TOTP is not configured they are refused outright,
-not allowed through. Set 2FA up before relying on any of them.
-
-The gateway commands name a file already present in the skills volume — code
-itself cannot be uploaded from a messaging app.
+not allowed through. Set 2FA up before relying on any of them. Code cannot be
+uploaded from a messaging app.
 
 ### Challenge Limits
 
@@ -68,15 +77,17 @@ the count and the reuse of codes are bounded:
 
 - **Three wrong codes cancel the challenge.** The action must be triggered
   again, which mints a fresh challenge with a fresh count.
-- **A code is accepted once.** The time of the last accepted code is persisted
-  and passed to the verifier, which refuses any code from a period already
-  used — so a code observed in transit cannot be replayed inside its
-  30-second window. The marker survives a restart and is not readable through
-  the configuration API.
+- **A code is accepted once.** OpenBao, which checks the codes, refuses one
+  it has already accepted; because that memory is lost when OpenBao
+  restarts, AlexClaw also refuses the last accepted code for 90 seconds. It
+  keeps a keyed fingerprint of it, never the code, and the guard survives a
+  restart.
 
-### Cross-Channel Verification
+### Where a Code Is Typed
 
-Admin UI actions that require 2FA are verified via Telegram or Discord — the TOTP challenge is sent to the messaging gateway, not displayed in the browser. This prevents session hijacking from granting full access.
+A code is typed on the admin UI page that asked for it. A protected workflow
+run (without a privileged step) is also prompted on the configured gateways,
+and a code answered there approves that run and nothing else.
 
 ### Management Commands
 

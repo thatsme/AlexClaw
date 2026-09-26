@@ -4,6 +4,9 @@ Since 0.4.0 AlexClaw keeps no credential in its database. API keys, bot
 tokens, OAuth secrets, step and resource credentials and LLM provider keys are
 secrets in OpenBao, which encrypts them; the database holds references to them.
 Nothing is encrypted with a key derived from `SECRET_KEY_BASE` any more.
+OpenBao encrypts its storage under the unseal key, a file on the host mounted
+into OpenBao's container only; losing it loses every secret. See
+[OpenBao](../architecture/openbao.md).
 
 | Where | What the database holds |
 |---|---|
@@ -12,6 +15,8 @@ Nothing is encrypted with a key derived from `SECRET_KEY_BASE` any more.
 | `auth.admin_password_hash` | a salted PBKDF2-HMAC-SHA256 hash |
 | a workflow step's `config`, a resource's `metadata` | references to secrets, bound to the host they are sent to |
 | `llm_providers.credentials` | references for the API key and each header value; the header names stay readable |
+| `auth_recovery_codes` | an HMAC of each code's SHA-256 digest, under an OpenBao transit key |
+| the admin's TOTP key | nothing: OpenBao keeps it; the `auth.totp.*` rows hold where it is, whether an enrolment is pending, the issuer name, and a keyed fingerprint of the last accepted code — never the key |
 
 A setting named like a credential (`api_key`, `token`, `password` or `secret`
 in its key) is refused unless it is a declared secret setting. A skill whose

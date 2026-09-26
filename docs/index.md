@@ -23,14 +23,23 @@ AlexClaw monitors the world — RSS feeds, GitHub repositories, Google services,
 git clone https://github.com/thatsme/AlexClaw.git
 cd AlexClaw
 cp .env.example .env
-# Edit .env — set DATABASE_OWNER_PASSWORD, DATABASE_PASSWORD, SECRET_KEY_BASE and ADMIN_PASSWORD.
-# The Telegram bot token and at least one LLM API key (Gemini's is free) are
-# entered on the Config page after the first start.
+# In .env: DATABASE_OWNER_PASSWORD, DATABASE_PASSWORD, SECRET_KEY_BASE,
+# ADMIN_PASSWORD, CLUSTER_COOKIE and TELEGRAM_CHAT_ID.
+mkdir -p openbao/unseal
+head -c 32 /dev/urandom > openbao/unseal/key && chmod 0440 openbao/unseal/key
 docker compose up -d
+docker compose run --rm openbao-init   # once: prints the recovery key
 ```
 
-Open [http://localhost:5001](http://localhost:5001) and log in with your `ADMIN_PASSWORD`.
-Send `/ping` to your Telegram bot to verify. That's it.
+Open [http://localhost:5001](http://localhost:5001) and log in with `ADMIN_PASSWORD`.
+Set up 2FA (Services page), then on the Config page enter the Telegram bot
+token, an LLM API key (Gemini's is free) and `telegram.owner_user_id` — the bot
+answers only that user, in `telegram.chat_id`. Send `/ping` to the bot to
+verify.
+
+The unseal key file encrypts every secret: losing it loses them all. The full
+first-start procedure, including the file ownership Linux needs, is in
+[OpenBao](architecture/openbao.md#first-start).
 
 Full setup walkthrough: [Installation](getting-started/installation.md)
 
@@ -43,8 +52,9 @@ Full setup walkthrough: [Installation](getting-started/installation.md)
 | **Multi-Model LLM Router** | Tier-based routing (`light`/`medium`/`heavy`/`local`) with priority ordering, daily usage tracking, and automatic fallback |
 | **Workflow Engine** | Linear pipelines with conditional branching, per-step circuit breaking, and full run history |
 | **Persistent Memory** | PostgreSQL + pgvector, hybrid semantic + keyword search, async background embedding |
-| **Dynamic Skills** | Hot-load `.ex` skill modules at runtime — permission-sandboxed, 2FA-gated, integrity-checksummed |
-| **Coder Skill** | Local LLM generates new skills from natural language. Zero cloud cost |
+| **Dynamic Skills** | Upload `.ex` skill modules at runtime — contained to an allowlist, permission-checked, 2FA-approved, integrity-checksummed |
+| **Forge** | Generates new skills from a goal, with a local or a chosen provider. Contained code within the unattended permissions loads at once; more permissions wait for a 2FA code; calls outside the allowlist never load |
+| **Secrets in OpenBao** | Every credential in a bundled OpenBao, bound to its destination; the database holds references |
 | **Multi-Gateway** | Telegram + Discord simultaneously. Responses route back to the originating transport |
 | **Multi-Node Clustering** | Multiple BEAM nodes share a database and exchange workflow outputs over Erlang distribution |
 | **OTP Circuit Breaker** | Per-skill breaker with automatic half-open recovery. No external dependencies |
@@ -77,3 +87,4 @@ Discord  ──> DiscordGateway  ──┴──> Dispatcher ──> Skills
 - 2 GB RAM minimum
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
 - At least one LLM provider — [Gemini API key](https://ai.google.dev/) is free and takes 2 minutes
+- A place to keep OpenBao's unseal key file and recovery key offline (the key file is made before the first start, the recovery key is printed at it)

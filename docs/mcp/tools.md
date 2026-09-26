@@ -1,88 +1,44 @@
 # MCP Tools
 
-All registered skills and enabled workflows are automatically exposed as MCP tools. Clients discover them via the standard `tools/list` method.
+Every enabled workflow that does not require 2FA is exposed as an MCP tool. There are no skill tools: a skill runs inside a workflow.
 
-## Naming Convention
+## Naming
 
 | Type | MCP Tool Name | Example |
 |---|---|---|
-| Core skill | `skill:<name>` | `skill:web_search` |
-| Dynamic skill | `skill:<name>` | `skill:system_info` |
 | Workflow | `workflow:<name>` | `workflow:Tech News Digest` |
 
-## Tool Discovery
+A call to a `skill:` name returns a tool error saying skills run inside workflows.
 
-Tools are registered on the Anubis frame during `init/2`. Each tool includes:
+## Discovery
 
-- **name** — the `skill:` or `workflow:` prefixed identifier
-- **description** — from the skill module's `description/0` callback, or the workflow's description field
-- **input_schema** — Peri-compatible type definitions converted to JSON Schema by Anubis
+The tool list is built when a client connects. Each tool has:
 
-Dynamic skills are tagged with `[dynamic]` in their description.
+- **name** — `workflow:<name>`
+- **description** — the workflow's description, or "Run the <name> workflow"
+- **input_schema** — one optional `input` string, passed to the first step
 
-## Dynamic Refresh
-
-When skills are loaded, unloaded, or reloaded at runtime, the MCP server:
-
-1. Receives a PubSub event on the `"skills:registry"` topic
-2. Re-registers all tools on the frame
-3. Sends a `notifications/tools/list_changed` notification to connected clients
-4. Clients automatically re-fetch the tool list
-
-This means newly loaded dynamic skills appear in MCP clients without reconnecting.
-
-## Input Schema
-
-Core skills have typed config schemas. For example, `skill:web_search`:
-
-```json
-{
-  "input": { "type": "string", "description": "Input data passed to the skill" },
-  "config": { "type": "object" },
-  "query": { "type": "string", "description": "Search query string" },
-  "max_results": { "type": "integer", "description": "Maximum results to return" }
-}
-```
-
-Dynamic skills use a generic schema with `input` and `config` fields.
+A workflow enabled, disabled or marked `Requires 2FA` afterwards appears or disappears at the client's next connection.
 
 ## Execution Flow
 
 When a client calls a tool:
 
-1. **Resolve** — skill name looked up in SkillRegistry, or workflow found by name
-2. **Policy check** — `PolicyEngine.evaluate/2` with `:mcp` caller type (see [Policy Enforcement](policies.md))
-3. **Execute** — skill runs in a supervised task with a capability token
-4. **Timeout** — configurable via `mcp.tool_timeout_ms` (default 30 seconds)
-5. **Response** — result mapped to `Anubis.Server.Response` format
+1. **Resolve** — the workflow is found by name
+2. **Policy check** — `PolicyEngine.evaluate/2` as an `:mcp` caller, where `mcp_restriction` policies apply (see [Policy Enforcement](policies.md))
+3. **Run** — `ControlPlane.perform(:run_workflow, …)` from the MCP entry point: refused for a disabled or protected workflow and for one with a privileged step (`shell`, `coder`, `db_backup`, `web_automation`), audited either way
+4. **Response** — MCP waits for the run to finish and answers with its id, status and result as JSON
 
-## Timeout Handling
-
-Tool execution has a configurable timeout:
-
-```
-Config key: mcp.tool_timeout_ms
-Default: 30000 (30 seconds)
-```
-
-If a tool exceeds the timeout, the task is shut down and an error response is returned:
-
-```json
-{"type": "text", "text": "Tool execution timed out", "isError": true}
-```
+There is no MCP-side time limit: a long run holds the call until it ends, so a proxy in front of `/mcp` needs a read timeout at least as long as the longest workflow.
 
 ## Error Responses
 
-| Error | MCP Error Code | Cause |
-|---|---|---|
-| Unknown skill | `-32602` (invalid params) | Skill not in registry |
-| Unknown workflow | `-32602` (invalid params) | Workflow not found |
-| Policy denied | execution error | `mcp_restriction` policy matched |
-| Timeout | execution error | Exceeded `mcp.tool_timeout_ms` |
-| Crash | execution error | Skill raised an exception |
+| Error | Cause |
+|---|---|
+| `-32602` (invalid params) | Unknown workflow or tool name |
+| Execution error | `mcp_restriction` policy matched |
+| Tool error | Run refused (protected, disabled, privileged step) or returned an error; a `skill:` name |
 
 ## Available Tools
 
-The exact tool list depends on your registered skills. Use `tools/list` from your MCP client, or check the `/metrics` endpoint for the current count.
-
-Typical installation exposes ~29 skill tools and ~5 workflow tools.
+The exact tool list depends on the enabled workflows. Use `tools/list` from the MCP client.

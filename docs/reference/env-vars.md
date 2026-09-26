@@ -7,14 +7,14 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 | Variable | Description |
 |---|---|
 | `DATABASE_PASSWORD` | PostgreSQL password |
-| `SECRET_KEY_BASE` | Phoenix session/encryption secret (min 64 bytes) |
-| `ADMIN_PASSWORD` | Web UI login password |
+| `SECRET_KEY_BASE` | Signs sessions and capability tokens, and keys the TOTP replay guard (min 64 bytes). Keep it unchanged when upgrading from 0.3.x until the first start of 0.4.0 has run |
+| `ADMIN_PASSWORD` | The first admin password: required until the first login, which stores its hash; ignored afterwards |
 
 ## Telegram
 
 | Variable | Description |
 |---|---|
-| `TELEGRAM_CHAT_ID` | *Seeded.* Optional: when empty, the chat is detected from the first message sent to the bot |
+| `TELEGRAM_CHAT_ID` | *Seeded.* Optional: the chat the bot answers in. Empty, it is set on the Config page (`telegram.chat_id`), with `telegram.owner_user_id`; with either blank the bot answers nothing |
 
 ## LLM Providers (at least one)
 
@@ -61,8 +61,8 @@ the refresh token by the authorization flow; both are kept in OpenBao.
 ## Discord (optional)
 
 Discord has no environment variables. Set `discord.enabled`,
-`discord.bot_token` and `discord.channel_id` in **Admin > Config** and restart
-the container.
+`discord.bot_token`, `discord.channel_id` and `discord.owner_user_id` in
+**Admin > Config** and restart the container.
 
 ## Database
 
@@ -81,8 +81,8 @@ The database name is set by the compose file, not by an environment variable.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SECRET_KEY_BASE` | — | Session and encryption key (required) |
-| `ADMIN_PASSWORD` | — | Admin UI password (required) |
+| `SECRET_KEY_BASE` | — | Session signing key (required) |
+| `ADMIN_PASSWORD` | — | The first admin password: required until the first login, which stores its hash; ignored afterwards |
 | `SKILLS_DIR` | `/app/skills` | Where dynamic skill files live |
 | `ADMIN_PORT` | `5001` | Host port the admin UI is published on |
 | `ADMIN_BIND` | `127.0.0.1` | Host interface the admin UI is published on. `0.0.0.0` for every interface; see [Reverse Proxy](../deployment/reverse-proxy.md) before doing so |
@@ -102,7 +102,7 @@ The database name is set by the compose file, not by an environment variable.
 | Variable | Default | Description |
 |---|---|---|
 | `BACKUP_DIR` | `./backups` | Host path the db_backup skill writes database backups to (mounted into AlexClaw) |
-| `OPENBAO_BACKUP_DIR` | `~/backups` (through `make backup-openbao`) | Host path for OpenBao snapshots. Never the same as `BACKUP_DIR`, which AlexClaw mounts; the backup command refuses it |
+| `OPENBAO_BACKUP_DIR` | `~/backups` (through `make backup-openbao`; `./openbao-backups` when compose runs the service directly) | Host path for OpenBao snapshots. Never `BACKUP_DIR` or a directory inside it, which AlexClaw mounts; the backup command refuses them |
 
 ## Post-Boot Provider Options
 

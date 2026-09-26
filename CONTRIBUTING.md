@@ -66,7 +66,7 @@ your right to use your own contributions however you wish.
 2. **Create a branch** — `git checkout -b feature/my-skill` or `fix/router-fallback`
 3. **Write your code** — follow the existing patterns in `lib/alex_claw/`
 4. **Add tests** — skills should have unit tests; use `ExUnit`
-5. **Run the suite** — `make test-elixir`
+5. **Run the tests** — the new or changed test files with `make test-elixir FILES="…"`; the whole suite with `make gate-elixir` before opening the pull request
 6. **Open a pull request** — describe what you built and why
 
 Tests run in the container defined by `docker-compose.test.yml`, against an
@@ -75,25 +75,31 @@ supported — it connects to the wrong database or none at all. The test stack i
 its own compose project and publishes no ports, so it can run while the
 production containers are up.
 
-`make test-elixir` runs `scripts/test-elixir.sh` and `make test-python` runs
+The Elixir targets run `scripts/test-elixir.sh` and the Python targets
 `scripts/test-python.sh`. Both run under a hard time limit for the whole run,
 build included (`TEST_TIME_LIMIT`, default 2400 seconds), write the full output
-to a log that is kept (`local-docs/test-logs/<suite>-<timestamp>.log`, or
-`TEST_LOG_DIR`), print its path at the start and the end, and print a progress
-line every 30 seconds. A run past the time limit is stopped, and the script
-exits with status 124. The Elixir script also watches for a run that hangs
-before any test starts: if none has started within 120 seconds
-(`TEST_WATCHDOG_SECONDS`), the run is stopped the same way. In both cases it
-first has the BEAM write a crash dump to `local-docs/erl_crash-<timestamp>.dump`.
+to a log that is kept (`TEST_LOG_DIR`; by default an untracked directory in the
+checkout), print its path at the start and the end, and print a progress line
+every 30 seconds. A run past the time limit is stopped, and the script exits
+with status 124. The Elixir script also watches for a run that hangs before any
+test starts: if none has started within 120 seconds (`TEST_WATCHDOG_SECONDS`),
+the run is stopped the same way. In both cases it first has the BEAM write a
+crash dump (`erl_crash-<timestamp>.dump`) to an untracked directory in the
+checkout.
 
-Targeted runs go through the same script and the same limits:
+The whole suites run only through the gate targets; targeted runs go through
+the same script and the same limits:
 
 | Command | Runs |
 |---|---|
-| `make test-elixir` | the whole suite, on a freshly built test image |
+| `make gate-elixir` | the whole Elixir suite, on a freshly built test image |
+| `make gate-python` | the whole Python suite |
 | `make test-elixir FILES="test/a_test.exs test/b_test.exs"` | only those files |
 | `make test-failed` | only the tests that failed in the previous run (`mix test --failed`) |
 | `make test-stale` | only the tests affected by modules changed since the last passing whole or stale run (`mix test --stale`). Mix follows references transitively, so a change to a module many others reach (a gateway, a context) selects most of the suite |
+
+`make test-elixir` with no `FILES`, and `make test-python`, refuse to run the
+whole suite: that is what the gate targets are for.
 
 `--failed` and `--stale` read records of the previous run, so the build
 directory is kept between runs in `.test-cache/elixir` (untracked). A whole-suite
@@ -140,9 +146,11 @@ prefer `:light` unless genuinely necessary — the router will thank you.
 **External skills:** If your skill fetches data from external sources (HTTP requests,
 APIs, RSS feeds), you must declare `def external, do: true` in the module. This
 enables automatic content sanitization in the workflow engine. For dynamic skills,
-the registry AST-scans the source at load time — if it detects calls to HTTP/socket
-libraries (`Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`, `SkillAPI.http_*`)
-without `external/0`, the skill is **rejected**.
+the registry checks the source at load time: a skill calling `SkillAPI.http_*`
+without `external/0` is **rejected**, and one calling an HTTP or socket library
+directly (`Req`, `HTTPoison`, `Finch`, `Tesla`, `:gen_tcp`) is outside
+containment and rejected whatever it declares. A core skill (in
+`lib/alex_claw/skills/`) is release code and may use `Req` directly.
 
 ---
 

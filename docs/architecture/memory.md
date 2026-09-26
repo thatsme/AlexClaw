@@ -24,12 +24,12 @@ Stores news items, conversation summaries, facts, and observations.
 
 Stores documentation, guides, and reference material. Same schema as Memory but in a separate table (`knowledge_entries`), isolated from news and conversation noise.
 
-Knowledge is populated by scraper skills:
-
-- `elixir_source_scraper` — Elixir stdlib source from GitHub
-- `erlang_docs_scraper` — Erlang/OTP docs from GitHub
-- `lyse_scraper` — Learn You Some Erlang chapters
-- `skill_source_indexer` — existing skill code patterns
+Knowledge is populated by the core skill `skill_source_indexer` (existing skill
+code) and by scraper skills uploaded as dynamic skills — for example ones
+reading Elixir stdlib source, Erlang/OTP docs, or Learn You Some Erlang
+chapters. A scraper must stay inside the containment allowlist: concurrency is
+reached through `SkillAPI.parallel_map/4` and module documentation through
+`SkillAPI.module_docs/2`.
 
 ## Async Embedding
 

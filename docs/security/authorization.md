@@ -2,6 +2,12 @@
 
 The PolicyEngine provides context-aware authorization for all skill executions — both from workflows and MCP clients.
 
+This page covers what a skill may do once it runs. Which entry point may ask
+for a privileged action at all — the admin UI, a gateway, MCP, a webhook,
+another node, the scheduler — and with what proof, is decided separately by
+the control plane; see
+[SECURITY.md](../../SECURITY.md#control-plane-elevation).
+
 ## AuthContext
 
 Every authorization check builds an `AuthContext`:

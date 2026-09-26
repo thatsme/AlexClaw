@@ -29,7 +29,7 @@ Then reconnect:
 /mcp
 ```
 
-You should see `Reconnected to alexclaw.` and all tools become available.
+You should see `Reconnected to alexclaw.` and the workflow tools become available.
 
 ## Claude Desktop
 
@@ -74,7 +74,7 @@ location /mcp {
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $host;
-    proxy_read_timeout 60s;
+    proxy_read_timeout 600s;  # at least the longest workflow run
 }
 ```
 
@@ -82,13 +82,7 @@ Then use `https://your-domain.com/mcp` as the URL in your client config.
 
 ## Verifying the Connection
 
-Once connected, test with a simple tool call. In Claude Code:
-
-```
-> Ask Claude to use the system_info skill
-```
-
-You should see the UTC time, hostname, and Elixir version returned from the AlexClaw container.
+Once connected, list the tools: each enabled workflow that does not require 2FA appears as `workflow:<name>`. Reading `alexclaw://workflows/list` from the client's resource browser also confirms the connection.
 
 ## Troubleshooting
 
@@ -97,5 +91,5 @@ You should see the UTC time, hostname, and Elixir version returned from the Alex
 | "Server unavailable" | Check that AlexClaw container is running and `/health` returns `mcp: running` |
 | 401 Unauthorized | The key is not the current one (a newer one was generated, or it was revoked): generate a new key in Admin > Config, group **MCP**, and update the client |
 | Connection refused | Check the URL and port — default is `5001` |
-| Tools not showing | Run `/mcp` to reconnect, or check container logs for startup errors |
-| Tool call timeout | Increase `mcp.tool_timeout_ms` in Admin > Config (default 30000ms) |
+| Tools not showing | Only enabled workflows without "Requires 2FA" are tools; reconnect after changing them (`/mcp`), or check container logs for startup errors |
+| Tool call times out | MCP waits for the whole run: raise the client's and the proxy's read timeout above the workflow's duration |

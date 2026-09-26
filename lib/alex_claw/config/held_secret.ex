@@ -54,6 +54,14 @@ defmodule AlexClaw.Config.HeldSecret do
     {:ok, Map.put(conf, :held, nil)}
   end
 
+  # A crash report or :sys.get_status/1 shows the state: never the value held
+  # (S8 M13).
+  @impl true
+  def format_status(status), do: Map.update(status, :state, nil, &hidden_value/1)
+
+  defp hidden_value(%{held: {_value, set_at}} = state), do: %{state | held: {:redacted, set_at}}
+  defp hidden_value(state), do: state
+
   @impl true
   def handle_call(:get, _from, state) do
     held = current(Config.secret_set_at(state.key), state.held, state)

@@ -9,6 +9,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Repo                      # PostgreSQL connection pool (Ecto)
   ├── Phoenix.PubSub (AlexClaw.PubSub)   # Config changes, skill list, run events
   ├── Task.Supervisor (AlexClaw.TaskSupervisor)  # Supervised fire-and-forget work
+  ├── AlexClaw.Secrets.Mask             # Remembers resolved secret values, masked in results, messages, audit rows and logs
   ├── AlexClaw.Vault.Supervisor          # The OpenBao client's branch (see below)
   │   └── AlexClaw.Vault                 # Logs in to OpenBao; every secret call
   ├── AlexClaw.Auth.AuditLoss            # Announces audit rows that could not be written

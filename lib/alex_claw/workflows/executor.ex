@@ -15,6 +15,7 @@ defmodule AlexClaw.Workflows.Executor do
   alias AlexClaw.Auth.{CapabilityToken, RunApproval, SafeExecutor}
   alias AlexClaw.ContentSanitizer
   alias AlexClaw.Resources.ResourceSecrets
+  alias AlexClaw.Secrets.Mask
   alias AlexClaw.Skill
   alias AlexClaw.Skills.CircuitBreaker
   alias AlexClaw.Workflows
@@ -253,7 +254,10 @@ defmodule AlexClaw.Workflows.Executor do
     announce_step(step, ctx)
 
     started_at = System.monotonic_time(:millisecond)
-    step_result = contained_step(step, input, ctx.workflow, ctx.run)
+    # Masked where it enters the run: whatever the skill returned or failed
+    # with no longer holds a value resolved from OpenBao, for the next step,
+    # the outcome, the history, the error and the notices alike (S8 H1).
+    step_result = step |> contained_step(input, ctx.workflow, ctx.run) |> Mask.mask()
 
     record_outcome(
       ctx.run.id,

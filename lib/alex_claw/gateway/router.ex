@@ -4,6 +4,8 @@ defmodule AlexClaw.Gateway.Router do
   Falls back to the first configured gateway (Telegram preferred).
   """
 
+  alias AlexClaw.Secrets.Mask
+
   @gateways [AlexClaw.Gateway.Telegram, AlexClaw.Gateway.Discord]
 
   # Injectable so a test can assert on what actually left the instance —
@@ -13,12 +15,12 @@ defmodule AlexClaw.Gateway.Router do
 
   @spec send_message(String.t(), keyword()) :: :ok | {:error, term()}
   def send_message(text, opts \\ []) do
-    resolve_gateway(opts).send_message(text, opts)
+    resolve_gateway(opts).send_message(Mask.mask(text), opts)
   end
 
   @spec send_html(String.t(), keyword()) :: :ok | {:error, term()}
   def send_html(text, opts \\ []) do
-    resolve_gateway(opts).send_html(text, opts)
+    resolve_gateway(opts).send_html(Mask.mask(text), opts)
   end
 
   @spec send_photo(term(), binary(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -29,7 +31,7 @@ defmodule AlexClaw.Gateway.Router do
   @doc "Send a message to all active gateways (for system-level notifications)."
   @spec broadcast(String.t(), keyword()) :: :ok
   def broadcast(text, opts \\ []) do
-    for gw <- active_gateways(), do: gw.send_message(text, opts)
+    for gw <- active_gateways(), do: gw.send_message(Mask.mask(text), opts)
     :ok
   end
 

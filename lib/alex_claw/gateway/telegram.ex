@@ -12,6 +12,7 @@ defmodule AlexClaw.Gateway.Telegram do
 
   alias AlexClaw.{Config, Message}
   alias AlexClaw.Gateway.Telegram.Token
+  alias AlexClaw.Secrets.Mask
 
   # --- Behaviour callbacks ---
 
@@ -44,14 +45,14 @@ defmodule AlexClaw.Gateway.Telegram do
   @impl AlexClaw.Gateway.Behaviour
   @spec send_message(String.t(), keyword()) :: :ok
   def send_message(text, opts \\ []) do
-    GenServer.cast(__MODULE__, {:send, text, opts})
+    GenServer.cast(__MODULE__, {:send, Mask.mask(text), opts})
   end
 
   @doc "Send an HTML-formatted message to the configured chat."
   @impl AlexClaw.Gateway.Behaviour
   @spec send_html(String.t(), keyword()) :: :ok
   def send_html(text, opts \\ []) do
-    GenServer.cast(__MODULE__, {:send_html, text, opts})
+    GenServer.cast(__MODULE__, {:send_html, Mask.mask(text), opts})
   end
 
   @doc """

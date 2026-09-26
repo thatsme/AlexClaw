@@ -12,6 +12,7 @@ defmodule AlexClaw.Auth.AuditLog do
 
   alias AlexClaw.Auth.{AuditEntry, AuditLoss, AuthContext, Principal}
   alias AlexClaw.Repo
+  alias AlexClaw.Secrets.Mask
 
   @doc "Log and persist an authorization denial."
   @spec log_deny(AuthContext.t(), String.t()) :: :ok
@@ -394,8 +395,10 @@ defmodule AlexClaw.Auth.AuditLog do
     })
   end
 
+  # Masked before it is written: a reason or detail that quotes a value
+  # resolved from OpenBao does not carry it into the trail (S8 H1).
   defp insert_entry(attrs) do
-    entry = stamp(attrs)
+    entry = attrs |> Mask.mask() |> stamp()
 
     entry
     |> write()

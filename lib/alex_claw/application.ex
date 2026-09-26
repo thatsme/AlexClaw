@@ -3,6 +3,7 @@ defmodule AlexClaw.Application do
   use Application
 
   alias AlexClaw.Database.PrivilegeCheck
+  alias AlexClaw.Secrets.Mask
 
   @impl true
   def start(_type, _args) do
@@ -15,10 +16,18 @@ defmodule AlexClaw.Application do
     # start stops here rather than running with fewer defences than shipped.
     AlexClaw.ContentSanitizer.load_patterns!()
 
+    # Every value resolved from OpenBao is masked in every log line, crash
+    # reports included (AlexClaw.Secrets.Mask; S8 H1, H8). The table it reads
+    # is started below; until then nothing has been resolved.
+    :logger.add_primary_filter(:secret_mask, {&Mask.log_filter/2, []})
+
     children = [
       AlexClaw.Repo,
       {Phoenix.PubSub, name: AlexClaw.PubSub},
       {Task.Supervisor, name: AlexClaw.TaskSupervisor},
+      # Before the OpenBao client: every value it hands out is remembered here
+      # for masking.
+      AlexClaw.Secrets.Mask,
       # The OpenBao client, on its own branch: OpenBao unreachable or the client
       # failing is a value callers get, never a restart of anything else.
       {AlexClaw.Vault.Supervisor, Application.get_env(:alex_claw, AlexClaw.Vault, [])},

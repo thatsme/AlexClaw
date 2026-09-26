@@ -12,6 +12,7 @@ defmodule AlexClaw.Gateway.Discord do
   require Logger
 
   alias AlexClaw.{Config, Message}
+  alias AlexClaw.Secrets.Mask
 
   # --- Behaviour callbacks ---
 
@@ -29,7 +30,7 @@ defmodule AlexClaw.Gateway.Discord do
   @discord_max_length 2000
 
   def send_message(text, opts \\ []) do
-    send_to_channel(Keyword.get(opts, :chat_id) || get_channel_id(), text)
+    send_to_channel(Keyword.get(opts, :chat_id) || get_channel_id(), Mask.mask(text))
   end
 
   defp send_to_channel(channel_id, _text) when channel_id in [nil, ""] do

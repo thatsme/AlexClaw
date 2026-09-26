@@ -17,10 +17,16 @@ defmodule AlexClaw.Secrets do
 
   alias AlexClaw.Auth.AuditLog
   alias AlexClaw.Repo
-  alias AlexClaw.Secrets.Secret
+  alias AlexClaw.Secrets.{Mask, Secret}
   alias AlexClaw.Vault
 
-  @type error :: :unknown_secret | :not_bound | :no_value | :empty_value | Vault.error()
+  @type error ::
+          :unknown_secret
+          | :not_bound
+          | :no_value
+          | :empty_value
+          | :malformed_value
+          | Vault.error()
 
   @topic "secrets"
 
@@ -90,6 +96,7 @@ defmodule AlexClaw.Secrets do
     result =
       with {:ok, secret} <- fetch(name),
            :ok <- non_empty(value),
+           :ok <- well_formed(value),
            :ok <- Vault.write(path(name), %{"value" => value}, server: vault(opts)),
            {:ok, _secret} <- Repo.update(Secret.rotated(secret)) do
         :ok
@@ -140,7 +147,7 @@ defmodule AlexClaw.Secrets do
       end
 
     AuditLog.log_secret_resolve(name, destination, outcome(result))
-    result
+    remembered(result)
   end
 
   @doc """
@@ -172,6 +179,23 @@ defmodule AlexClaw.Secrets do
 
   defp non_empty(""), do: {:error, :empty_value}
   defp non_empty(_value), do: :ok
+
+  # A value with surrounding whitespace or a control character (other than an
+  # inner newline or tab: a PEM key, a JSON credential) could only fail where it
+  # is sent, and the failure would quote it (S8 H8): it is refused on entry.
+  defp well_formed(value) do
+    if value == String.trim(value) and not String.match?(value, ~r/[\x00-\x08\x0b-\x1f\x7f]/),
+      do: :ok,
+      else: {:error, :malformed_value}
+  end
+
+  # Every value handed out is remembered for masking (AlexClaw.Secrets.Mask).
+  defp remembered({:ok, value} = result) do
+    Mask.register(value)
+    result
+  end
+
+  defp remembered(error), do: error
 
   defp bound(bindings, destination) do
     if destination in bindings, do: :ok, else: {:error, :not_bound}

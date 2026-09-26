@@ -140,6 +140,15 @@ defmodule AlexClaw.Vault do
   @impl true
   def init(config), do: {:ok, initial_state(config), {:continue, :login}}
 
+  # A crash report or :sys.get_status/1 shows the state: never the token
+  # (S8 M13).
+  @impl true
+  def format_status(status), do: Map.update(status, :state, nil, &hidden_token/1)
+
+  defp hidden_token(%{token: nil} = state), do: state
+  defp hidden_token(%{} = state), do: %{state | token: :redacted}
+  defp hidden_token(state), do: state
+
   defp initial_state(config) do
     %{config: config, req: request_base(config), token: nil, retry: @first_retry, timer: nil}
   end

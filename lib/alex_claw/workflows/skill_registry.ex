@@ -52,6 +52,7 @@ defmodule AlexClaw.Workflows.SkillRegistry do
     "telegram_notify" => AlexClaw.Skills.TelegramNotify,
     "discord_notify" => AlexClaw.Skills.DiscordNotify,
     "api_request" => AlexClaw.Skills.ApiRequest,
+    "sql_query" => AlexClaw.Skills.SqlQuery,
     "github_security_review" => AlexClaw.Skills.GitHubSecurityReview,
     "google_calendar" => AlexClaw.Skills.GoogleCalendar,
     "google_tasks" => AlexClaw.Skills.GoogleTasks,

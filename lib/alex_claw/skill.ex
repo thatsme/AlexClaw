@@ -65,6 +65,13 @@ defmodule AlexClaw.Skill do
   @callback unavailable_reason() :: String.t()
   @doc "Rules across config fields, after each field passed `config_schema/0`."
   @callback validate_config(config :: map()) :: :ok | {:error, [String.t()]}
+  @doc """
+  A check that only a save runs, never a run: one that asks something outside
+  AlexClaw whether the step can work (a database planning its query). Called
+  after `validate_config/1` has passed. `validate_config/1` also runs before
+  every execution, so a check that does I/O belongs here.
+  """
+  @callback dry_run(config :: map()) :: :ok | {:error, [String.t()]}
 
   @optional_callbacks description: 0,
                       permissions: 0,
@@ -85,7 +92,8 @@ defmodule AlexClaw.Skill do
                       available?: 0,
                       available?: 1,
                       unavailable_reason: 0,
-                      validate_config: 1
+                      validate_config: 1,
+                      dry_run: 1
 
   @doc "`skill`'s error routes, or `[:on_error]` when it declares none."
   @spec error_routes(module()) :: [atom()]

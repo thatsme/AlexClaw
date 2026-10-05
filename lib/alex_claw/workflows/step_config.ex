@@ -45,6 +45,19 @@ defmodule AlexClaw.Workflows.StepConfig do
   end
 
   @doc """
+  The skill's save-time check (`c:AlexClaw.Skill.dry_run/1`), when it declares
+  one; run as the skill. Only a save calls this, never a run.
+  """
+  @spec dry_run(module(), map() | nil) :: :ok | {:error, [String.t()]}
+  def dry_run(skill, config) do
+    Code.ensure_loaded(skill)
+
+    if function_exported?(skill, :dry_run, 1),
+      do: SafeExecutor.as_target(skill, fn -> skill.dry_run(config || %{}) end),
+      else: :ok
+  end
+
+  @doc """
   Whether a step for `skill` with `config` can run on this instance: the
   skill's `available?/1` when it declares one (the step's config can make it
   usable, e.g. its own bot token), else `available?/0`, else true.

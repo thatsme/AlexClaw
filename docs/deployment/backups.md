@@ -50,6 +50,28 @@ included.
 The backups are on the same machine as AlexClaw. A copy elsewhere (another
 disk, another machine) is what survives losing the machine.
 
+## Restore drill
+
+`scripts/drill-restore-openbao.sh` proves a snapshot can be restored and
+read, and that the unseal key file and the recovery key kept offline are the
+right ones, without touching the running OpenBao. It restores the newest
+snapshot (or the one named) into a throwaway OpenBao that has no network and
+keeps its storage in memory, asks for the recovery key (not echoed), makes a
+root token for the restored data with it, reads back every secret the
+database's catalogue names — printing names and lengths, never values — and
+the transit and TOTP keys, then revokes the token and removes the throwaway.
+
+```bash
+scripts/drill-restore-openbao.sh                  # the full drill, at a terminal
+scripts/drill-restore-openbao.sh --restore-only   # without the recovery key
+```
+
+It ends with `PASS` or `FAIL`. A snapshot that stays sealed means the unseal
+key file is not the one the snapshot was taken with; a refused recovery key
+means the one kept offline is not this OpenBao's. Either is to be fixed
+before the backups are relied on. Run it after the first backup and after
+any change to the keys.
+
 ## Restoring
 
 - The database: as in [Upgrading to 0.4.0](upgrade-0.4.0.md), "Rolling back"

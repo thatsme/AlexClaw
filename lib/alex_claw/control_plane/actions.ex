@@ -25,7 +25,19 @@ defmodule AlexClaw.ControlPlane.Actions do
     TOTP
   }
 
-  alias AlexClaw.{Cluster, Config, ControlPlane, LLM, Memory, Repo, Resources, Workflows}
+  alias AlexClaw.{
+    Cluster,
+    Config,
+    Connections,
+    ControlPlane,
+    LLM,
+    Memory,
+    Repo,
+    Resources,
+    Workflows
+  }
+
+  alias AlexClaw.Connections.{Connection, Pools}
   alias AlexClaw.ControlPlane.{Context, Effects}
   alias AlexClaw.Database.DataSet
   alias AlexClaw.MCP.Key
@@ -54,6 +66,8 @@ defmodule AlexClaw.ControlPlane.Actions do
     :generate_mcp_key,
     :set_gateway_owner,
     :save_provider,
+    :save_connection,
+    :delete_connection,
     :save_policy,
     :save_node,
     :delete_memory,
@@ -235,6 +249,15 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   def run(:save_provider, %{attrs: attrs} = params), do: save_provider(params[:provider], attrs)
 
+  # --- database connections: the pools follow once committed (`after_commit/4`).
+
+  def run(:save_connection, %{attrs: attrs} = params),
+    do: save_connection(params[:connection], attrs)
+
+  def run(:delete_connection, %{connection_id: id}) do
+    with {:ok, conn} <- Connections.get_connection(id), do: Connections.delete_connection(conn)
+  end
+
   def run(:save_policy, %{policy_id: id, delete: true}), do: Policies.delete_policy(id)
   def run(:save_policy, %{policy_id: id, toggle: true}), do: Policies.toggle_policy(id)
   def run(:save_policy, %{policy_id: id, attrs: attrs}), do: Policies.update_policy(id, attrs)
@@ -293,6 +316,10 @@ defmodule AlexClaw.ControlPlane.Actions do
       when action in [:save_resource, :discover_resource] do
     discover(params, resource, Context.requester(context))
   end
+
+  def after_commit(action, _params, %Connection{name: name}, _context)
+      when action in [:save_connection, :delete_connection],
+      do: Pools.sync(name)
 
   def after_commit(action, _params, keys, _context)
       when action in [:set_setting, :set_secret, :set_gateway_owner] and is_list(keys),
@@ -383,9 +410,14 @@ defmodule AlexClaw.ControlPlane.Actions do
   def describe(:set_gateway_owner, %{key: key}), do: "#{key} set"
   def describe(:set_up_second_factor, %{step: step}), do: "second factor set-up: #{step}"
 
+  # A connection by its name and server, never its password.
+  def describe(:save_connection, %{attrs: attrs}),
+    do: "connection #{attrs[:name] || attrs["name"]} saved"
+
   def describe(_action, params) do
     params
     |> Map.take([
+      :connection_id,
       :workflow_id,
       :step_id,
       :resource_id,
@@ -428,6 +460,9 @@ defmodule AlexClaw.ControlPlane.Actions do
 
   defp save_provider(nil, attrs), do: LLM.create_provider(attrs)
   defp save_provider(provider, attrs), do: LLM.update_provider(provider, attrs)
+
+  defp save_connection(nil, attrs), do: Connections.create_connection(attrs)
+  defp save_connection(conn, attrs), do: Connections.update_connection(conn, attrs)
 
   # Enabling a gateway assigns it to this node — telegram.enabled sets
   # telegram.node — in the same transaction as the setting itself. Answers the

@@ -9,9 +9,10 @@ defmodule AlexClaw.ControlPlane.Effects do
 
   alias AlexClaw.Auth.{RunApproval, SafeExecutor}
   alias AlexClaw.Config.SecretUpgrade
+  alias AlexClaw.{Connections, Resources, Workflows}
+  alias AlexClaw.Connections.Pools
   alias AlexClaw.Database.{DataExport, Dump, Restore}
   alias AlexClaw.Google.OAuth
-  alias AlexClaw.{Resources, Workflows}
   alias AlexClaw.Skills.{CodeGenerator, Invoke, WebAutomation}
   alias AlexClaw.WebAutomation.Recording
   alias AlexClaw.Workflows.{Executor, SkillRegistry, Workflow}
@@ -33,6 +34,7 @@ defmodule AlexClaw.ControlPlane.Effects do
     :replay,
     :connect_google,
     :disconnect_google,
+    :test_connection,
     :upgrade_secrets
   ]
 
@@ -157,6 +159,14 @@ defmodule AlexClaw.ControlPlane.Effects do
 
   def run(:disconnect_google, _params) do
     with :ok <- OAuth.disconnect(), do: {:ok, :disconnected}
+  end
+
+  # --- a database connection, tried through its pool: `SELECT 1`.
+
+  def run(:test_connection, %{connection_id: id}) do
+    with {:ok, conn} <- Connections.get_connection(id),
+         :ok <- Pools.check(conn.name),
+         do: {:ok, conn.name}
   end
 
   # --- the one-time move of secrets into OpenBao, at boot

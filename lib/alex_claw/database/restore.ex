@@ -343,6 +343,12 @@ defmodule AlexClaw.Database.Restore do
         do: {table, name}
   end
 
+  defp references({"db_connections" = table, live, rows}) do
+    for row <- rows,
+        %{"password" => %{"secret" => name}} <- [decoded_map(row_map(live, row)["credentials"])],
+        do: {table, name}
+  end
+
   defp references(_entry), do: []
 
   defp row_map(live, row), do: live |> Enum.map(&elem(&1, 0)) |> Enum.zip(row) |> Map.new()

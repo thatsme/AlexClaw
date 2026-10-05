@@ -1,0 +1,102 @@
+<div class="space-y-8">
+  <AlexClawWeb.CoreComponents.elevation_bar elevation={@elevation} />
+
+  <div class="flex justify-between items-center">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Database Connections</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        PostgreSQL servers that <code>sql_query</code> steps read from. Each step runs in a read-only
+        transaction; the password is kept in OpenBao, bound to the connection.
+      </p>
+    </div>
+    <button phx-click="toggle_form" class="px-4 py-2 bg-claw-700 hover:bg-claw-600 text-white text-sm rounded transition">
+      {if @show_form && !@editing, do: "Cancel", else: "Add Connection"}
+    </button>
+  </div>
+
+  <div :if={@show_form} class="bg-gray-900 rounded-lg border border-gray-800 p-6">
+    <h3 class="text-md font-semibold text-white mb-3">
+      {if @editing, do: "Edit #{@editing.name}", else: "New Connection"}
+    </h3>
+    <form phx-submit="save" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Name</label>
+        <input :if={!@editing} type="text" name="name" required placeholder="erp"
+          class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+        <p :if={@editing} class="text-white text-sm py-1.5">{@editing.name} <span class="text-gray-500">(cannot be changed)</span></p>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Host</label>
+        <input type="text" name="host" required value={@editing && @editing.host}
+          class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Port</label>
+        <input type="number" name="port" required value={if @editing, do: @editing.port, else: "5432"}
+          class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Database</label>
+        <input type="text" name="database" required value={@editing && @editing.database}
+          class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">User</label>
+        <input type="text" name="username" required value={@editing && @editing.username}
+          class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">TLS mode</label>
+        <select name="tls_mode" required class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm">
+          <option value="" disabled selected={!@editing}>Choose a TLS mode</option>
+          <option :for={{mode, label} <- @tls_modes} value={mode} selected={@editing && @editing.tls_mode == mode}>{label}</option>
+        </select>
+      </div>
+      <div class="md:col-span-3">
+        <label class="block text-xs text-gray-500 mb-1">Password</label>
+        <input type="password" name="password" autocomplete="new-password"
+          placeholder={if @editing, do: "set — leave blank to keep (enter it again if the server changes)", else: "required"}
+          class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-white text-sm" />
+      </div>
+      <div class="md:col-span-3 flex gap-2">
+        <button type="submit" class="px-4 py-2 bg-claw-700 hover:bg-claw-600 text-white text-sm rounded transition">Save</button>
+        <button type="button" phx-click="cancel_form" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded transition">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="bg-gray-900 rounded-lg border border-gray-800">
+    <p :if={@connections == []} class="p-6 text-sm text-gray-500">
+      No connections. A <code>sql_query</code> step needs one defined here.
+    </p>
+    <table :if={@connections != []} class="w-full text-sm">
+      <thead class="text-gray-500 text-xs uppercase">
+        <tr>
+          <th class="text-left p-3">Name</th>
+          <th class="text-left p-3">Server</th>
+          <th class="text-left p-3">TLS</th>
+          <th class="text-left p-3">State</th>
+          <th class="p-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr :for={conn <- @connections} class="border-t border-gray-800">
+          <td class="p-3 text-white">{conn.name}</td>
+          <td class="p-3 text-gray-300">{conn.username}@{conn.host}:{conn.port}/{conn.database}</td>
+          <td class="p-3 text-gray-300">{conn.tls_mode}</td>
+          <td class="p-3">
+            <span :if={@statuses[conn.name] && @statuses[conn.name].state == :up} class="text-green-400">up</span>
+            <span :if={!@statuses[conn.name] || @statuses[conn.name].state != :up} class="text-red-400">
+              down{if @statuses[conn.name] && @statuses[conn.name].reason, do: ": #{@statuses[conn.name].reason}"}
+            </span>
+          </td>
+          <td class="p-3 text-right space-x-2">
+            <button phx-click="test" phx-value-id={conn.id} class="text-claw-400 hover:text-claw-300">Test</button>
+            <button phx-click="edit" phx-value-id={conn.id} class="text-claw-400 hover:text-claw-300">Edit</button>
+            <button phx-click="delete" phx-value-id={conn.id} data-confirm={"Delete #{conn.name}?"} class="text-red-400 hover:text-red-300">Delete</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -61,6 +61,10 @@ defmodule AlexClaw.ControlPlane do
     unload_skill: @authoring,
     generate_skill: @authoring,
     save_provider: @authoring,
+    # database connections: defining, removing and testing one
+    save_connection: @authoring,
+    delete_connection: @authoring,
+    test_connection: @authoring,
     save_policy: @authoring,
     save_node: @authoring,
     set_gateway_owner: @authoring,

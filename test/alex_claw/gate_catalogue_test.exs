@@ -57,6 +57,10 @@ defmodule AlexClaw.GateCatalogueTest do
     unload_skill: %{admin_ui: :elevation},
     generate_skill: %{admin_ui: :elevation},
     save_provider: %{admin_ui: :elevation},
+    # database connections (SQL read): defining, removing and testing one
+    save_connection: %{admin_ui: :elevation},
+    delete_connection: %{admin_ui: :elevation},
+    test_connection: %{admin_ui: :elevation},
     save_policy: %{admin_ui: :elevation},
     save_node: %{admin_ui: :elevation},
     set_gateway_owner: %{admin_ui: :elevation},

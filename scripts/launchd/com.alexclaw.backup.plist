@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The nightly backup of AlexClaw's database and OpenBao (scripts/backup-scheduled.sh),
+  as a LaunchAgent of the user who runs AlexClaw. Installed by
+  scripts/launchd/install.sh, which replaces __REPO__ with the checkout's path.
+  A Mac asleep at 03:30 runs it at the next wake.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.alexclaw.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>__REPO__/scripts/backup-scheduled.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/tmp/com.alexclaw.backup.out</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/com.alexclaw.backup.err</string>
+</dict>
+</plist>

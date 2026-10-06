@@ -18,7 +18,7 @@ defmodule AlexClaw.Connections.Pool do
   """
   use GenServer
 
-  alias AlexClaw.Connections.{Connection, ConnectionSecrets}
+  alias AlexClaw.Connections.{Connection, ConnectionSecrets, Target}
   alias AlexClaw.Secrets
 
   @pool_size 2
@@ -151,12 +151,19 @@ defmodule AlexClaw.Connections.Pool do
     # A probe that cannot connect exits; its error is the answer, not a crash.
     Process.flag(:trap_exit, true)
 
+    with :ok <- Target.check(conn.host),
+         {:ok, password} <- password(conn) do
+      conn
+      |> connect_options()
+      |> Keyword.merge(password: password, sync_connect: true, auto_reconnect: false)
+      |> probe()
+    end
+  end
+
+  defp password(conn) do
     case ConnectionSecrets.resolve(conn) do
       {:ok, password} ->
-        conn
-        |> connect_options()
-        |> Keyword.merge(password: password, sync_connect: true, auto_reconnect: false)
-        |> probe()
+        {:ok, password}
 
       {:error, reason} ->
         {:error, "the password could not be read from OpenBao: #{inspect(reason)}"}
@@ -180,9 +187,11 @@ defmodule AlexClaw.Connections.Pool do
     )
   end
 
-  # Before each connect of the pool. A password that cannot be read by then
-  # fails that connect; the pool retries, and the state says it is down.
+  # Before each connect of the pool: the host is checked again (a name can
+  # resolve elsewhere since), then the password read. Either failing fails
+  # that connect; the pool retries, and the state says it is down.
   defp password!(conn) do
+    :ok = Target.check(conn.host)
     {:ok, password} = ConnectionSecrets.resolve(conn)
     password
   end

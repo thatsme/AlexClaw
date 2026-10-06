@@ -17,6 +17,16 @@ config :alex_claw, AlexClawWeb.Endpoint,
 
 config :alex_claw, AlexClaw.Scheduler, jobs: []
 
+# AlexClaw's own networks in docker-compose.yml (default: its database;
+# automation: the web automator; vault: OpenBao). A database connection may
+# not point into them (AlexClaw.Connections.Target). Change them with the
+# compose subnets.
+config :alex_claw, :connection_internal_networks, [
+  "10.213.61.0/24",
+  "10.213.62.0/24",
+  "10.213.63.0/24"
+]
+
 config :alex_claw, AlexClaw.LLM,
   ollama_enabled: false,
   ollama_host: "http://localhost:11434",

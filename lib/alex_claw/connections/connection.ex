@@ -7,8 +7,9 @@ defmodule AlexClaw.Connections.Connection do
   (`AlexClaw.Connections.ConnectionSecrets`); `credentials` holds its
   reference. `password` is what a save is given, planned into that reference
   before the row is written: it is never stored. The name is the binding, so
-  it is a short lowercase identifier and never changes. The TLS mode has no
-  default:
+  it is a short lowercase identifier and never changes. The host is never
+  AlexClaw itself or one of its own services
+  (`AlexClaw.Connections.Target`). The TLS mode has no default:
 
     * `disable` — no TLS;
     * `require` — encrypted, the server's identity not verified;
@@ -17,6 +18,8 @@ defmodule AlexClaw.Connections.Connection do
   """
   use Ecto.Schema
   import Ecto.Changeset
+
+  alias AlexClaw.Connections.Target
 
   @type t :: %__MODULE__{}
 
@@ -84,6 +87,15 @@ defmodule AlexClaw.Connections.Connection do
     )
     |> validate_number(:port, greater_than: 0, less_than: 65_536)
     |> validate_length(:host, max: 253)
+    |> validate_change(:host, &customer_host/2)
     |> unique_constraint(:name)
+  end
+
+  # Never AlexClaw itself or one of its own services (Target).
+  defp customer_host(:host, host) do
+    case Target.check(host) do
+      :ok -> []
+      {:error, reason} -> [host: reason]
+    end
   end
 end

@@ -66,6 +66,9 @@ COPY openbao openbao/
 # The OpenBao backup command, checked by openbao_backup_test.
 COPY scripts/backup-openbao.sh scripts/
 COPY mkdocs.yml .env.example ./
+# Checked by build_context_secrets_test: what every build context keeps out.
+COPY .dockerignore ./
+COPY web-automator/.dockerignore web-automator/
 # The compose files are scanned by cluster_cookie_test: a deployment secret
 # must not ship with a default. Without them the scan would find nothing and
 # pass.

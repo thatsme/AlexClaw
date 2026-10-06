@@ -1,0 +1,37 @@
+# Never sent to a build, so never in an image or the build cache
+# (test/build_context_secrets_test.exs). The images copy what they name; this
+# keeps what they must not have out of reach of any COPY.
+
+# OpenBao's unseal key: losing it loses every secret, copying it is never done.
+openbao/unseal
+
+# The deployment's environment: database passwords, SECRET_KEY_BASE.
+.env
+.env.local
+
+# Backups and snapshots: the database's data, OpenBao's sealed data.
+backups
+openbao-backups
+*.dump
+*.snap
+
+# The test stack's OpenBao credentials and its build cache.
+.openbao-test
+.test-cache
+
+# Crash dumps hold a process's memory.
+erl_crash.dump
+
+# Private working files.
+local-docs
+reports
+.claude
+CLAUDE.md
+GIULIA.md
+.giulia
+
+# Built inside the image, never copied in.
+_build
+deps
+node_modules
+.elixir_ls

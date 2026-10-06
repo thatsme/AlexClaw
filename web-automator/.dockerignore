@@ -1,0 +1,5 @@
+# Nothing secret lives here today; an environment file never reaches the build
+# (test/build_context_secrets_test.exs).
+.env
+__pycache__
+.pytest_cache

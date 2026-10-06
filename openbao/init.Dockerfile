@@ -6,7 +6,7 @@ USER root
 # Pinned to the version this image's Alpine release (3.24) ships, so a rebuild
 # installs the same openssl. A newer package fails the build rather than
 # changing silently: bump the pin with the base image.
-RUN apk add --no-cache openssl=3.5.8-r0
+RUN apk add --no-cache openssl=3.5.9-r0
 COPY init.sh /usr/local/bin/openbao-init
 # The on-demand snapshot (the `openbao-backup` service runs this image).
 COPY backup.sh /usr/local/bin/openbao-backup

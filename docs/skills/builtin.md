@@ -17,6 +17,7 @@ Skills marked **External** fetch data from outside the system. Their output is a
 | `discord_notify` | Send workflow output to a Discord channel | `on_delivered`, `on_error` | — |
 | `llm_transform` | Run a prompt template through the LLM (workflow glue step) | `on_success`, `on_error` | — |
 | `api_request` | Generic REST client (GET/POST/PUT/PATCH/DELETE) | `on_2xx`, `on_4xx`, `on_5xx`, `on_timeout`, `on_error` | Yes |
+| `sql_query` | A fixed, parameterised read on a database connection, in a read-only transaction: `{columns, rows, row_count}` ([SQL demo](../demo/sql-demo.md)) | `on_success`, `on_empty`, `on_error` | Yes — its rows are not sanitised (SECURITY.md, Known Limitations) |
 | `github_security_review` | Fetch a PR or commit diff — analysis is a following `llm_transform` step | `on_diff`, `on_empty`, `on_error` | Yes |
 | `google_calendar` | Fetch upcoming Google Calendar events | `on_events`, `on_empty`, `on_error` | Yes |
 | `google_tasks` | List and create Google Tasks | `on_tasks`, `on_empty`, `on_error` | Yes |

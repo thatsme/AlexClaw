@@ -982,6 +982,43 @@ Only load skills from trusted sources.
 
 ---
 
+## Database Connections (SQL Read)
+
+A `sql_query` workflow step reads from a PostgreSQL database through a
+connection defined on the Connections page.
+
+- **Defined only through the control plane.** Creating, changing, testing or
+  removing a connection is an admin-UI action that needs the editing
+  elevation and is audited. There is no default connection and no fallback
+  to AlexClaw's own database. A connection a step uses cannot be removed.
+- **The password is a secret in OpenBao**, of kind `database_password`, bound
+  to `connection:<name>`; the database row holds a reference. It is read from
+  OpenBao before every connect, held by nothing, and a rotation makes the
+  pool reconnect. Pointing a connection at another server (host, port,
+  database, user or TLS mode) requires the password again.
+- **The TLS mode is chosen, never defaulted:** `disable`, `require`
+  (encrypted, the server's identity not verified) or `verify_full` (the
+  certificate verified against the system's CAs and the host name checked).
+- **The query is fixed when the step is saved**, with the editing elevation:
+  it is never built from data. Parameters are bound, never interpolated. The
+  save runs a dry run on the database (`PREPARE` and `EXPLAIN`, nothing
+  executed): the statement must start as a read (`SELECT`, `WITH`, `VALUES`,
+  `TABLE`) and its plan must not write or lock rows.
+- **Every run is read-only on the server:** inside `SET TRANSACTION READ
+  ONLY`, so a write is refused by PostgreSQL itself, inside a function too.
+  The deadline (`timeout_ms`, required) is the server's `statement_timeout`;
+  the caller abandons the query just after it, which cancels it on the
+  server. A result over 5 MB is an error, never a silent cut.
+- **Errors carry no row data:** PostgreSQL's `DETAIL` is never kept, and for
+  data exceptions and integrity violations (SQLSTATE classes 22 and 23),
+  whose messages quote values, only the condition's name is.
+- **Every run is audited:** the connection, the number of parameters and
+  where each came from, the row count, the duration and the outcome — never
+  a parameter's value, a row or a database message.
+
+The database's own grants remain the protection that counts: connect with a
+role that may read only what the workflows need.
+
 ## Known Limitations and Design Decisions
 
 **LLM prompts may contain user data.**
@@ -996,6 +1033,20 @@ per-action exceptions, each asking for a code of its own, are loading or
 reloading a skill, a database restore, turning 2FA off, generating recovery
 codes, and running a workflow that is marked `requires_2fa` or has a
 privileged step.
+
+**Database text reaching an LLM prompt is not sanitised.**
+A `sql_query` step returns the rows of a customer's database as data; when a
+later step (`llm_transform`) puts them into a prompt, nothing filters them.
+Text stored in that database can therefore carry instructions to the model
+(prompt injection from the data itself). Connect only databases whose content
+is trusted to that degree, or keep the model's output away from actions.
+
+**`verify_full` uses the system's CAs only.**
+A database connection in `verify_full` mode checks the server's certificate
+against the CA bundle of AlexClaw's image and the host name. A certificate
+signed by a private CA cannot be verified yet: such a server needs `require`
+(encrypted, the server's identity not verified) until a custom CA can be set
+per connection.
 
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures

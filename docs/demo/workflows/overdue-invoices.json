@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "workflow": {
+    "name": "Overdue invoices",
+    "description": "SQL demo: unpaid invoices past their due date, prioritised and sent to Telegram.",
+    "enabled": true,
+    "schedule": null,
+    "default_provider": null,
+    "node": null,
+    "metadata": {}
+  },
+  "steps": [
+    {
+      "position": 1,
+      "name": "Past-due invoices",
+      "skill": "sql_query",
+      "llm_tier": null,
+      "llm_model": null,
+      "prompt_template": null,
+      "config": {
+        "connection": "demo",
+        "query": "SELECT i.id AS invoice, c.name AS customer, r.name AS region, i.amount, i.due_on, (SELECT max(ordered_at) FROM orders) - i.due_on AS days_overdue FROM invoices i JOIN orders o ON o.id = i.order_id JOIN customers c ON c.id = o.customer_id JOIN regions r ON r.id = c.region_id WHERE i.paid_on IS NULL AND i.due_on < (SELECT max(ordered_at) FROM orders) ORDER BY i.amount * ((SELECT max(ordered_at) FROM orders) - i.due_on) DESC LIMIT $1::int",
+        "params": [25],
+        "timeout_ms": 15000
+      },
+      "input_from": null,
+      "routes": []
+    },
+    {
+      "position": 2,
+      "name": "Prioritise",
+      "skill": "llm_transform",
+      "llm_tier": "local",
+      "llm_model": null,
+      "prompt_template": "The rows below are a wholesaler's unpaid invoices past their due date, as JSON: invoice number, customer, region, amount in euros, due date, days overdue. They are already ordered by amount times days overdue. Write a prioritised follow-up list for the accounts team: the five to chase first and why, then one line on the rest (how many, how much in total). Use only these numbers.\n\n{input}",
+      "config": {},
+      "input_from": null,
+      "routes": []
+    },
+    {
+      "position": 3,
+      "name": "Send to Telegram",
+      "skill": "telegram_notify",
+      "llm_tier": null,
+      "llm_model": null,
+      "prompt_template": null,
+      "config": {},
+      "input_from": null,
+      "routes": []
+    }
+  ],
+  "resources": []
+}

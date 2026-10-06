@@ -8,7 +8,7 @@ defmodule AlexClaw.ComposeResourceLimitsTest do
   @moduletag :unit
 
   @limited %{
-    "docker-compose.yml" => ~w(alexclaw-prod web-automator),
+    "docker-compose.yml" => ~w(alexclaw-prod web-automator demo-db),
     "docker-compose_swarm.yml" => ~w(node1 node2)
   }
 

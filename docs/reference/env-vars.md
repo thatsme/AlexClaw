@@ -103,6 +103,7 @@ The database name is set by the compose file, not by an environment variable.
 |---|---|---|
 | `BACKUP_DIR` | `./backups` | Host path the db_backup skill writes database backups to (mounted into AlexClaw) |
 | `OPENBAO_BACKUP_DIR` | `~/backups` (through `make backup-openbao`; `./openbao-backups` when compose runs the service directly) | Host path for OpenBao snapshots. Never `BACKUP_DIR` or a directory inside it, which AlexClaw mounts; the backup command refuses them |
+| `DEMO_READER_PASSWORD` | none | Only with the `demo` compose profile ([SQL demo](../demo/sql-demo.md)): the password of the demo database's read-only role, typed into the connection form too. The demo database does not start without it |
 
 ## Post-Boot Provider Options
 

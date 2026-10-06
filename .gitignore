@@ -70,6 +70,10 @@ priv/static/assets/
 # Database backups and SQL dumps (may contain secrets)
 *.sql
 /backups/
+# …except the SQL demo's schema, generated data and read-only role: source,
+# holding no secret (the role's password is a psql variable).
+!demo/**/*.sql
+!demo/*.sql
 
 # Python (web-automator)
 __pycache__/

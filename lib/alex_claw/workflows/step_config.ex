@@ -15,10 +15,12 @@ defmodule AlexClaw.Workflows.StepConfig do
 
   Every step may also set the executor's own options, read by the executor
   and not by the skill: `timeout_ms`, `on_circuit_open`, `fallback_skill`,
-  `on_missing_skill`.
+  `on_missing_skill`. A step-only skill
+  (`AlexClaw.Skills.Invoke.step_only_skills/0`) is never a fallback.
   """
 
   alias AlexClaw.Auth.SafeExecutor
+  alias AlexClaw.Skills.Invoke
 
   @executor_fields %{
     "timeout_ms" => %{type: :integer, required: false},
@@ -40,9 +42,19 @@ defmodule AlexClaw.Workflows.StepConfig do
 
     result(
       Enum.flat_map(config, &key_errors(&1, schema, runtime?)) ++
-        missing(schema, config) ++ cross_field(skill, config)
+        missing(schema, config) ++
+        fallback(config["fallback_skill"]) ++ cross_field(skill, config)
     )
   end
+
+  # A step-only skill as a fallback would run with another step's config.
+  defp fallback(name) when is_binary(name) do
+    if name in Invoke.step_only_skills(),
+      do: ["fallback_skill: #{name} runs only as a workflow step of its own"],
+      else: []
+  end
+
+  defp fallback(_name), do: []
 
   @doc """
   The skill's save-time check (`c:AlexClaw.Skill.dry_run/1`), when it declares

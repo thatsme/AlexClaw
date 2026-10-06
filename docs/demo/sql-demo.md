@@ -12,7 +12,9 @@ given on top of `docker-compose.yml`; a plain `docker compose up -d` leaves
 AlexClaw on its own networks. Its data lives in memory and is generated again, identically, at
 every start: customers, products, orders and invoices over two years up to
 2026-09-30, in five regions, with some invoices past due. AlexClaw reads it
-as the role `alexclaw_reader`, which may read the tables and nothing else.
+as the role `alexclaw_reader`, which may read the tables and nothing else:
+the database has no `dblink` extension and the role is not a member of
+`pg_signal_backend`, as SECURITY.md asks of any role a connection uses.
 
 What a connection and a `sql_query` step guarantee is described in
 [SECURITY.md](https://github.com/thatsme/AlexClaw/blob/main/SECURITY.md),

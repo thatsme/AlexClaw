@@ -991,33 +991,59 @@ connection defined on the Connections page.
   removing a connection is an admin-UI action that needs the editing
   elevation and is audited. There is no default connection and no fallback
   to AlexClaw's own database. A connection a step uses cannot be removed.
-- **The password is a secret in OpenBao**, of kind `database_password`, bound
-  to `connection:<name>`; the database row holds a reference. It is read from
-  OpenBao before every connect, held by nothing, and a rotation makes the
-  pool reconnect. Pointing a connection at another server (host, port,
-  database, user or TLS mode) requires the password again.
-- **The TLS mode is chosen, never defaulted:** `disable`, `require`
-  (encrypted, the server's identity not verified) or `verify_full` (the
-  certificate verified against the system's CAs and the host name checked).
+- **Never AlexClaw itself:** a connection's host may not be, or resolve to,
+  a loopback or link-local address or an address in AlexClaw's own networks
+  (its database, OpenBao, the web automator). Checked at save and again
+  before every connect.
+- **The password is a secret in OpenBao**, of kind `database_password`; the
+  database row holds a reference. It is bound to the server it was entered
+  for — host, port, database, user and TLS mode — so a connection whose
+  server changes, by a save, a restore or any other write, cannot use it
+  until it is entered again; a restore naming another server for a
+  connection is refused. It is read from OpenBao before every connect and
+  held by nothing; a rotation, announced once its save has committed, makes
+  the pool reconnect.
+- **The TLS mode is chosen, never defaulted:** `disable` (no TLS: the
+  password is readable on the network path), `require` (encrypted, the
+  server's identity not verified: a server impersonating the real one can
+  obtain the password) or `verify_full` (the certificate verified against
+  the system's CAs and the host name checked). Only `verify_full` ensures
+  the password reaches the intended server.
 - **The query is fixed when the step is saved**, with the editing elevation:
   it is never built from data. Parameters are bound, never interpolated. The
-  save runs a dry run on the database (`PREPARE` and `EXPLAIN`, nothing
-  executed): the statement must start as a read (`SELECT`, `WITH`, `VALUES`,
-  `TABLE`) and its plan must not write or lock rows.
-- **Every run is read-only on the server:** inside `SET TRANSACTION READ
-  ONLY`, so a write is refused by PostgreSQL itself, inside a function too.
-  The deadline (`timeout_ms`, required) is the server's `statement_timeout`;
-  the caller abandons the query just after it, which cancels it on the
-  server. A result over 5 MB is an error, never a silent cut.
+  save runs a dry run on the database (`PREPARE` and `EXPLAIN`; the query is
+  not run, although the planner may evaluate functions the database declares
+  immutable): the statement must start as a read (`SELECT`, `WITH`,
+  `VALUES`, `TABLE`) and its plan must not write or lock rows. A `sql_query`
+  runs only as a saved workflow step: no skill, no reasoning loop and no
+  other caller can run it with a configuration of its own, and no step can
+  name it as its fallback.
+- **Every run is read-only in its session:** inside `SET TRANSACTION READ
+  ONLY`, so a write in that session is refused by PostgreSQL itself, inside
+  a function too. Once the transaction is over the session is reset
+  (`DISCARD ALL`) before it is used again, so a session advisory lock or
+  setting does not outlive the query. The deadline (`timeout_ms`, required,
+  at most five minutes) is the server's `statement_timeout`; the caller
+  abandons the query just after it, which cancels it on the server. A result
+  over 5 MB is an error, never a silent cut, and the query runs in a process
+  whose memory is bounded, so a single oversized value ends that process
+  alone.
 - **Errors carry no row data:** PostgreSQL's `DETAIL` is never kept, and for
   data exceptions and integrity violations (SQLSTATE classes 22 and 23),
-  whose messages quote values, only the condition's name is.
+  whose messages quote values, only the condition's name is. A parameter
+  that does not fit its type is refused naming its position; any other
+  failure names its kind, never a value, and is never reported as a timeout.
 - **Every run is audited:** the connection, the number of parameters and
   where each came from, the row count, the duration and the outcome — never
   a parameter's value, a row or a database message.
 
-The database's own grants remain the protection that counts: connect with a
-role that may read only what the workflows need.
+The database's own grants remain the protection that counts. A read-only
+transaction does not stop what a function does outside its session — a
+connection opened with `dblink` (which writes in a transaction of its own),
+a notification (`pg_notify`), a signal to another session
+(`pg_cancel_backend`, `pg_terminate_backend`). Connect with a role that may
+read only what the workflows need, that cannot execute `dblink` functions,
+and that is not a member of `pg_signal_backend`.
 
 ## Known Limitations and Design Decisions
 
@@ -1040,6 +1066,13 @@ later step (`llm_transform`) puts them into a prompt, nothing filters them.
 Text stored in that database can therefore carry instructions to the model
 (prompt injection from the data itself). Connect only databases whose content
 is trusted to that degree, or keep the model's output away from actions.
+
+**A database server can ask for the password in clear.**
+AlexClaw's PostgreSQL client answers a server's request for cleartext or
+MD5 password authentication; it cannot be made to insist on SCRAM. With
+`disable` the password crosses the network readable; with `require` a server
+impersonating the real one can request it. Only `verify_full` ensures it
+goes to the intended server.
 
 **`verify_full` uses the system's CAs only.**
 A database connection in `verify_full` mode checks the server's certificate

@@ -14,9 +14,12 @@ defmodule AlexClawWeb.AdminLive.Connections do
   alias AlexClaw.Connections.{Connection, Pools}
   alias AlexClawWeb.Live.Elevation
 
+  # What the weaker modes cost the password: the client answers a server's
+  # request for it in clear (SECURITY.md, Known Limitations).
   @tls_labels %{
-    "disable" => "disable — no TLS",
-    "require" => "require — encrypted, server identity not verified",
+    "disable" => "disable — no TLS: password readable on the network path",
+    "require" =>
+      "require — encrypted, server identity not verified: an impostor can obtain the password",
     "verify_full" => "verify_full — encrypted, server certificate and host name verified"
   }
 

@@ -11,8 +11,10 @@ defmodule AlexClaw.Connections.Connection do
   AlexClaw itself or one of its own services
   (`AlexClaw.Connections.Target`). The TLS mode has no default:
 
-    * `disable` — no TLS;
-    * `require` — encrypted, the server's identity not verified;
+    * `disable` — no TLS: the password is readable on the network path;
+    * `require` — encrypted, the server's identity not verified: a server
+      that impersonates the real one can ask for the password in clear and
+      receive it (Postgrex cannot be made to insist on SCRAM);
     * `verify_full` — encrypted, the certificate verified against the
       system's CAs and the host name checked.
   """

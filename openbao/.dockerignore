@@ -1,0 +1,3 @@
+# The openbao-init image's build context is this directory, which holds the
+# unseal key: it is never sent to a build (test/build_context_secrets_test.exs).
+unseal

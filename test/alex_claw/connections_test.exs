@@ -2,8 +2,9 @@ defmodule AlexClaw.ConnectionsTest do
   @moduledoc """
   Database connections, defined in the admin UI: a name, a PostgreSQL server
   (host, port, database, user) and a TLS mode chosen explicitly. The password
-  is a secret in OpenBao, bound to the connection (`connection:<name>`); the
-  row keeps a reference (reports/SQL_READ_PREMISES.md §4.1).
+  is a secret in OpenBao, bound to the connection and its server
+  (`ConnectionSecrets.destination/1`); the row keeps a reference
+  (reports/SQL_READ_PREMISES.md §4.1).
 
   - Every field is required; the TLS mode has no default and is one of
     `disable`, `require`, `verify_full`.
@@ -19,7 +20,7 @@ defmodule AlexClaw.ConnectionsTest do
   @moduletag :vault
 
   alias AlexClaw.{Connections, Secrets}
-  alias AlexClaw.Connections.Connection
+  alias AlexClaw.Connections.{Connection, ConnectionSecrets}
 
   @password "s3cret-db-Password"
 
@@ -58,8 +59,8 @@ defmodule AlexClaw.ConnectionsTest do
       name = secret_name(conn)
 
       assert %Secrets.Secret{kind: "database_password", binding: [binding]} = Secrets.get(name)
-      assert binding == "connection:" <> conn.name
-      assert {:ok, @password} = Secrets.resolve(name, for: "connection:" <> conn.name)
+      assert binding == ConnectionSecrets.destination(conn)
+      assert {:ok, @password} = Secrets.resolve(name, for: ConnectionSecrets.destination(conn))
     end
 
     test "its password resolves for no other connection" do
@@ -142,14 +143,14 @@ defmodule AlexClaw.ConnectionsTest do
       assert Secrets.get(secret_name(conn)).rotated_at == before
 
       assert {:ok, @password} =
-               Secrets.resolve(secret_name(updated), for: "connection:" <> conn.name)
+               Secrets.resolve(secret_name(updated), for: ConnectionSecrets.destination(updated))
     end
 
     test "a new password replaces it", %{conn: conn} do
       assert {:ok, updated} = Connections.update_connection(conn, %{password: "n3w-Password"})
 
       assert {:ok, "n3w-Password"} =
-               Secrets.resolve(secret_name(updated), for: "connection:" <> conn.name)
+               Secrets.resolve(secret_name(updated), for: ConnectionSecrets.destination(updated))
     end
 
     for {field, value} <- [
@@ -179,7 +180,9 @@ defmodule AlexClaw.ConnectionsTest do
         assert Map.get(updated, unquote(field)) == unquote(value)
 
         assert {:ok, "for-the-new-server"} =
-                 Secrets.resolve(secret_name(updated), for: "connection:" <> conn.name)
+                 Secrets.resolve(secret_name(updated),
+                   for: ConnectionSecrets.destination(updated)
+                 )
       end
     end
   end

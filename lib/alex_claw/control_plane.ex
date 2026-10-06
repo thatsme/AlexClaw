@@ -36,7 +36,7 @@ defmodule AlexClaw.ControlPlane do
 
   alias AlexClaw.Auth.{AuditLog, Challenge, CodeEntry, Elevation, Principal}
   alias AlexClaw.ControlPlane.{Actions, Context}
-  alias AlexClaw.Repo
+  alias AlexClaw.{Repo, Secrets}
 
   @authoring %{admin_ui: :elevation}
 
@@ -287,11 +287,13 @@ defmodule AlexClaw.ControlPlane do
     reason = reason(action, params, context)
 
     committed =
-      Repo.transaction(fn ->
+      fn ->
         action
         |> verify_code(params, context, code)
         |> checked(action, params, context, reason)
-      end)
+      end
+      |> Repo.transaction()
+      |> Secrets.notify_after()
 
     coded(committed, action, params, context)
   end
@@ -433,8 +435,9 @@ defmodule AlexClaw.ControlPlane do
     {:error, reason}
   end
 
+  # Rotation notices held for the commit go out once it is done (H1).
   defp transact(audit, write) do
-    Repo.transaction(fn ->
+    fn ->
       with {:audit, :ok} <- {:audit, audit.()},
            {:ok, result} <- write.() do
         result
@@ -442,7 +445,9 @@ defmodule AlexClaw.ControlPlane do
         {:audit, {:error, _reason}} -> Repo.rollback(:audit_failed)
         {:error, reason} -> Repo.rollback(reason)
       end
-    end)
+    end
+    |> Repo.transaction()
+    |> Secrets.notify_after()
   end
 
   defp print(sid) when is_binary(sid), do: Elevation.fingerprint(sid)

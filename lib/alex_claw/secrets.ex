@@ -114,7 +114,9 @@ defmodule AlexClaw.Secrets do
   it is entered (`{:error, :malformed_value}`, S8 H8). Options: `vault:` — the
   `AlexClaw.Vault` server to use; `exact: true` — carry the value as it is,
   for the boot upgrade, which moves values 0.3.x already used and must not
-  change or lose them.
+  change or lose them; `notice: :after_commit` — inside a transaction, the
+  rotation notice waits for `notify_after/1` at the outermost transaction's
+  end instead of going out at once.
   """
   @spec put_value(String.t(), String.t(), keyword()) :: :ok | {:error, error()}
   def put_value(name, value, opts \\ []) when is_binary(name) and is_binary(value) do
@@ -128,9 +130,29 @@ defmodule AlexClaw.Secrets do
       end
 
     AuditLog.log_secret_set(name, outcome(result))
-    announce(result, name)
+    announce(result, name, Keyword.get(opts, :notice))
     result
   end
+
+  @pending_notices {__MODULE__, :pending_notices}
+
+  @doc """
+  Send, or drop, the rotation notices held for the commit
+  (`put_value/3` with `notice: :after_commit`), given the result of the
+  transaction that held them. Inside an outer transaction they stay held for
+  it. A committed result sends them; anything else drops them — the change
+  they announce was undone. Returns `result`.
+  """
+  @spec notify_after(result) :: result when result: term()
+  def notify_after(result) do
+    if not Repo.in_transaction?(), do: settle(result, Process.delete(@pending_notices) || [])
+    result
+  end
+
+  defp settle({:ok, _value}, names),
+    do: names |> Enum.reverse() |> Enum.uniq() |> Enum.each(&broadcast/1)
+
+  defp settle(_undone, _names), do: :ok
 
   @doc """
   Delete the secret `name`: its value in OpenBao, with every version and its
@@ -148,7 +170,7 @@ defmodule AlexClaw.Secrets do
       end
 
     AuditLog.log_secret_delete(name, outcome(result))
-    announce(result, name)
+    announce(result, name, nil)
     result
   end
 
@@ -197,10 +219,17 @@ defmodule AlexClaw.Secrets do
     end
   end
 
-  defp announce(:ok, name),
-    do: Phoenix.PubSub.broadcast(AlexClaw.PubSub, @topic, {:secret_rotated, name})
+  defp announce(:ok, name, :after_commit), do: held_or_sent(Repo.in_transaction?(), name)
+  defp announce(:ok, name, _notice), do: broadcast(name)
+  defp announce(_error, _name, _notice), do: :ok
 
-  defp announce(_error, _name), do: :ok
+  defp held_or_sent(true, name),
+    do: Process.put(@pending_notices, [name | Process.get(@pending_notices, [])])
+
+  defp held_or_sent(false, name), do: broadcast(name)
+
+  defp broadcast(name),
+    do: Phoenix.PubSub.broadcast(AlexClaw.PubSub, @topic, {:secret_rotated, name})
 
   defp fetch(name) do
     case get(name) do

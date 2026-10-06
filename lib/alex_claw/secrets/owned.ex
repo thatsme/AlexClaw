@@ -201,13 +201,14 @@ defmodule AlexClaw.Secrets.Owned do
   @doc """
   Store the plan's new values in OpenBao, each bound to `destination`: a
   secret is catalogued on first use, and bound again when it was bound
-  elsewhere. `kind` gives each path's kind of secret.
+  elsewhere. `kind` gives each path's kind of secret. `opts` go to
+  `AlexClaw.Secrets.put_value/3` (`notice:`).
   """
-  @spec store_all(plan(), destination(), namer()) :: :ok | {:error, term()}
-  def store_all(plan, destination, kind) do
+  @spec store_all(plan(), destination(), namer(), keyword()) :: :ok | {:error, term()}
+  def store_all(plan, destination, kind, opts \\ []) do
     Enum.reduce_while(plan, :ok, fn
       {path, {:store, name, value}}, :ok ->
-        {:cont, stored(name, value, destination_of(destination, path), kind.(path))}
+        {:cont, stored(name, value, destination_of(destination, path), kind.(path), opts)}
 
       {_path, {:keep, _name}}, :ok ->
         {:cont, :ok}
@@ -221,9 +222,9 @@ defmodule AlexClaw.Secrets.Owned do
   defp halted(:ok), do: :ok
   defp halted(error), do: error
 
-  defp stored(name, value, destination, kind) do
+  defp stored(name, value, destination, kind, opts) do
     with :ok <- bound(Secrets.get(name), name, destination, kind),
-         do: Secrets.put_value(name, value)
+         do: Secrets.put_value(name, value, opts)
   end
 
   defp bound(nil, name, destination, kind) do
@@ -242,19 +243,29 @@ defmodule AlexClaw.Secrets.Owned do
   undoes the row. The secrets the record no longer references are deleted
   once it has committed. `kind` gives each path's kind of secret; `persist`
   is `Repo.insert/1` or `Repo.update/1`.
+
+  Options: `notice: :after_commit` — the rotation notices wait until the
+  outermost transaction has committed, and are dropped if it is undone
+  (`AlexClaw.Secrets.notify_after/1`).
   """
-  @spec saved(Ecto.Changeset.t(), secrets(), namer(), (Ecto.Changeset.t() ->
-                                                         {:ok, struct()} | {:error, term()})) ::
+  @spec saved(
+          Ecto.Changeset.t(),
+          secrets(),
+          namer(),
+          (Ecto.Changeset.t() -> {:ok, struct()} | {:error, term()}),
+          keyword()
+        ) ::
           {:ok, struct()} | {:error, term()}
-  def saved(changeset, {plan, destination, dropped}, kind, persist) do
+  def saved(changeset, {plan, destination, dropped}, kind, persist, opts \\ []) do
     Repo.transaction(fn ->
       with {:ok, record} <- persist.(changeset),
-           :ok <- values_stored(store_all(plan, destination, kind), changeset) do
+           :ok <- values_stored(store_all(plan, destination, kind, opts), changeset) do
         record
       else
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
+    |> Secrets.notify_after()
     |> dropped_after(dropped)
   end
 

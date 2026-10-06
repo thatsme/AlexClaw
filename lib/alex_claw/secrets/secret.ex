@@ -5,7 +5,9 @@ defmodule AlexClaw.Secrets.Secret do
 
   A binding is one of:
     * `host:<hostname>` — sent to that host;
-    * `connection:<name>` — a configured database connection;
+    * `connection:<name>.<fingerprint>` — a configured database connection
+      and the server its password was entered for
+      (`AlexClaw.Connections.ConnectionSecrets.destination/1`);
     * `origin:<scheme>://<host>[:<port>]` — a web origin (a login a recipe types);
     * `inbound:<receiver>` — checked by AlexClaw itself on a request it
       receives (a webhook signature), never sent anywhere.

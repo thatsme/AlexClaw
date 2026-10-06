@@ -34,6 +34,19 @@ defmodule AlexClaw.Connections.Types do
   @integers ~w(int2 int4 int8)
   @floats ~w(float4 float8)
   @texts ~w(text varchar bpchar name)
+  # PostgreSQL's infinite dates and timestamps come back as :inf / :"-inf".
+  @dates ~w(date timestamp timestamptz)
+
+  # Each integer type's range: a value outside it is refused here, never
+  # left to the driver, whose error quotes it.
+  @ranges %{
+    "int2" => -32_768..32_767,
+    "int4" => -2_147_483_648..2_147_483_647,
+    "int8" => -9_223_372_036_854_775_808..9_223_372_036_854_775_807
+  }
+
+  # The largest integer a float can hold; beyond it the conversion fails.
+  @max_float_integer Integer.pow(10, 308)
 
   @doc "The supported type's name for `oid`, or nil."
   @spec name(non_neg_integer()) :: String.t() | nil
@@ -45,11 +58,19 @@ defmodule AlexClaw.Connections.Types do
   """
   @spec coerce(String.t(), term()) :: {:ok, term()} | {:error, String.t()}
   def coerce(_type, nil), do: {:ok, nil}
-  def coerce(type, value) when type in @integers and is_integer(value), do: {:ok, value}
-  def coerce(type, value) when type in @floats and is_number(value), do: {:ok, value * 1.0}
+
+  def coerce(type, value) when type in @integers and is_integer(value),
+    do: in_range(value in @ranges[type], value, type)
+
+  def coerce(type, value) when type in @floats and is_float(value), do: {:ok, value}
+
+  def coerce(type, value)
+      when type in @floats and is_integer(value) and abs(value) <= @max_float_integer,
+      do: {:ok, value * 1.0}
+
   def coerce(type, value) when type in @texts and is_binary(value), do: {:ok, value}
   def coerce("bool", value) when is_boolean(value), do: {:ok, value}
-  def coerce(type, value) when type in ~w(json jsonb), do: {:ok, value}
+  def coerce(type, value) when type in ~w(json jsonb), do: encodable(Jason.encode(value), value)
   def coerce("numeric", value) when is_integer(value), do: {:ok, Decimal.new(value)}
   def coerce("numeric", value) when is_float(value), do: {:ok, Decimal.from_float(value)}
   def coerce("numeric", value) when is_binary(value), do: parsed(Decimal.parse(value), "numeric")
@@ -63,6 +84,12 @@ defmodule AlexClaw.Connections.Types do
     do: zoned(DateTime.from_iso8601(value))
 
   def coerce(type, _value), do: {:error, "expects #{expected(type)}"}
+
+  defp in_range(true, value, _type), do: {:ok, value}
+  defp in_range(false, _value, type), do: {:error, "is outside the range of #{type}"}
+
+  defp encodable({:ok, _json}, value), do: {:ok, value}
+  defp encodable({:error, _reason}, _value), do: {:error, "expects a JSON value"}
 
   defp parsed({decimal, ""}, _type), do: {:ok, decimal}
   defp parsed(_other, type), do: {:error, "expects #{expected(type)}"}
@@ -90,6 +117,8 @@ defmodule AlexClaw.Connections.Types do
   @doc "A result value of type `type` as JSON."
   @spec to_json(String.t(), term()) :: term()
   def to_json(_type, nil), do: nil
+  def to_json(type, :inf) when type in @dates, do: "infinity"
+  def to_json(type, :"-inf") when type in @dates, do: "-infinity"
   def to_json("numeric", %Decimal{} = value), do: Decimal.to_string(value, :normal)
   def to_json("uuid", <<_::128>> = value), do: Ecto.UUID.cast!(value)
   def to_json("date", %Date{} = value), do: Date.to_iso8601(value)

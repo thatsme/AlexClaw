@@ -196,6 +196,8 @@ defmodule AlexClaw.Connections.Pool do
       database: conn.database,
       username: conn.username,
       ssl: ssl(conn.tls_mode),
+      # Decoding never raises on an infinite date or timestamp (M5).
+      types: AlexClaw.Connections.PostgrexTypes,
       connect_timeout: @connect_timeout,
       parameters: [application_name: "alexclaw"]
     ]

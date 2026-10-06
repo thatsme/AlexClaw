@@ -18,22 +18,36 @@ defmodule AlexClaw.Connections.Query do
 
   `run/4` is what a step runs: the parameters coerced to their types, the
   rows streamed and mapped to JSON, counting their size: past the cap
-  (5 MB) the result is an error — never a cut. The query runs in a task the
-  caller gives up on just after the deadline (killing it closes the
-  connection, which cancels the query on the server) in case the server's
-  own deadline did not answer.
+  (5 MB) the result is an error — never a cut. The query runs in a process
+  of its own the caller gives up on just after the deadline (killing it
+  closes the connection, which cancels the query on the server) in case the
+  server's own deadline did not answer. That process's memory is bounded,
+  shared binaries included: a value far over the cap ends it before it is
+  all in memory, and the result is the size error.
+
+  Nothing a query does to its session outlives it: once its transaction is
+  over, the connection is reset (`DISCARD ALL` — session advisory locks,
+  settings, prepared statements, cursors) before it goes back to the pool,
+  and a connection that cannot be reset is closed.
 
   An error is `{:sql_error, sqlstate, text}`. PostgreSQL's DETAIL is never
   kept (it can hold row values), and for the classes whose message quotes the
   data — data exceptions (22) and integrity violations (23) — only the
-  condition's name is.
+  condition's name is. Any other failure is stated —
+  `{:connection_down, why}`, or `{:query_failed, kind}` naming the
+  exception, never its message (it can quote a value) — and never reported
+  as a timeout.
   """
   alias AlexClaw.Connections.{Pools, Types}
 
   @max_bytes 5_000_000
   @save_deadline_ms 5_000
   @margin_ms 2_000
-  @chunk_rows 500
+  @chunk_rows 50
+  # The query process's memory, shared binaries included: ten times the cap,
+  # never less than this floor.
+  @heap_factor 10
+  @heap_floor_bytes 32_000_000
   @read_starts ~w(select with values table)
   @writes ["ModifyTable", "LockRows"]
 
@@ -46,7 +60,9 @@ defmodule AlexClaw.Connections.Query do
           | {:bad_param, pos_integer(), String.t()}
           | {:param_count, non_neg_integer(), non_neg_integer()}
           | {:result_too_large, pos_integer()}
+          | {:unencodable, String.t()}
           | {:connection_down, String.t()}
+          | {:query_failed, String.t()}
           | :timeout
 
   @doc """
@@ -59,7 +75,7 @@ defmodule AlexClaw.Connections.Query do
   def dry_run(name, query, params) do
     with :ok <- read_start(query),
          {:ok, pool} <- Pools.pool(name) do
-      read_only(pool, @save_deadline_ms, &planned(&1, query, params))
+      guarded(fn -> read_only(pool, @save_deadline_ms, &planned(&1, query, params)) end)
     end
   end
 
@@ -76,19 +92,47 @@ defmodule AlexClaw.Connections.Query do
     with :ok <- read_start(query),
          {:ok, pool} <- Pools.pool(name) do
       AlexClaw.TaskSupervisor
-      |> Task.Supervisor.async_nolink(fn ->
-        read_only(pool, deadline, &fetched(&1, query, params, max_bytes))
-      end)
-      |> awaited(deadline)
+      |> Task.Supervisor.async_nolink(fn -> bounded(pool, deadline, query, params, max_bytes) end)
+      |> awaited(deadline, max_bytes)
     end
   end
 
-  defp awaited(task, deadline) do
+  # The query's own process, its memory bounded (M3).
+  defp bounded(pool, deadline, query, params, max_bytes) do
+    Process.flag(:max_heap_size, heap_limit(max_bytes))
+    guarded(fn -> read_only(pool, deadline, &fetched(&1, query, params, max_bytes)) end)
+  end
+
+  defp heap_limit(max_bytes) do
+    bytes = max(max_bytes * @heap_factor, @heap_floor_bytes)
+
+    %{
+      size: div(bytes, :erlang.system_info(:wordsize)),
+      kill: true,
+      error_logger: false,
+      include_shared_binaries: true
+    }
+  end
+
+  # Killed by its memory bound, the process was holding more than the cap.
+  defp awaited(task, deadline, max_bytes) do
     case Task.yield(task, deadline + @margin_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
-      {:exit, _reason} -> {:error, :timeout}
+      {:exit, :killed} -> {:error, {:result_too_large, max_bytes}}
+      {:exit, _reason} -> {:error, {:query_failed, "exit"}}
       nil -> {:error, :timeout}
     end
+  end
+
+  # The boundary where a failure outside the database's own errors becomes a
+  # value (M5): a connection the pool could not hand out, a value the driver
+  # could not decode. The exception is named, never its message, which can
+  # quote a value; nothing is left to crash and be logged.
+  defp guarded(fun) do
+    fun.()
+  rescue
+    e in DBConnection.ConnectionError -> {:error, {:connection_down, Exception.message(e)}}
+    e -> {:error, {:query_failed, inspect(e.__struct__)}}
   end
 
   # --- The statement ---
@@ -111,25 +155,39 @@ defmodule AlexClaw.Connections.Query do
 
   # --- The transaction ---
 
+  # One checkout: the read-only transaction, then the reset (M1).
   defp read_only(pool, deadline, fun) do
     pool
-    |> Postgrex.transaction(
-      fn conn ->
-        with {:ok, _} <- Postgrex.query(conn, "SET TRANSACTION READ ONLY", []),
-             {:ok, _} <-
-               Postgrex.query(conn, "SELECT set_config('statement_timeout', $1, true)", [
-                 Integer.to_string(deadline)
-               ]),
-             {:ok, value} <- fun.(conn) do
-          value
-        else
-          {:error, reason} -> Postgrex.rollback(conn, reason)
-        end
-      end,
+    |> DBConnection.run(&transaction_then_reset(&1, pool, deadline, fun),
       timeout: deadline + @margin_ms
     )
     |> finished()
   end
+
+  # The reset runs however the transaction ended — committed, rolled back or
+  # raised — before the connection goes back to the pool.
+  defp transaction_then_reset(conn, pool, deadline, fun) do
+    Postgrex.transaction(conn, &in_transaction(&1, deadline, fun), timeout: deadline + @margin_ms)
+  after
+    reset(Postgrex.query(conn, "DISCARD ALL", []), pool)
+  end
+
+  defp in_transaction(conn, deadline, fun) do
+    with {:ok, _} <- Postgrex.query(conn, "SET TRANSACTION READ ONLY", []),
+         {:ok, _} <-
+           Postgrex.query(conn, "SELECT set_config('statement_timeout', $1, true)", [
+             Integer.to_string(deadline)
+           ]),
+         {:ok, value} <- fun.(conn) do
+      value
+    else
+      {:error, reason} -> Postgrex.rollback(conn, reason)
+    end
+  end
+
+  # A session that could not be reset is not handed out again.
+  defp reset({:ok, _result}, _pool), do: :ok
+  defp reset({:error, _reason}, pool), do: DBConnection.disconnect_all(pool, 0)
 
   defp finished({:ok, value}), do: {:ok, value}
   defp finished({:error, reason}), do: {:error, error(reason)}
@@ -268,11 +326,23 @@ defmodule AlexClaw.Connections.Query do
 
   defp chunk(%Postgrex.Result{rows: rows}, {:ok, acc, bytes}, columns, max_bytes) do
     mapped = Enum.map(rows, &row(&1, columns))
-    total = bytes + IO.iodata_length(Jason.encode_to_iodata!(mapped))
 
-    if total > max_bytes,
-      do: {:halt, {:error, {:result_too_large, max_bytes}}},
-      else: {:cont, {:ok, [mapped | acc], total}}
+    case Jason.encode_to_iodata(mapped) do
+      {:ok, json} -> counted(bytes + IO.iodata_length(json), mapped, acc, max_bytes)
+      {:error, _reason} -> {:halt, {:error, {:unencodable, unencodable(mapped, columns)}}}
+    end
+  end
+
+  defp counted(total, _mapped, _acc, max_bytes) when total > max_bytes,
+    do: {:halt, {:error, {:result_too_large, max_bytes}}}
+
+  defp counted(total, mapped, acc, _max_bytes), do: {:cont, {:ok, [mapped | acc], total}}
+
+  # The column holding a value JSON cannot carry: named, the value never.
+  defp unencodable(mapped, columns) do
+    columns
+    |> Enum.map(& &1["name"])
+    |> Enum.find(fn name -> Enum.any?(mapped, &match?({:error, _}, Jason.encode(&1[name]))) end)
   end
 
   defp rows({:ok, chunks, _bytes}), do: {:ok, chunks |> Enum.reverse() |> Enum.concat()}

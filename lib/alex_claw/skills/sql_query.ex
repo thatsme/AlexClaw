@@ -197,6 +197,7 @@ defmodule AlexClaw.Skills.SqlQuery do
     do: "the query takes #{expected} parameters, the step gives #{given}"
 
   defp describe({:connection_down, why}), do: "the connection is not available: #{why}"
+  defp describe({:query_failed, kind}), do: "the query failed (#{kind})"
   defp describe(:timeout), do: "the database did not answer within the save's 5 seconds"
   defp describe(other), do: "refused: #{inspect(other)}"
 end

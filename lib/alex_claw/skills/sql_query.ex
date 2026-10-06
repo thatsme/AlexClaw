@@ -9,8 +9,8 @@ defmodule AlexClaw.Skills.SqlQuery do
       PostgreSQL's `$1, $2…` parameter syntax, never built from data;
     * `params` — in order, each a JSON literal or `{"from_input": key}` (a
       top-level key of the step's input; `"$"` for the whole input);
-    * `timeout_ms` — the deadline, required: the server cancels the query
-      there.
+    * `timeout_ms` — the deadline, required, at most 300 000 (five
+      minutes): the server cancels the query there.
 
   Saving the step runs the dry run (`AlexClaw.Connections.Query.dry_run/3`):
   a step that saved, runs. The step runs in a read-only transaction and gives
@@ -25,6 +25,10 @@ defmodule AlexClaw.Skills.SqlQuery do
   alias AlexClaw.Auth.AuditLog
   alias AlexClaw.Connections
   alias AlexClaw.Connections.Query
+
+  # A query holds its tables' locks, a pool session and the executor for as
+  # long as its deadline.
+  @max_timeout_ms 300_000
 
   @impl true
   def description, do: "Read from a database connection with a fixed, parameterised query"
@@ -68,7 +72,7 @@ defmodule AlexClaw.Skills.SqlQuery do
     do:
       "connection: a connection from the Connections page. query: one read (SELECT, WITH, VALUES or TABLE) " <>
         "with $1, $2… for parameters. params: in order, a JSON value or {\"from_input\": key} " <>
-        "(\"$\" for the whole input). timeout_ms: the deadline (required)."
+        "(\"$\" for the whole input). timeout_ms: the deadline (required, at most 300000)."
 
   @impl true
   def available?(%{"connection" => name}) when is_binary(name),
@@ -88,7 +92,11 @@ defmodule AlexClaw.Skills.SqlQuery do
     end
   end
 
-  defp timeout(ms) when is_integer(ms) and ms > 0, do: :ok
+  defp timeout(ms) when is_integer(ms) and ms > 0 and ms <= @max_timeout_ms, do: :ok
+
+  defp timeout(ms) when is_integer(ms) and ms > @max_timeout_ms,
+    do: "timeout_ms: at most #{@max_timeout_ms} (five minutes)"
+
   defp timeout(_ms), do: "timeout_ms: must be a positive number of milliseconds"
 
   defp params(nil), do: :ok

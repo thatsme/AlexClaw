@@ -1,0 +1,14 @@
+# The SQL demo (docs/demo/sql-demo.md), given on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d
+#
+# It adds one thing: AlexClaw on the demo database's internal network, at the
+# address demo/pg_hba.conf admits. Without this file AlexClaw is never on that
+# network. Leaving the demo is a plain `docker compose up -d`, which puts
+# AlexClaw back on its own networks.
+services:
+  alexclaw-prod:
+    networks:
+      demo:
+        # Named in demo/pg_hba.conf: change both together.
+        ipv4_address: 10.213.65.10

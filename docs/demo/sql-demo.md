@@ -6,8 +6,10 @@ send it to Telegram. Every name and number in the database is generated:
 nothing in it is real.
 
 The demo database runs in its own container under the compose profile
-`demo`, on an internal network shared with AlexClaw alone, with no port
-published. Its data lives in memory and is generated again, identically, at
+`demo`, on an internal network with no port published. AlexClaw joins that
+network only when the demo's own compose file, `docker-compose.demo.yml`, is
+given on top of `docker-compose.yml`; a plain `docker compose up -d` leaves
+AlexClaw on its own networks. Its data lives in memory and is generated again, identically, at
 every start: customers, products, orders and invoices over two years up to
 2026-09-30, in five regions, with some invoices past due. AlexClaw reads it
 as the role `alexclaw_reader`, which may read the tables and nothing else.
@@ -26,17 +28,19 @@ Choose a password for the read-only role and put it in `.env`:
 DEMO_READER_PASSWORD=<a password>
 ```
 
-Start the profile:
+Start the profile with the demo's compose file:
 
 ```bash
-docker compose --profile demo up -d demo-db
+docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d
 docker compose ps demo-db          # healthy after a few seconds
 ```
+
+AlexClaw's container is recreated once, to attach it to the demo network.
 
 Without `DEMO_READER_PASSWORD` the container refuses to start — it restarts,
 saying `set DEMO_READER_PASSWORD in .env` in its log (`docker compose logs
 demo-db`) — until the variable is set and the container recreated
-(`docker compose --profile demo up -d --force-recreate demo-db`).
+(`docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d --force-recreate demo-db`).
 
 ## 2. Add the connection
 
@@ -84,6 +88,7 @@ like any other.
 ```bash
 docker compose --profile demo stop demo-db
 docker compose --profile demo rm -f demo-db
+docker compose up -d               # AlexClaw back on its own networks only
 ```
 
 The data goes with the container. The connection and the workflows stay

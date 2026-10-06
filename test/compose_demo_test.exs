@@ -43,7 +43,13 @@ defmodule AlexClaw.ComposeDemoTest do
     assert networks(service("demo-db")) == ["demo"]
     assert compose()["networks"]["demo"]["internal"] == true
 
-    on_demo = for {name, svc} <- compose()["services"], "demo" in networks(svc), do: name
+    override = YamlElixir.read_from_file!("docker-compose.demo.yml")["services"]
+
+    on_demo =
+      for {name, svc} <- Map.merge(compose()["services"], override),
+          "demo" in networks(svc),
+          do: name
+
     assert Enum.sort(on_demo) == ["alexclaw-prod", "demo-db"]
   end
 
@@ -72,7 +78,11 @@ defmodule AlexClaw.ComposeDemoTest do
   end
 
   test "pg_hba admits only the read-only role, from AlexClaw's address, with scram" do
-    alexclaw = service("alexclaw-prod")["networks"]["demo"]["ipv4_address"]
+    alexclaw =
+      YamlElixir.read_from_file!("docker-compose.demo.yml")["services"]["alexclaw-prod"][
+        "networks"
+      ]["demo"]["ipv4_address"]
+
     assert is_binary(alexclaw)
 
     host_rules = Enum.filter(hba_rules(), &(hd(&1) in ~w(host hostssl hostnossl)))

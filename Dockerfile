@@ -72,7 +72,7 @@ COPY web-automator/.dockerignore web-automator/
 # The compose files are scanned by cluster_cookie_test: a deployment secret
 # must not ship with a default. Without them the scan would find nothing and
 # pass.
-COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml ./
+COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml docker-compose.demo.yml ./
 # Read by documentation_test with the compose files: the deployment reads some
 # documented variables itself.
 COPY db-init db-init/

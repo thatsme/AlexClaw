@@ -1041,9 +1041,14 @@ The database's own grants remain the protection that counts. A read-only
 transaction does not stop what a function does outside its session — a
 connection opened with `dblink` (which writes in a transaction of its own),
 a notification (`pg_notify`), a signal to another session
-(`pg_cancel_backend`, `pg_terminate_backend`). Connect with a role that may
-read only what the workflows need, that cannot execute `dblink` functions,
-and that is not a member of `pg_signal_backend`.
+(`pg_cancel_backend`, `pg_terminate_backend`). Connect with a role used by
+AlexClaw alone, that may read only what the workflows need, that cannot
+execute `dblink` functions, and that is not a member of `pg_signal_backend`.
+A role of its own matters because some of these cannot be taken away from
+one role: any role may signal its own other sessions, membership or not, and
+`pg_notify` can be revoked only from everyone. A role nothing else uses can
+interrupt only AlexClaw's own sessions, and whatever it does is attributable
+to AlexClaw alone.
 
 ## Known Limitations and Design Decisions
 

@@ -45,6 +45,9 @@ defmodule AlexClaw.Connections.Types do
     "int8" => -9_223_372_036_854_775_808..9_223_372_036_854_775_807
   }
 
+  @numeric_digits 131_072
+  @numeric_scale 16_383
+
   # The largest integer a float can hold; beyond it the conversion fails.
   @max_float_integer Integer.pow(10, 308)
 
@@ -71,9 +74,13 @@ defmodule AlexClaw.Connections.Types do
   def coerce(type, value) when type in @texts and is_binary(value), do: {:ok, value}
   def coerce("bool", value) when is_boolean(value), do: {:ok, value}
   def coerce(type, value) when type in ~w(json jsonb), do: encodable(Jason.encode(value), value)
-  def coerce("numeric", value) when is_integer(value), do: {:ok, Decimal.new(value)}
-  def coerce("numeric", value) when is_float(value), do: {:ok, Decimal.from_float(value)}
-  def coerce("numeric", value) when is_binary(value), do: parsed(Decimal.parse(value), "numeric")
+  def coerce("numeric", value) when is_integer(value), do: numeric(Decimal.new(value))
+  def coerce("numeric", value) when is_float(value), do: numeric(Decimal.from_float(value))
+
+  def coerce("numeric", value) when is_binary(value) do
+    with {:ok, decimal} <- parsed(Decimal.parse(value), "numeric"), do: numeric(decimal)
+  end
+
   def coerce("uuid", value) when is_binary(value), do: dumped(Ecto.UUID.dump(value))
   def coerce("date", value) when is_binary(value), do: iso(Date.from_iso8601(value), "date")
 
@@ -90,6 +97,19 @@ defmodule AlexClaw.Connections.Types do
 
   defp encodable({:ok, _json}, value), do: {:ok, value}
   defp encodable({:error, _reason}, _value), do: {:error, "expects a JSON value"}
+
+  # PostgreSQL's numeric holds up to 131072 digits before the point and 16383
+  # after; beyond that the driver fails on it (F7). NaN and the infinities
+  # are numeric values.
+  defp numeric(%Decimal{coef: coef, exp: exp} = decimal) when is_integer(coef) do
+    digits = coef |> Integer.to_string() |> byte_size()
+
+    if exp >= -@numeric_scale and digits + exp <= @numeric_digits,
+      do: {:ok, decimal},
+      else: {:error, "is outside the range of numeric"}
+  end
+
+  defp numeric(decimal), do: {:ok, decimal}
 
   defp parsed({decimal, ""}, _type), do: {:ok, decimal}
   defp parsed(_other, type), do: {:error, "expects #{expected(type)}"}

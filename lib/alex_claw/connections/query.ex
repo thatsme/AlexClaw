@@ -38,6 +38,8 @@ defmodule AlexClaw.Connections.Query do
   exception, never its message (it can quote a value) — and never reported
   as a timeout.
   """
+  require Logger
+
   alias AlexClaw.Connections.{Pools, Types}
 
   @max_bytes 5_000_000
@@ -128,16 +130,36 @@ defmodule AlexClaw.Connections.Query do
     end
   end
 
+  @doc false
   # The boundary where a failure outside the database's own errors becomes a
-  # value (M5): a connection the pool could not hand out, a value the driver
-  # could not decode. The exception is named, never its message, which can
-  # quote a value; nothing is left to crash and be logged.
-  defp guarded(fun) do
+  # value (M5). A connection the pool could not hand out is connection_down.
+  # Anything else raised here is AlexClaw's own bug: it is logged by kind and
+  # place (F6) — never its message or the arguments in its stack, which can
+  # quote a value — and the step is told the kind.
+  @spec guarded((-> {:ok, term()} | {:error, term()})) :: {:ok, term()} | {:error, term()}
+  def guarded(fun) do
     fun.()
   rescue
-    e in DBConnection.ConnectionError -> {:error, {:connection_down, Exception.message(e)}}
-    e -> {:error, {:query_failed, inspect(e.__struct__)}}
+    e in DBConnection.ConnectionError ->
+      {:error, {:connection_down, Exception.message(e)}}
+
+    e ->
+      kind = inspect(e.__struct__)
+      Logger.error("sql_query failed in AlexClaw (#{kind}):\n" <> place(__STACKTRACE__))
+      {:error, {:query_failed, kind}}
   end
+
+  # The stack with every argument list replaced by its arity.
+  defp place(stacktrace) do
+    stacktrace
+    |> Enum.map(&without_arguments/1)
+    |> Exception.format_stacktrace()
+  end
+
+  defp without_arguments({module, fun, args, location}) when is_list(args),
+    do: {module, fun, length(args), location}
+
+  defp without_arguments(entry), do: entry
 
   # --- The statement ---
 

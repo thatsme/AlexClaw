@@ -292,8 +292,7 @@ defmodule AlexClaw.ControlPlane do
         |> verify_code(params, context, code)
         |> checked(action, params, context, reason)
       end
-      |> Repo.transaction()
-      |> Secrets.notify_after()
+      |> Secrets.transaction()
 
     coded(committed, action, params, context)
   end
@@ -435,7 +434,8 @@ defmodule AlexClaw.ControlPlane do
     {:error, reason}
   end
 
-  # Rotation notices held for the commit go out once it is done (H1).
+  # What the change's secret writes owe is settled once it commits or is
+  # undone (Secrets.transaction/1).
   defp transact(audit, write) do
     fn ->
       with {:audit, :ok} <- {:audit, audit.()},
@@ -446,8 +446,7 @@ defmodule AlexClaw.ControlPlane do
         {:error, reason} -> Repo.rollback(reason)
       end
     end
-    |> Repo.transaction()
-    |> Secrets.notify_after()
+    |> Secrets.transaction()
   end
 
   defp print(sid) when is_binary(sid), do: Elevation.fingerprint(sid)

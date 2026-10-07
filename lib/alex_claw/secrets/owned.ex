@@ -202,7 +202,7 @@ defmodule AlexClaw.Secrets.Owned do
   Store the plan's new values in OpenBao, each bound to `destination`: a
   secret is catalogued on first use, and bound again when it was bound
   elsewhere. `kind` gives each path's kind of secret. `opts` go to
-  `AlexClaw.Secrets.put_value/3` (`notice:`).
+  `AlexClaw.Secrets.put_value/3` (`transactional:`).
   """
   @spec store_all(plan(), destination(), namer(), keyword()) :: :ok | {:error, term()}
   def store_all(plan, destination, kind, opts \\ []) do
@@ -244,9 +244,12 @@ defmodule AlexClaw.Secrets.Owned do
   once it has committed. `kind` gives each path's kind of secret; `persist`
   is `Repo.insert/1` or `Repo.update/1`.
 
-  Options: `notice: :after_commit` — the rotation notices wait until the
-  outermost transaction has committed, and are dropped if it is undone
-  (`AlexClaw.Secrets.notify_after/1`).
+  Options: `transactional: true` — the values are written as part of the
+  outermost transaction (`AlexClaw.Secrets.transaction/1`): their notices
+  wait for its commit, the secrets no longer referenced are deleted only
+  then, and if it is undone the values written are removed from OpenBao
+  and the old secrets kept. Meant for records that store every new value
+  under a new secret.
   """
   @spec saved(
           Ecto.Changeset.t(),
@@ -257,16 +260,16 @@ defmodule AlexClaw.Secrets.Owned do
         ) ::
           {:ok, struct()} | {:error, term()}
   def saved(changeset, {plan, destination, dropped}, kind, persist, opts \\ []) do
-    Repo.transaction(fn ->
+    fn ->
       with {:ok, record} <- persist.(changeset),
            :ok <- values_stored(store_all(plan, destination, kind, opts), changeset) do
         record
       else
         {:error, reason} -> Repo.rollback(reason)
       end
-    end)
-    |> Secrets.notify_after()
-    |> dropped_after(dropped)
+    end
+    |> Secrets.transaction()
+    |> dropped_after(dropped, Keyword.get(opts, :transactional, false))
   end
 
   defp values_stored(:ok, _changeset), do: :ok
@@ -279,12 +282,17 @@ defmodule AlexClaw.Secrets.Owned do
   defp describe(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp describe(_reason), do: "refused"
 
-  defp dropped_after({:ok, _record} = result, dropped) do
+  defp dropped_after({:ok, _record} = result, dropped, true) do
+    Secrets.delete_after_commit(dropped)
+    result
+  end
+
+  defp dropped_after({:ok, _record} = result, dropped, false) do
     delete(dropped)
     result
   end
 
-  defp dropped_after(error, _dropped), do: error
+  defp dropped_after(error, _dropped, _transactional), do: error
 
   @doc """
   The binding for a web origin: `origin:<scheme>://<host>[:<port>]` of an

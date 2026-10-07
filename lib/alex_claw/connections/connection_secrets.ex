@@ -13,9 +13,12 @@ defmodule AlexClaw.Connections.ConnectionSecrets do
   Each connect resolves it (`resolve/1`); every use is audited by
   `AlexClaw.Secrets`.
 
-  Its rotation notice is sent once the save has committed
-  (`AlexClaw.Secrets.notify_after/1`), never while the change can still be
-  undone.
+  Every password entered is a secret of its own. The row is committed
+  pointing at the new secret, and the secret it replaces is deleted only once
+  that commit has happened; a save undone after the new password reached
+  OpenBao removes the new secret and leaves the old one, binding and value,
+  as they were (`AlexClaw.Secrets.transaction/1`). The notice for the new
+  secret is sent once the save has committed.
   """
   alias AlexClaw.Connections.Connection
   alias AlexClaw.Secrets
@@ -69,12 +72,22 @@ defmodule AlexClaw.Connections.ConnectionSecrets do
 
     with :ok <- password_needed(given, old, changeset) do
       destination = changeset |> server_fields() |> destination()
+      {fields, kept, replaced} = password_plan(given, old)
 
-      %{@path => given_or_kept(given, old)}
-      |> Owned.plan(references(old), destination, &Owned.name("connection", &1))
-      |> planned(changeset, destination)
+      fields
+      |> Owned.plan(kept, destination, &Owned.name("connection", &1))
+      |> planned(changeset, destination, replaced)
     end
   end
+
+  # A blank password keeps the secret it references. A new one is always a
+  # new secret: the old one is replaced, deleted only once the save commits,
+  # so an undone save leaves it — and its binding — as they were (F1).
+  defp password_plan(given, old) when given in [nil, ""],
+    do: {%{@path => reference(old)}, references(old), []}
+
+  defp password_plan(given, old),
+    do: {%{@path => given}, %{}, old |> references() |> Map.values()}
 
   # A blank password is a keep: nothing to keep on a new connection, and not
   # for another server.
@@ -101,9 +114,6 @@ defmodule AlexClaw.Connections.ConnectionSecrets do
   defp server_fields(changeset),
     do: Map.new([:name | @server], &{&1, Ecto.Changeset.get_field(changeset, &1)})
 
-  defp given_or_kept(given, old) when given in [nil, ""], do: reference(old)
-  defp given_or_kept(given, _old), do: given
-
   defp reference(nil), do: nil
   defp reference(%Connection{credentials: credentials}), do: Map.get(credentials, "password")
 
@@ -116,19 +126,21 @@ defmodule AlexClaw.Connections.ConnectionSecrets do
     end
   end
 
-  defp planned({:ok, plan, dropped}, changeset, destination) do
+  defp planned({:ok, plan, dropped}, changeset, destination, replaced) do
     {:ok,
      changeset
      |> Ecto.Changeset.put_change(:credentials, Owned.referenced(%{}, plan))
-     |> Ecto.Changeset.delete_change(:password), {plan, destination, dropped}}
+     |> Ecto.Changeset.delete_change(:password), {plan, destination, dropped ++ replaced}}
   end
 
-  defp planned({:error, reason}, changeset, _destination),
+  defp planned({:error, reason}, changeset, _destination, _replaced),
     do: {:error, Ecto.Changeset.add_error(changeset, :password, reason)}
 
   @doc """
-  Save `changeset` with its planned password (`Owned.saved/5`); the rotation
-  notice waits for the commit.
+  Save `changeset` with its planned password (`Owned.saved/5`), as part of
+  the outermost transaction: the new secret's notice waits for the commit,
+  the replaced secret is deleted only then, and an undone save removes the
+  new secret from OpenBao and keeps the old one.
   """
   @spec saved(Ecto.Changeset.t(), Owned.secrets(), (Ecto.Changeset.t() ->
                                                       {:ok, Connection.t()} | {:error, term()})) ::
@@ -136,7 +148,7 @@ defmodule AlexClaw.Connections.ConnectionSecrets do
   def saved(changeset, secrets, persist),
     do:
       Owned.saved(changeset, secrets, fn _path -> "database_password" end, persist,
-        notice: :after_commit
+        transactional: true
       )
 
   @doc "Delete the secret a connection references."

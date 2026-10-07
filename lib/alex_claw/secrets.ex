@@ -114,9 +114,11 @@ defmodule AlexClaw.Secrets do
   it is entered (`{:error, :malformed_value}`, S8 H8). Options: `vault:` — the
   `AlexClaw.Vault` server to use; `exact: true` — carry the value as it is,
   for the boot upgrade, which moves values 0.3.x already used and must not
-  change or lose them; `notice: :after_commit` — inside a transaction, the
-  rotation notice waits for `notify_after/1` at the outermost transaction's
-  end instead of going out at once.
+  change or lose them; `transactional: true` — inside a transaction the
+  write belongs to it (`transaction/1`): its rotation notice waits for the
+  outermost commit, and if that transaction is undone the value is removed
+  from OpenBao again. Meant for a value written under a new secret, whose
+  catalogue entry is undone with the transaction.
   """
   @spec put_value(String.t(), String.t(), keyword()) :: :ok | {:error, error()}
   def put_value(name, value, opts \\ []) when is_binary(name) and is_binary(value) do
@@ -130,29 +132,85 @@ defmodule AlexClaw.Secrets do
       end
 
     AuditLog.log_secret_set(name, outcome(result))
-    announce(result, name, Keyword.get(opts, :notice))
+    written(result, name, Keyword.get(opts, :transactional, false))
     result
   end
 
-  @pending_notices {__MODULE__, :pending_notices}
+  # What a transaction's secret writes owe once it ends: the notices to send
+  # and the secrets to delete if it commits, the values to remove from
+  # OpenBao if it is undone. Held in the process running the transaction.
+  @held {__MODULE__, :held}
+  @nothing_held %{notices: [], deletes: [], written: []}
 
   @doc """
-  Send, or drop, the rotation notices held for the commit
-  (`put_value/3` with `notice: :after_commit`), given the result of the
-  transaction that held them. Inside an outer transaction they stay held for
-  it. A committed result sends them; anything else drops them — the change
-  they announce was undone. Returns `result`.
+  `Repo.transaction(fun)`, with what its transactional secret writes owe
+  settled at the outermost transaction's end (`notify_after/1`). A raise
+  settles it as undone — notices and deletions dropped, values written for
+  it removed from OpenBao — and is raised again.
+  """
+  @spec transaction((-> term())) :: {:ok, term()} | {:error, term()}
+  def transaction(fun) do
+    fun
+    |> Repo.transaction()
+    |> notify_after()
+  catch
+    kind, reason ->
+      notify_after(:raised)
+      :erlang.raise(kind, reason, __STACKTRACE__)
+  end
+
+  @doc """
+  Settle what transactional secret writes owe, given the result of the
+  transaction that held them; inside an outer transaction, nothing yet. A
+  committed result sends the rotation notices and deletes the secrets held
+  for deletion; anything else drops both and removes from OpenBao the values
+  written for the transaction. Returns `result`.
   """
   @spec notify_after(result) :: result when result: term()
   def notify_after(result) do
-    if not Repo.in_transaction?(), do: settle(result, Process.delete(@pending_notices) || [])
+    if not Repo.in_transaction?(), do: settle(result, Process.delete(@held) || @nothing_held)
     result
   end
 
-  defp settle({:ok, _value}, names),
-    do: names |> Enum.reverse() |> Enum.uniq() |> Enum.each(&broadcast/1)
+  @doc """
+  Delete the secrets `names` once the outermost transaction commits (none
+  if it is undone); outside a transaction, now.
+  """
+  @spec delete_after_commit([String.t()]) :: :ok
+  def delete_after_commit(names) do
+    if Repo.in_transaction?(),
+      do: Enum.each(names, &hold(:deletes, &1)),
+      else: Enum.each(names, &delete/1)
+  end
 
-  defp settle(_undone, _names), do: :ok
+  defp settle({:ok, _value}, %{notices: notices, deletes: deletes}) do
+    notices |> Enum.reverse() |> Enum.uniq() |> Enum.each(&broadcast/1)
+    deletes |> Enum.reverse() |> Enum.uniq() |> Enum.each(&delete/1)
+  end
+
+  # Its catalogue entry went with the transaction; its value goes now.
+  defp settle(_undone, %{written: written}), do: Enum.each(written, &discard/1)
+
+  defp discard(name) do
+    result = Vault.delete(path(name), server: Vault)
+    AuditLog.log_secret_delete(name, outcome(result))
+  end
+
+  defp written(:ok, name, true), do: held_or_sent(Repo.in_transaction?(), name)
+  defp written(result, name, _transactional), do: announce(result, name)
+
+  defp held_or_sent(true, name) do
+    hold(:notices, name)
+    hold(:written, name)
+  end
+
+  defp held_or_sent(false, name), do: broadcast(name)
+
+  defp hold(kind, name) do
+    held = Process.get(@held, @nothing_held)
+    Process.put(@held, Map.update!(held, kind, &[name | &1]))
+    :ok
+  end
 
   @doc """
   Delete the secret `name`: its value in OpenBao, with every version and its
@@ -170,7 +228,7 @@ defmodule AlexClaw.Secrets do
       end
 
     AuditLog.log_secret_delete(name, outcome(result))
-    announce(result, name, nil)
+    announce(result, name)
     result
   end
 
@@ -219,14 +277,8 @@ defmodule AlexClaw.Secrets do
     end
   end
 
-  defp announce(:ok, name, :after_commit), do: held_or_sent(Repo.in_transaction?(), name)
-  defp announce(:ok, name, _notice), do: broadcast(name)
-  defp announce(_error, _name, _notice), do: :ok
-
-  defp held_or_sent(true, name),
-    do: Process.put(@pending_notices, [name | Process.get(@pending_notices, [])])
-
-  defp held_or_sent(false, name), do: broadcast(name)
+  defp announce(:ok, name), do: broadcast(name)
+  defp announce(_error, _name), do: :ok
 
   defp broadcast(name),
     do: Phoenix.PubSub.broadcast(AlexClaw.PubSub, @topic, {:secret_rotated, name})

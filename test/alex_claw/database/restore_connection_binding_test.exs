@@ -45,13 +45,16 @@ defmodule AlexClaw.Database.RestoreConnectionBindingTest do
 
   test "an older backup naming the server the password was not entered for is refused" do
     conn = connection()
+    %{"password" => %{"secret" => old_secret}} = conn.credentials
     older = export()
 
     {:ok, _} =
       Connections.update_connection(conn, %{host: "erp-b.invalid", password: "server-B-Password"})
 
+    # The new password is a secret of its own and the old one is gone (F1):
+    # the older file names a secret this installation no longer holds.
     assert {:error, message} = Restore.load(older)
-    assert message =~ conn.name
+    assert message =~ old_secret
     refute message =~ "server-B-Password"
     assert {:ok, %{host: "erp-b.invalid"}} = Connections.get_by_name(conn.name)
   end

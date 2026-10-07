@@ -37,7 +37,7 @@ defmodule AlexClaw.ControlPlane.Actions do
     Workflows
   }
 
-  alias AlexClaw.Connections.{Connection, Pools}
+  alias AlexClaw.Connections.{Connection, Pools, Target}
   alias AlexClaw.ControlPlane.{Context, Effects}
   alias AlexClaw.Database.DataSet
   alias AlexClaw.MCP.Key
@@ -111,7 +111,21 @@ defmodule AlexClaw.ControlPlane.Actions do
       when action in [:set_setting, :set_secret, :set_gateway_owner],
       do: not_identity(DataSet.identity_setting?(key))
 
+  # A connection's host is resolved here, before the save's transaction (F8):
+  # never AlexClaw itself or one of its own services.
+  def admissible(:save_connection, %{attrs: attrs}, _context),
+    do: customer_target(attrs[:host] || attrs["host"])
+
   def admissible(_action, _params, _context), do: :ok
+
+  defp customer_target(host) when is_binary(host) do
+    case Target.check(host) do
+      :ok -> :ok
+      {:error, why} -> {:error, {:internal_target, why}}
+    end
+  end
+
+  defp customer_target(_no_host), do: :ok
 
   # A run with a privileged step can be privileged only when the admin UI
   # starts it with a code, or the scheduler (S8 M7): from anywhere else it is

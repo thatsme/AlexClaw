@@ -25,19 +25,38 @@ defmodule AlexClaw.Connections.Target do
   does not resolve is not refused here: it cannot be connected to either.
   """
   @spec check(String.t()) :: :ok | {:error, String.t()}
-  def check(host) when is_binary(host) do
-    if Enum.any?(addresses(host), &internal?/1),
+  def check(host) when is_binary(host), do: refused(host, addresses(host, &resolve/1))
+
+  @doc """
+  `check/1` without a name lookup — for a save's transaction, which must not
+  wait on a resolver (F8): an address literal, or `localhost`, is judged; any
+  other name passes here and is resolved by `check/1` before the transaction
+  and before every connect.
+  """
+  @spec check_literal(String.t()) :: :ok | {:error, String.t()}
+  def check_literal(host) when is_binary(host),
+    do: refused(host, addresses(host, &localhost/1))
+
+  defp refused(host, addresses) do
+    if Enum.any?(addresses, &internal?/1),
       do:
         {:error,
          "#{host} is one of AlexClaw's own addresses: a connection reads a customer's database"},
       else: :ok
   end
 
-  defp addresses(host) do
+  defp addresses(host, name_lookup) do
     case :inet.parse_address(String.to_charlist(host)) do
       {:ok, address} -> [address]
-      {:error, _not_an_address} -> resolve(String.to_charlist(host))
+      {:error, _not_an_address} -> name_lookup.(String.to_charlist(host))
     end
+  end
+
+  # The one name that means this machine without asking a resolver.
+  defp localhost(name) do
+    if String.downcase(to_string(name)) in ["localhost", "localhost."],
+      do: [{127, 0, 0, 1}],
+      else: []
   end
 
   defp resolve(name), do: lookup(name, :inet) ++ lookup(name, :inet6)

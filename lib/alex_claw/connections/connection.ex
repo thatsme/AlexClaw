@@ -93,9 +93,11 @@ defmodule AlexClaw.Connections.Connection do
     |> unique_constraint(:name)
   end
 
-  # Never AlexClaw itself or one of its own services (Target).
+  # Never AlexClaw itself or one of its own services (Target). No name lookup
+  # here, inside the save's transaction: the control plane resolves the name
+  # before it (Actions.admissible/3), and the pool before every connect.
   defp customer_host(:host, host) do
-    case Target.check(host) do
+    case Target.check_literal(host) do
       :ok -> []
       {:error, reason} -> [host: reason]
     end

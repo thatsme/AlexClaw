@@ -137,6 +137,9 @@ defmodule AlexClawWeb.AdminLive.Connections do
         "In use by the workflows #{Enum.join(workflows, ", ")}: not deleted"
       )
 
+  defp refused(socket, {:internal_target, why}),
+    do: put_flash(socket, :error, "Not saved: #{why}")
+
   defp refused(socket, {:connection_down, reason}),
     do: put_flash(socket, :error, "Not connected: #{reason}")
 

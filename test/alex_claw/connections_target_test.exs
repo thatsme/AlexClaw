@@ -44,7 +44,9 @@ defmodule AlexClaw.ConnectionsTargetTest do
     end
   end
 
-  for host <- ["openbao-test", "10.213.64.2"] do
+  # A name in those networks ("openbao-test") is resolved and refused at the
+  # control plane's door, before the transaction (connections_target_door_test).
+  for host <- ["10.213.64.2"] do
     test "#{host}, in AlexClaw's own networks, is refused at save" do
       assert {:error, changeset} = Connections.create_connection(attrs(unquote(host)))
       assert Enum.join(host_errors(changeset)) =~ "AlexClaw's own"

@@ -44,9 +44,13 @@ defmodule AlexClaw.Connections.Query do
   @save_deadline_ms 5_000
   @margin_ms 2_000
   @chunk_rows 50
-  # The query process's memory, shared binaries included: ten times the cap,
-  # never less than this floor.
-  @heap_factor 10
+  # The query process's memory, shared binaries included: fifty times the cap,
+  # never less than the floor. Measured at the 5 MB cap (2026-10-07), the
+  # narrowest rows need the most per byte of JSON: one one-character text
+  # column 150 MB (31x), one one-digit integer 125 MB, one NULL 100 MB; wide
+  # rows 30 MB. A statement with no columns, whose rows would cost more still,
+  # is refused.
+  @heap_factor 50
   @heap_floor_bytes 32_000_000
   @read_starts ~w(select with values table)
   @writes ["ModifyTable", "LockRows"]
@@ -245,11 +249,13 @@ defmodule AlexClaw.Connections.Query do
   defp node_types(list) when is_list(list), do: Enum.flat_map(list, &node_types/1)
   defp node_types(_other), do: []
 
-  # The parameters' and columns' types, every one supported, the names distinct.
+  # The parameters' and columns' types, every one supported, the names distinct,
+  # and at least one column.
   defp shape(conn, %Postgrex.Query{param_oids: param_oids, columns: columns, result_oids: oids}) do
     columns = columns || []
 
-    with {:ok, params} <- typed(conn, param_oids, &"$#{&1}"),
+    with :ok <- some_columns(columns),
+         {:ok, params} <- typed(conn, param_oids, &"$#{&1}"),
          {:ok, types} <- typed(conn, oids || [], &"column #{Enum.at(columns, &1 - 1)}"),
          :ok <- distinct(columns) do
       {:ok,
@@ -278,6 +284,13 @@ defmodule AlexClaw.Connections.Query do
       {:error, _reason} -> "oid #{oid}"
     end
   end
+
+  # A statement that returns no columns reads nothing a step can use — and
+  # SELECT … INTO returns none: it creates a table.
+  defp some_columns([]),
+    do: {:error, {:not_read_only, "it returns no columns: a sql_query step reads rows"}}
+
+  defp some_columns(_columns), do: :ok
 
   defp distinct(columns) do
     case columns -- Enum.uniq(columns) do

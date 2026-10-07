@@ -112,12 +112,14 @@ defmodule AlexClaw.Connections.QueryHardeningTest do
       sampler = spawn_link(fn -> sample(baseline) end)
 
       assert {:error, {:result_too_large, 5_000_000}} =
-               Query.run(name, "SELECT repeat('x', 300000000) AS big", [], deadline_ms: 60_000)
+               Query.run(name, "SELECT repeat('x', 900000000) AS big", [], deadline_ms: 60_000)
 
       send(sampler, {:peak, self()})
       assert_receive {:peak, peak}, 1_000
 
-      assert peak - baseline < 200_000_000,
+      # The bound is 250 MB (fifty times the cap); unbounded, the 900 MB value
+      # would be held whole and then joined into one binary.
+      assert peak - baseline < 500_000_000,
              "binary memory grew by #{div(peak - baseline, 1_000_000)} MB"
 
       assert {:ok, %{"row_count" => 1}} = Query.run(name, "SELECT 1 AS n", [], deadline_ms: 5_000)

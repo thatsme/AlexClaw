@@ -8,8 +8,6 @@ AlexClaw monitors sources (RSS feeds, web pages, GitHub repositories, APIs) and 
 
 > **Single-user.** AlexClaw has one operator and no multi-user access control. It runs on the operator's own infrastructure.
 
-![AlexClaw Dashboard](docs/screenshot/dashboard.jpg)
-
 ---
 
 ## Features
@@ -20,8 +18,6 @@ AlexClaw monitors sources (RSS feeds, web pages, GitHub repositories, APIs) and 
 - **Workflow Engine** — Multi-step linear pipelines with conditional branching. Each skill declares its possible outcomes (branches), and the executor routes to different steps based on which branch fires. Execution is sequential — one path per run, no fan-out (a step cannot broadcast to multiple parallel successors). Notify skills pass their input through unchanged, so several delivery steps can follow each other. Per-step resilience controls (circuit breaker, missing skill handling, fallback routing). Routing between steps uses no LLM — deterministic pattern matching. Run history with the branch path taken. **Export/Import** — a workflow can be exported as a JSON file (definition, steps, resources) and imported on another instance; credentials are not exported and are entered again after import. Resources are matched by name+URL or created. Filterable workflow list.
 - **Reasoning Loop** — Plan-execute-evaluate cycle. The LLM decomposes a goal into a multi-step plan, invokes whitelisted skills, evaluates results on a 1-5 rubric, and decides whether to continue, adjust the plan, ask the user, or declare done. Default LLM tier is `local` (configurable). A deterministic pre-filter handles obvious decisions without an LLM call. Plan validation rejects malformed steps before execution. Working memory is compressed every 3 iterations. The time budget scales with plan size. The user can pause, resume, steer, abort or override a step while it runs. Every prompt, response, skill call, rubric score and working memory snapshot is persisted. Skill outputs are embedded to pgvector for later sessions. Available from the chat page in Reasoning mode.
 - **OTP Circuit Breaker** — Per-skill circuit breaker using GenServer + ETS. After consecutive failures a skill is temporarily disabled (circuit open), then re-tested after a cooldown. State transitions are notified over the chat gateway. Dead letter routing: a workflow step can skip, halt, or fall back to another skill when a circuit is open or a skill is missing.
-
-![AlexClaw Circuit Breaker](docs/screenshot/circuit_break.jpg)
 - **Multi-Gateway (Telegram + Discord)** — Telegram long-polling and a Discord bot over WebSocket. Command routing is deterministic pattern matching — no LLM involved in dispatch. Both gateways can run at once; responses go back to the originating transport. Each gateway answers only its owner: one user, in one chat or channel, set in the admin UI. The Gateway behaviour allows adding transports without changing skills or the Dispatcher.
 - **Runtime Configuration** — Settings (prompts, limits, personas, skill options) are stored in PostgreSQL, cached in ETS, and edited at runtime in the admin UI. Secret settings (bot tokens, API keys, OAuth and webhook secrets) are kept in OpenBao. Every change needs the admin session unlocked with a 2FA code. Enabling Discord needs a container restart; most other changes apply at once.
 - **API Resource Discovery** — API-type resources are probed on creation. OpenAPI/Swagger specs are looked for at common paths, parsed, and stored in resource metadata. The workflow step editor shows discovered endpoints as a dropdown for pre-filling `api_request` step config. A "Discover" button runs discovery again.
@@ -31,11 +27,21 @@ AlexClaw monitors sources (RSS feeds, web pages, GitHub repositories, APIs) and 
 - **Multi-Node BEAM Clustering** — Multiple AlexClaw instances connected via Erlang distribution. Each node runs its own executor; nodes exchange workflow outputs via the `send_to_workflow` and `receive_from_workflow` skills. Nodes are registered on the Cluster page; a node that merely connects with the cookie is audited, not registered. Another node may start only an unprotected workflow whose first step, `receive_from_workflow`, names it — and never one with a privileged step. Node status and per-workflow node assignment are in the admin UI. `docker-compose_swarm.yml` is included for local multi-node testing of clustering; it has no OpenBao, so no credential resolves and no second factor can be set up on it.
 - **MCP Server** — Model Context Protocol server at `/mcp`. An MCP client reads AlexClaw's data (knowledge, memory, resources, workflows, runs, config — secrets redacted) as MCP resources and runs enabled workflows that do not require 2FA as `workflow:<name>` tools. It cannot change anything, run a skill on its own, or start a workflow with a privileged step. Bearer key auth, `mcp_restriction` policies, every run audited through the control plane. Built on `anubis_mcp` with Streamable HTTP transport.
 
+The Workflows page lists every workflow with its schedule, number of steps, status and runs; from there a workflow is run, exported, cloned, edited or deleted:
+
+![AlexClaw Workflows page](docs/screenshot/workflows.jpg)
+
+Editing a step sets its skill, tier, provider and config, and the Workflow Engine's per-step resilience controls — On Circuit Open, On Missing Skill and Fallback Skill:
+
+![AlexClaw workflow step editor](docs/screenshot/circuit_break.jpg)
+
 ### Skills
 
 > **Deprecation notice (v0.3.15):** `web_browse`, `web_search` and `rss_collector` are deprecated and kept for existing workflows; a later release removes them. The composable pattern replaces them: `web_fetch → llm_transform`, `web_search_fetch → llm_transform`, `rss_fetch → llm_score → llm_transform`. See the [v0.3.15 release notes](https://github.com/thatsme/AlexClaw/releases/tag/v0.3.15) for migration examples.
 
-![AlexClaw Skills](docs/screenshot/skills.jpg)
+The Skills page lists every registered skill, core and dynamic, and is where a dynamic skill is uploaded:
+
+![AlexClaw Skills page](docs/screenshot/skills.jpg)
 
 | Skill | Description |
 |---|---|
@@ -72,7 +78,9 @@ Privileged skills (`shell`, `coder`, `db_backup`, `web_automation`) run only in 
 
 ### Dynamic Skill Loading
 
-![AlexClaw Dynamic Skills](docs/screenshot/dynamic.jpg)
+On the Skills page each dynamic skill shows its version and the permissions it declares, with Reload and Unload:
+
+![AlexClaw dynamic skills](docs/screenshot/dynamic.jpg)
 
 Custom skills are loaded at runtime — no code changes, no Docker rebuild, no restart. A skill file uploaded on the Skills page is staged outside the live directory, checked, and compiled into the running VM once a 2FA code approves it.
 
@@ -112,6 +120,27 @@ Custom skills are loaded at runtime — no code changes, no Docker rebuild, no r
 
 See [`test/fixtures/skills/skill_template.ex`](test/fixtures/skills/skill_template.ex) for a documented template and the [Skill API Reference](docs/skills/skill-api.md) for every function. Other files in that directory are test fixtures; some predate containment and do not load on 0.4.0 as they are.
 
+### Services
+
+Services are the external systems AlexClaw connects to; skills are the workflow steps that use them. A service is configured once — on the Config page, or on the Connections page for a database — with its credential kept in OpenBao, and every skill that needs it uses that configuration. A step whose skill needs a service that is not configured cannot be saved, and the editor says which.
+
+| Service | Used by |
+|---|---|
+| Database | AlexClaw itself: workflows, settings, memory, the audit log |
+| Telegram Bot | the Telegram chat gateway, `telegram_notify` |
+| Discord Bot | the Discord chat gateway, `discord_notify` |
+| Google API | `google_calendar`, `google_tasks` |
+| GitHub API | `github_security_review` |
+| Ollama, LM Studio | the `local` LLM tier |
+| Embeddings | semantic search in memory and the knowledge base |
+| Web Automator | `web_automation` |
+| 2FA (TOTP) | unlocking the admin UI for changes |
+| Connection *name* | `sql_query` steps on that database connection |
+
+The Services page shows a card for each, with its state and a Check button for a live connectivity test, and holds the two-factor settings:
+
+![AlexClaw Services page](docs/screenshot/services.jpg)
+
 ### GitHub Security Review
 
 AlexClaw can fetch pull requests and commits for a security review:
@@ -124,8 +153,6 @@ AlexClaw can fetch pull requests and commits for a security review:
 
 - **Health endpoint** — `GET /health` (unauthenticated) returns `{"status":"ok","version":"...","db":"connected","mcp":"running"}` for load balancers and Docker healthchecks. Returns HTTP 503 when the database is unreachable.
 - **Metrics endpoint** — `GET /metrics` (authenticated) returns a JSON payload with system stats (uptime, memory, BEAM processes), LLM provider usage, workflow run counts, skill and circuit breaker states, MCP status and tool count, log severity counts, and knowledge/memory entry counts.
-
-![AlexClaw Services](docs/screenshot/services.jpg)
 
 ### Database Backups
 
@@ -263,7 +290,9 @@ See `.env.example` for the full list of bootstrap variables.
 
 All providers live in the database and can be added, removed, or reconfigured from the admin UI. The defaults above are seeded on first boot. The router selects by priority within each tier (lower priority number = preferred), tracks daily usage, and falls back to the next available provider when one times out, refuses the connection or answers with a server error. A fully local deployment with no API keys is supported — enable a local provider and all tiers will fall back to it.
 
-![AlexClaw LLM Providers](docs/screenshot/llms.jpg)
+The LLM page lists the providers with their type, tier, model, daily limit, today's usage and status:
+
+![AlexClaw LLM providers](docs/screenshot/llms.jpg)
 
 **Per-skill defaults:** each skill has a configurable default tier (e.g. `skill.research.tier`), set on the Config page. In a chat, `--tier` (and `--provider`) with a query overrides the default for that call only; `--tier` without a query answers that defaults are set on the Config page.
 
@@ -298,11 +327,13 @@ A chat operates AlexClaw; it does not change it. Skill management, skill generat
 
 ## Admin UI
 
-![AlexClaw Workflows](docs/screenshot/workflows.jpg)
+The admin UI runs at `http://localhost:5001`. Its first page, the Dashboard, shows uptime, memory, active skills, today's LLM usage and the latest memories:
+
+![AlexClaw Dashboard](docs/screenshot/dashboard.jpg)
 
 | Page | Description |
 |---|---|
-| Dashboard | System status, recent activity |
+| Dashboard | System status, recent activity — opened by clicking the AlexClaw name in the menu |
 | Chat | Conversational chat with memory context — pick any provider (cloud or local) |
 | Forge | Skill generation from a goal (pre-alpha): contained code within the unattended permissions loads at once; more permissions wait for a 2FA code; calls outside the allowlist never load |
 | Skills | Core and dynamic skills — upload, reload, unload |

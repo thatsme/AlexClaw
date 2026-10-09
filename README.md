@@ -4,7 +4,7 @@
 
 A personal AI agent for a single user, built on Elixir/OTP.
 
-AlexClaw monitors sources (RSS feeds, web pages, GitHub repositories, APIs), stores what it collects in a knowledge base, runs workflows on a schedule, and talks to its owner over Telegram or Discord. Each task is routed to the cheapest configured LLM that meets the task's reasoning tier, local models included. Credentials are kept in a bundled OpenBao, not in the database.
+AlexClaw monitors sources (RSS feeds, web pages, GitHub repositories, APIs) and reads PostgreSQL databases through fixed, read-only queries, stores what it collects in a knowledge base, runs workflows on a schedule, and talks to its owner over Telegram or Discord. Each task is routed to the cheapest configured LLM that meets the task's reasoning tier, local models included. Credentials are kept in a bundled OpenBao, not in the database.
 
 > **Single-user.** AlexClaw has one operator and no multi-user access control. It runs on the operator's own infrastructure.
 
@@ -52,6 +52,7 @@ AlexClaw monitors sources (RSS feeds, web pages, GitHub repositories, APIs), sto
 | `telegram_notify` | Send a Telegram message as a workflow step |
 | `discord_notify` | Send workflow output to a Discord channel. Configurable `channel_id` per step — deliver to different channels in the same workflow |
 | `api_request` | REST client with API resource discovery — resolves URLs from assigned resources, supports `{base_url}` interpolation. Header values are kept in OpenBao, bound to the host they are sent to |
+| `sql_query` | Run a fixed, parameterised read (`SELECT`, `WITH`, `VALUES`, `TABLE`) on a PostgreSQL database defined on the Connections page; returns the columns and rows (no LLM). Checked on the database when the step is saved; runs only as a saved workflow step. See [SECURITY.md](SECURITY.md#database-connections-sql-read) |
 | `github_security_review` | Fetch a PR or commit diff for review by a following LLM step |
 | `google_calendar` | Fetch upcoming Google Calendar events |
 | `google_tasks` | Manage Google Tasks lists and items |
@@ -79,7 +80,7 @@ Custom skills are loaded at runtime — no code changes, no Docker rebuild, no r
 - **Containment** — every dynamic skill may call only an allowlist of pure modules plus `SkillAPI`, checked on its syntax tree at load and again at every boot. A file that reaches `File`, `System`, `Repo`, `Req` or anything else outside the list does not load, and no approval changes that. Through `SkillAPI` a skill can do only what its declared permissions allow. See [SECURITY.md](SECURITY.md#dynamic-skill-loading).
 - **External skill detection** — skills that fetch external data declare `external/0`; a skill calling `SkillAPI.http_*` without it is rejected at load.
 - **Load-time validation** — Skill source is vetted as a syntax tree before it is compiled: one module per file, in the `AlexClaw.Skills.Dynamic.*` namespace, with a module body restricted to declarations. Nothing in the file executes at load time.
-- **Content sanitization** — A 7-layer heuristic sanitizer strips prompt injection payloads from external content before LLM ingestion. It detects hidden HTML/CSS, zero-width unicode steganography, known injection patterns (101 from Garak), and imperative tone anomalies. Patterns are loaded from JSON at runtime and can be updated without recompilation.
+- **Content sanitization** — A 7-layer heuristic sanitizer strips prompt injection payloads from external text before LLM ingestion. It detects hidden HTML/CSS, zero-width unicode steganography, known injection patterns (102, from Garak), and imperative tone anomalies. The patterns are read once at boot from `priv/injection_patterns.json`, which ships in the image: a change takes effect after a rebuild and restart. See [SECURITY.md](SECURITY.md#content-sanitization-prompt-injection-defense).
 - **Capability tokens** — Macaroon-style HMAC-signed tokens attenuate permissions through the call chain. Workflow steps get scoped tokens; cross-skill invocation restricts them further.
 - **Process isolation** — Dynamic skills execute in spawned processes via `SafeExecutor`, isolating auth state from the caller.
 - **Namespace enforcement** — Module must be `AlexClaw.Skills.Dynamic.*`
@@ -88,7 +89,7 @@ Custom skills are loaded at runtime — no code changes, no Docker rebuild, no r
 - **Admin UI** — Upload, reload, and unload skills from the Skills page. Core and dynamic skills are shown separately.
 - **2FA enforced** — loading and reloading a skill each take a TOTP code typed on the Skills page, for that load alone; the approval screen lists the skill's permissions and flags the risky ones. Unloading needs the page to be unlocked (a 2FA elevation). None of it is possible from a chat: `/skill` only answers that skill management is in the admin UI.
 - **Version bump enforcement** — Loading a skill that's already loaded with the same version is rejected. Bump `version/0` or use reload to force.
-- **Cross-skill invocation** — Dynamic skills can call other skills through `SkillAPI.run_skill/3`, except the four privileged ones (`shell`, `coder`, `db_backup`, `web_automation`)
+- **Cross-skill invocation** — Dynamic skills can call other skills through `SkillAPI.run_skill/3`, except the four privileged ones (`shell`, `coder`, `db_backup`, `web_automation`) and `sql_query`, which runs only as a saved workflow step
 - **Conditional branching** — Dynamic skills can declare `routes/0` (e.g. `[:on_results, :on_empty, :on_error]`) and return triple tuples `{:ok, result, :branch_name}` for workflow routing. Routes are persisted in the database on load and cleaned up on unload — same behavior as core skills.
 
 #### Permissions
@@ -104,7 +105,7 @@ Custom skills are loaded at runtime — no code changes, no Docker rebuild, no r
 | `:resources_read` | List and fetch resources — embedded credentials are redacted |
 | `:knowledge_read` | Search and check existence in knowledge base |
 | `:knowledge_write` | Store knowledge entries |
-| `:skill_invoke` | Call other skills by name — excluding `shell`, `coder`, `db_backup` and `web_automation` |
+| `:skill_invoke` | Call other skills by name — excluding `shell`, `coder`, `db_backup`, `web_automation` and `sql_query` |
 | `:workflow_read` | Read the result of a workflow run |
 
 #### Getting Started
@@ -133,14 +134,15 @@ Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-co
 - **Rotation** — keeps the last N backups (configurable via `backup.max_files`, default 7). Oldest files are deleted.
 - **Workflow integration** — create a workflow with `db_backup` as a step, add a `telegram_notify` or `discord_notify` step for confirmation, and schedule it via cron (e.g. daily at 03:00: `0 3 * * *`). Enable backups from Admin > Config (`backup.enabled = true`). `db_backup` is a privileged step: a scheduled run needs nothing more, a run started from the admin UI asks for a 2FA code, and a run started from a chat, MCP, a webhook or another node is refused.
 - **Credentials are not in these backups.** They are in OpenBao, backed up separately with `make backup-openbao REASON=<reason>`, into a directory AlexClaw does not mount. The unseal key and the recovery key are not in that snapshot either and are kept offline. See [OpenBao](docs/architecture/openbao.md#backing-up-and-restoring-openbao).
+- **Nightly backup of the database and OpenBao together** — `scripts/backup-scheduled.sh` takes a database dump (`pg_dump -Fc`, read back with `pg_restore --list`) and an OpenBao snapshot (its checksums verified) into `~/backups`, every file readable by its owner only, and keeps the newest 14 of each; backups taken by hand are never deleted. On macOS, `scripts/launchd/install.sh` installs it as a LaunchAgent that runs at 03:30, or at the next wake. `scripts/drill-restore-openbao.sh` restores a snapshot into a throwaway OpenBao with no network, to show that it opens with the unseal key file and, given the recovery key, that every catalogued secret reads back. See [Backups](docs/deployment/backups.md).
 
 ### Security
 
-- **Session-based authentication** — all routes except `/login` and `/health` require an authenticated session
+- **Session-based authentication** — all routes except `/login`, `/logout` and `/health` require an authenticated session; `/mcp` authenticates with a bearer key and `/webhooks/github` with an HMAC signature
 - **Two-Factor Authentication (2FA)** — TOTP-based, held by OpenBao's TOTP engine. Set up and turned off in the admin UI (Services → Two-factor authentication); the secret never travels over a chat. Every change to what the agent does (settings, workflows, resources, providers, policies, skills, cluster nodes) needs a 2FA elevation of the admin session; loading a skill, restoring the database, running a workflow marked `Requires 2FA` or one with a privileged step each need a code of their own. A code typed into a chat approves a protected workflow run and nothing else. Everything fails closed when 2FA is not configured. See [SECURITY.md](SECURITY.md#control-plane-elevation).
 - **Built-in login rate limiting** — ETS-based, configurable max attempts and block duration, adjustable at runtime without restart
 - **HMAC-SHA256 webhook verification** — GitHub webhook endpoint uses `Plug.Crypto.secure_compare` for timing-safe signature validation
-- **Secrets in OpenBao** — bot tokens, API keys, OAuth secrets, LLM provider keys, step and resource credentials live in a bundled OpenBao; the database holds references. Each secret is bound to the host it is sent to, resolved at use and audited; skills see a placeholder, never the value. See [SECURITY.md](SECURITY.md#secrets-in-openbao).
+- **Secrets in OpenBao** — bot tokens, API keys, OAuth secrets, LLM provider keys, step and resource credentials and database connection passwords live in a bundled OpenBao; the database holds references. Each secret is bound to the host it is sent to — a connection's password to the server it was entered for — resolved at use and audited; skills see a placeholder, never the value. See [SECURITY.md](SECURITY.md#secrets-in-openbao) and [Database Connections](SECURITY.md#database-connections-sql-read).
 - **No secret on screen** — a secret field shows when it was set and an empty input; a new value replaces it, an empty one keeps it.
 - **One door for privileged actions** — the admin UI, chat gateways, MCP, the GitHub webhook, other cluster nodes and skills all ask one control plane, which checks the entry point and the proof the action needs and audits every attempt, allowed or refused. A chat or MCP client operates the agent (runs workflows, reads data); only the admin UI changes it.
 - **Agent authorization layer** — Context-aware PolicyEngine with HMAC capability tokens, chain-depth enforcement, process isolation for dynamic skills, configurable policy rules (rate_limit, time_window, chain_restriction, permission_override, mcp_restriction), and persistent audit logging
@@ -304,9 +306,10 @@ A chat operates AlexClaw; it does not change it. Skill management, skill generat
 | LLM | Providers, their status and usage |
 | Workflows | Create/edit/run pipelines, export/import as JSON, run history. Running a protected workflow, or one with a privileged step, asks for a 2FA code |
 | Resources | Shared resources for workflows (RSS feeds, websites, APIs, automations); recordings and replays of web automations |
+| Connections | PostgreSQL servers that `sql_query` steps read from — define, edit, test and remove, with the TLS mode chosen per connection; the password is kept in OpenBao. A connection a step uses cannot be removed |
 | Memory | Browse and search stored knowledge |
 | Database | Table browser, backup download, data export, and restore (restore takes a 2FA code). Exports carry no credentials, no secret catalogue, no policies and no admin identity; a restore keeps this installation's |
-| Services | External service status — connectivity checks for DB, Google, Telegram, Discord, 2FA, Ollama, LM Studio, GitHub, Web Automator. 2FA set-up, and the Google connection |
+| Services | External service status — connectivity checks for DB, Google, Telegram, Discord, 2FA, Ollama, LM Studio, GitHub, Web Automator, and each database connection. 2FA set-up, and the Google connection |
 | Config | Runtime configuration editor |
 | Logs | Real-time log viewer with severity filtering |
 | Policies | Authorization policy rules, audit log viewer |
@@ -324,6 +327,7 @@ lib/
     config/          # Runtime config (DB + ETS + PubSub broadcast), secret settings
     control_plane/   # The one door: action catalogue, contexts, effects (ControlPlane.perform/3)
     secrets/         # Secret references, ownership, masking
+    connections/     # Database connections for sql_query: pools, password in OpenBao, target check, the read-only query
     vault/           # OpenBao client supervision
     upgrade/         # One-time 0.3.x → 0.4.0 carry-over
     knowledge/       # Knowledge base entry schema (pgvector)
@@ -356,7 +360,8 @@ priv/repo/
 
 - **Semantic search requires an embedding provider.** Vector search works when at least one embedding-capable provider is configured (Gemini, Ollama, or OpenAI-compatible). Without one, memory falls back to keyword search. Configure via `embedding.provider` and `embedding.model` in the admin UI.
 - **Single-user only.** There is no multi-user access control. The authentication model assumes one trusted operator.
-- **Credentials in OpenBao.** Every credential — settings, LLM providers, workflow steps, resources — is kept in OpenBao, bound to the host it is sent to; the database holds references ([SECURITY.md](SECURITY.md#secrets-in-openbao)). OpenBao's unseal key file and recovery key are kept outside it and must be stored offline: losing the unseal key loses every secret. Changing `SECRET_KEY_BASE` ends every login and nothing else ([Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md)).
+- **Credentials in OpenBao.** Every credential — settings, LLM providers, workflow steps, resources, database connections — is kept in OpenBao, bound to where it is sent; the database holds references ([SECURITY.md](SECURITY.md#secrets-in-openbao)). OpenBao's unseal key file and recovery key are kept outside it and must be stored offline: losing the unseal key loses every secret. Changing `SECRET_KEY_BASE` ends every login and nothing else ([Rotating SECRET_KEY_BASE](docs/deployment/rotate-secret-key-base.md)).
+- **SQL read relies on the database's own grants.** What a database connection and a `sql_query` step guarantee, and what they do not — the role to connect with, database text reaching an LLM prompt unsanitised, who can see a step's rows, the 5 MB result cap — is in [SECURITY.md](SECURITY.md#database-connections-sql-read) and its [Known Limitations](SECURITY.md#known-limitations-and-design-decisions).
 - **Web Automator is experimental.** The browser automation sidecar (`web_automation` skill) is under heavy development. APIs, config format, and recording workflow may change without notice.
 - **Forge is pre-alpha.** See below.
 

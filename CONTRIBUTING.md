@@ -162,6 +162,28 @@ run on CI. An unformatted file fails the build, so `mix format` is not
 optional. Run it on the host rather than inside a container, which rewrites
 line endings.
 
+The public docs are checked in the same suite (`test/docs_contract_test.exs`
+and the documentation tests): every `make` target, script and repo path a doc
+names must exist; README's skills table must match the core skills and its
+Admin UI table the admin pages; numbers a doc states about the code, such as
+the injection-pattern count, must match the source; every internal link and
+anchor must resolve. A change that makes a doc false fails the build.
+
+---
+
+## Documentation and Releases
+
+The repository is public, so a doc that is false is a defect like any other.
+A change that alters behaviour updates the public docs it affects — README,
+SECURITY, INSTALLATION, and the pages under `docs/` — in the same branch.
+
+Before a branch is merged to `main` for a release, what the release changed
+is checked against every public doc: features added or changed, commands,
+settings, limits and security claims. Docs found wrong or missing are fixed
+in that branch, and the release notes (`.github/release-notes/v<version>.md`)
+name what changed and any step an upgrade needs. A release is not merged
+without that check and a passing suite.
+
 ---
 
 ## Code Style

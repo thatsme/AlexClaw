@@ -64,7 +64,7 @@ Separated fetch from LLM processing. New pure-fetch skills (`web_fetch`, `web_se
 
 ### ~~Content Sanitization & Prompt Injection Defense~~ ✅ Completed (v0.3.14)
 
-7-layer heuristic sanitizer protects external-facing skills from prompt injection attacks. Hidden HTML/CSS detection, zero-width unicode stripping, 101 known injection patterns (sourced from NVIDIA Garak probe library) loaded from runtime JSON, imperative tone heuristic for novel payloads. Core skills tagged with `external/0` callback; dynamic skills AST-scanned at load time — undeclared HTTP/socket calls rejected (fail-closed). Pre-LLM sanitization in `web_browse` and `web_search`, post-LLM auto-sanitization in the workflow executor for all external skills.
+7-layer heuristic sanitizer protects external-facing skills from prompt injection attacks. Hidden HTML/CSS detection, zero-width unicode stripping, 102 known injection patterns (sourced from NVIDIA Garak probe library) read at boot from `priv/injection_patterns.json`, imperative tone heuristic for novel payloads. Core skills tagged with `external/0` callback; dynamic skills AST-scanned at load time — undeclared HTTP/socket calls rejected (fail-closed). Pre-LLM sanitization in `web_browse` and `web_search`, auto-sanitization in the workflow executor of external skills' text output.
 
 ### Embedded Injection Classifier (Planned)
 

@@ -197,13 +197,14 @@ here on: see [Backups](#backups).
 
 ## Container Networks
 
-`docker-compose.yml` gives its three networks fixed subnets:
+`docker-compose.yml` gives its four networks fixed subnets:
 
 | Network | Subnet | Who is on it |
 |---|---|---|
 | `default` | `10.213.61.0/24` | the database, `migrate` (`10.213.61.11`), AlexClaw (`10.213.61.10`) |
 | `automation` | `10.213.62.0/24` | AlexClaw and the web-automator sidecar |
 | `vault` | `10.213.63.0/24` | OpenBao (`10.213.63.2`), AlexClaw (`10.213.63.10`), the on-demand backup service (`10.213.63.11`) and `openbao-init`; internal, no route out |
+| `demo` | `10.213.65.0/24` | the [SQL demo](docs/demo/sql-demo.md)'s database (`10.213.65.20`), started only with `--profile demo`, and AlexClaw (`10.213.65.10`) only when `docker-compose.demo.yml` is given; internal, no route out |
 
 The database accepts network connections only from AlexClaw's and `migrate`'s
 pinned addresses, listed in `db-init/pg_hba.conf`; anything else is refused before
@@ -215,6 +216,12 @@ If a subnet collides with a network you already use (a LAN, a VPN, another
 Docker network), change it in `docker-compose.yml`, and change with it the pinned
 `ipv4_address` of `alexclaw-prod` and `migrate` and the two `host` lines of
 `db-init/pg_hba.conf`. They must match, or AlexClaw cannot reach its database.
+The `default`, `automation` and `vault` subnets are also listed in
+`config/config.exs` (`:connection_internal_networks`), the addresses a
+database connection may not point into: change them there too and rebuild
+the image (`docker compose build`), or a connection could reach a service on
+the moved subnet. The `demo` subnet changes with AlexClaw's address in
+`docker-compose.demo.yml` and the `host` line of `demo/pg_hba.conf`.
 Changing a subnet needs `docker compose down` before `docker compose up -d`:
 Docker does not change an existing network in place. `down` without `-v` keeps
 the data.
@@ -725,6 +732,20 @@ credentials are gone, so the two are backed up together.
   AlexClaw mounts, and any directory inside it. The snapshot does **not** hold the unseal key file
   or the recovery key: keep both offline, apart from the snapshots, or the
   snapshot cannot be opened.
+- **Both, nightly:** `scripts/backup-scheduled.sh` dumps the database as its
+  owner (checked with `pg_restore --list`) and takes an OpenBao snapshot,
+  into `~/backups`, readable by its owner only, keeping the newest 14 of
+  each; backups taken by hand are never deleted. On macOS,
+  `scripts/launchd/install.sh` installs it as a LaunchAgent that runs at
+  03:30, or at the next wake (`scripts/launchd/install.sh remove` removes
+  it). It can also be run by hand.
+- **Restore drill:** `scripts/drill-restore-openbao.sh` restores the newest
+  snapshot (or the one named) into a throwaway OpenBao with no network, to
+  show that it opens with the unseal key file and, given the recovery key,
+  that every secret reads back. The running OpenBao is not touched.
+
+The schedule, retention and drill are described in
+[Backups](docs/deployment/backups.md).
 
 Restoring an OpenBao snapshot is described in
 [OpenBao](docs/architecture/openbao.md#backing-up-and-restoring-openbao).
@@ -733,13 +754,23 @@ Restoring an OpenBao snapshot is described in
 
 ## Updating
 
-AlexClaw is built from source locally (no pre-built images). To update:
+AlexClaw is built from source locally (no pre-built images). Before updating,
+read the release notes of the new version, and of any version skipped: some
+need a step before the first start. Back up the database and OpenBao, and
+check both (see [Backups](#backups)); `scripts/backup-scheduled.sh`, run by
+hand, takes and checks both. Then:
 
 ```bash
 git pull
 docker compose build
 docker compose up -d
 ```
+
+When a new version changes the `openbao-init` image while OpenBao is running,
+`up` can stop with `dependency failed to start: container
+alexclaw-openbao-init-1 exited (0)`. AlexClaw is then left created, not
+started: once `migrate` has exited 0 (`docker compose ps -a`), start it with
+`docker compose up -d --no-deps alexclaw-prod`.
 
 Migrations run in the one-shot `migrate` service on every `up`, before the
 application starts.

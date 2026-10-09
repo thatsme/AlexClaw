@@ -10,7 +10,7 @@ AlexClaw exposes its internal data stores as MCP resources via URI templates. Cl
 | `alexclaw://knowledge/{id}` | Knowledge base entries (docs, guides) | `application/json` |
 | `alexclaw://memory/{id}` | News items, facts, observations | `application/json` |
 | `alexclaw://workflows/{id}` | Workflow definitions with steps | `application/json` |
-| `alexclaw://runs/{id}` | Workflow execution history, with each step's output — a `sql_query` step's output holds its rows | `application/json` |
+| `alexclaw://runs/{id}` | Workflow run metadata: status, timing, node, each step's name, skill and outcome, and the kind of a failure — never a run's result, a step's output or an error's text | `application/json` |
 | `alexclaw://config/{key}` | Settings (sensitive values redacted) | `application/json` |
 
 ## Browsing
@@ -34,7 +34,7 @@ Pass a numeric ID to read a specific entry:
 alexclaw://resources/3       → Ars Technica RSS feed
 alexclaw://knowledge/42      → specific knowledge entry
 alexclaw://workflows/1       → Tech News Digest with all steps
-alexclaw://runs/100          → specific workflow run with step results
+alexclaw://runs/100          → specific workflow run (metadata only)
 ```
 
 ## Searching

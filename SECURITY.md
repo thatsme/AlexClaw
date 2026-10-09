@@ -1143,15 +1143,16 @@ step that is not marked `requires_2fa` runs from every entry point that may
 run a workflow: the admin UI, the scheduler, a chat (`/run`), an MCP client,
 the GitHub webhook (the workflow named in `github.review_workflow`) and
 another node (a workflow whose `receive_from_workflow` gate names it). The
-rows are the step's output: they are in the run's result — which an MCP
-client receives as the tool's answer — and in the run record, each step's
-output included. Marking the workflow `requires_2fa` refuses it to MCP, the
-webhook and other nodes and asks for a code in a chat or the admin UI; such
-a workflow cannot be scheduled. An `mcp_restriction` policy refuses the
-workflow to MCP clients only. Neither applies to MCP resources: a client
-holding the MCP key can read any run record, whatever started the run, as
-`alexclaw://runs/{id}` (the latest fifty are listed). Where a database's
-rows must not reach an MCP client, generate no MCP key.
+rows are the step's output: they are in the run's result and in the run
+record, each step's output included. An MCP client receives them only as the
+answer to a run it started itself, when the `sql_query` step is the last one:
+the MCP resources `alexclaw://runs/list` and `alexclaw://runs/{id}` give a
+run's metadata — status, timing, node, each step's name, skill and outcome,
+the kind of a failure — never its result, a step's output or an error's text.
+Marking the workflow `requires_2fa` refuses it to MCP, the webhook and other
+nodes and asks for a code in a chat or the admin UI; such a workflow cannot
+be scheduled. An `mcp_restriction` policy refuses the workflow to MCP clients
+only.
 
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures

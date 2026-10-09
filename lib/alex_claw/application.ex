@@ -2,6 +2,7 @@ defmodule AlexClaw.Application do
   @moduledoc "OTP application supervisor for AlexClaw."
   use Application
 
+  alias AlexClaw.Connections.Pools
   alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Database.PrivilegeCheck
   alias AlexClaw.Secrets.Mask
@@ -68,6 +69,9 @@ defmodule AlexClaw.Application do
       # Owns the live-login table. Before the endpoint: no request or mount may
       # be judged before there is something to judge it against.
       AlexClaw.Auth.Sessions,
+      # The database connections' pools, one per defined connection, on their
+      # own branch: a connection that cannot connect is down, never a crash.
+      AlexClaw.Connections.Supervisor,
       {Registry, keys: :unique, name: AlexClaw.CircuitBreakerRegistry},
       AlexClaw.Skills.CircuitBreakerSupervisor,
       AlexClaw.SkillSupervisor,
@@ -99,7 +103,13 @@ defmodule AlexClaw.Application do
   end
 
   defp background_children(true) do
-    [AlexClaw.Workflows.SchedulerSync]
+    [
+      AlexClaw.Workflows.SchedulerSync,
+      # Once, at boot: a pool for every defined connection.
+      Supervisor.child_spec({Task, &Pools.start_all/0},
+        id: :connection_pools
+      )
+    ]
   end
 
   defp background_children(false), do: []

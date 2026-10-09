@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "workflow": {
+    "name": "Weekly sales brief",
+    "description": "SQL demo: last week's sales by region and product category, summarised and sent to Telegram.",
+    "enabled": true,
+    "schedule": null,
+    "default_provider": null,
+    "node": null,
+    "metadata": {}
+  },
+  "steps": [
+    {
+      "position": 1,
+      "name": "Sales by region and category",
+      "skill": "sql_query",
+      "llm_tier": null,
+      "llm_model": null,
+      "prompt_template": null,
+      "config": {
+        "connection": "demo",
+        "query": "SELECT r.name AS region, p.category, sum(l.quantity * l.unit_price)::numeric(12, 2) AS sales, count(DISTINCT o.id) AS orders FROM orders o JOIN customers c ON c.id = o.customer_id JOIN regions r ON r.id = c.region_id JOIN order_lines l ON l.order_id = o.id JOIN products p ON p.id = l.product_id WHERE o.ordered_at > (SELECT max(ordered_at) FROM orders) - $1::int GROUP BY r.name, p.category ORDER BY sales DESC",
+        "params": [7],
+        "timeout_ms": 15000
+      },
+      "input_from": null,
+      "routes": []
+    },
+    {
+      "position": 2,
+      "name": "Write the brief",
+      "skill": "llm_transform",
+      "llm_tier": "local",
+      "llm_model": null,
+      "prompt_template": "The rows below are last week's sales of a wholesaler, by region and product category (sales in euros, number of orders), as JSON. Write a short sales brief for the team: the week's total, the strongest and the weakest region, and the categories worth a mention. Use only these numbers. At most 150 words.\n\n{input}",
+      "config": {},
+      "input_from": null,
+      "routes": []
+    },
+    {
+      "position": 3,
+      "name": "Send to Telegram",
+      "skill": "telegram_notify",
+      "llm_tier": null,
+      "llm_model": null,
+      "prompt_template": null,
+      "config": {},
+      "input_from": null,
+      "routes": []
+    }
+  ],
+  "resources": []
+}

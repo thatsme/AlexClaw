@@ -36,6 +36,8 @@ defmodule AlexClaw.GateBoundaryTest do
     "SkillRegistry" =>
       ~w(load_skill unload_skill reload_skill promote_pending write_pending stage_upload),
     "LLM" => ~w(create_provider update_provider delete_provider),
+    "Connections" => ~w(create_connection update_connection delete_connection),
+    "Pools" => ~w(sync start_all stop_all check),
     "Cluster" => ~w(create_node update_node delete_node),
     "Secrets" => ~w(define put_value delete rebind),
     "TOTP" => ~w(setup confirm_setup disable disable_by),

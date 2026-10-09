@@ -34,6 +34,10 @@ config :alex_claw, admin_password: "test-admin-password"
 config :alex_claw, start_background_workers: false
 config :alex_claw, :skills_dir, Path.expand("../tmp/test_skills", __DIR__)
 
+# The test stack's own network for OpenBao (docker-compose.test.yml); its
+# database is on the default network, a connection's normal target there.
+config :alex_claw, :connection_internal_networks, ["10.213.64.0/24"]
+
 config :nostrum, token: ""
 
 config :logger, level: :warning

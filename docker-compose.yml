@@ -109,6 +109,8 @@ services:
       # Its address is the one OpenBao's AppRole is bound to (openbao-init).
       vault:
         ipv4_address: 10.213.63.10
+      # Never the demo network here: docker-compose.demo.yml adds it, for the
+      # SQL demo only.
     depends_on:
       # Started, not waited for: AlexClaw runs without OpenBao, and says so.
       openbao:
@@ -249,6 +251,49 @@ services:
 # and Docker's automatic pool (172.17-31.x). If they collide with a network of
 # yours, change them here and the pinned addresses with them — alexclaw-prod,
 # migrate, and the two lines of db-init/pg_hba.conf.
+  # Opt-in: the SQL demo's database (docs/demo/sql-demo.md), started only with
+  # `--profile demo`. Generated company data, never real: it is created again
+  # at every start, in a tmpfs, from demo/initdb. Reached by AlexClaw alone,
+  # on the internal `demo` network — which AlexClaw joins only when
+  # docker-compose.demo.yml is given — as the read-only role alexclaw_reader.
+  demo-db:
+    profiles: ["demo"]
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    user: "70:70"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775
+      - /var/lib/postgresql/data:size=512m,uid=70,gid=70,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]
+    environment:
+      POSTGRES_DB: demo
+      # The superuser has no password: demo/pg_hba.conf admits it only on the
+      # container's own socket, which is where the init scripts run.
+      POSTGRES_HOST_AUTH_METHOD: trust
+      # The read-only role's password; the same value goes into the connection
+      # form, which keeps it in OpenBao. No default: the init refuses an empty one.
+      DEMO_READER_PASSWORD: ${DEMO_READER_PASSWORD:-}
+    volumes:
+      - ./demo/initdb:/docker-entrypoint-initdb.d:ro
+      - ./demo/reader.sql:/demo/reader.sql:ro
+      - ./demo/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    networks:
+      demo:
+        ipv4_address: 10.213.65.20
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d demo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # One-shot, on every start: the token AlexClaw and the web automator share,
   # generated once into its own volume. Only those two mount it, read-only:
   # the sidecar never sees AlexClaw's OpenBao credentials, and no operator
@@ -399,6 +444,15 @@ networks:
     ipam:
       config:
         - subnet: 10.213.62.0/24
+  # The demo database, and AlexClaw only when docker-compose.demo.yml is
+  # given; no route out. Its subnet overlaps no other network, the test
+  # stack's included (10.213.64.0/24 is its vault network).
+  demo:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.213.65.0/24
+          ip_range: 10.213.65.128/25
   # OpenBao and AlexClaw only; no route out.
   vault:
     internal: true

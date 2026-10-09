@@ -9,16 +9,25 @@ defmodule AlexClaw.Skills.Invoke do
   admin UI. The target runs through `AlexClaw.Auth.SafeExecutor` (which
   refuses it if it is not available), with the caller's capability token
   narrowed to the target's own permissions.
+
+  A step-only skill — one whose config is fixed and checked by the elevated
+  save of its own workflow step (`sql_query`'s query and dry run) — is
+  refused here for every caller and audited: it runs only as a saved step.
   """
 
   alias AlexClaw.Auth.{AuditLog, AuthContext, CapabilityToken, SafeExecutor}
   alias AlexClaw.Workflows.SkillRegistry
 
   @privileged_skills ~w(shell coder db_backup web_automation)
+  @step_only_skills ~w(sql_query)
 
   @doc "The skills only the admin UI may run, with the elevation."
   @spec privileged_skills() :: [String.t()]
   def privileged_skills, do: @privileged_skills
+
+  @doc "The skills that run only as a saved workflow step of their own."
+  @spec step_only_skills() :: [String.t()]
+  def step_only_skills, do: @step_only_skills
 
   @doc """
   Run the skill `skill_name` with `args` for `caller`: its `run/1` result.
@@ -35,6 +44,15 @@ defmodule AlexClaw.Skills.Invoke do
     )
 
     {:error, :privileged_skill}
+  end
+
+  def run(caller, skill_name, _args, _opts) when skill_name in @step_only_skills do
+    AuditLog.log_deny(
+      AuthContext.build(caller, :skill_invoke, SkillRegistry.get_permissions(caller)),
+      "cross-skill invocation of step-only skill '#{skill_name}'"
+    )
+
+    {:error, :step_only_skill}
   end
 
   def run(_caller, skill_name, args, opts),

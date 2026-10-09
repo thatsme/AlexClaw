@@ -28,6 +28,7 @@ defmodule AlexClaw.Skills.FailureContractTest do
     RSSCollector,
     RssFetch,
     Shell,
+    SqlQuery,
     TelegramNotify,
     WebFetch
   }
@@ -199,6 +200,18 @@ defmodule AlexClaw.Skills.FailureContractTest do
       insert_setting("discord.channel_id", "", type: "string", category: "discord")
       result = DiscordNotify.run(%{input: "hello", config: %{}})
       assert_failure(DiscordNotify, result, "sending to no channel")
+    end
+  end
+
+  describe "sql_query" do
+    test "a connection with no running pool is a failure, not an empty result" do
+      result =
+        SqlQuery.run(%{
+          config: %{"connection" => "absent", "query" => "SELECT 1 AS n", "timeout_ms" => 1_000},
+          input: nil
+        })
+
+      assert_failure(SqlQuery, result, "a connection that is not running")
     end
   end
 

@@ -343,6 +343,52 @@ defmodule AlexClaw.Auth.AuditLog do
     secret_entry("secret.delete", outcome, "secret #{name}: deleted")
   end
 
+  @doc """
+  Record a run of a `sql_query` step: the connection, how many parameters and
+  where each came from, how many rows, how long, and the outcome — never a
+  parameter's value, a row, or a database message.
+  """
+  @spec log_sql_run(
+          String.t(),
+          %{sources: [atom()], ms: integer()},
+          {:ok, non_neg_integer()} | {:error, term()}
+        ) ::
+          :ok
+  def log_sql_run(connection, %{sources: sources, ms: ms}, outcome) do
+    what = "connection #{connection}: #{params_described(sources)}, #{ms} ms"
+
+    %{
+      caller: "sql_query",
+      caller_type: "skill",
+      permission: "sql.run",
+      decision: sql_decision(outcome),
+      reason: what <> sql_outcome(outcome)
+    }
+    |> insert_apart()
+  end
+
+  defp params_described([]), do: "no parameters"
+
+  defp params_described(sources) do
+    count = length(sources)
+    noun = if count == 1, do: "parameter", else: "parameters"
+    "#{count} #{noun} (#{Enum.map_join(sources, ", ", &Atom.to_string/1)})"
+  end
+
+  defp sql_decision({:ok, _rows}), do: "allow"
+  defp sql_decision({:error, _reason}), do: "deny"
+
+  defp sql_outcome({:ok, 1}), do: ", 1 row"
+  defp sql_outcome({:ok, rows}), do: ", #{rows} rows"
+  defp sql_outcome({:error, reason}), do: " — failed: #{sql_failure(reason)}"
+
+  # The kind of failure and its SQLSTATE, never a message: one can quote data.
+  defp sql_failure({:sql_error, code, _text}), do: "sql_error #{code}"
+  defp sql_failure({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
+  defp sql_failure({tag, _a, _b}) when is_atom(tag), do: Atom.to_string(tag)
+  defp sql_failure(tag) when is_atom(tag), do: Atom.to_string(tag)
+  defp sql_failure(_other), do: "error"
+
   defp secret_entry(permission, outcome, what) do
     {decision, reason} = secret_decision(outcome, what)
     permission |> secret_row(decision, reason) |> insert_apart()

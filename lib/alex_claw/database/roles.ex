@@ -33,6 +33,8 @@ defmodule AlexClaw.Database.Roles do
     "auth_policies" => @full,
     "auth_recovery_codes" => @full,
     "cluster_nodes" => @full,
+    # Database connections: where a server is, the password as a reference only.
+    "db_connections" => @full,
     "dynamic_skills" => @full,
     "knowledge_entries" => @full,
     "llm_providers" => @full,

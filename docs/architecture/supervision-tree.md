@@ -29,6 +29,7 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.Auth.Elevation            # Owns the admin elevation table
   ├── AlexClaw.Auth.CodeAttempts         # Owns the 2FA code attempt counters
   ├── AlexClaw.Auth.Sessions             # Sweeps expired admin logins
+  ├── AlexClaw.Connections.Supervisor    # Database connections: a pool per connection (see below)
   ├── Registry (AlexClaw.CircuitBreakerRegistry)  # Per-skill breaker registry
   ├── AlexClaw.Skills.CircuitBreakerSupervisor  # DynamicSupervisor
   ├── AlexClaw.SkillSupervisor           # DynamicSupervisor — skill worker processes
@@ -44,8 +45,16 @@ AlexClaw.Application (one_for_one)
   ├── AlexClaw.UpdateChecker             # Periodic release check
   │
   └── background workers, when :start_background_workers is true:
-      └── AlexClaw.Workflows.SchedulerSync  # Syncs DB schedules into Quantum
+      ├── AlexClaw.Workflows.SchedulerSync  # Syncs DB schedules into Quantum
+      └── a one-off task                    # Starts a pool for every defined database connection
 ```
+
+`AlexClaw.Connections.Supervisor` holds a registry by connection name and a
+dynamic supervisor with one pool per database connection defined on the
+Connections page (two PostgreSQL connections each, the password read from
+OpenBao before every connect). A connection that cannot connect is reported
+down with its reason and retried; it is never a crash, so nothing else is
+affected.
 
 ## Key Design Decisions
 

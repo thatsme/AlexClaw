@@ -36,7 +36,7 @@ defmodule AlexClaw.ControlPlane do
 
   alias AlexClaw.Auth.{AuditLog, Challenge, CodeEntry, Elevation, Principal}
   alias AlexClaw.ControlPlane.{Actions, Context}
-  alias AlexClaw.Repo
+  alias AlexClaw.{Repo, Secrets}
 
   @authoring %{admin_ui: :elevation}
 
@@ -61,6 +61,10 @@ defmodule AlexClaw.ControlPlane do
     unload_skill: @authoring,
     generate_skill: @authoring,
     save_provider: @authoring,
+    # database connections: defining, removing and testing one
+    save_connection: @authoring,
+    delete_connection: @authoring,
+    test_connection: @authoring,
     save_policy: @authoring,
     save_node: @authoring,
     set_gateway_owner: @authoring,
@@ -283,11 +287,12 @@ defmodule AlexClaw.ControlPlane do
     reason = reason(action, params, context)
 
     committed =
-      Repo.transaction(fn ->
+      fn ->
         action
         |> verify_code(params, context, code)
         |> checked(action, params, context, reason)
-      end)
+      end
+      |> Secrets.transaction()
 
     coded(committed, action, params, context)
   end
@@ -429,8 +434,10 @@ defmodule AlexClaw.ControlPlane do
     {:error, reason}
   end
 
+  # What the change's secret writes owe is settled once it commits or is
+  # undone (Secrets.transaction/1).
   defp transact(audit, write) do
-    Repo.transaction(fn ->
+    fn ->
       with {:audit, :ok} <- {:audit, audit.()},
            {:ok, result} <- write.() do
         result
@@ -438,7 +445,8 @@ defmodule AlexClaw.ControlPlane do
         {:audit, {:error, _reason}} -> Repo.rollback(:audit_failed)
         {:error, reason} -> Repo.rollback(reason)
       end
-    end)
+    end
+    |> Secrets.transaction()
   end
 
   defp print(sid) when is_binary(sid), do: Elevation.fingerprint(sid)

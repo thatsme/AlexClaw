@@ -29,7 +29,10 @@ defmodule AlexClaw.Database.Restore do
   upgraded. Every reference a step or resource holds
   to a secret must name one this installation's catalogue (`secrets`) holds,
   or the file is refused, naming the table and the secret: the file never
-  says where a secret may be sent.
+  says where a secret may be sent. A database connection must also name the
+  server its secret was entered for (its binding), or the file is refused,
+  naming the connection: an older backup or an edited host cannot send a
+  password to another server.
 
   A full backup, schema and audit log included, is restored by an operator
   with the database owner's credentials; see the upgrade guide.
@@ -37,6 +40,7 @@ defmodule AlexClaw.Database.Restore do
 
   alias AlexClaw.Auth.{AuditLog, PolicyEngine, Principal, Sessions}
   alias AlexClaw.Config
+  alias AlexClaw.Connections.ConnectionSecrets
   alias AlexClaw.Database.{DataExport, DataSet}
   alias AlexClaw.Repo
   alias AlexClaw.Resources.ResourceSecrets
@@ -130,6 +134,7 @@ defmodule AlexClaw.Database.Restore do
   def load(data) do
     with {:ok, plan} <- plan(data),
          :ok <- references_known(plan),
+         :ok <- connections_bound(plan),
          {plan, skipped} = without_identity(plan, data),
          {:ok, count} <- Repo.transaction(fn -> replace(plan) end, timeout: :infinity) do
       {:ok, "Restore completed: #{count} rows in #{length(plan)} tables. " <> kept(skipped)}
@@ -343,7 +348,52 @@ defmodule AlexClaw.Database.Restore do
         do: {table, name}
   end
 
+  defp references({"db_connections" = table, live, rows}) do
+    for row <- rows,
+        %{"password" => %{"secret" => name}} <- [decoded_map(row_map(live, row)["credentials"])],
+        do: {table, name}
+  end
+
   defp references(_entry), do: []
+
+  # A connection's secret is bound to the server it was entered for: a row
+  # naming another server would have the password sent there (H1).
+  defp connections_bound(plan) do
+    %{rows: rows} = Repo.query!("SELECT name, binding FROM secrets")
+    bindings = Map.new(rows, fn [name, binding] -> {name, binding} end)
+
+    plan
+    |> Enum.flat_map(&connection_servers/1)
+    |> Enum.find(fn {secret, destination, _name} ->
+      destination not in Map.get(bindings, secret, [])
+    end)
+    |> unbound_connection()
+  end
+
+  defp connection_servers({"db_connections", live, rows}) do
+    for row <- rows,
+        values = row_map(live, row),
+        %{"password" => %{"secret" => secret}} <- [decoded_map(values["credentials"])],
+        do: {secret, ConnectionSecrets.destination(server(values)), values["name"]}
+  end
+
+  defp connection_servers(_entry), do: []
+
+  # Text as the file has it; a missing value matches no binding.
+  defp server(values),
+    do:
+      Map.new(
+        [:name, :host, :port, :database, :username, :tls_mode],
+        &{&1, to_string(values[Atom.to_string(&1)])}
+      )
+
+  defp unbound_connection(nil), do: :ok
+
+  defp unbound_connection({_secret, _destination, name}),
+    do:
+      {:error,
+       "db_connections: the connection #{name} names a server its password was not entered for; " <>
+         "restore refused"}
 
   defp row_map(live, row), do: live |> Enum.map(&elem(&1, 0)) |> Enum.zip(row) |> Map.new()
 

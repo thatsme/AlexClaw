@@ -72,10 +72,13 @@ COPY web-automator/.dockerignore web-automator/
 # The compose files are scanned by cluster_cookie_test: a deployment secret
 # must not ship with a default. Without them the scan would find nothing and
 # pass.
-COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml ./
+COPY docker-compose.yml docker-compose.test.yml docker-compose_swarm.yml docker-compose.demo.yml ./
 # Read by documentation_test with the compose files: the deployment reads some
 # documented variables itself.
 COPY db-init db-init/
+# The SQL demo's database files, loaded by demo_sql_test the way its
+# container loads them.
+COPY demo demo/
 # The web-automator recipe contract: the Elixir and Python suites both test
 # against these fixtures (test/alex_claw/web_automation/recipe_contract_test.exs).
 COPY web-automator/tests/contract web-automator/tests/contract/

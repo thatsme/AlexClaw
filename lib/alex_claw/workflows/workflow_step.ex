@@ -67,9 +67,16 @@ defmodule AlexClaw.Workflows.WorkflowStep do
 
   defp check_skill({:ok, module}, skill, config, changeset) do
     if StepConfig.available?(module, config),
-      do: check_config(StepConfig.validate(module, config), changeset),
+      do: check_config(StepConfig.validate(module, config), module, config, changeset),
       else: add_error(changeset, :skill, AlexClaw.Skill.unavailable_reason(module, skill))
   end
+
+  # Only a config that passed its contract is tried for real (the skill's
+  # save-time dry run), and only here: a run never repeats it.
+  defp check_config(:ok, module, config, changeset),
+    do: check_config(StepConfig.dry_run(module, config), changeset)
+
+  defp check_config(error, _module, _config, changeset), do: check_config(error, changeset)
 
   defp check_config(:ok, changeset), do: changeset
 

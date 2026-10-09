@@ -10,7 +10,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
   @moduletag :integration
 
   alias AlexClaw.Auth.{AuditLog, Elevation, Policy}
-  alias AlexClaw.{Cluster, LLM, Repo, Resources, Workflows}
+  alias AlexClaw.{Cluster, Connections, LLM, Repo, Resources, Workflows}
 
   setup do
     sid = Elevation.new_sid()
@@ -40,13 +40,25 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
     {:ok, node} = Cluster.create_node(%{name: "gate-probe", label: "probe"})
     {:ok, workflow} = Workflows.create_workflow(%{name: "gate-probe"})
 
+    {:ok, connection} =
+      Connections.create_connection(%{
+        name: "gate_probe",
+        host: "gate-probe.invalid",
+        port: 5432,
+        database: "probe",
+        username: "probe",
+        tls_mode: "disable",
+        password: "gate-probe-Password"
+      })
+
     %{
       policy: policy,
       provider: provider,
       resource: resource,
       spare_resource: spare,
       node: node,
-      workflow: workflow
+      workflow: workflow,
+      connection: connection
     }
   end
 
@@ -58,6 +70,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
       policy_cases(fixtures) ++
       llm_cases(fixtures) ++
       resource_cases(fixtures) ++
+      connection_cases(fixtures) ++
       cluster_cases(fixtures) ++
       workflow_cases(fixtures)
   end
@@ -163,6 +176,41 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
       }
     ]
   end
+
+  defp connection_cases(%{connection: connection}) do
+    [
+      %{
+        page: "/connections",
+        event: "save",
+        params: %{
+          "name" => "made_by_test",
+          "host" => "made.invalid",
+          "port" => "5432",
+          "database" => "d",
+          "username" => "u",
+          "tls_mode" => "disable",
+          "password" => "made-by-test-Password"
+        },
+        check: fn -> length(Connections.list_connections()) end
+      },
+      # Testing a connection changes no row: its trace is the allowed audit row.
+      %{
+        page: "/connections",
+        event: "test",
+        params: %{"id" => to_string(connection.id)},
+        check: fn -> allowed("control_plane.test_connection") end
+      },
+      %{
+        page: "/connections",
+        event: "delete",
+        params: %{"id" => to_string(connection.id)},
+        check: fn -> length(Connections.list_connections()) end
+      }
+    ]
+  end
+
+  defp allowed(permission),
+    do: Enum.count(AuditLog.recent(limit: 500, decision: "allow"), &(&1.permission == permission))
 
   defp cluster_cases(%{node: node}) do
     [
@@ -375,7 +423,7 @@ defmodule AlexClawWeb.AdminLive.ElevationGateTest do
     end
 
     test "every gated page says the control plane is read-only", ctx do
-      for page <- ~w(/config /policies /llm /resources /cluster /workflows /database) do
+      for page <- ~w(/config /policies /llm /resources /connections /cluster /workflows /database) do
         {_view, html} = open(ctx.conn, ctx.sid, page)
 
         assert html =~ "Read-only — 2FA is not configured",

@@ -6,6 +6,7 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   alias AlexClaw.Auth.{Challenge, RecoveryCodes, Sessions, TOTP}
   alias AlexClaw.{Config, ControlPlane}
+  alias AlexClaw.Connections.Pools
   alias AlexClaw.ControlPlane.Context
   alias AlexClaw.Gateway.Discord
   alias AlexClaw.Gateway.Telegram
@@ -184,7 +185,28 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   # --- Initial status (config-level, no side effects) ---
 
-  defp build_services do
+  defp build_services, do: base_services() ++ connection_services()
+
+  # One card per database connection, with its pool's state.
+  defp connection_services do
+    for status <- Pools.statuses() do
+      %{
+        id: "connection:" <> status.name,
+        name: "Connection #{status.name}",
+        icon: "🔌",
+        config_url: "/connections"
+      }
+      |> Map.merge(connection_state(status))
+    end
+  end
+
+  defp connection_state(%{state: :up, host: host}),
+    do: %{status: :connected, detail: "#{host}: connected"}
+
+  defp connection_state(%{host: host, reason: reason}),
+    do: %{status: :error, detail: "#{host}: #{reason}"}
+
+  defp base_services do
     [
       %{
         id: "database",
@@ -429,6 +451,13 @@ defmodule AlexClawWeb.AdminLive.Services do
 
   defp disabled({:error, _reason}, socket) do
     assign(socket, totp_message: "That code is not valid. 2FA is unchanged.")
+  end
+
+  defp live_check("connection:" <> name) do
+    case Pools.status(name) do
+      nil -> %{status: :error, detail: "no pool is running for #{name}"}
+      status -> connection_state(status)
+    end
   end
 
   defp live_check("database") do

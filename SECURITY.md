@@ -982,6 +982,74 @@ Only load skills from trusted sources.
 
 ---
 
+## Database Connections (SQL Read)
+
+A `sql_query` workflow step reads from a PostgreSQL database through a
+connection defined on the Connections page.
+
+- **Defined only through the control plane.** Creating, changing, testing or
+  removing a connection is an admin-UI action that needs the editing
+  elevation and is audited. There is no default connection and no fallback
+  to AlexClaw's own database. A connection a step uses cannot be removed.
+- **Never AlexClaw itself:** a connection's host may not be, or resolve to,
+  a loopback or link-local address or an address in AlexClaw's own networks
+  (its database, OpenBao, the web automator). Checked at save and again
+  before every connect.
+- **The password is a secret in OpenBao**, of kind `database_password`; the
+  database row holds a reference. It is bound to the server it was entered
+  for — host, port, database, user and TLS mode — so a connection whose
+  server changes, by a save, a restore or any other write, cannot use it
+  until it is entered again; a restore naming another server for a
+  connection is refused. It is read from OpenBao before every connect and
+  held by nothing; a rotation, announced once its save has committed, makes
+  the pool reconnect.
+- **The TLS mode is chosen, never defaulted:** `disable` (no TLS: the
+  password is readable on the network path), `require` (encrypted, the
+  server's identity not verified: a server impersonating the real one can
+  obtain the password) or `verify_full` (the certificate verified against
+  the system's CAs and the host name checked). Only `verify_full` ensures
+  the password reaches the intended server.
+- **The query is fixed when the step is saved**, with the editing elevation:
+  it is never built from data. Parameters are bound, never interpolated. The
+  save runs a dry run on the database (`PREPARE` and `EXPLAIN`; the query is
+  not run, although the planner may evaluate functions the database declares
+  immutable): the statement must start as a read (`SELECT`, `WITH`,
+  `VALUES`, `TABLE`) and its plan must not write or lock rows. A `sql_query`
+  runs only as a saved workflow step: no skill, no reasoning loop and no
+  other caller can run it with a configuration of its own, and no step can
+  name it as its fallback.
+- **Every run is read-only in its session:** inside `SET TRANSACTION READ
+  ONLY`, so a write in that session is refused by PostgreSQL itself, inside
+  a function too. Once the transaction is over the session is reset
+  (`DISCARD ALL`) before it is used again, so a session advisory lock or
+  setting does not outlive the query. The deadline (`timeout_ms`, required,
+  at most five minutes) is the server's `statement_timeout`; the caller
+  abandons the query just after it, which cancels it on the server. A result
+  over 5 MB is an error, never a silent cut, and the query runs in a process
+  whose memory is bounded, so a single oversized value ends that process
+  alone.
+- **Errors carry no row data:** PostgreSQL's `DETAIL` is never kept, and for
+  data exceptions and integrity violations (SQLSTATE classes 22 and 23),
+  whose messages quote values, only the condition's name is. A parameter
+  that does not fit its type is refused naming its position; any other
+  failure names its kind, never a value, and is never reported as a timeout.
+- **Every run is audited:** the connection, the number of parameters and
+  where each came from, the row count, the duration and the outcome — never
+  a parameter's value, a row or a database message.
+
+The database's own grants remain the protection that counts. A read-only
+transaction does not stop what a function does outside its session — a
+connection opened with `dblink` (which writes in a transaction of its own),
+a notification (`pg_notify`), a signal to another session
+(`pg_cancel_backend`, `pg_terminate_backend`). Connect with a role used by
+AlexClaw alone, that may read only what the workflows need, that cannot
+execute `dblink` functions, and that is not a member of `pg_signal_backend`.
+A role of its own matters because some of these cannot be taken away from
+one role: any role may signal its own other sessions, membership or not, and
+`pg_notify` can be revoked only from everyone. A role nothing else uses can
+interrupt only AlexClaw's own sessions, and whatever it does is attributable
+to AlexClaw alone.
+
 ## Known Limitations and Design Decisions
 
 **LLM prompts may contain user data.**
@@ -996,6 +1064,27 @@ per-action exceptions, each asking for a code of its own, are loading or
 reloading a skill, a database restore, turning 2FA off, generating recovery
 codes, and running a workflow that is marked `requires_2fa` or has a
 privileged step.
+
+**Database text reaching an LLM prompt is not sanitised.**
+A `sql_query` step returns the rows of a customer's database as data; when a
+later step (`llm_transform`) puts them into a prompt, nothing filters them.
+Text stored in that database can therefore carry instructions to the model
+(prompt injection from the data itself). Connect only databases whose content
+is trusted to that degree, or keep the model's output away from actions.
+
+**A database server can ask for the password in clear.**
+AlexClaw's PostgreSQL client answers a server's request for cleartext or
+MD5 password authentication; it cannot be made to insist on SCRAM. With
+`disable` the password crosses the network readable; with `require` a server
+impersonating the real one can request it. Only `verify_full` ensures it
+goes to the intended server.
+
+**`verify_full` uses the system's CAs only.**
+A database connection in `verify_full` mode checks the server's certificate
+against the CA bundle of AlexClaw's image and the host name. A certificate
+signed by a private CA cannot be verified yet: such a server needs `require`
+(encrypted, the server's identity not verified) until a custom CA can be set
+per connection.
 
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures

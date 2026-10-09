@@ -22,7 +22,7 @@ defmodule AlexClaw.ComposeAutomationIsolationTest do
 
   @files ~w(docker-compose.yml docker-compose_swarm.yml docker-compose.test.yml)
   @automation ~w(web-automator web-studio)
-  @databases ~w(db-prod db db-test)
+  @databases ~w(db-prod db db-test demo-db)
 
   defp services(file), do: file |> YamlElixir.read_from_file!() |> Map.fetch!("services")
 

@@ -13,8 +13,13 @@ defmodule AlexClaw.ComposeProfilesTest do
     assert services()["web-automator"]["profiles"] == ["web-automation"]
   end
 
+  test "the demo database runs only under the demo profile" do
+    assert services()["demo-db"]["profiles"] == ["demo"]
+  end
+
   test "every other service starts by default, and none depends on the web-automator" do
-    for {name, service} <- services(), name not in ["web-automator", "openbao-backup"] do
+    for {name, service} <- services(),
+        name not in ["web-automator", "openbao-backup", "demo-db"] do
       refute Map.has_key?(service, "profiles"), "#{name} would not start by default"
 
       depends = service |> Map.get("depends_on", %{}) |> dependency_names()

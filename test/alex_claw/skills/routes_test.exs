@@ -14,7 +14,8 @@ defmodule AlexClaw.Skills.RoutesTest do
     AlexClaw.Skills.GoogleCalendar => [:on_events, :on_empty, :on_error],
     AlexClaw.Skills.GoogleTasks => [:on_tasks, :on_empty, :on_error],
     AlexClaw.Skills.GitHubSecurityReview => [:on_diff, :on_empty, :on_error],
-    AlexClaw.Skills.WebAutomation => [:on_success, :on_error]
+    AlexClaw.Skills.WebAutomation => [:on_success, :on_error],
+    AlexClaw.Skills.SqlQuery => [:on_success, :on_empty, :on_error]
   }
 
   @skills_with_default_routes [

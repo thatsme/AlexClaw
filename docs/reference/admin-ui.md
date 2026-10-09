@@ -6,7 +6,7 @@ Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `
 
 | Page | Route | Description |
 |---|---|---|
-| Dashboard | `/` | System overview, active runs, recent logs |
+| Dashboard | `/` | System overview, active runs, recent logs; reached from the AlexClaw name in the menu |
 | Workflows | `/workflows` | Workflow list (filterable), editor, export/import, run history, step results |
 | Workflow runs | `/workflows/:id/runs` | Run history and step results of one workflow |
 | Scheduler | `/scheduler` | Cron schedule management, next run times |

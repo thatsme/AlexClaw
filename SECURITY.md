@@ -29,7 +29,11 @@ authentication, and in 0.3.28 and earlier a restart erased the 2FA secret.
 ## Authentication
 
 AlexClaw includes built-in session-based authentication. The web interface
-is fully protected — all routes except `/login` require an authenticated session.
+is fully protected — all routes except `/login`, `/logout` and `/health`
+require an authenticated session. `/mcp` authenticates with a bearer key
+([MCP Server Authentication](#mcp-server-authentication)) and
+`/webhooks/github` with an HMAC signature
+([GitHub Webhook Verification](#github-webhook-verification)).
 There is no anonymous access to any admin functionality.
 
 The first password comes from the `ADMIN_PASSWORD` environment variable (see
@@ -51,9 +55,10 @@ The admin password authenticates a session. It does not, on its own, authorise
 a change to what the agent does unattended.
 
 Changing the control plane — configuration, authorization policies, LLM
-providers, API resources, cluster membership, workflows and their steps —
-requires an **elevation** on top of the session: one TOTP code, verified once,
-granting fifteen minutes of write authority to that session alone.
+providers, API resources, database connections, cluster membership, workflows
+and their steps — requires an **elevation** on top of the session: one TOTP
+code, verified once, granting fifteen minutes of write authority to that
+session alone.
 
 **The window is fixed.** It does not slide with activity. Fifteen minutes after
 the code was accepted the session is read-only again, whether it was idle or in
@@ -203,8 +208,9 @@ holds.
 ### Before a second factor exists
 
 With no TOTP configured, nothing can elevate — so the control plane is
-**read-only**. Every configuration change, policy edit, provider or resource
-change, cluster change, workflow edit and database restore is refused, recorded
+**read-only**. Every configuration change, policy edit, provider, resource or
+database connection change, cluster change, workflow edit and database restore
+is refused, recorded
 in the audit log as `no_second_factor`, and answered with what to do about it.
 There is no state in which a control-plane write proceeds on the admin password
 alone, and no environment variable that disables the gate.
@@ -476,6 +482,26 @@ the `db_backup` skill's directory, or inside it. A snapshot is sealed with OpenB
 key and holds neither that key nor the recovery key; without the same unseal
 key file it cannot be opened. Procedure:
 [Backing up and restoring OpenBao](docs/architecture/openbao.md#backing-up-and-restoring-openbao).
+
+**The nightly backup takes both halves.** `scripts/backup-scheduled.sh` runs
+on the host, not in AlexClaw. It dumps the database as its owner (`pg_dump
+-Fc`, read back with `pg_restore --list` before it counts) and takes an
+OpenBao snapshot the way `make backup-openbao` does, into `~/backups`; the
+directory is made readable by its owner only, and so is every file in it.
+It keeps the newest 14 of each and deletes only its own (`-scheduled`) files.
+The snapshot step refuses `BACKUP_DIR` and any directory inside it, as `make
+backup-openbao` does. A failure is logged and leaves the backups already
+there in place. On macOS a LaunchAgent runs it nightly. Procedure:
+[Backups](docs/deployment/backups.md).
+
+**A snapshot can be checked without touching the running OpenBao.**
+`scripts/drill-restore-openbao.sh` restores a snapshot into a throwaway
+OpenBao started with no network, its storage in memory and the unseal key
+file mounted read-only: the snapshot unseals only with the key it was taken
+under. Given the recovery key — read without echo and passed on standard
+input, never on a command line — it reads back every secret the catalogue
+names, reporting names and lengths only, then revokes its token and removes
+the throwaway.
 
 Backups made by 0.3.x hold that version's credentials, encrypted under
 `SECRET_KEY_BASE` or in plaintext: after upgrading, rotate every third-party
@@ -840,9 +866,10 @@ sources you trust.
 External-facing skills (`web_fetch`, `web_search_fetch`, `rss_fetch`,
 `web_search`, `web_browse`, `api_request`, `rss_collector`,
 `github_security_review`, `google_calendar`, `google_tasks`, `web_automation`,
-`research`) fetch data from untrusted sources. Dynamic scraper skills
-(`hexdocs_scraper`, `hexdocs_guides_scraper`) also declare `external: true`. This data flows through the
-workflow engine and may reach the LLM, creating a prompt injection surface.
+`research`, `sql_query`) fetch data from sources AlexClaw does not control.
+Dynamic scraper skills (`hexdocs_scraper`, `hexdocs_guides_scraper`) also
+declare `external: true`. This data flows through the workflow engine and may
+reach the LLM, creating a prompt injection surface.
 
 **External skill tagging:** Skills that fetch external data declare
 `def external, do: true` (callback on `AlexClaw.Skill` behaviour). The
@@ -864,8 +891,11 @@ the LLM:
 4. **HTML stripping** — Floki-based extraction of semantic text only (script,
    style, noscript, template, meta, head, svg removed)
 5. **Size guard** — configurable max content size (default 10KB), truncates oversized payloads
-6. **Pattern matching** — 101 known injection phrases loaded from
-   `config/injection_patterns.json` at runtime (updatable without recompilation).
+6. **Pattern matching** — 102 known injection phrases, read once at boot from
+   `priv/injection_patterns.json`, which ships in the image: a change takes
+   effect after a rebuild and restart. A missing or unreadable file, or one
+   with no valid patterns, stops the start rather than running the sanitizer
+   on a shorter list.
    Patterns sourced from NVIDIA Garak probe library covering DAN, developer mode,
    instruction override, persona hijacking, token penalty, encoding tricks, and more
 7. **Imperative tone heuristic** — detects directive language (second-person
@@ -877,12 +907,15 @@ the LLM:
 building the LLM prompt. Injection payloads are stripped before the model
 ever sees them.
 
-**Post-LLM sanitization:** The workflow executor auto-sanitizes output from
-any skill tagged `external?/1 == true`, catching skill name leaks or
-residual injection artifacts in the LLM response. In composable pipelines
-(e.g. `web_fetch → llm_transform`), sanitization runs at the executor level
-between steps — the fetch skill's output is sanitized before `llm_transform`
-receives it.
+**Sanitization between steps:** The workflow executor sanitizes the output of
+any skill tagged `external?/1 == true` before the next step receives it,
+catching skill name leaks or residual injection artifacts. Text output is
+sanitized as text; text that is a JSON document is sanitized value by value
+and stays JSON. Output that is not text passes unchanged — a `sql_query`
+step's columns and rows among it (see
+[Known Limitations](#known-limitations-and-design-decisions)). In composable
+pipelines (e.g. `web_fetch → llm_transform`), the fetch skill's output is
+sanitized before `llm_transform` receives it.
 
 **Stripped sentences are logged** with their detection reason (`[pattern]`,
 `[imperative]`, `[skill_mention]`) for forensic analysis.
@@ -992,17 +1025,26 @@ connection defined on the Connections page.
   elevation and is audited. There is no default connection and no fallback
   to AlexClaw's own database. A connection a step uses cannot be removed.
 - **Never AlexClaw itself:** a connection's host may not be, or resolve to,
-  a loopback or link-local address or an address in AlexClaw's own networks
-  (its database, OpenBao, the web automator). Checked at save and again
-  before every connect.
+  a loopback, "this network" (`0.0.0.0/8`, `::`) or link-local address, or an
+  address in AlexClaw's own networks — the IPv4 subnets of its database,
+  OpenBao and the web automator, listed in `:connection_internal_networks`
+  (`config/config.exs`), which must follow any change to those subnets. An
+  IPv4-mapped IPv6 address is judged as the IPv4 address it carries. Private
+  ranges as such are not refused: a database on a private network of its own
+  is a normal target. Checked at save and again before every connect.
 - **The password is a secret in OpenBao**, of kind `database_password`; the
   database row holds a reference. It is bound to the server it was entered
   for — host, port, database, user and TLS mode — so a connection whose
   server changes, by a save, a restore or any other write, cannot use it
   until it is entered again; a restore naming another server for a
-  connection is refused. It is read from OpenBao before every connect and
-  held by nothing; a rotation, announced once its save has committed, makes
-  the pool reconnect.
+  connection is refused. On an edit, a blank password keeps the stored one
+  only while the server is the same. Every password entered is a new secret:
+  the row is committed pointing at it, and the secret it replaces is deleted
+  only once that commit has happened, so a save that is undone leaves the
+  previous password, value and binding, as it was. Removing a connection
+  deletes its secret. The password is read from OpenBao before every connect
+  and held by nothing; a rotation, announced once its save has committed,
+  makes the pool reconnect.
 - **The TLS mode is chosen, never defaulted:** `disable` (no TLS: the
   password is readable on the network path), `require` (encrypted, the
   server's identity not verified: a server impersonating the real one can
@@ -1086,6 +1128,31 @@ signed by a private CA cannot be verified yet: such a server needs `require`
 (encrypted, the server's identity not verified) until a custom CA can be set
 per connection.
 
+**A dense JSON value under the 5 MB cap can still be refused.**
+A `sql_query` result is capped at 5 MB of JSON, and the query runs in a
+process whose memory is bounded at fifty times that cap. A single `json` or
+`jsonb` value holding a dense array — `jsonb_agg` over millions of small
+values, for example, about 4.5 MB in one row — takes more memory decoded than
+that bound, and the step fails with `result_too_large` although the value is
+under 5 MB. The refusal is stated; a result is never cut. Aggregate in
+smaller pieces, or return rows instead of one aggregated value.
+
+**SQL rows reach whoever may run the workflow.**
+`sql_query` is not a privileged step. An enabled workflow with a `sql_query`
+step that is not marked `requires_2fa` runs from every entry point that may
+run a workflow: the admin UI, the scheduler, a chat (`/run`), an MCP client,
+the GitHub webhook (the workflow named in `github.review_workflow`) and
+another node (a workflow whose `receive_from_workflow` gate names it). The
+rows are the step's output: they are in the run's result — which an MCP
+client receives as the tool's answer — and in the run record, each step's
+output included. Marking the workflow `requires_2fa` refuses it to MCP, the
+webhook and other nodes and asks for a code in a chat or the admin UI; such
+a workflow cannot be scheduled. An `mcp_restriction` policy refuses the
+workflow to MCP clients only. Neither applies to MCP resources: a client
+holding the MCP key can read any run record, whatever started the run, as
+`alexclaw://runs/{id}` (the latest fifty are listed). Where a database's
+rows must not reach an MCP client, generate no MCP key.
+
 **Built-in login rate limiting.**
 Failed login attempts are tracked per IP using ETS. After 5 failures
 (configurable), the IP is blocked for 15 minutes (configurable).
@@ -1103,6 +1170,7 @@ Limits are adjustable at runtime from the Config UI without restart.
 - Restrict PostgreSQL to localhost or internal network only
 - Built-in login rate limiting is active by default (configurable via Config UI)
 - Never expose noVNC port (6080) publicly — it provides unauthenticated browser access
+- Keep secrets out of every Docker build context: each context the compose files build from has its own `.dockerignore` — the repository root's excludes OpenBao's unseal key, `.env`, backups and snapshots, the test stack's OpenBao credentials and crash dumps; `openbao/`'s the unseal key; `web-automator/`'s `.env` — and a test fails if a compose file builds from a context that is not listed with its exclusions, or if a listed exclusion is missing from that context's `.dockerignore`. A build context added to a deployment needs the same exclusions, and a line in `build_context_secrets_test.exs`.
 
 ---
 

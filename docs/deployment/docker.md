@@ -1,6 +1,6 @@
 # Docker Single Node
 
-AlexClaw runs as a Docker Compose stack: the database, a one-shot `migrate` job, the application, OpenBao with its one-shot `openbao-init`, the one-shot `automator-token-init`, the opt-in web automator, and the on-demand `openbao-backup`.
+AlexClaw runs as a Docker Compose stack: the database, a one-shot `migrate` job, the application, OpenBao with its one-shot `openbao-init`, the one-shot `automator-token-init`, the opt-in web automator, the on-demand `openbao-backup`, and the opt-in `demo-db` of the [SQL demo](../demo/sql-demo.md).
 
 ## Services
 
@@ -14,6 +14,7 @@ AlexClaw runs as a Docker Compose stack: the database, a one-shot `migrate` job,
 | `openbao-init` | — | Custom (`openbao/init.Dockerfile`) | — | Makes OpenBao's TLS certificate at every start; initialises OpenBao once, at a terminal |
 | `automator-token-init` | — | Custom (Elixir release image) | — | Generates the web automator's token once, and exits |
 | `openbao-backup` | — | Custom (`openbao/init.Dockerfile`) | — | Takes an OpenBao snapshot, on demand only (compose profile `backup`, run by `make backup-openbao`) |
+| `demo-db` | — | PostgreSQL 17, pinned by digest | — (internal only) | The SQL demo's generated database, opt-in (compose profile `demo`, with `docker-compose.demo.yml`); its data is in memory |
 
 ## Starting
 
@@ -34,6 +35,12 @@ docker compose up --build -d
 
 The `migrate` job runs first, and the application starts after it. Volumes
 are kept; only `docker compose down -v` removes them.
+
+When a new version changes the `openbao-init` image while OpenBao is running,
+`up` can stop with `dependency failed to start: container
+alexclaw-openbao-init-1 exited (0)`. AlexClaw is then left created, not
+started: once `migrate` has exited 0 (`docker compose ps -a`), start it with
+`docker compose up -d --no-deps alexclaw-prod`.
 
 ## Stopping
 
@@ -60,12 +67,14 @@ docker compose down        # Stop containers (data preserved in volumes)
 
 ## Networks
 
-The stack uses three fixed subnets: `default` (`10.213.61.0/24`), where
+The stack uses four fixed subnets: `default` (`10.213.61.0/24`), where
 `alexclaw-prod` is pinned at `.10` and `migrate` at `.11`; `automation`
 (`10.213.62.0/24`), shared by the app and the web automator; and `vault`
 (`10.213.63.0/24`, internal), where OpenBao is at `.2`, `alexclaw-prod` at
 `.10` — the address OpenBao's AppRole accepts — and `openbao-backup` at `.11`
-(see [OpenBao](../architecture/openbao.md)). PostgreSQL's
+(see [OpenBao](../architecture/openbao.md)); and `demo` (`10.213.65.0/24`,
+internal), where `demo-db` is at `.20` and `alexclaw-prod` joins at `.10` only
+when `docker-compose.demo.yml` is given. PostgreSQL's
 `db-init/pg_hba.conf` accepts network connections only from those two pinned
 addresses. To change a subnet, edit `docker-compose.yml`, the pinned addresses
 and the two lines of `pg_hba.conf` together, then `docker compose down` before
@@ -81,7 +90,7 @@ through the container:
 docker compose exec -T db-prod pg_dump -U alexclaw -Fc alex_claw_prod > alex_claw_prod.dump
 ```
 
-Scheduled backups are the `db_backup` skill (see [Built-in Skills](../skills/builtin.md)).
+Scheduled backups are the nightly `scripts/backup-scheduled.sh`, which backs up the database and OpenBao together (see [Backups](backups.md)), and the `db_backup` skill, database only (see [Built-in Skills](../skills/builtin.md)).
 
 ## Logs
 
@@ -94,7 +103,7 @@ docker compose logs --tail=50 alexclaw-prod  # Last 50 lines
 
 ```bash
 curl http://localhost:5001/health
-# {"status":"ok","version":"0.3.46+build.414","db":"connected","mcp":"running"}
+# {"status":"ok","version":"0.4.1+build.<n>","db":"connected","mcp":"running"}
 ```
 
 ## Environment Variables

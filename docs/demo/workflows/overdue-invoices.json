@@ -3,7 +3,7 @@
   "workflow": {
     "name": "Overdue invoices",
     "description": "SQL demo: unpaid invoices past their due date, prioritised and sent to Telegram.",
-    "enabled": true,
+    "enabled": false,
     "schedule": null,
     "default_provider": null,
     "node": null,

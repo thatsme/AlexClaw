@@ -33,7 +33,7 @@ DEMO_READER_PASSWORD=<a password>
 Start the profile with the demo's compose file:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d
+docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d --no-deps demo-db alexclaw-prod
 docker compose ps demo-db          # healthy after a few seconds
 ```
 
@@ -42,7 +42,7 @@ AlexClaw's container is recreated once, to attach it to the demo network.
 Without `DEMO_READER_PASSWORD` the container refuses to start — it restarts,
 saying `set DEMO_READER_PASSWORD in .env` in its log (`docker compose logs
 demo-db`) — until the variable is set and the container recreated
-(`docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d --force-recreate demo-db`).
+(`docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d --no-deps --force-recreate demo-db`).
 
 ## 2. Add the connection
 
@@ -75,9 +75,13 @@ import saves it — so the connection must exist and be up first. The
 workflows use the `local` model tier and the Telegram bot configured on the
 Config page.
 
+Imported workflows are saved disabled, whatever the file says. Edit each
+one, set **Enabled** to Yes and save (editing unlocked); a disabled workflow
+does not run.
+
 ## 4. Run them
 
-Run each workflow from the Workflows page. The run history shows each step's
+Once enabled, run each workflow from the Workflows page. The run history shows each step's
 output: the query's `columns`, `rows` and `row_count`, then the model's text,
 then the delivery.
 
@@ -90,7 +94,7 @@ like any other.
 ```bash
 docker compose --profile demo stop demo-db
 docker compose --profile demo rm -f demo-db
-docker compose up -d               # AlexClaw back on its own networks only
+docker compose up -d --no-deps alexclaw-prod   # AlexClaw back on its own networks only
 ```
 
 The data goes with the container. The connection and the workflows stay

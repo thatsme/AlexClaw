@@ -167,6 +167,8 @@ and `web_automation` return `{:error, :privileged_skill}` for every caller, and
 the attempt is recorded as a denial. `shell`, `db_backup` and `web_automation`
 run only as workflow steps in a run the scheduler starts, or one the admin UI
 starts with a 2FA code; `coder` is reached only through the Forge page.
+`sql_query` returns `{:error, :step_only_skill}` for every caller, also
+recorded as a denial: it runs only as a saved workflow step of its own.
 
 The capability token is attenuated on each hop: a child skill receives a subset
 of the caller's permissions, never more. Chains are limited to depth 3.
@@ -244,7 +246,7 @@ else is rejected at load with `unknown_permissions`.
 | `:knowledge_write` | `knowledge_store`, `knowledge_delete` |
 | `:config_read` | `config_get` — sensitive keys are refused |
 | `:resources_read` | `list_resources`, `get_resource` — credentials are redacted |
-| `:skill_invoke` | `run_skill` — excluding the four privileged core skills |
+| `:skill_invoke` | `run_skill` — excluding the four privileged core skills and `sql_query` |
 | `:workflow_read` | `get_workflow_result` |
 
 ### Permissions and unattended loading

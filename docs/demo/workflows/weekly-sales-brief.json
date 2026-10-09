@@ -3,7 +3,7 @@
   "workflow": {
     "name": "Weekly sales brief",
     "description": "SQL demo: last week's sales by region and product category, summarised and sent to Telegram.",
-    "enabled": true,
+    "enabled": false,
     "schedule": null,
     "default_provider": null,
     "node": null,

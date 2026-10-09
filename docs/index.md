@@ -58,6 +58,7 @@ Full setup walkthrough: [Installation](getting-started/installation.md)
 | **Multi-Gateway** | Telegram + Discord simultaneously. Responses route back to the originating transport |
 | **Multi-Node Clustering** | Multiple BEAM nodes share a database and exchange workflow outputs over Erlang distribution |
 | **OTP Circuit Breaker** | Per-skill breaker with automatic half-open recovery. No external dependencies |
+| **SQL Read** | The `sql_query` workflow step runs one fixed, parameterised read on a PostgreSQL connection defined on the Connections page; the password is kept in OpenBao and the query is checked on the database when the step is saved |
 
 ---
 

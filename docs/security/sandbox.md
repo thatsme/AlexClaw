@@ -62,6 +62,7 @@ If any are detected without `external/0`, the skill is **rejected** (fail-closed
 | Modify other skills | SkillAPI has no function that writes or loads a skill |
 | Modify or start workflows | SkillAPI has no function that creates, changes or starts a workflow |
 | Execute shell commands | `SkillAPI.run_skill/3` refuses `shell`, `coder`, `db_backup` and `web_automation` for every caller |
+| Run a SQL query | `SkillAPI.run_skill/3` refuses `sql_query` for every caller: it runs only as a saved workflow step |
 | Escalate permissions | Capability token is scoped at mint time |
 
 !!! note "BEAM limitation"

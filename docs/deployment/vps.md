@@ -34,6 +34,9 @@ ufw enable
 # SECRET_KEY_BASE
 openssl rand -base64 64
 
+# DATABASE_OWNER_PASSWORD
+openssl rand -base64 32
+
 # DATABASE_PASSWORD
 openssl rand -base64 32
 
@@ -48,6 +51,9 @@ The MCP key is not generated here: AlexClaw generates it on the Config page (gro
   the server's backups. Losing the unseal key loses every stored credential.
 
 ## Backups
+
+The nightly backup of the database and OpenBao together, and the restore
+drill, are described in [Backups](backups.md).
 
 Configure automated database backups:
 
@@ -81,6 +87,13 @@ git pull
 docker compose up --build -d
 ```
 
+Read the release notes of each version before updating to it.
+
 Migrations run in the one-shot `migrate` job before the application starts.
+When a new version changes the `openbao-init` image while OpenBao is running,
+`up` can stop with `dependency failed to start: container
+alexclaw-openbao-init-1 exited (0)`. AlexClaw is then left created, not
+started: once `migrate` has exited 0 (`docker compose ps -a`), start it with
+`docker compose up -d --no-deps alexclaw-prod`.
 Upgrading from 0.3.x needs OpenBao set up first: see
 [OpenBao](../architecture/openbao.md#first-start).

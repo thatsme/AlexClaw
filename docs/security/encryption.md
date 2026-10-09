@@ -15,6 +15,7 @@ into OpenBao's container only; losing it loses every secret. See
 | `auth.admin_password_hash` | a salted PBKDF2-HMAC-SHA256 hash |
 | a workflow step's `config`, a resource's `metadata` | references to secrets, bound to the host they are sent to |
 | `llm_providers.credentials` | references for the API key and each header value; the header names stay readable |
+| `db_connections.credentials` | a reference to the connection's password, bound to the connection's host, port, database, user and TLS mode |
 | `auth_recovery_codes` | an HMAC of each code's SHA-256 digest, under an OpenBao transit key |
 | the admin's TOTP key | nothing: OpenBao keeps it; the `auth.totp.*` rows hold where it is, whether an enrolment is pending, the issuer name, and a keyed fingerprint of the last accepted code — never the key |
 

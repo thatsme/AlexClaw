@@ -1,11 +1,13 @@
 # The SQL demo (docs/demo/sql-demo.md), given on top of docker-compose.yml:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml --profile demo up -d --no-deps demo-db alexclaw-prod
 #
 # It adds one thing: AlexClaw on the demo database's internal network, at the
 # address demo/pg_hba.conf admits. Without this file AlexClaw is never on that
-# network. Leaving the demo is a plain `docker compose up -d`, which puts
-# AlexClaw back on its own networks.
+# network. Leaving the demo is `docker compose up -d --no-deps alexclaw-prod`,
+# which puts AlexClaw back on its own networks. Both name their services with
+# --no-deps: a plain `up -d` while OpenBao runs can stop on openbao-init's
+# health check (docs/deployment/docker.md).
 services:
   alexclaw-prod:
     networks:

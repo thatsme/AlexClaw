@@ -17,6 +17,11 @@ rest of the system:
 | `version/0` | Reload safety — loading the same version twice is refused |
 | `external/0` | Marks a skill that fetches untrusted data |
 | `step_fields/0` and friends | Which fields the workflow step editor should render |
+| `config_schema/0` | The config keys a step may set, with their types; a skill without it accepts none of its own |
+| `validate_config/1` | Rules across config fields, checked at save and before every run |
+| `dry_run/1` | A check run only when a step is saved, against something outside AlexClaw (`sql_query` plans its query on the database) |
+| `available?/0`, `available?/1`, `unavailable_reason/0` | Whether the skill can run on this instance; a step for an unavailable skill is refused at save and at run, with the reason |
+| `error_routes/0`, `empty_routes/0` | Which branches mean failure and which mean nothing to do |
 
 A skill returns `{:ok, result, :branch}` to steer the next step, or
 `{:ok, result}` to fall through.
@@ -51,6 +56,9 @@ Three of those four (`shell`, `db_backup`, `web_automation`) run as workflow
 steps only when the scheduler starts the run, or the admin UI starts it with a
 2FA code; a run started from a chat, MCP, a webhook or another node is refused
 before any step runs. The fourth, `coder`, is not a workflow step at all.
+`sql_query` cannot be invoked from another skill either (`{:error,
+:step_only_skill}`): it runs only as a saved workflow step of its own, and no
+step can name it as its fallback.
 
 ## External skills
 
@@ -80,6 +88,7 @@ external calls.
 | `conversational` | `Conversational` | Free-text conversation with identity and recent context |
 | `llm_transform` | `LLMTransform` | Run a prompt template over the previous step |
 | `api_request` | `ApiRequest` | REST client resolving URL and auth from a resource |
+| `sql_query` | `SqlQuery` | A fixed, parameterised read on a database connection — a workflow step only |
 | `github_security_review` | `GitHubSecurityReview` | Fetch a PR or commit diff — analysis is a following step |
 | `google_calendar`, `google_tasks` | `GoogleCalendar`, `GoogleTasks` | Google integration |
 | `telegram_notify`, `discord_notify` | `TelegramNotify`, `DiscordNotify` | Deliver output to a chat |

@@ -64,7 +64,7 @@ Separated fetch from LLM processing. New pure-fetch skills (`web_fetch`, `web_se
 
 ### ~~Content Sanitization & Prompt Injection Defense~~ ✅ Completed (v0.3.14)
 
-7-layer heuristic sanitizer protects external-facing skills from prompt injection attacks. Hidden HTML/CSS detection, zero-width unicode stripping, 101 known injection patterns (sourced from NVIDIA Garak probe library) loaded from runtime JSON, imperative tone heuristic for novel payloads. Core skills tagged with `external/0` callback; dynamic skills AST-scanned at load time — undeclared HTTP/socket calls rejected (fail-closed). Pre-LLM sanitization in `web_browse` and `web_search`, post-LLM auto-sanitization in the workflow executor for all external skills.
+7-layer heuristic sanitizer protects external-facing skills from prompt injection attacks. Hidden HTML/CSS detection, zero-width unicode stripping, 102 known injection patterns (sourced from NVIDIA Garak probe library) read at boot from `priv/injection_patterns.json`, imperative tone heuristic for novel payloads. Core skills tagged with `external/0` callback; dynamic skills AST-scanned at load time — undeclared HTTP/socket calls rejected (fail-closed). Pre-LLM sanitization in `web_browse` and `web_search`, auto-sanitization in the workflow executor of external skills' text output.
 
 ### Embedded Injection Classifier (Planned)
 
@@ -97,6 +97,10 @@ Runtime skill loading. Permissions checked by `SkillAPI`, SHA256 integrity check
 ### ~~Security redesign around OpenBao~~ ✅ Completed (v0.4.0)
 
 Every credential in a bundled OpenBao, bound to its destination; the database holds references, and nothing is encrypted with `SECRET_KEY_BASE`. One control plane for every privileged action from every entry point, audited. Chat and MCP operate AlexClaw but never change it. Privileged steps run only in scheduled or 2FA-approved admin runs. Containment for every dynamic skill. The admin password is stored as a hash; the TOTP key lives in OpenBao's TOTP engine. See [SECURITY.md](SECURITY.md).
+
+### ~~SQL read and nightly backups~~ ✅ Completed (v0.4.1)
+
+Database connections to PostgreSQL servers, defined on a Connections page with the password in OpenBao, bound to the server it was entered for. The `sql_query` workflow step runs one fixed, parameterised read on a connection, read-only, checked on the database when the step is saved. A nightly backup of the database and OpenBao together, and a drill that restores an OpenBao snapshot into a throwaway instance. See [SECURITY.md](SECURITY.md).
 
 ### Visual Automation Editor
 

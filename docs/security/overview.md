@@ -17,6 +17,7 @@ AlexClaw is a single-user system designed to run on infrastructure you control. 
 | Dynamic skills | Permission sandbox + integrity verification + 2FA + AST-based external detection |
 | External data ingestion | 7-layer content sanitizer (prompt injection defense) |
 | Shell commands | 5-layer defense-in-depth |
+| Database connections (`sql_query`) | Editing elevation to create, change, test or remove; password in OpenBao, bound to the server it was entered for; AlexClaw's own services refused as targets; each query read-only, with a server-side deadline and a 5 MB result cap |
 
 ## Defense Layers
 
@@ -26,7 +27,7 @@ AlexClaw is a single-user system designed to run on infrastructure you control. 
 4. **[Secrets in OpenBao](encryption.md)** — no credential in the database: API keys and tokens are OpenBao secrets, bound to the host they are sent to
 5. **[MCP Authentication](../mcp/authentication.md)** — Bearer token with constant-time comparison
 6. **[MCP Policies](../mcp/policies.md)** — tool-level restriction rules for MCP clients
-7. **Content Sanitization** — 7-layer heuristic pipeline strips prompt injection payloads from external content before LLM ingestion. Hidden HTML/CSS detection, zero-width unicode stripping, 101 known patterns from runtime JSON (Garak), imperative tone heuristic. See [SECURITY.md](../../SECURITY.md#content-sanitization-prompt-injection-defense)
+7. **Content Sanitization** — 7-layer heuristic pipeline strips prompt injection payloads from external content before LLM ingestion. Hidden HTML/CSS detection, zero-width unicode stripping, 102 known patterns (Garak) read at boot from `priv/injection_patterns.json`, imperative tone heuristic. See [SECURITY.md](../../SECURITY.md#content-sanitization-prompt-injection-defense)
 
 ## Key Principles
 

@@ -79,3 +79,4 @@ An MCP client reads AlexClaw's data and runs enabled workflows that do not requi
 - [Writing Custom Skills](../skills/writing-skills.md) — create your own
 - [MCP Server](../mcp/overview.md) — connect MCP clients
 - [OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao) — back up OpenBao beside the database
+- [Backups](../deployment/backups.md) — the nightly backup of the database and OpenBao, and the restore drill

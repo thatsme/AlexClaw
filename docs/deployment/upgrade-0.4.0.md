@@ -113,8 +113,9 @@ This start moves the credentials:
 - Sign in, and unlock editing with a code from the existing authenticator
   entry.
 - `docker compose restart alexclaw-prod` once more: no `NOT moved` line.
-- **Back up OpenBao now:** `make backup-openbao REASON=after-0.4.0`
-  ([OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao)). From
+- **Back up OpenBao now:** `make backup-openbao REASON=after-0_4_0`
+  ([OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao)); the
+  reason may hold letters, digits, `-` and `_` only. From
   here on, back it up beside every database backup.
 
 ## 6. After the upgrade

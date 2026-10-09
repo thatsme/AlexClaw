@@ -63,8 +63,13 @@ COPY docs docs/
 # OpenBao's configuration, checked by openbao_deployment_test against the
 # compose files that mount it.
 COPY openbao openbao/
-# The OpenBao backup command, checked by openbao_backup_test.
-COPY scripts/backup-openbao.sh scripts/
+# The scripts (the OpenBao backup command is checked by openbao_backup_test),
+# the Makefile and .github: docs_contract_test checks that every make target,
+# script and path a public doc names exists, and reads the current release
+# notes.
+COPY scripts scripts/
+COPY Makefile LICENSE ./
+COPY .github .github/
 COPY mkdocs.yml .env.example ./
 # Checked by build_context_secrets_test: what every build context keeps out.
 COPY .dockerignore ./

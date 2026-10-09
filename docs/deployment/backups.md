@@ -14,7 +14,8 @@ credentials nothing refers to.
 ## The nightly backup
 
 `scripts/backup-scheduled.sh` takes both, one after the other, into
-`~/backups` (`SCHEDULED_BACKUP_DIR` to change it):
+`~/backups`, or `SCHEDULED_BACKUP_DIR` when that is set in the script's own
+environment (it is not read from `.env`):
 
 | File | What | Checked by |
 |---|---|---|
@@ -22,7 +23,8 @@ credentials nothing refers to.
 | `openbao-<timestamp>-scheduled.snap` | an OpenBao raft snapshot (`make backup-openbao`) | its archive's `SHA256SUMS` |
 
 Every file, and the log `scheduled-backup.log`, is readable by its owner only.
-The newest 14 of each kind are kept (`SCHEDULED_BACKUP_KEEP`); older files
+The newest 14 of each kind are kept (`SCHEDULED_BACKUP_KEEP` in the script's
+environment changes the number); older files
 with the `-scheduled` suffix are deleted. Backups taken by hand — with any
 other name — are never deleted by it. A failure is written to the log and
 shown as a macOS notification; the backups already there stay.
@@ -37,7 +39,9 @@ launchctl kickstart gui/$(id -u)/com.alexclaw.backup   # run it now
 ```
 
 It needs Docker running, and runs from the checkout it was installed from:
-moving or deleting that checkout stops it.
+moving or deleting that checkout stops it. The LaunchAgent sets neither
+`SCHEDULED_BACKUP_DIR` nor `SCHEDULED_BACKUP_KEEP`, so the nightly run always
+writes to `~/backups` and keeps 14.
 
 ## What a backup does not hold
 
@@ -55,7 +59,8 @@ disk, another machine) is what survives losing the machine.
 `scripts/drill-restore-openbao.sh` proves a snapshot can be restored and
 read, and that the unseal key file and the recovery key kept offline are the
 right ones, without touching the running OpenBao. It restores the newest
-snapshot (or the one named) into a throwaway OpenBao that has no network and
+`openbao-*.snap` in `OPENBAO_BACKUP_DIR` (default `~/backups`), or the one
+named, into a throwaway OpenBao that has no network and
 keeps its storage in memory, asks for the recovery key (not echoed), makes a
 root token for the restored data with it, reads back every secret the
 database's catalogue names — printing names and lengths, never values — and

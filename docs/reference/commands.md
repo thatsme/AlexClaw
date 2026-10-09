@@ -8,7 +8,8 @@ Only the owner is answered: the user `telegram.owner_user_id` in `telegram.chat_
 
 | Command | Description |
 |---|---|
-| `/ping` | Connectivity check — returns `pong` |
+| `/start` | Answers that AlexClaw is ready and points to `/help` |
+| `/ping` | Connectivity check — answers `pong from <node>`, naming the node that answered |
 | `/status` | System stats (uptime, memory, active skills) |
 | `/help` | Full command list |
 

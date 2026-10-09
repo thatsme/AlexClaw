@@ -33,7 +33,7 @@ an id to browse:
 | `alexclaw://knowledge/{id}` | Knowledge entries — `search:query` supported |
 | `alexclaw://memory/{id}` | Memory entries — `search:query` supported |
 | `alexclaw://workflows/{id}` | Workflow definitions with steps |
-| `alexclaw://runs/{id}` | Execution history |
+| `alexclaw://runs/{id}` | Run metadata — status, timing, steps' names and outcomes; never a run's output |
 | `alexclaw://config/{key}` | Settings, with sensitive values redacted |
 
 A bearer key authenticates the transport, and a tool call is evaluated by the

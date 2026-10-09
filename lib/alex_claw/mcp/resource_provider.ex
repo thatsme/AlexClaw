@@ -263,6 +263,9 @@ defmodule AlexClaw.MCP.ResourceProvider do
     end
   end
 
+  # Metadata only: never the run's result, a step's output or an error's text,
+  # which can quote the data a step read (a sql_query step's rows). The only
+  # output an MCP client receives is the answer to a run it started itself.
   defp serialize_run(r) do
     %{
       id: r.id,
@@ -270,12 +273,45 @@ defmodule AlexClaw.MCP.ResourceProvider do
       status: r.status,
       started_at: to_string(r.started_at),
       completed_at: r.completed_at && to_string(r.completed_at),
-      result: r.result,
-      error: r.error,
-      step_results: r.step_results,
-      node: r.node
+      node: r.node,
+      error_kind: error_kind(r.error),
+      steps: steps(r.step_results || %{})
     }
   end
+
+  defp steps(step_results) do
+    step_results
+    |> Enum.map(fn {position, step} -> step_metadata(String.to_integer(position), step) end)
+    |> Enum.sort_by(& &1.position)
+  end
+
+  defp step_metadata(position, %{"error" => error} = step),
+    do: %{
+      position: position,
+      name: step["name"],
+      skill: step["skill"],
+      outcome: "error",
+      error_kind: error_kind(error)
+    }
+
+  defp step_metadata(position, step),
+    do: %{position: position, name: step["name"], skill: step["skill"], outcome: step["branch"]}
+
+  @doc """
+  The kind of a recorded failure, never its text: the tag of a tagged tuple,
+  an atom, or an exception's name; `"error"` for anything else.
+  """
+  @spec error_kind(String.t() | nil) :: String.t() | nil
+  def error_kind(nil), do: nil
+
+  def error_kind(text) when is_binary(text) do
+    ~r/^(?:step '.*?': )?(?:\{:(\w+)|:(\w+)|%([\w.]+)\{)/s
+    |> Regex.run(text, capture: :all_but_first)
+    |> kind()
+  end
+
+  defp kind(nil), do: "error"
+  defp kind(parts), do: Enum.find(parts, &(&1 != ""))
 
   # --- Config ---
 

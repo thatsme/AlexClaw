@@ -149,7 +149,7 @@
           placeholder="*/5 * * * *" />
       </div>
       <div>
-        <label class="block text-sm text-gray-400 mb-1">Enabled <.tip text="Disabled workflows won't run on schedule and can't be triggered from Telegram. They can still be run manually from the admin UI." /></label>
+        <label class="block text-sm text-gray-400 mb-1">Enabled <.tip text="A disabled workflow does not run at all: not on its schedule, not from a chat, MCP or another node, and not from the admin UI. Imported workflows arrive disabled." /></label>
         <select name="enabled" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
           <option value="true" selected={@editing.enabled}>Yes</option>
           <option value="false" selected={!@editing.enabled}>No</option>

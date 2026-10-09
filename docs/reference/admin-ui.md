@@ -1,6 +1,6 @@
 # Admin UI
 
-Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `/login` and `/health` require authentication.
+Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `/login`, `/logout` and `/health` require an authenticated session; `/mcp` authenticates with a bearer token and `/webhooks/github` with an HMAC-SHA256 signature.
 
 ## Pages
 
@@ -15,11 +15,12 @@ Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `
 | Config | `/config` | Runtime settings by category, secret settings shown as set or not set, yellow tooltip hints, `embedding.provider` dropdown |
 | LLM Providers | `/llm` | Provider list, tier assignment, priorities, usage stats, dynamic options form (adapts per provider type — e.g., `num_ctx` for Ollama, thinking toggle for Qwen3) |
 | Resources | `/resources` | RSS feeds, websites, documents, APIs |
+| Connections | `/connections` | PostgreSQL servers for `sql_query` steps: name, host, port, database, user, TLS mode, and a password kept in OpenBao; create, change, test and remove need the page unlocked. A connection a step uses cannot be removed |
 | Memory | `/memory` | Memory store browser, search |
 | Policies | `/policies` | Policy rules, audit log viewer |
 | Logs | `/logs` | Real-time log viewer with severity filters |
 | Chat | `/chat` | Direct conversation with LLM (web-based) |
-| Services | `/services` | External service status, real connectivity checks (DB, Google, Telegram, Discord, 2FA, Ollama, LM Studio, GitHub, Web Automator), 2FA set-up and turn-off, recovery codes, the Google connection |
+| Services | `/services` | External service status, real connectivity checks (DB, Google, Telegram, Discord, 2FA, Ollama, LM Studio, GitHub, Web Automator), one card per database connection with its pool's state, 2FA set-up and turn-off, recovery codes, the Google connection |
 | Database | `/database` | Table browser, backup download, data export, restore (restore takes a 2FA code) |
 | Cluster | `/cluster` | Registered nodes, status, connection |
 
@@ -32,6 +33,6 @@ Phoenix LiveView admin interface at `http://localhost:5001`. All routes except `
 - **Workflow filter** — search/filter workflow list by name
 - **Active runs panel** — real-time step-by-step progress with cancel button
 - **Config categories** — organized by domain (skills, llm, prompts, identity, etc.)
-- **Unlock editing** — every change (settings, workflows, resources, providers, policies, skills, nodes) needs the page unlocked with a TOTP code: a 15-minute elevation of that session, shared by its tabs. A chat cannot unlock it.
+- **Unlock editing** — every change (settings, workflows, resources, connections, providers, policies, skills, nodes; testing a connection too) needs the page unlocked with a TOTP code: a 15-minute elevation of that session, shared by its tabs. A chat cannot unlock it.
 - **Per-action codes** — loading or reloading a skill, restoring the database, and running a workflow marked `Requires 2FA` or containing a privileged step each take a code of their own, typed on the page. A protected run is also offered to the owner's chat; a run with a privileged step is not.
 - **Secret fields** — show when the value was set, never the value; an empty input keeps it, a new value replaces it.

@@ -1,6 +1,6 @@
 # Agent Authorization Layer
 
-The PolicyEngine provides context-aware authorization for all skill executions — both from workflows and MCP clients.
+The PolicyEngine provides context-aware authorization for skill executions in workflows. Over MCP it checks each workflow tool call (`workflow:<name>`) against the `mcp_restriction` policies; MCP exposes no skill as a tool.
 
 This page covers what a skill may do once it runs. Which entry point may ask
 for a privileged action at all — the admin UI, a gateway, MCP, a webhook,

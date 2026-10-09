@@ -6,7 +6,10 @@ All variables are set in the `.env` file. The ones marked *Seeded* are copied in
 
 | Variable | Description |
 |---|---|
+| `DATABASE_USERNAME` | PostgreSQL application role the app connects as |
 | `DATABASE_PASSWORD` | PostgreSQL password |
+| `DATABASE_OWNER_PASSWORD` | The database owner's password |
+| `CLUSTER_COOKIE` | Erlang distribution cookie; generate it with `openssl rand -base64 32` |
 | `SECRET_KEY_BASE` | Signs sessions and capability tokens, and keys the TOTP replay guard (min 64 bytes). Keep it unchanged when upgrading from 0.3.x until the first start of 0.4.0 has run |
 | `ADMIN_PASSWORD` | The first admin password: required until the first login, which stores its hash; ignored afterwards |
 
@@ -26,10 +29,10 @@ OpenBao.
 |---|---|
 | `OLLAMA_ENABLED` | *Seeded.* `true` to enable Ollama |
 | `OLLAMA_HOST` | *Seeded.* Ollama API URL (e.g., `http://host.docker.internal:11434`) |
-| `OLLAMA_MODEL` | *Seeded.* Default Ollama model (default `llama3.2`) |
+| `OLLAMA_MODEL` | *Seeded.* Default Ollama model (default `llama3.2`; empty when unset under `docker-compose.yml`, which passes an unset value as an empty string) |
 | `LMSTUDIO_ENABLED` | *Seeded.* `true` to enable LM Studio |
 | `LMSTUDIO_HOST` | *Seeded.* LM Studio API URL (e.g., `http://host.docker.internal:1234`) |
-| `LMSTUDIO_MODEL` | *Seeded.* Default LM Studio model (default `qwen2.5-14b-instruct`) |
+| `LMSTUDIO_MODEL` | *Seeded.* Default LM Studio model (default `qwen2.5-14b-instruct`; empty when unset under `docker-compose.yml`, which passes an unset value as an empty string) |
 
 ## Google OAuth (optional)
 
@@ -68,7 +71,7 @@ Discord has no environment variables. Set `discord.enabled`,
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_HOSTNAME` | — | PostgreSQL host (required) |
+| `DATABASE_HOSTNAME` | `db-prod` | PostgreSQL host. Set by the compose file; not read from `.env` |
 | `DATABASE_USERNAME` | — | PostgreSQL application role the app connects as (required). Never the owner: the app refuses to start as a role that is a superuser, can create roles or databases, or owns a table |
 | `DATABASE_PASSWORD` | — | The application role's password (required) |
 | `DATABASE_OWNER_USERNAME` | `alexclaw` | PostgreSQL owner role. Seen only by the `migrate` service and the database container |
@@ -83,7 +86,7 @@ The database name is set by the compose file, not by an environment variable.
 |---|---|---|
 | `SECRET_KEY_BASE` | — | Session signing key (required) |
 | `ADMIN_PASSWORD` | — | The first admin password: required until the first login, which stores its hash; ignored afterwards |
-| `SKILLS_DIR` | `/app/skills` | Where dynamic skill files live |
+| `SKILLS_DIR` | `/app/skills` | Where dynamic skill files live. Set by the compose file; not read from `.env` |
 | `ADMIN_PORT` | `5001` | Host port the admin UI is published on |
 | `ADMIN_BIND` | `127.0.0.1` | Host interface the admin UI is published on. `0.0.0.0` for every interface; see [Reverse Proxy](../deployment/reverse-proxy.md) before doing so |
 | `PHX_HOST` | — | Public host name behind a reverse proxy; adds `https://<host>` to the accepted LiveView origins |
@@ -103,6 +106,8 @@ The database name is set by the compose file, not by an environment variable.
 |---|---|---|
 | `BACKUP_DIR` | `./backups` | Host path the db_backup skill writes database backups to (mounted into AlexClaw) |
 | `OPENBAO_BACKUP_DIR` | `~/backups` (through `make backup-openbao`; `./openbao-backups` when compose runs the service directly) | Host path for OpenBao snapshots. Never `BACKUP_DIR` or a directory inside it, which AlexClaw mounts; the backup command refuses them |
+| `SCHEDULED_BACKUP_DIR` | `~/backups` | Where `scripts/backup-scheduled.sh` writes the nightly backups. Read from the script's environment, not from `.env`; the LaunchAgent does not set it ([Backups](../deployment/backups.md)) |
+| `SCHEDULED_BACKUP_KEEP` | `14` | How many nightly backups of each kind `scripts/backup-scheduled.sh` keeps. Read from the script's environment, not from `.env`; the LaunchAgent does not set it |
 | `DEMO_READER_PASSWORD` | none | Only with the `demo` compose profile ([SQL demo](../demo/sql-demo.md)): the password of the demo database's read-only role, typed into the connection form too. The demo database does not start without it |
 
 ## Post-Boot Provider Options

@@ -57,6 +57,7 @@ Cron ────────────────────> Workflows.Exe
 | [Clustering](clustering.md) | `AlexClaw.Cluster.Manager` | Multi-node BEAM distribution |
 | Config | `AlexClaw.Config` | DB-backed, ETS-cached runtime configuration. Secret settings are kept in OpenBao and resolved with `Config.secret/2` for a bound destination; `Config.get/2` refuses them. `Config.Seeder` writes the defaults on first boot |
 | Circuit Breaker | `AlexClaw.Skills.CircuitBreaker` | Per-skill fault isolation with auto-recovery |
+| Connections | `AlexClaw.Connections` | PostgreSQL servers defined on the Connections page, one pool each under `AlexClaw.Connections.Supervisor`; the `sql_query` step reads through them, read-only |
 
 ## Data Flow
 

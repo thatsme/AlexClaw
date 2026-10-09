@@ -1,8 +1,9 @@
 # Supervision Tree
 
 AlexClaw uses a flat `one_for_one` supervision strategy. Each child is
-independent — a crash in one does not restart the others. The chat gateways are
-the one exception to the flat shape: they sit under their own supervisor.
+independent — a crash in one does not restart the others. Three branches are
+the exceptions to the flat shape, each under its own supervisor: the OpenBao
+client, the database connections' pools and the chat gateways.
 
 ```
 AlexClaw.Application (one_for_one)
@@ -49,16 +50,17 @@ AlexClaw.Application (one_for_one)
       └── a one-off task                    # Starts a pool for every defined database connection
 ```
 
-`AlexClaw.Connections.Supervisor` holds a registry by connection name and a
-dynamic supervisor with one pool per database connection defined on the
-Connections page (two PostgreSQL connections each, the password read from
+`AlexClaw.Connections.Supervisor` (`rest_for_one`) holds a registry by
+connection name and, after it, a dynamic supervisor (`one_for_one`) with one
+pool per database connection defined on the Connections page (two PostgreSQL connections each, the password read from
 OpenBao before every connect). A connection that cannot connect is reported
 down with its reason and retried; it is never a crash, so nothing else is
 affected.
 
 ## Key Design Decisions
 
-**Flat hierarchy** — every child is a sibling under one supervisor. That is
+**Flat hierarchy** — apart from the three branches above, every child is a
+sibling under one supervisor. That is
 deliberate for a single-operator agent, where simplicity is worth more than a
 restart strategy nobody will reason about at 3am.
 
@@ -140,10 +142,11 @@ pages. The process itself only sweeps expired rows, every ten minutes.
 
 ## Conditional children
 
-Two children start only when `:start_background_workers` is true, which the test
+Three children start only when `:start_background_workers` is true, which the test
 environment sets to false so the suite does not run cron jobs or open a Discord
-socket: `Workflows.SchedulerSync` under the root, and `Gateway.DiscordStarter`
-under the gateway supervisor.
+socket: `Workflows.SchedulerSync` and the one-off task that starts the
+connection pools under the root, and `Gateway.DiscordStarter` under the gateway
+supervisor.
 
 `Gateway.DiscordStarter` is the supervised child; it is not the Discord
 connection. It reads the Discord settings from configuration, and starts Nostrum

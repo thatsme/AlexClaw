@@ -27,11 +27,21 @@ Skills return a triple tuple indicating which outcome occurred:
 
 ```elixir
 {:ok, result, :on_items}    # branch taken
-{:ok, result}               # no branch (linear fallthrough)
+{:ok, result}               # treated as :on_success
 {:error, reason}            # error
 ```
 
-The executor matches the branch against the step's route configuration to determine the next step. Only one branch is followed per step. Steps without routes fall through to the next position.
+The executor matches the branch against the step's route configuration — the branch's own route, then a `default` route — to determine the next step. Only one branch is followed per step. An unrouted branch depends on its kind: an error branch (the skill's `error_routes/0`, default `[:on_error]`) fails the run, an empty branch (`empty_routes/0`, default `[:on_empty]`) ends it, and any other branch goes to the next position.
+
+## Saving a Step
+
+A step is saved only if it can run:
+
+- its skill exists and is available on this instance (`available?`); otherwise the save is refused with the skill's reason;
+- its config passes the skill's contract: every key is declared in the skill's `config_schema/0` (or is one of the executor's own options: `timeout_ms`, `on_circuit_open`, `fallback_skill`, `on_missing_skill`), with the declared type, every required field is present, and the skill's `validate_config/1` rules pass. A skill with no schema accepts no keys of its own. Keys starting with `_` are reserved for the runtime;
+- the skill's `dry_run/1`, when it declares one, passes. It runs only at save, never at a run (`sql_query` checks its query on the database here).
+
+Before each run of a step, availability and the config contract are checked again; a step that fails either fails at that step, and the skill does not run.
 
 ## Step Wiring
 
@@ -105,6 +115,8 @@ Each step has configurable resilience controls:
 | On Missing Skill | `halt`, `skip` | What to do when the skill is not loaded |
 | Fallback Skill | skill name | Alternative skill for `fallback` mode |
 
+The fallback skill cannot be `sql_query`, which runs only as a step of its own. A privileged fallback (`shell`, `coder`, `db_backup`, `web_automation`) makes the workflow privileged, as a privileged step does.
+
 ## Circuit Breaker Integration
 
 The circuit breaker wraps skill execution transparently in the Executor. Skills are unaware of the breaker:
@@ -121,7 +133,7 @@ The executor integrates with `AlexClaw.ContentSanitizer` for prompt injection de
 
 **Post-LLM (executor level):** After each skill returns, the executor checks `SkillRegistry.external?/1`. If the skill is tagged external, the output passes through the 7-layer sanitizer (hidden HTML/CSS detection, zero-width unicode stripping, pattern matching, imperative tone heuristic) before flowing to the next step.
 
-This is transparent to workflow authors — no sanitize step to add, no step to forget. External data is always sanitized structurally.
+This is transparent to workflow authors — no sanitize step to add, no step to forget. Only text output is sanitized (JSON text value by value, staying JSON); an output that is not a string, such as `sql_query`'s map of columns and rows, passes unchanged.
 
 ## Export / Import
 

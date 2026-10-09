@@ -1,6 +1,6 @@
 # Built-in Skills
 
-AlexClaw ships with a comprehensive set of core skills. All are registered at boot and available immediately.
+AlexClaw ships with a comprehensive set of core skills. All are registered at boot. Eight of them — `coder`, `discord_notify`, `github_security_review`, `google_calendar`, `google_tasks`, `sql_query`, `telegram_notify`, `web_automation` — declare whether they are available on the instance: until what they need is configured, a step for one cannot be saved and is refused at run time.
 
 ## Core Skills
 
@@ -17,7 +17,7 @@ Skills marked **External** fetch data from outside the system. Their output is a
 | `discord_notify` | Send workflow output to a Discord channel | `on_delivered`, `on_error` | — |
 | `llm_transform` | Run a prompt template through the LLM (workflow glue step) | `on_success`, `on_error` | — |
 | `api_request` | Generic REST client (GET/POST/PUT/PATCH/DELETE) | `on_2xx`, `on_4xx`, `on_5xx`, `on_timeout`, `on_error` | Yes |
-| `sql_query` | A fixed, parameterised read on a database connection, in a read-only transaction: `{columns, rows, row_count}` ([SQL demo](../demo/sql-demo.md)) | `on_success`, `on_empty`, `on_error` | Yes — its rows are not sanitised (SECURITY.md, Known Limitations) |
+| `sql_query` | A fixed, parameterised read on a database connection, in a read-only transaction: `{columns, rows, row_count}`. Runs only as a saved workflow step (no other skill, the reasoning loop or a fallback can run it); its query is checked on the database when the step is saved ([SQL demo](../demo/sql-demo.md)) | `on_success`, `on_empty`, `on_error` | Yes — its rows are not sanitised (SECURITY.md, Known Limitations) |
 | `github_security_review` | Fetch a PR or commit diff — analysis is a following `llm_transform` step | `on_diff`, `on_empty`, `on_error` | Yes |
 | `google_calendar` | Fetch upcoming Google Calendar events | `on_events`, `on_empty`, `on_error` | Yes |
 | `google_tasks` | List and create Google Tasks | `on_tasks`, `on_empty`, `on_error` | Yes |

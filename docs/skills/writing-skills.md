@@ -51,10 +51,10 @@ end
 
 | Callback | Default | Description |
 |---|---|---|
-| `description/0` | `"<name> skill"` | Human-readable description |
+| `description/0` | none | Human-readable description. Without it, the Skills page and the reasoning loop show "No description available" |
 | `permissions/0` | `[]` | Required permissions (see [Authorization](../security/authorization.md)) |
 | `routes/0` | `[:on_success, :on_error]` | Possible outcome branches for conditional routing |
-| `version/0` | `"1.0.0"` | Skill version string |
+| `version/0` | none | Skill version string. Loading a skill file again is refused when the loaded copy and the new file both lack it, or declare the same version; a reload from the Admin UI is not checked |
 | `external/0` | `false` | Whether the skill fetches data from external sources |
 
 ### UI Metadata
@@ -71,6 +71,21 @@ These callbacks control how the workflow step editor renders when your skill is 
 | `config_help/0` | `"Skill-specific parameters as JSON."` | Help text shown as tooltip on the config field |
 | `secret_config_keys/0` | `[]` | Config keys holding credentials, kept in OpenBao as secrets the step owns, bound to the host of the step's `url` (e.g. `["api_key"]`); the step's config holds a reference, and the skill receives a placeholder, `{{secret:NAME}}`, never the value. The value is attached only in a header named in `SkillAPI.http_request`'s `:secret_headers` option (header name => the placeholder, standing alone), as the request is sent, and only if its host is the one the secret is bound to; a placeholder anywhere else (URL, `:headers`, body) is sent as written. A skill is not given its workflow's resource credentials. A key whose value is a map (a set of headers, say) has every entry secret. Required for every key in `config_scaffold/0` or `config_presets/0` with a name one of whose underscore-separated parts is `token`, `key`, `apikey`, `password`, `secret`, `credential`, `auth`, `authorization` or `headers` (so `api_key` and `auth_header` count, `keyword_count` does not): a skill that leaves one out is refused at load |
 | `prompt_help/0` | `"Template sent to the LLM. Use {input} for previous step output."` | Help text shown as tooltip on the prompt field |
+
+### Step Configuration
+
+These callbacks decide whether a step for the skill can be saved and run.
+
+| Callback | Default | Description |
+|---|---|---|
+| `config_schema/0` | none: no keys accepted | The config fields a step may set, as `%{"field" => %{type: t, required: boolean}}`, with `t` one of `:string`, `:integer`, `:number`, `:boolean`, `:map`, `:list`. Any other key is refused, apart from the executor's own options (`timeout_ms`, `on_circuit_open`, `fallback_skill`, `on_missing_skill`). A skill without it accepts no config keys of its own. Keys starting with `_` are reserved for the runtime |
+| `validate_config/1` | none | Rules across config fields, checked after each field has passed `config_schema/0`; returns `:ok` or `{:error, [reason]}`. Runs when a step is saved and before every execution |
+| `dry_run/1` | none | A check run only when a step is saved, never at a run, after `validate_config/1` has passed: one that asks something outside AlexClaw whether the step can work (for example a database planning a query). Returns `:ok` or `{:error, [reason]}` |
+| `available?/0` | none: available | Whether the skill can run on this instance. When false, a step for it cannot be saved, and it is refused before any of its code runs |
+| `available?/1` | none | As `available?/0`, given the step's config; used instead of `available?/0` when declared |
+| `unavailable_reason/0` | `"<skill> is not configured on this instance"` | The reason given when `available?` is false |
+| `error_routes/0` | `[:on_error]` | Branches that mean the step failed. An unrouted error branch fails the run; a routed one marks it `recovered` |
+| `empty_routes/0` | `[:on_empty]` | Branches that mean there was nothing to do. An unrouted empty branch ends the run `completed` |
 
 ## The `args` Map
 
@@ -223,6 +238,9 @@ defmodule AlexClaw.Skills.Dynamic.UrlHealthCheck do
   def config_scaffold, do: %{"timeout" => 5000}
 
   @impl true
+  def config_schema, do: %{"timeout" => %{type: :integer, required: false}}
+
+  @impl true
   def config_help, do: "timeout: HTTP timeout in ms per URL (default 5000). Input: newline-separated URLs."
 
   defp parse_urls(input) when is_binary(input), do: String.split(input, "\n", trim: true)
@@ -247,6 +265,9 @@ defmodule AlexClaw.Skills.Dynamic.HexdocsScraper do
 
   @impl true
   def config_scaffold, do: %{"packages" => []}
+
+  @impl true
+  def config_schema, do: %{"packages" => %{type: :list, required: true}}
 
   @impl true
   def config_help, do: "packages: list of Hex package names to scrape and index."

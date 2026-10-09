@@ -98,6 +98,10 @@ Runtime skill loading. Permissions checked by `SkillAPI`, SHA256 integrity check
 
 Every credential in a bundled OpenBao, bound to its destination; the database holds references, and nothing is encrypted with `SECRET_KEY_BASE`. One control plane for every privileged action from every entry point, audited. Chat and MCP operate AlexClaw but never change it. Privileged steps run only in scheduled or 2FA-approved admin runs. Containment for every dynamic skill. The admin password is stored as a hash; the TOTP key lives in OpenBao's TOTP engine. See [SECURITY.md](SECURITY.md).
 
+### ~~SQL read and nightly backups~~ ✅ Completed (v0.4.1)
+
+Database connections to PostgreSQL servers, defined on a Connections page with the password in OpenBao, bound to the server it was entered for. The `sql_query` workflow step runs one fixed, parameterised read on a connection, read-only, checked on the database when the step is saved. A nightly backup of the database and OpenBao together, and a drill that restores an OpenBao snapshot into a throwaway instance. See [SECURITY.md](SECURITY.md).
+
 ### Visual Automation Editor
 
 Replace raw JSON editing for web automation recipes with a visual step editor in the admin UI. Drag-and-drop step ordering, selector picker, live preview.

@@ -2,7 +2,7 @@
 
 ## Web Authentication
 
-All routes except `/login`, `/health`, and `/mcp` require an authenticated session.
+All routes except `/login`, `/logout`, `/health`, `/mcp` (bearer token) and `/webhooks/github` (HMAC-SHA256 signature) require an authenticated session.
 
 - The first successful login checks `ADMIN_PASSWORD` and stores a salted
   PBKDF2-HMAC-SHA256 hash (600,000 iterations); from then on the variable is

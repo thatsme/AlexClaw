@@ -29,6 +29,8 @@ When a client calls a tool:
 3. **Run** — `ControlPlane.perform(:run_workflow, …)` from the MCP entry point: refused for a disabled or protected workflow and for one with a privileged step (`shell`, `coder`, `db_backup`, `web_automation`), audited either way
 4. **Response** — MCP waits for the run to finish and answers with its id, status and result as JSON
 
+A workflow with a `sql_query` step runs from MCP like any other workflow. Its rows are in the result when that step is the last one, and every step's output, rows included, is in the run read through `alexclaw://runs/{id}` ([Resources](resources.md)).
+
 There is no MCP-side time limit: a long run holds the call until it ends, so a proxy in front of `/mcp` needs a read timeout at least as long as the longest workflow.
 
 ## Error Responses

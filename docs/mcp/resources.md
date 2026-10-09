@@ -10,7 +10,7 @@ AlexClaw exposes its internal data stores as MCP resources via URI templates. Cl
 | `alexclaw://knowledge/{id}` | Knowledge base entries (docs, guides) | `application/json` |
 | `alexclaw://memory/{id}` | News items, facts, observations | `application/json` |
 | `alexclaw://workflows/{id}` | Workflow definitions with steps | `application/json` |
-| `alexclaw://runs/{id}` | Workflow execution history | `application/json` |
+| `alexclaw://runs/{id}` | Workflow execution history, with each step's output — a `sql_query` step's output holds its rows | `application/json` |
 | `alexclaw://config/{key}` | Settings (sensitive values redacted) | `application/json` |
 
 ## Browsing

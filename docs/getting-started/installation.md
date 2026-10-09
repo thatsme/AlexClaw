@@ -74,9 +74,10 @@ The `docker-compose.yml` starts the database, a one-shot `migrate` job, the appl
 | `openbao` | — | OpenBao 2.6, pinned by digest. Holds every secret | — (never published) |
 | `openbao-init` | — | Makes OpenBao's TLS certificate at every start; initialises OpenBao once, at a terminal | — |
 | `automator-token-init` | — | Generates the web automator's token once, and exits | — |
+| `demo-db` | — | The [SQL demo](../demo/sql-demo.md)'s generated database, opt-in (compose profile `demo`, with `docker-compose.demo.yml`) | — (internal only) |
 | `web-automator` | — | Playwright sidecar for browser automation, opt-in. Set `WEB_AUTOMATOR_ENABLED=true` in `.env` (the shared token is generated at the first start), then `docker compose --profile web-automation up -d`. See [INSTALLATION.md](https://github.com/thatsme/AlexClaw/blob/main/INSTALLATION.md#web-automator-sidecar-optional) | 6080 (noVNC, loopback) |
 
-An on-demand `openbao-backup` service (compose profile `backup`) takes OpenBao snapshots; it is never started by `docker compose up`. See [OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao).
+An on-demand `openbao-backup` service (compose profile `backup`) takes OpenBao snapshots; it is never started by `docker compose up`. See [OpenBao](../architecture/openbao.md#backing-up-and-restoring-openbao), and [Backups](../deployment/backups.md) for the nightly backup of the database and OpenBao together.
 
 ## Building from Source
 

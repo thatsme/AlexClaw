@@ -125,6 +125,8 @@ AlexClaw can fetch pull requests and commits for a security review:
 - **Health endpoint** — `GET /health` (unauthenticated) returns `{"status":"ok","version":"...","db":"connected","mcp":"running"}` for load balancers and Docker healthchecks. Returns HTTP 503 when the database is unreachable.
 - **Metrics endpoint** — `GET /metrics` (authenticated) returns a JSON payload with system stats (uptime, memory, BEAM processes), LLM provider usage, workflow run counts, skill and circuit breaker states, MCP status and tool count, log severity counts, and knowledge/memory entry counts.
 
+![AlexClaw Services](docs/screenshot/services.jpg)
+
 ### Database Backups
 
 Automated PostgreSQL backups via the `db_backup` core skill. Backups are gzip-compressed `pg_dump` files saved to a **host-mounted directory** — not inside the container filesystem, so they survive container recreation and volume deletion.
@@ -260,6 +262,8 @@ See `.env.example` for the full list of bootstrap variables.
 | `local` | LM Studio, Ollama | Privacy-sensitive content, offline use, zero cost |
 
 All providers live in the database and can be added, removed, or reconfigured from the admin UI. The defaults above are seeded on first boot. The router selects by priority within each tier (lower priority number = preferred), tracks daily usage, and falls back to the next available provider when one times out, refuses the connection or answers with a server error. A fully local deployment with no API keys is supported — enable a local provider and all tiers will fall back to it.
+
+![AlexClaw LLM Providers](docs/screenshot/llms.jpg)
 
 **Per-skill defaults:** each skill has a configurable default tier (e.g. `skill.research.tier`), set on the Config page. In a chat, `--tier` (and `--provider`) with a query overrides the default for that call only; `--tier` without a query answers that defaults are set on the Config page.
 
